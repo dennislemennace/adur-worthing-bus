@@ -500,6 +500,7 @@ function showToast(message, durationMs = 3500) {
 const OPERATOR_COLOURS = {
   // Stagecoach South
   "SCSC": "#0000FF",   // Stagecoach orange
+  "SCSO": "#0000FF",   // Stagecoach orange
 
   // Brighton & Hove Buses (Go-Ahead)
   "BHBC": "#e30613",   // Bright red
@@ -525,6 +526,7 @@ const OPERATOR_COLOURS = {
 
 const OPERATOR_BORDER_COLOURS = {
   "SCSC": "#0000FF",
+  "SCSO": "#0000FF",
   "BHBC": "#a00010",
   "ARBB": "#007aaf",
   "ARHE": "#007aaf",
