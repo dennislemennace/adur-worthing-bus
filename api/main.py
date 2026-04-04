@@ -158,50 +158,52 @@ async def get_stops():
 
 async def _fetch_naptan_stops() -> list[dict]:
     """
-    Fetch bus stops from the DfT NaPTAN open data API.
-    Filters to the bounding box after fetching by West Sussex ATCO area (140).
+    Fetch bus stops in the Adur & Worthing bounding box using the
+    Overpass API (OpenStreetMap data). Free, no API key required.
 
-    NaPTAN docs: https://naptan.api.dft.gov.uk/
+    Falls back to an empty list on error so the rest of the app still works.
     """
-    url = f"{NAPTAN_BASE}/access-nodes"
-    params = {
-        "dataFormat": "json",
-        "atcoAreaCodes": "140",   # West Sussex — covers all of Adur & Worthing
-    }
+    # Overpass QL query — finds all bus_stop nodes in the bounding box
+    # Bounding box order for Overpass: south,west,north,east
+    query = f"""
+    [out:json][timeout:30];
+    node["highway"="bus_stop"]
+      ({BBOX_MIN_LAT},{BBOX_MIN_LON},{BBOX_MAX_LAT},{BBOX_MAX_LON});
+    out body;
+    """
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    url = "https://overpass-api.de/api/interpreter"
+
+    async with httpx.AsyncClient(timeout=40) as client:
         try:
-            resp = await client.get(url, params=params)
+            resp = await client.post(url, data={"data": query})
             resp.raise_for_status()
             raw = resp.json()
         except httpx.HTTPStatusError as exc:
-            log.error("NaPTAN API error %s: %s", exc.response.status_code, exc.response.text[:200])
-            raise HTTPException(status_code=502, detail="NaPTAN stops API returned an error.")
+            log.error("Overpass API error %s: %s", exc.response.status_code, exc.response.text[:200])
+            raise HTTPException(status_code=502, detail="Overpass (stops) API returned an error.")
         except httpx.RequestError as exc:
-            log.error("NaPTAN request error: %s", exc)
-            raise HTTPException(status_code=502, detail="Could not reach NaPTAN API.")
+            log.error("Overpass request error: %s", exc)
+            raise HTTPException(status_code=502, detail="Could not reach Overpass API.")
 
     stops = []
-    # NaPTAN returns a list of stop objects (or {"stopPoints": [...]})
-    raw_stops = raw if isinstance(raw, list) else raw.get("stopPoints", [])
-
-    for stop in raw_stops:
-        try:
-            lat = float(stop.get("latitude") or stop.get("Latitude", 0))
-            lon = float(stop.get("longitude") or stop.get("Longitude", 0))
-        except (TypeError, ValueError):
+    for element in raw.get("elements", []):
+        if element.get("type") != "node":
             continue
 
-        # Filter to bounding box
-        if not (BBOX_MIN_LAT <= lat <= BBOX_MAX_LAT and BBOX_MIN_LON <= lon <= BBOX_MAX_LON):
+        lat = element.get("lat")
+        lon = element.get("lon")
+        if lat is None or lon is None:
             continue
 
-        atco  = stop.get("atcoCode") or stop.get("AtcoCode", "")
-        name  = (stop.get("commonName") or stop.get("CommonName") or
-                 stop.get("descriptor", {}).get("commonName", "") or "Unknown stop")
+        tags = element.get("tags", {})
 
-        if not atco:
-            continue
+        # Use the NaPTAN ATCO code if OSM has it, otherwise use the OSM node ID
+        atco = tags.get("naptan:AtcoCode") or tags.get("ref") or str(element["id"])
+        name = (tags.get("name")
+                or tags.get("naptan:CommonName")
+                or tags.get("description")
+                or "Bus Stop")
 
         stops.append({
             "atco_code": atco,
@@ -211,7 +213,6 @@ async def _fetch_naptan_stops() -> list[dict]:
         })
 
     return stops
-
 
 # ────────────────────────────────────────────────────────────
 # ENDPOINT: /api/vehicles
