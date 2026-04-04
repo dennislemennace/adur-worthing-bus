@@ -219,13 +219,13 @@ function updateVehicleMarkers(vehicles) {
       state.busMarkers[ref].setPopupContent(popupHtml);
     } else {
       // Create new marker
-      const icon = L.divIcon({
-        className: "",
-        html: `<div class="bus-marker-icon">${escapeHtml(label)}</div>`,
-        iconSize:  [28, 20],
-        iconAnchor:[14, 10],
-        popupAnchor:[0, -12],
-      });
+        const icon = L.divIcon({
+          className: "",
+          html: `<div class="bus-marker-icon" style="background:${getOperatorColour(vehicle.operator_ref)};border-color:${getOperatorBorderColour(vehicle.operator_ref)}">${escapeHtml(label)}</div>`,
+          iconSize:  [28, 20],
+          iconAnchor:[14, 10],
+          popupAnchor:[0, -12],
+        });
 
       const marker = L.marker([vehicle.latitude, vehicle.longitude], { icon, zIndexOffset: 200 })
         .bindPopup(popupHtml, { maxWidth: 200 })
@@ -489,7 +489,59 @@ function showToast(message, durationMs = 3500) {
   clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => dom.toast.classList.add("hidden"), durationMs);
 }
+// ============================================================
+// OPERATOR COLOURS
+// Keyed by National Operator Code (operator_ref from BODS).
+// Add more entries here as you discover operator codes in your area.
+// To find a code: check the Vercel logs — operator_ref is logged
+// with each vehicle fetch, or visit /api/vehicles and look at
+// the operator_ref field in the JSON.
+// ============================================================
+const OPERATOR_COLOURS = {
+  // Stagecoach South
+  "SCSC": "#e5741c",   // Stagecoach orange
 
+  // Brighton & Hove Buses (Go-Ahead)
+  "BHBC": "#e30613",   // Bright red
+
+  // Arriva
+  "ARBB": "#00a0df",   // Arriva cyan/blue
+  "ARHE": "#00a0df",
+
+  // National Express / Coaches
+  "TNXB": "#ffcc00",   // National Express yellow
+
+  // Metrobus (Go-Ahead)
+  "METR": "#007a4c",   // Metrobus green
+
+  // Southern Vectis / Go Southern
+  "SVCT": "#007a4c",
+
+  "COMT": "#800020",   // Compass Bus burgundy
+
+  // Default fallback — used for any operator not listed above
+  "DEFAULT": "#f4a020",
+};
+
+const OPERATOR_BORDER_COLOURS = {
+  "SCSC": "#b35a15",
+  "BHBC": "#a00010",
+  "ARBB": "#007aaf",
+  "ARHE": "#007aaf",
+  "TNXB": "#c8a000",
+  "METR": "#005a38",
+  "SVCT": "#005a38",
+  "COMT": "#580016",
+  "DEFAULT": "#c07800",
+};
+
+function getOperatorColour(operatorRef) {
+  return OPERATOR_COLOURS[operatorRef] || OPERATOR_COLOURS["DEFAULT"];
+}
+
+function getOperatorBorderColour(operatorRef) {
+  return OPERATOR_BORDER_COLOURS[operatorRef] || OPERATOR_BORDER_COLOURS["DEFAULT"];
+}
 // ============================================================
 // SECURITY HELPERS — prevent XSS in dynamically built HTML
 // ============================================================
