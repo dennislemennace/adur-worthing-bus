@@ -393,16 +393,19 @@ function isWithinMinutes(isoString, minutes) {
 // ============================================================
 // PANEL STATE MACHINE
 // ============================================================
-function showPanelState(state) {
+function showPanelState(stateKey, errorMsg) {
   // Hide all inner states
   dom.panelLoading.classList.add("hidden");
   dom.panelError.classList.add("hidden");
   dom.panelPrompt.classList.add("hidden");
   dom.departuresContainer.classList.add("hidden");
 
-  switch (state) {
+  switch (stateKey) {
     case "loading": dom.panelLoading.classList.remove("hidden"); break;
-    case "error":   dom.panelError.classList.remove("hidden");   break;
+    case "error":
+      dom.panelError.classList.remove("hidden");
+      if (errorMsg) dom.panelErrorMsg.textContent = errorMsg;
+      break;
     case "results": dom.departuresContainer.classList.remove("hidden"); break;
     default:        dom.panelPrompt.classList.remove("hidden");  break;
   }
@@ -472,18 +475,6 @@ async function apiFetch(path) {
   }
 
   return response.json();
-}
-
-// ============================================================
-// PANEL ERROR TEXT HELPER
-// ============================================================
-// Extend showPanelState to also set error text
-const _originalShowPanelState = showPanelState;
-function showPanelState(stateKey, errorMsg) {
-  _originalShowPanelState(stateKey);
-  if (stateKey === "error" && errorMsg) {
-    dom.panelErrorMsg.textContent = errorMsg;
-  }
 }
 
 // ============================================================
