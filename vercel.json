@@ -1,25 +1,5 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-
-  "comment": [
-    "vercel.json — Deployment config for the Adur & Worthing Bus API backend.",
-    "",
-    "This tells Vercel to run the FastAPI app as a serverless Python function.",
-    "",
-    "SETUP STEPS:",
-    "  1. Install Vercel CLI:  npm i -g vercel",
-    "  2. From the project root: vercel",
-    "  3. Set your BODS API key:  vercel env add BODS_API_KEY",
-    "  4. Set allowed origin:     vercel env add ALLOWED_ORIGIN",
-    "     (set to your GitHub Pages URL, e.g. https://yourusername.github.io)",
-    "  5. Re-deploy after setting env vars: vercel --prod",
-    "",
-    "Alternatively, set env vars in the Vercel dashboard under:",
-    "  Project → Settings → Environment Variables"
-  ],
-
   "version": 2,
-
   "builds": [
     {
       "src": "api/main.py",
@@ -29,7 +9,6 @@
       }
     }
   ],
-
   "routes": [
     {
       "src": "/api/(.*)",
@@ -39,10 +18,5 @@
       "src": "/",
       "dest": "api/main.py"
     }
-  ],
-
-  "env": {
-    "BODS_API_KEY":   "@bods_api_key",
-    "ALLOWED_ORIGIN": "@allowed_origin"
-  }
+  ]
 }
