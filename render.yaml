@@ -1,0 +1,30 @@
+# render.yaml — Alternative deployment config for Render.com free tier
+#
+# Use this INSTEAD of vercel.json if you prefer Render over Vercel.
+# Render gives you a persistent server (unlike Vercel's serverless functions),
+# which means the in-memory cache in main.py works better.
+#
+# SETUP STEPS:
+#   1. Create a free account at https://render.com
+#   2. Click "New +" → "Web Service"
+#   3. Connect your GitHub repository
+#   4. Render will auto-detect this file and configure itself
+#   5. In the Render dashboard, go to:
+#        Service → Environment → Add Environment Variable
+#      Add:
+#        BODS_API_KEY   = <your BODS API key>
+#        ALLOWED_ORIGIN = https://yourusername.github.io   (your GitHub Pages URL)
+
+services:
+  - type: web
+    name: adur-worthing-bus-api
+    runtime: python
+    plan: free               # Free tier — sleeps after 15 min inactivity; wakes on first request
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: BODS_API_KEY
+        sync: false          # Set this manually in the Render dashboard
+      - key: ALLOWED_ORIGIN
+        sync: false          # Set this manually in the Render dashboard
+    healthCheckPath: /

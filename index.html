@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adur &amp; Worthing Live Bus Tracker</title>
+  <meta name="description" content="Live bus departure boards and vehicle tracking for Adur and Worthing, West Sussex." />
+
+  <!-- Leaflet CSS (map library — free, no API key needed) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ===== HEADER ===== -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <span class="header-icon" aria-hidden="true">🚌</span>
+        <div>
+          <h1 class="header-title">Adur &amp; Worthing Buses</h1>
+          <p class="header-subtitle">Live departures &amp; vehicle tracking</p>
+        </div>
+      </div>
+      <div class="header-controls">
+        <!-- Last-updated timestamp for live data -->
+        <span class="last-updated" id="last-updated-label">Connecting…</span>
+        <!-- Refresh toggle button -->
+        <button class="btn-icon" id="toggle-refresh-btn" title="Pause/Resume live updates" aria-label="Pause live updates">
+          ⏸
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== MAIN LAYOUT ===== -->
+  <main class="main-layout">
+
+    <!-- ── Left: Map ── -->
+    <section class="map-section" aria-label="Live bus map">
+      <div id="map"></div>
+
+      <!-- Map legend overlay -->
+      <div class="map-legend" role="complementary" aria-label="Map legend">
+        <div class="legend-item">
+          <span class="legend-dot legend-bus"></span> Live bus
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot legend-stop"></span> Bus stop
+        </div>
+      </div>
+
+      <!-- Loading overlay shown while initial data loads -->
+      <div class="map-loading" id="map-loading" aria-live="polite">
+        <div class="spinner" aria-hidden="true"></div>
+        <p>Loading live bus data…</p>
+      </div>
+    </section>
+
+    <!-- ── Right: Departure Board Panel ── -->
+    <aside class="departure-panel" id="departure-panel" aria-label="Departure board" aria-hidden="true">
+
+      <div class="panel-header">
+        <div class="panel-header-text">
+          <!-- Stop name populated by JS -->
+          <h2 class="panel-stop-name" id="panel-stop-name">Select a stop</h2>
+          <p class="panel-stop-id" id="panel-stop-id"></p>
+        </div>
+        <button class="btn-close" id="close-panel-btn" aria-label="Close departure board">✕</button>
+      </div>
+
+      <!-- Loading state for departures -->
+      <div class="panel-loading hidden" id="panel-loading" aria-live="polite">
+        <div class="spinner small" aria-hidden="true"></div>
+        <p>Fetching departures…</p>
+      </div>
+
+      <!-- Error state -->
+      <div class="panel-error hidden" id="panel-error" role="alert">
+        <p>⚠️ <span id="panel-error-msg">Could not load departures.</span></p>
+        <button class="btn-retry" id="panel-retry-btn">Try again</button>
+      </div>
+
+      <!-- Prompt shown before a stop is selected (desktop only) -->
+      <div class="panel-prompt" id="panel-prompt">
+        <span class="panel-prompt-icon" aria-hidden="true">📍</span>
+        <p>Click any bus stop on the map to see live departures.</p>
+      </div>
+
+      <!-- Departure list populated by JS -->
+      <div class="departures-container hidden" id="departures-container">
+        <div class="departures-meta">
+          <span id="departures-count"></span>
+          <button class="btn-text" id="refresh-stop-btn" aria-label="Refresh departures">↻ Refresh</button>
+        </div>
+        <table class="departures-table" aria-label="Upcoming departures">
+          <thead>
+            <tr>
+              <th scope="col">Service</th>
+              <th scope="col">Destination</th>
+              <th scope="col">Due</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody id="departures-tbody">
+            <!-- Rows injected by app.js -->
+          </tbody>
+        </table>
+        <p class="departures-footer">Data from Bus Open Data Service (BODS)</p>
+      </div>
+
+      <!--
+        FUTURE EXTENSION POINT:
+        Add a "Service Alerts" section here by appending an element
+        and fetching from /api/alerts?stopId=... on the backend.
+      -->
+
+    </aside>
+
+  </main>
+
+  <!-- ===== TOAST NOTIFICATION (errors / info) ===== -->
+  <div class="toast hidden" id="toast" role="alert" aria-live="assertive"></div>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="site-footer">
+    <p>
+      Live data &copy; <a href="https://www.bus-data.dft.gov.uk/" target="_blank" rel="noopener">Bus Open Data Service</a> /
+      Department for Transport.
+      Map &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
+    </p>
+    <!--
+      FUTURE EXTENSION POINT:
+      Add links to "Service Alerts", "Route Maps", "Ticketing Info" pages here.
+    -->
+  </footer>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN/WsM=" crossorigin=""></script>
+
+  <!-- Main application script -->
+  <script src="app.js"></script>
+
+</body>
+</html>
