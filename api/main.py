@@ -1,23 +1,21 @@
 """
-api/main.py — Adur & Worthing Bus Tracker Backend v1.2
+api/main.py — Adur & Worthing Bus Tracker Backend v1.3
 =======================================================
+Changes from v1.2:
+  - Replaced GTFS CSV parser with TransXChange XML parser
+    (BODS timetable zips contain .xml files, not .txt files)
+  - Limited to 2 most-recent datasets per operator to avoid timeout
+  - Overpass used for stop coordinates; TransXChange for timetables
+  - ATCO codes from TransXChange matched against Overpass stop markers
 
-Changes from v1.1:
-  - Fixed NOC codes for Stagecoach South (SCSO not SCSC)
-  - GTFS zip parser now handles subdirectories inside the zip
-  - Fixed BODS download authentication (query param not header)
-  - /api/stops now served from GTFS stops.txt so ATCO codes
-    always match the timetable lookup
-  - Added fallback to Overpass if GTFS stops are unavailable
-
-Environment variables required:
-  BODS_API_KEY    — from https://data.bus-data.dft.gov.uk/
+Environment variables:
+  BODS_API_KEY    — https://data.bus-data.dft.gov.uk/
   ALLOWED_ORIGIN  — your GitHub Pages URL
 """
 
-import csv
 import io
 import os
+import re
 import time
 import logging
 import zipfile
@@ -32,7 +30,8 @@ from fastapi.middleware.cors import CORSMiddleware
 # ────────────────────────────────────────────────────────────
 # LOGGING
 # ────────────────────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
+logging.basicConfig(level=logging.INFO,
+                    format="%(levelname)s  %(name)s  %(message)s")
 log = logging.getLogger("bus_api")
 
 # ────────────────────────────────────────────────────────────
@@ -43,23 +42,27 @@ ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
 
 BODS_BASE = "https://data.bus-data.dft.gov.uk/api/v1"
 SIRI_NS   = "http://www.siri.org.uk/siri"
+TXC_NS    = "http://www.transxchange.org.uk/"
 
 # Bounding box for Adur & Worthing
 BBOX_MIN_LAT, BBOX_MAX_LAT =  50.78,  50.87
 BBOX_MIN_LON, BBOX_MAX_LON = -0.42,  -0.10
 BBOX_STR = f"{BBOX_MIN_LON},{BBOX_MIN_LAT},{BBOX_MAX_LON},{BBOX_MAX_LAT}"
 
-# National Operator Codes for operators serving Adur & Worthing.
-# To find more: check operator_ref in /api/vehicles, or search
-# https://data.bus-data.dft.gov.uk/operators/
+# Operators serving Adur & Worthing — add more as you discover them
+# in the operator_ref field of /api/vehicles
 AREA_OPERATOR_NOCS = [
-    "SCSO",   # Stagecoach South (was incorrectly SCSC before)
+    "SCSO",   # Stagecoach South
     "BHBC",   # Brighton & Hove Bus and Coach Company
     "CMPA",   # Compass Travel (Sussex)
     "METR",   # Metrobus
 ]
 
-GTFS_CACHE_TTL = 86_400  # 24 hours
+# Maximum datasets to download per operator.
+# Keeps total download time within Vercel's 60-second function limit.
+MAX_DATASETS_PER_OPERATOR = 2
+
+GTFS_CACHE_TTL = 86_400   # Cache timetable data for 24 hours
 
 # ────────────────────────────────────────────────────────────
 # IN-MEMORY CACHE
@@ -76,19 +79,19 @@ def cache_get(key: str):
         return None
     return data
 
-def cache_set(key: str, data, ttl_seconds: int) -> None:
-    _cache[key] = (data, time.time() + ttl_seconds)
+def cache_set(key: str, data, ttl: int) -> None:
+    _cache[key] = (data, time.time() + ttl)
 
 # ────────────────────────────────────────────────────────────
-# GTFS DATA STORE
+# TIMETABLE DATA STORE
 # ────────────────────────────────────────────────────────────
-_gtfs_data:      Optional[dict] = None
-_gtfs_cached_at: float          = 0.0
+_timetable:      Optional[dict] = None
+_timetable_at:   float          = 0.0
 
 # ────────────────────────────────────────────────────────────
 # APP
 # ────────────────────────────────────────────────────────────
-app = FastAPI(title="Adur & Worthing Bus API", version="1.2.0")
+app = FastAPI(title="Adur & Worthing Bus API", version="1.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -102,70 +105,37 @@ app.add_middleware(
 # ────────────────────────────────────────────────────────────
 @app.get("/")
 async def root():
-    gtfs = _gtfs_data or {}
+    t = _timetable or {}
     return {
-        "status":             "ok",
-        "bods_key_configured": bool(BODS_API_KEY),
-        "gtfs_loaded":         _gtfs_data is not None,
-        "gtfs_stops_indexed":  len(gtfs.get("stop_times", {})),
-        "gtfs_stops_available":len(gtfs.get("stops", {})),
-        "gtfs_routes":         len(gtfs.get("routes", {})),
+        "status":               "ok",
+        "bods_key_configured":  bool(BODS_API_KEY),
+        "timetable_loaded":     _timetable is not None,
+        "stops_in_timetable":   len(t.get("stops",      {})),
+        "stop_times_indexed":   len(t.get("stop_times", {})),
+        "routes_loaded":        len(t.get("routes",     {})),
+        "trips_loaded":         len(t.get("trips",      {})),
     }
 
 # ────────────────────────────────────────────────────────────
 # ENDPOINT: /api/stops
-# Served from GTFS stops.txt so ATCO codes always match the
-# timetable. Falls back to Overpass if GTFS not yet loaded.
+# Coordinates from Overpass (OSM) — stop IDs from Overpass
+# are matched against TransXChange ATCO codes at departure time.
 # ────────────────────────────────────────────────────────────
 @app.get("/api/stops")
 async def get_stops():
-    """Bus stops filtered to the Adur & Worthing bounding box."""
+    """Bus stops in the Adur & Worthing bounding box. Cached 24 h."""
     cached = cache_get("stops")
     if cached:
         return cached
 
-    # Try GTFS first (best ATCO code accuracy)
-    try:
-        gtfs = await _get_gtfs_data()
-        stops = _gtfs_stops_in_bbox(gtfs)
-        if stops:
-            log.info("Serving %d stops from GTFS stops.txt", len(stops))
-            result = {"stops": stops, "count": len(stops), "source": "gtfs"}
-            cache_set("stops", result, GTFS_CACHE_TTL)
-            return result
-    except Exception as exc:
-        log.warning("GTFS stop load failed, falling back to Overpass: %s", exc)
-
-    # Fallback: Overpass (OSM) — ATCO codes may not match timetable
     stops = await _fetch_overpass_stops()
-    result = {"stops": stops, "count": len(stops), "source": "overpass"}
+    result = {"stops": stops, "count": len(stops)}
     cache_set("stops", result, GTFS_CACHE_TTL)
-    log.info("Serving %d stops from Overpass (fallback)", len(stops))
+    log.info("Serving %d stops from Overpass", len(stops))
     return result
 
 
-def _gtfs_stops_in_bbox(gtfs: dict) -> list[dict]:
-    """Filter GTFS stops to the Adur & Worthing bounding box."""
-    stops = []
-    for stop_id, stop in gtfs.get("stops", {}).items():
-        lat = stop.get("lat")
-        lon = stop.get("lon")
-        if lat is None or lon is None:
-            continue
-        if not (BBOX_MIN_LAT <= lat <= BBOX_MAX_LAT and
-                BBOX_MIN_LON <= lon <= BBOX_MAX_LON):
-            continue
-        stops.append({
-            "atco_code": stop_id,
-            "name":      stop.get("name", "Bus Stop"),
-            "latitude":  lat,
-            "longitude": lon,
-        })
-    return stops
-
-
 async def _fetch_overpass_stops() -> list[dict]:
-    """Fallback stop source using OpenStreetMap Overpass API."""
     query = f"""
     [out:json][timeout:30];
     node["highway"="bus_stop"]
@@ -194,14 +164,9 @@ async def _fetch_overpass_stops() -> list[dict]:
         tags = el.get("tags", {})
         atco = (tags.get("naptan:AtcoCode") or tags.get("ref")
                 or str(el["id"]))
-        name = (tags.get("name") or tags.get("naptan:CommonName")
-                or "Bus Stop")
-        stops.append({
-            "atco_code": atco,
-            "name":      name,
-            "latitude":  lat,
-            "longitude": lon,
-        })
+        name = tags.get("name") or tags.get("naptan:CommonName") or "Bus Stop"
+        stops.append({"atco_code": atco, "name": name,
+                      "latitude": lat, "longitude": lon})
     return stops
 
 # ────────────────────────────────────────────────────────────
@@ -216,22 +181,21 @@ async def get_vehicles():
         return cached
 
     vehicles = await _fetch_siri_vm()
-    result = {"vehicles": vehicles, "count": len(vehicles)}
+    result   = {"vehicles": vehicles, "count": len(vehicles)}
     cache_set("vehicles", result, 15)
-    log.info("Fetched %d vehicles from BODS SIRI-VM", len(vehicles))
+    log.info("Fetched %d vehicles", len(vehicles))
     return result
 
 
 async def _fetch_siri_vm() -> list[dict]:
-    url    = f"{BODS_BASE}/datafeed/"
     params = {"api_key": BODS_API_KEY, "boundingBox": BBOX_STR}
     async with httpx.AsyncClient(timeout=30) as client:
         try:
-            resp = await client.get(url, params=params)
+            resp = await client.get(f"{BODS_BASE}/datafeed/", params=params)
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise HTTPException(status_code=502,
-                detail=f"BODS SIRI-VM error: {exc.response.status_code}")
+                detail=f"BODS error: {exc.response.status_code}")
         except httpx.RequestError:
             raise HTTPException(status_code=502,
                 detail="Could not reach BODS API.")
@@ -244,8 +208,7 @@ def _parse_siri_vm(xml_text: str) -> list[dict]:
     except ET.ParseError:
         return []
 
-    ns       = {"s": SIRI_NS}
-    vehicles = []
+    ns, vehicles = {"s": SIRI_NS}, []
 
     for activity in root.findall(".//s:VehicleActivity", ns):
         journey = activity.find("s:MonitoredVehicleJourney", ns)
@@ -287,7 +250,7 @@ def _parse_siri_vm(xml_text: str) -> list[dict]:
 # ────────────────────────────────────────────────────────────
 @app.get("/api/departures")
 async def get_departures(stopId: str = Query(...)):
-    """Scheduled departures for a stop from BODS GTFS. Cached 60 s."""
+    """Scheduled departures for a stop. Cached 60 s."""
     _check_api_key()
 
     if not stopId or len(stopId) > 20:
@@ -297,32 +260,33 @@ async def get_departures(stopId: str = Query(...)):
     if cached:
         return cached
 
-    gtfs   = await _get_gtfs_data()
-    result = _get_stop_departures(gtfs, stopId)
+    tt     = await _get_timetable()
+    result = _departures_for_stop(tt, stopId)
     cache_set(f"dep:{stopId}", result, 60)
     return result
 
 # ────────────────────────────────────────────────────────────
-# GTFS LOADER
+# TIMETABLE LOADER
 # ────────────────────────────────────────────────────────────
-async def _get_gtfs_data() -> dict:
-    global _gtfs_data, _gtfs_cached_at
-    if _gtfs_data and (time.time() - _gtfs_cached_at) < GTFS_CACHE_TTL:
-        return _gtfs_data
+async def _get_timetable() -> dict:
+    global _timetable, _timetable_at
+    if _timetable and (time.time() - _timetable_at) < GTFS_CACHE_TTL:
+        return _timetable
 
-    log.info("Downloading fresh GTFS timetable data…")
-    _gtfs_data      = await _fetch_and_merge_gtfs()
-    _gtfs_cached_at = time.time()
+    log.info("Loading timetable from BODS TransXChange datasets…")
+    _timetable   = await _download_and_merge_timetables()
+    _timetable_at = time.time()
     log.info(
-        "GTFS ready — %d stops, %d stop_time entries, %d routes",
-        len(_gtfs_data.get("stops", {})),
-        len(_gtfs_data.get("stop_times", {})),
-        len(_gtfs_data.get("routes", {})),
+        "Timetable ready: %d stops, %d stop_time entries, %d routes, %d trips",
+        len(_timetable.get("stops",      {})),
+        len(_timetable.get("stop_times", {})),
+        len(_timetable.get("routes",     {})),
+        len(_timetable.get("trips",      {})),
     )
-    return _gtfs_data
+    return _timetable
 
 
-async def _fetch_and_merge_gtfs() -> dict:
+async def _download_and_merge_timetables() -> dict:
     merged: dict = {
         "stops":          {},
         "routes":         {},
@@ -332,39 +296,26 @@ async def _fetch_and_merge_gtfs() -> dict:
         "calendar_dates": {},
     }
 
-    urls = await _discover_gtfs_urls()
+    urls = await _discover_dataset_urls()
     if not urls:
-        log.warning("No GTFS dataset URLs found — check NOC codes and API key")
+        log.warning("No dataset URLs found — check NOC codes and API key")
         return merged
 
     for url in urls:
         try:
-            parsed = await _download_and_parse_gtfs(url)
-            # Merge stops
-            merged["stops"].update(parsed.get("stops", {}))
-            merged["routes"].update(parsed.get("routes", {}))
-            merged["trips"].update(parsed.get("trips", {}))
-            merged["calendar"].update(parsed.get("calendar", {}))
-            # Merge calendar_dates
-            for sid, dates in parsed.get("calendar_dates", {}).items():
-                if sid not in merged["calendar_dates"]:
-                    merged["calendar_dates"][sid] = {}
-                merged["calendar_dates"][sid].update(dates)
-            # Append stop_times
-            for stop_id, times in parsed.get("stop_times", {}).items():
-                if stop_id not in merged["stop_times"]:
-                    merged["stop_times"][stop_id] = []
-                merged["stop_times"][stop_id].extend(times)
+            parsed = await _download_and_parse_dataset(url)
+            _merge_into(merged, parsed)
         except Exception as exc:
-            log.warning("Skipping dataset %s — %s", url, exc)
+            log.warning("Skipping %s — %s", url, exc)
 
     return merged
 
 
-async def _discover_gtfs_urls() -> list[str]:
+async def _discover_dataset_urls() -> list[str]:
     """
-    Query BODS dataset API for each operator NOC and collect
-    the GTFS zip download URLs.
+    Query the BODS dataset API for each operator NOC.
+    Returns at most MAX_DATASETS_PER_OPERATOR URLs per operator,
+    preferring the most recently modified datasets.
     """
     urls = []
     seen = set()
@@ -375,10 +326,11 @@ async def _discover_gtfs_urls() -> list[str]:
                 resp = await client.get(
                     f"{BODS_BASE}/dataset/",
                     params={
-                        "api_key": BODS_API_KEY,
-                        "noc":     noc,
-                        "status":  "published",
-                        "limit":   20,
+                        "api_key":  BODS_API_KEY,
+                        "noc":      noc,
+                        "status":   "published",
+                        "limit":    50,
+                        "ordering": "-modified",   # most recent first
                     },
                 )
                 resp.raise_for_status()
@@ -390,244 +342,316 @@ async def _discover_gtfs_urls() -> list[str]:
             results = data.get("results", [])
             log.info("NOC %s — %d dataset(s) found", noc, len(results))
 
+            count = 0
             for dataset in results:
-                # The download URL field name varies — try both
-                dl_url = dataset.get("url") or dataset.get("download_url", "")
+                if count >= MAX_DATASETS_PER_OPERATOR:
+                    break
+
+                # Build the download URL
+                dl_url = dataset.get("url", "")
                 if not dl_url:
                     continue
-                # Ensure it is a zip download URL
-                if "/download/" not in dl_url and not dl_url.endswith(".zip"):
+                if "/download/" not in dl_url:
                     dl_url = dl_url.rstrip("/") + "/download/"
-                if dl_url and dl_url not in seen:
-                    seen.add(dl_url)
-                    urls.append(dl_url)
-                    log.info("  Dataset URL: %s", dl_url)
 
-    log.info("Total GTFS datasets to download: %d", len(urls))
+                if dl_url in seen:
+                    continue
+
+                seen.add(dl_url)
+                urls.append(dl_url)
+                count += 1
+                log.info("  Queued: %s", dl_url)
+
+    log.info("Total datasets to download: %d", len(urls))
     return urls
 
 
-async def _download_and_parse_gtfs(download_url: str) -> dict:
-    """
-    Download a GTFS zip from BODS.
-    Authentication uses api_key query param (not header).
-    """
-    log.info("Downloading %s", download_url)
+async def _download_and_parse_dataset(url: str) -> dict:
+    log.info("Downloading %s", url)
     async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
-        resp = await client.get(
-            download_url,
-            params={"api_key": BODS_API_KEY},
-        )
+        resp = await client.get(url, params={"api_key": BODS_API_KEY})
         resp.raise_for_status()
         zip_bytes = resp.content
+    log.info("Downloaded %.1f MB", len(zip_bytes) / 1_048_576)
+    return _parse_transxchange_zip(zip_bytes)
 
-    log.info("Downloaded %.1f MB — parsing…", len(zip_bytes) / 1_048_576)
-    return _parse_gtfs_zip(zip_bytes)
-
-
-def _parse_gtfs_zip(zip_bytes: bytes) -> dict:
+# ────────────────────────────────────────────────────────────
+# TRANSXCHANGE XML PARSER
+# ────────────────────────────────────────────────────────────
+def _parse_transxchange_zip(zip_bytes: bytes) -> dict:
     """
-    Parse a GTFS zip into our internal structure.
-
-    Handles zips where files are at the root OR inside a subdirectory
-    (both are common with BODS-provided zips).
+    A BODS timetable zip contains one or more TransXChange .xml files.
+    Parse each one and merge the results.
     """
     result: dict = {
-        "stops":          {},
-        "routes":         {},
-        "trips":          {},
-        "stop_times":     {},
-        "calendar":       {},
-        "calendar_dates": {},
+        "stops": {}, "routes": {}, "trips": {},
+        "stop_times": {}, "calendar": {}, "calendar_dates": {},
     }
 
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            all_names = zf.namelist()
-            log.info("Zip contains %d files: %s…", len(all_names),
-                     all_names[:8])
-
-            def find_file(filename: str) -> Optional[str]:
-                """
-                Find a file in the zip regardless of subdirectory.
-                Looks for exact match first, then suffix match.
-                """
-                # Exact match (file at root)
-                if filename in all_names:
-                    return filename
-                # File inside a subdirectory
-                for name in all_names:
-                    if name.endswith("/" + filename):
-                        return name
-                return None
-
-            def read_csv(filename: str):
-                """Read a CSV from the zip with UTF-8 BOM handling."""
-                path = find_file(filename)
-                if not path:
-                    log.warning("  %s not found in zip", filename)
-                    return []
-                with zf.open(path) as f:
-                    return list(csv.DictReader(
-                        io.TextIOWrapper(f, encoding="utf-8-sig")
-                    ))
-
-            # ── stops.txt ──────────────────────────────────────
-            stop_count = 0
-            for row in read_csv("stops.txt"):
-                stop_id = row.get("stop_id", "").strip()
-                if not stop_id:
-                    continue
-                try:
-                    lat = float(row.get("stop_lat", 0))
-                    lon = float(row.get("stop_lon", 0))
-                except (ValueError, TypeError):
-                    continue
-                result["stops"][stop_id] = {
-                    "name": row.get("stop_name", "Bus Stop").strip(),
-                    "lat":  lat,
-                    "lon":  lon,
-                }
-                stop_count += 1
-            log.info("  Parsed %d stops", stop_count)
-
-            # ── routes.txt ─────────────────────────────────────
-            route_count = 0
-            for row in read_csv("routes.txt"):
-                route_id = row.get("route_id", "").strip()
-                if not route_id:
-                    continue
-                result["routes"][route_id] = {
-                    "short_name": row.get("route_short_name", "").strip(),
-                    "long_name":  row.get("route_long_name",  "").strip(),
-                    "agency_id":  row.get("agency_id",        "").strip(),
-                }
-                route_count += 1
-            log.info("  Parsed %d routes", route_count)
-
-            # ── trips.txt ──────────────────────────────────────
-            trip_count = 0
-            for row in read_csv("trips.txt"):
-                trip_id = row.get("trip_id", "").strip()
-                if not trip_id:
-                    continue
-                result["trips"][trip_id] = {
-                    "route_id":   row.get("route_id",      "").strip(),
-                    "service_id": row.get("service_id",    "").strip(),
-                    "headsign":   row.get("trip_headsign", "").strip(),
-                }
-                trip_count += 1
-            log.info("  Parsed %d trips", trip_count)
-
-            # ── calendar.txt ───────────────────────────────────
-            for row in read_csv("calendar.txt"):
-                sid = row.get("service_id", "").strip()
-                if not sid:
-                    continue
-                result["calendar"][sid] = {
-                    "monday":     row.get("monday",     "0"),
-                    "tuesday":    row.get("tuesday",    "0"),
-                    "wednesday":  row.get("wednesday",  "0"),
-                    "thursday":   row.get("thursday",   "0"),
-                    "friday":     row.get("friday",     "0"),
-                    "saturday":   row.get("saturday",   "0"),
-                    "sunday":     row.get("sunday",     "0"),
-                    "start_date": row.get("start_date", ""),
-                    "end_date":   row.get("end_date",   ""),
-                }
-
-            # ── calendar_dates.txt ─────────────────────────────
-            for row in read_csv("calendar_dates.txt"):
-                sid = row.get("service_id", "").strip()
-                if not sid:
-                    continue
-                if sid not in result["calendar_dates"]:
-                    result["calendar_dates"][sid] = {}
-                result["calendar_dates"][sid][row.get("date", "")] = \
-                    row.get("exception_type", "")
-
-            # ── stop_times.txt ─────────────────────────────────
-            # This is the largest file — parse carefully
-            st_count = 0
-            for row in read_csv("stop_times.txt"):
-                stop_id  = row.get("stop_id",  "").strip()
-                trip_id  = row.get("trip_id",  "").strip()
-                dep_time = (row.get("departure_time") or
-                            row.get("arrival_time")   or "").strip()
-                if not stop_id or not trip_id or not dep_time:
-                    continue
-                dep_secs = _gtfs_time_to_secs(dep_time)
-                if dep_secs < 0:
-                    continue
-                if stop_id not in result["stop_times"]:
-                    result["stop_times"][stop_id] = []
-                result["stop_times"][stop_id].append((dep_secs, trip_id))
-                st_count += 1
-            log.info("  Parsed %d stop_time entries across %d stops",
-                     st_count, len(result["stop_times"]))
-
+            xml_files = [n for n in zf.namelist() if n.lower().endswith(".xml")]
+            log.info("  Zip has %d XML file(s)", len(xml_files))
+            for xml_name in xml_files:
+                with zf.open(xml_name) as f:
+                    _parse_txc_xml(f.read(), result)
     except zipfile.BadZipFile as exc:
-        log.error("Bad zip file: %s", exc)
+        log.error("Bad zip: %s", exc)
 
     return result
+
+
+def _parse_txc_xml(xml_bytes: bytes, out: dict) -> None:
+    """
+    Parse a single TransXChange XML file and merge data into `out`.
+
+    TransXChange structure (simplified):
+      TransXChange
+        ├── StopPoints / AnnotatedStopPointRefs  ← stop names & ATCO codes
+        ├── Services                              ← routes / line names
+        ├── JourneyPatternSections               ← timing links between stops
+        └── VehicleJourneys                      ← individual timed trips
+    """
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError as exc:
+        log.warning("XML parse error: %s", exc)
+        return
+
+    ns = {"t": TXC_NS}
+
+    def tx(el, path, default=""):
+        """Shortcut: findtext with TransXChange namespace."""
+        return el.findtext(f"t:{path}", default, ns)
+
+    def tf(el, path):
+        """Shortcut: find with TransXChange namespace."""
+        return el.find(f"t:{path}", ns)
+
+    # ── 1. Stop names (no coordinates in TransXChange) ───────
+    for s in root.findall(".//t:AnnotatedStopPointRef", ns):
+        ref  = tx(s, "StopPointRef")
+        name = tx(s, "CommonName", "Bus Stop")
+        if ref and ref not in out["stops"]:
+            out["stops"][ref] = {"name": name}
+
+    for s in root.findall(".//t:StopPoint", ns):
+        ref  = tx(s, "AtcoCode") or tx(s, "StopPointRef")
+        name = tx(s, "Descriptor/CommonName") or tx(s, "CommonName")
+        if ref and ref not in out["stops"]:
+            out["stops"][ref] = {"name": name or "Bus Stop"}
+
+    # ── 2. Services → Routes ──────────────────────────────────
+    for svc in root.findall(".//t:Service", ns):
+        code = tx(svc, "ServiceCode")
+        if not code:
+            continue
+        line_el   = svc.find(".//t:Line", ns)
+        line_name = tx(line_el, "LineName") if line_el is not None else ""
+        desc      = tx(svc, "Description")
+        out["routes"][code] = {
+            "short_name": line_name,
+            "long_name":  desc,
+        }
+
+    # ── 3. Journey Pattern Sections ───────────────────────────
+    # jps_id → [(stop_atco, cumulative_offset_seconds_at_departure)]
+    jps_map: dict[str, list] = {}
+
+    for jps in root.findall(".//t:JourneyPatternSection", ns):
+        jps_id = jps.get("id", "")
+        links  = jps.findall("t:JourneyPatternTimingLink", ns)
+        cumul  = 0
+        seq    = []
+
+        for i, link in enumerate(links):
+            from_el  = tf(link, "From")
+            to_el    = tf(link, "To")
+            if from_el is None or to_el is None:
+                continue
+
+            from_ref  = tx(from_el, "StopPointRef")
+            to_ref    = tx(to_el,   "StopPointRef")
+            wait_from = _dur(tx(from_el, "WaitTime"))
+            run_time  = _dur(tx(link,    "RunTime"))
+            wait_to   = _dur(tx(to_el,   "WaitTime"))
+
+            # First stop: departs after its own wait time
+            if i == 0 and from_ref:
+                seq.append((from_ref, cumul + wait_from))
+            cumul += wait_from + run_time
+            if to_ref:
+                seq.append((to_ref, cumul + wait_to))
+
+        jps_map[jps_id] = seq
+
+    # ── 4. Journey Patterns ───────────────────────────────────
+    # jp_id → combined stop sequence [(stop_atco, offset_secs)]
+    jp_map: dict[str, list] = {}
+
+    for jp in root.findall(".//t:JourneyPattern", ns):
+        jp_id    = jp.get("id", "")
+        sec_refs = [el.text for el in jp.findall("t:JourneyPatternSectionRefs", ns) if el.text]
+        combined = []
+        for sr in sec_refs:
+            combined.extend(jps_map.get(sr, []))
+        jp_map[jp_id] = combined
+
+    # ── 5. Vehicle Journeys → Trips + Stop Times ──────────────
+    for vj in root.findall(".//t:VehicleJourney", ns):
+        vj_code  = tx(vj, "VehicleJourneyCode")
+        svc_ref  = tx(vj, "ServiceRef")
+        jp_ref   = tx(vj, "JourneyPatternRef")
+        dep_str  = tx(vj, "DepartureTime")
+
+        if not dep_str or not jp_ref:
+            continue
+
+        # Parse HH:MM:SS departure time
+        base_secs = _hms_to_secs(dep_str)
+        if base_secs < 0:
+            continue
+
+        # Operating calendar
+        trip_id    = vj_code or f"{svc_ref}_{jp_ref}_{dep_str}"
+        op_prof_el = tf(vj, "OperatingProfile")
+        cal        = _parse_operating_profile(op_prof_el, ns)
+        out["calendar"][trip_id] = cal
+
+        # Destination headsign — try several locations in the XML
+        headsign = (tx(vj, "DestinationDisplay")
+                    or tx(vj, "Operational/TicketMachine/JourneyCode")
+                    or "")
+
+        # Look up route name for headsign fallback
+        if not headsign:
+            route = out["routes"].get(svc_ref, {})
+            headsign = route.get("long_name") or route.get("short_name") or ""
+
+        out["trips"][trip_id] = {
+            "route_id":   svc_ref,
+            "service_id": trip_id,
+            "headsign":   headsign,
+        }
+
+        # Build stop times from journey pattern
+        stop_seq = jp_map.get(jp_ref, [])
+        for (stop_ref, offset) in stop_seq:
+            if not stop_ref:
+                continue
+            dep_secs = base_secs + offset
+            if stop_ref not in out["stop_times"]:
+                out["stop_times"][stop_ref] = []
+            out["stop_times"][stop_ref].append((dep_secs, trip_id))
+
+
+def _parse_operating_profile(el, ns) -> dict:
+    """
+    Convert a TransXChange OperatingProfile element to a simple
+    {monday..sunday, start_date, end_date} dict.
+    Defaults to running every day if the element is missing.
+    """
+    cal = {
+        "monday": "0", "tuesday": "0", "wednesday": "0",
+        "thursday": "0", "friday": "0", "saturday": "0", "sunday": "0",
+        "start_date": "20240101",
+        "end_date":   "20991231",
+    }
+
+    if el is None:
+        for d in cal:
+            if d not in ("start_date", "end_date"):
+                cal[d] = "1"
+        return cal
+
+    days_el = el.find(".//t:DaysOfWeek", {"t": TXC_NS})
+    if days_el is None:
+        for d in cal:
+            if d not in ("start_date", "end_date"):
+                cal[d] = "1"
+        return cal
+
+    # Map TransXChange day element names to our dict keys
+    day_map = {
+        "Monday":           ["monday"],
+        "Tuesday":          ["tuesday"],
+        "Wednesday":        ["wednesday"],
+        "Thursday":         ["thursday"],
+        "Friday":           ["friday"],
+        "Saturday":         ["saturday"],
+        "Sunday":           ["sunday"],
+        "MondayToFriday":   ["monday","tuesday","wednesday","thursday","friday"],
+        "MondayToSaturday": ["monday","tuesday","wednesday","thursday","friday","saturday"],
+        "MondayToSunday":   ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"],
+        "Weekend":          ["saturday","sunday"],
+        "HolidaysOnly":     [],
+        "NotSaturday":      ["monday","tuesday","wednesday","thursday","friday","sunday"],
+    }
+
+    ns_t = {"t": TXC_NS}
+    for tag, days in day_map.items():
+        if days_el.find(f"t:{tag}", ns_t) is not None:
+            for d in days:
+                cal[d] = "1"
+
+    return cal
 
 # ────────────────────────────────────────────────────────────
 # DEPARTURE CALCULATION
 # ────────────────────────────────────────────────────────────
-def _get_stop_departures(gtfs: dict, stop_id: str) -> dict:
+def _departures_for_stop(tt: dict, stop_id: str) -> dict:
     now_local = datetime.now()
     today     = now_local.date()
-    dow       = today.weekday()
+    dow       = today.weekday()           # 0 = Mon … 6 = Sun
     today_str = today.strftime("%Y%m%d")
-    now_secs  = (now_local.hour * 3600 +
-                 now_local.minute * 60 +
-                 now_local.second)
+    now_secs  = (now_local.hour * 3600
+                 + now_local.minute * 60
+                 + now_local.second)
+    lookahead = 7200                      # 2 hours
 
-    stop_info  = gtfs.get("stops", {}).get(stop_id, {})
-    stop_name  = stop_info.get("name", stop_id)
-    raw_times  = gtfs.get("stop_times", {}).get(stop_id, [])
+    stop_name = tt.get("stops", {}).get(stop_id, {}).get("name", stop_id)
+    raw_times = tt.get("stop_times", {}).get(stop_id, [])
 
     if not raw_times:
         return {
             "stop_name":  stop_name,
             "departures": [],
             "note": (
-                f"No timetable data found for stop {stop_id}. "
-                "This stop may not be served by the operators in our timetable, "
-                "or the GTFS data may still be loading."
+                f"No timetable entry found for stop {stop_id}. "
+                "This stop may be served by an operator not yet in our "
+                "timetable, or the ATCO code in OpenStreetMap may not "
+                "match the timetable. Try a nearby stop."
             ),
         }
 
-    lookahead  = 7200  # 2 hours
     departures = []
 
     for (dep_secs, trip_id) in raw_times:
         if dep_secs < now_secs or dep_secs > now_secs + lookahead:
             continue
 
-        trip  = gtfs["trips"].get(trip_id, {})
-        route = gtfs["routes"].get(trip.get("route_id", ""), {})
+        trip  = tt["trips"].get(trip_id, {})
+        route = tt["routes"].get(trip.get("route_id", ""), {})
         sid   = trip.get("service_id", "")
 
-        if not _service_runs_today(sid, today, today_str, dow,
-                                   gtfs["calendar"],
-                                   gtfs["calendar_dates"]):
+        if not _runs_today(sid, today, today_str, dow,
+                           tt["calendar"], tt["calendar_dates"]):
             continue
 
-        dep_h   = dep_secs // 3600
-        dep_m   = (dep_secs % 3600) // 60
-        dep_dt  = now_local.replace(
-            hour=dep_h % 24, minute=dep_m, second=0, microsecond=0
+        dep_h  = (dep_secs // 3600) % 24
+        dep_m  = (dep_secs % 3600) // 60
+        dep_dt = now_local.replace(
+            hour=dep_h, minute=dep_m, second=0, microsecond=0
         )
 
         departures.append({
             "service":            route.get("short_name", "?"),
-            "destination":        trip.get("headsign",    "Unknown"),
+            "destination":        trip.get("headsign", "Unknown"),
             "aimed_departure":    dep_dt.isoformat(),
-            "expected_departure": None,
+            "expected_departure": None,    # Phase 2: filled from GTFS-RT
             "status":             "Scheduled",
-            "delay_seconds":      None,
-            "_trip_id":           trip_id,  # kept for Phase 2 GTFS-RT merge
+            "delay_seconds":      None,    # Phase 2: filled from GTFS-RT
+            "_trip_id":           trip_id,
         })
 
     departures.sort(key=lambda d: d["aimed_departure"])
@@ -635,20 +659,35 @@ def _get_stop_departures(gtfs: dict, stop_id: str) -> dict:
     return {"stop_name": stop_name, "departures": departures[:15]}
 
 
-def _service_runs_today(service_id: str, today: date, today_str: str,
-                         dow: int, calendar: dict,
-                         calendar_dates: dict) -> bool:
+def _runs_today(service_id: str, today: date, today_str: str,
+                dow: int, calendar: dict, calendar_dates: dict) -> bool:
     exceptions = calendar_dates.get(service_id, {})
     if today_str in exceptions:
         return exceptions[today_str] == "1"
     cal = calendar.get(service_id)
     if not cal:
+        return True   # default to showing if no calendar info
+    if today_str < cal.get("start_date","") or today_str > cal.get("end_date","99991231"):
         return False
-    if today_str < cal["start_date"] or today_str > cal["end_date"]:
-        return False
-    days = ["monday","tuesday","wednesday","thursday",
-            "friday","saturday","sunday"]
+    days = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
     return cal.get(days[dow], "0") == "1"
+
+# ────────────────────────────────────────────────────────────
+# MERGE HELPER
+# ────────────────────────────────────────────────────────────
+def _merge_into(merged: dict, parsed: dict) -> None:
+    merged["stops"].update(parsed.get("stops", {}))
+    merged["routes"].update(parsed.get("routes", {}))
+    merged["trips"].update(parsed.get("trips", {}))
+    merged["calendar"].update(parsed.get("calendar", {}))
+    for sid, dates in parsed.get("calendar_dates", {}).items():
+        if sid not in merged["calendar_dates"]:
+            merged["calendar_dates"][sid] = {}
+        merged["calendar_dates"][sid].update(dates)
+    for stop_id, times in parsed.get("stop_times", {}).items():
+        if stop_id not in merged["stop_times"]:
+            merged["stop_times"][stop_id] = []
+        merged["stop_times"][stop_id].extend(times)
 
 # ────────────────────────────────────────────────────────────
 # HELPERS
@@ -656,22 +695,27 @@ def _service_runs_today(service_id: str, today: date, today_str: str,
 def _check_api_key():
     if not BODS_API_KEY:
         raise HTTPException(status_code=503,
-            detail="BODS_API_KEY not set. Add it as a Vercel environment variable.")
+            detail="BODS_API_KEY not configured.")
 
-def _safe_float(value: str) -> Optional[float]:
+def _safe_float(v) -> Optional[float]:
     try:
-        return float(value)
+        return float(v)
     except (TypeError, ValueError):
         return None
 
-def _gtfs_time_to_secs(t: str) -> int:
-    parts = t.strip().split(":")
-    if len(parts) != 3:
-        return -1
+def _hms_to_secs(t: str) -> int:
+    """Convert HH:MM:SS to seconds since midnight. Returns -1 on error."""
     try:
+        parts = t.strip().split(":")
         return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-    except ValueError:
+    except (ValueError, IndexError):
         return -1
+
+def _dur(s: str) -> int:
+    """Parse ISO 8601 duration to seconds. e.g. PT5M30S → 330. Returns 0 on error."""
+    if not s:
+        return 0
+    return abs(_parse_iso_duration(s) or 0)
 
 def _parse_iso_duration(duration: str) -> Optional[int]:
     if not duration:
