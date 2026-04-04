@@ -1,0 +1,11 @@
+# requirements.txt — Python dependencies for Adur & Worthing Bus API
+#
+# Install with:
+#   pip install -r requirements.txt
+#
+# Deployed automatically by Vercel or Render from this file.
+
+fastapi==0.111.0          # Web framework — lightweight, fast, great docs
+uvicorn[standard]==0.30.1 # ASGI server for local development
+httpx==0.27.0             # Async HTTP client for proxying BODS API calls
+python-dotenv==1.0.1      # Load .env file for local development (optional)
