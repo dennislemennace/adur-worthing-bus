@@ -496,9 +496,19 @@ def _departures_for_stop(tt: dict, stop_id: str) -> dict:
                  + now_local.second)
     lookahead = 7200
 
-    stop_name = tt.get("stops", {}).get(stop_id, {}).get("name", stop_id)
-    raw_times = tt.get("stop_times", {}).get(stop_id, [])
+# Try the stop_id as-is first, then alternative ATCO prefix variants
+    atco_variants = _normalise_atco(stop_id)
+    matched_id    = stop_id
+    raw_times     = []
 
+    for variant in atco_variants:
+        times = tt.get("stop_times", {}).get(variant, [])
+        if times:
+            matched_id = variant
+            raw_times  = times
+            break
+
+    stop_name = tt.get("stops", {}).get(matched_id, {}).get("name", stop_id)
     if not raw_times:
         return {
             "stop_name":  stop_name,
@@ -574,6 +584,19 @@ def _check_api_key():
         raise HTTPException(status_code=503,
             detail="BODS_API_KEY not configured.")
 
+def _normalise_atco(stop_id: str) -> list:
+    """
+    Return a list of ATCO code variants to try when looking up a stop.
+    OSM sometimes stores West Sussex stops (1400...) with a 4400... prefix.
+    We try both so departures work regardless of which prefix OSM used.
+    """
+    variants = [stop_id]
+    if stop_id.startswith("4400"):
+        variants.append("1400" + stop_id[4:])
+    elif stop_id.startswith("1400"):
+        variants.append("4400" + stop_id[4:])
+    return variants
+  
 def _safe_float(v) -> Optional[float]:
     try:
         return float(v)
