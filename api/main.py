@@ -39,7 +39,7 @@ AREA_OPERATOR_NOCS = [
     "METR",
 ]
 
-MAX_DATASETS_PER_OPERATOR = 2
+MAX_DATASETS_PER_OPERATOR = 8
 TIMETABLE_CACHE_TTL = 86_400
 
 # ── In-memory cache ───────────────────────────────────────────
@@ -130,6 +130,10 @@ async def _fetch_overpass_stops() -> list:
         atco = (tags.get("naptan:AtcoCode")
                 or tags.get("ref")
                 or str(el["id"]))
+        # OSM data for West Sussex often has 4400 prefix instead of
+        # the correct 1400. Fix this so stop IDs match the timetable.
+        if atco.startswith("4400"):
+            atco = "1400" + atco[4:]
         name = tags.get("name") or tags.get("naptan:CommonName") or "Bus Stop"
         stops.append({
             "atco_code": atco,
@@ -502,8 +506,13 @@ def _parse_txc_xml(xml_bytes: bytes, out: dict) -> None:
             "headsign":   headsign,
         }
 
-        for (stop_ref, offset) in jp_map.get(jp_ref, []):
+for (stop_ref, offset) in jp_map.get(jp_ref, []):
             if not stop_ref:
+                continue
+            # Only index West Sussex stops (ATCO area code 1400)
+            # This prevents Surrey (2400), London (490) etc from
+            # flooding the index when operators serve multiple areas
+            if not stop_ref.startswith("1400"):
                 continue
             dep_secs = base_secs + offset
             if stop_ref not in out["stop_times"]:
