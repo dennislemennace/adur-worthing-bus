@@ -663,16 +663,13 @@ def _check_api_key():
 
 def _normalise_atco(stop_id: str) -> list:
     """
-    Return a list of ATCO code variants to try when looking up a stop.
-    OSM sometimes stores West Sussex stops (1400...) with a 4400... prefix.
-    We try both so departures work regardless of which prefix OSM used.
+    Normalise ATCO code to West Sussex prefix (1400).
+    Returns list with corrected code first, original as fallback.
     """
-    variants = [stop_id]
     if stop_id.startswith("4400"):
-        variants.append("1400" + stop_id[4:])
-    elif stop_id.startswith("1400"):
-        variants.append("4400" + stop_id[4:])
-    return variants
+        corrected = "1400" + stop_id[4:]
+        return [corrected, stop_id]
+    return [stop_id]
   
 def _safe_float(v) -> Optional[float]:
     try:
