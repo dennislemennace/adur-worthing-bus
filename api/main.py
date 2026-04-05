@@ -314,7 +314,75 @@ async def _download_and_parse_dataset(url: str) -> dict:
         zip_bytes = resp.content
     log.info("Downloaded %.1f MB", len(zip_bytes) / 1_048_576)
     return _parse_transxchange_zip(zip_bytes)
+# -- Debug Endpoint
 
+@app.get("/api/debug/stop")
+async def debug_stop(stopId: str = Query(...)):
+    """
+    Shows exactly what the departure lookup finds for a stop.
+    Remove this endpoint once departures are working.
+    """
+    tt        = _timetable or {}
+    variants  = _normalise_atco(stopId)
+    now_local = datetime.now()
+    today     = now_local.date()
+    dow       = today.weekday()
+    today_str = today.strftime("%Y%m%d")
+    now_secs  = (now_local.hour * 3600
+                 + now_local.minute * 60
+                 + now_local.second)
+
+    result = {
+        "stop_id_received":   stopId,
+        "variants_tried":     variants,
+        "now_local":          now_local.isoformat(),
+        "now_secs":           now_secs,
+        "today_str":          today_str,
+        "day_of_week":        dow,
+        "variants_detail":    [],
+        "sample_timetable_stop_ids": list(tt.get("stop_times", {}).keys())[:10],
+    }
+
+    for variant in variants:
+        raw_times = tt.get("stop_times", {}).get(variant, [])
+        # Take up to 5 sample entries and show full detail
+        samples = []
+        filtered_reasons = {}
+        for (dep_secs, trip_id) in raw_times[:50]:
+            trip     = tt["trips"].get(trip_id, {})
+            route    = tt["routes"].get(trip.get("route_id",""), {})
+            sid      = trip.get("service_id","")
+            cal      = tt["calendar"].get(sid, {})
+            runs     = _runs_today(sid, today, today_str, dow,
+                                   tt["calendar"], tt["calendar_dates"])
+            in_window = now_secs <= dep_secs <= now_secs + 7200
+
+            reason = None
+            if not in_window:
+                reason = f"outside window (dep_secs={dep_secs}, now={now_secs})"
+            elif not runs:
+                reason = f"not running today (cal={cal})"
+
+            if len(samples) < 5:
+                samples.append({
+                    "dep_secs":    dep_secs,
+                    "dep_time":    f"{dep_secs//3600:02d}:{(dep_secs%3600)//60:02d}",
+                    "trip_id":     trip_id,
+                    "service":     route.get("short_name","?"),
+                    "headsign":    trip.get("headsign","?"),
+                    "runs_today":  runs,
+                    "in_window":   in_window,
+                    "skip_reason": reason,
+                    "calendar":    cal,
+                })
+
+        result["variants_detail"].append({
+            "variant":         variant,
+            "raw_times_count": len(raw_times),
+            "samples":         samples,
+        })
+
+    return result
 # ── TransXChange parser ───────────────────────────────────────
 def _parse_transxchange_zip(zip_bytes: bytes) -> dict:
     result: dict = {
