@@ -1,5 +1,5 @@
 """
-api/main.py — Adur & Worthing Bus Tracker Backend v1.4
+api/main.py — Adur & Worthing Bus Tracker Backend v1.5
 """
 
 import io
@@ -32,6 +32,9 @@ BBOX_MIN_LAT, BBOX_MAX_LAT =  50.78,  50.87
 BBOX_MIN_LON, BBOX_MAX_LON = -0.42,  -0.10
 BBOX_STR = f"{BBOX_MIN_LON},{BBOX_MIN_LAT},{BBOX_MAX_LON},{BBOX_MAX_LAT}"
 
+# West Sussex ATCO area prefix
+WEST_SUSSEX_ATCO_PREFIX = "1400"
+
 AREA_OPERATOR_NOCS = [
     "SCSO",
     "BHBC",
@@ -39,10 +42,12 @@ AREA_OPERATOR_NOCS = [
     "METR",
 ]
 
+# Increased to 8 so we reach the West Sussex datasets
+# (earlier datasets for each operator may cover other regions)
 MAX_DATASETS_PER_OPERATOR = 8
 TIMETABLE_CACHE_TTL = 86_400
 
-# ── In-memory cache ───────────────────────────────────────────
+# ── Cache ─────────────────────────────────────────────────────
 _cache: dict = {}
 
 def cache_get(key: str):
@@ -59,11 +64,11 @@ def cache_set(key: str, data, ttl: int) -> None:
     _cache[key] = (data, time.time() + ttl)
 
 # ── Timetable store ───────────────────────────────────────────
-_timetable: Optional[dict] = None
-_timetable_at: float = 0.0
+_timetable:    Optional[dict] = None
+_timetable_at: float          = 0.0
 
 # ── App ───────────────────────────────────────────────────────
-app = FastAPI(title="Adur & Worthing Bus API", version="1.4.0")
+app = FastAPI(title="Adur & Worthing Bus API", version="1.5.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -85,6 +90,66 @@ async def root():
         "routes_loaded":       len(t.get("routes",     {})),
         "trips_loaded":        len(t.get("trips",      {})),
     }
+
+# ── Debug endpoint (remove once departures are working) ───────
+@app.get("/api/debug/stop")
+async def debug_stop(stopId: str = Query(...)):
+    tt        = _timetable or {}
+    variants  = _normalise_atco(stopId)
+    now_local = datetime.now()
+    today     = now_local.date()
+    dow       = today.weekday()
+    today_str = today.strftime("%Y%m%d")
+    now_secs  = (now_local.hour * 3600
+                 + now_local.minute * 60
+                 + now_local.second)
+
+    result = {
+        "stop_id_received":          stopId,
+        "variants_tried":            variants,
+        "now_local":                 now_local.isoformat(),
+        "now_secs":                  now_secs,
+        "today_str":                 today_str,
+        "day_of_week":               dow,
+        "sample_timetable_stop_ids": list(tt.get("stop_times", {}).keys())[:10],
+        "variants_detail":           [],
+    }
+
+    for variant in variants:
+        raw_times = tt.get("stop_times", {}).get(variant, [])
+        samples   = []
+        for (dep_secs, trip_id) in raw_times[:50]:
+            trip      = tt["trips"].get(trip_id, {})
+            route     = tt["routes"].get(trip.get("route_id", ""), {})
+            sid       = trip.get("service_id", "")
+            cal       = tt["calendar"].get(sid, {})
+            runs      = _runs_today(sid, today, today_str, dow,
+                                    tt["calendar"], tt["calendar_dates"])
+            in_window = now_secs <= dep_secs <= now_secs + 7200
+            reason    = None
+            if not in_window:
+                reason = f"outside window (dep={dep_secs}, now={now_secs})"
+            elif not runs:
+                reason = f"not running today (cal={cal})"
+            if len(samples) < 5:
+                samples.append({
+                    "dep_secs":    dep_secs,
+                    "dep_time":    f"{dep_secs//3600:02d}:{(dep_secs%3600)//60:02d}",
+                    "trip_id":     trip_id,
+                    "service":     route.get("short_name", "?"),
+                    "headsign":    trip.get("headsign", "?"),
+                    "runs_today":  runs,
+                    "in_window":   in_window,
+                    "skip_reason": reason,
+                    "calendar":    cal,
+                })
+        result["variants_detail"].append({
+            "variant":         variant,
+            "raw_times_count": len(raw_times),
+            "samples":         samples,
+        })
+
+    return result
 
 # ── /api/stops ────────────────────────────────────────────────
 @app.get("/api/stops")
@@ -130,8 +195,7 @@ async def _fetch_overpass_stops() -> list:
         atco = (tags.get("naptan:AtcoCode")
                 or tags.get("ref")
                 or str(el["id"]))
-        # OSM data for West Sussex often has 4400 prefix instead of
-        # the correct 1400. Fix this so stop IDs match the timetable.
+        # Correct OSM 4400 prefix to proper West Sussex 1400 prefix
         if atco.startswith("4400"):
             atco = "1400" + atco[4:]
         name = tags.get("name") or tags.get("naptan:CommonName") or "Bus Stop"
@@ -177,19 +241,15 @@ def _parse_siri_vm(xml_text: str) -> list:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
         return []
-
-    ns = {"s": SIRI_NS}
+    ns       = {"s": SIRI_NS}
     vehicles = []
-
     for activity in root.findall(".//s:VehicleActivity", ns):
         journey = activity.find("s:MonitoredVehicleJourney", ns)
         if journey is None:
             continue
-
         def jtext(tag):
             el = journey.find(f"s:{tag}", ns)
             return el.text.strip() if el is not None and el.text else ""
-
         loc = journey.find("s:VehicleLocation", ns)
         if loc is None:
             continue
@@ -198,11 +258,9 @@ def _parse_siri_vm(xml_text: str) -> list:
             lon = float(loc.find("s:Longitude", ns).text)
         except (TypeError, ValueError, AttributeError):
             continue
-
         delay_el = activity.find(".//s:Delay", ns)
         delay_s  = _parse_iso_duration(delay_el.text) if delay_el is not None else None
         rec_el   = activity.find("s:RecordedAtTime", ns)
-
         vehicles.append({
             "vehicle_ref":   jtext("VehicleRef"),
             "service_ref":   jtext("PublishedLineName") or jtext("LineRef"),
@@ -286,10 +344,8 @@ async def _discover_dataset_urls() -> list:
             except Exception as exc:
                 log.warning("Dataset query failed for NOC %s: %s", noc, exc)
                 continue
-
             results = data.get("results", [])
             log.info("NOC %s — %d dataset(s)", noc, len(results))
-
             count = 0
             for dataset in results:
                 if count >= MAX_DATASETS_PER_OPERATOR:
@@ -305,7 +361,6 @@ async def _discover_dataset_urls() -> list:
                 urls.append(dl_url)
                 count += 1
                 log.info("  Queued: %s", dl_url)
-
     log.info("Total datasets to download: %d", len(urls))
     return urls
 
@@ -318,75 +373,7 @@ async def _download_and_parse_dataset(url: str) -> dict:
         zip_bytes = resp.content
     log.info("Downloaded %.1f MB", len(zip_bytes) / 1_048_576)
     return _parse_transxchange_zip(zip_bytes)
-# -- Debug Endpoint
 
-@app.get("/api/debug/stop")
-async def debug_stop(stopId: str = Query(...)):
-    """
-    Shows exactly what the departure lookup finds for a stop.
-    Remove this endpoint once departures are working.
-    """
-    tt        = _timetable or {}
-    variants  = _normalise_atco(stopId)
-    now_local = datetime.now()
-    today     = now_local.date()
-    dow       = today.weekday()
-    today_str = today.strftime("%Y%m%d")
-    now_secs  = (now_local.hour * 3600
-                 + now_local.minute * 60
-                 + now_local.second)
-
-    result = {
-        "stop_id_received":   stopId,
-        "variants_tried":     variants,
-        "now_local":          now_local.isoformat(),
-        "now_secs":           now_secs,
-        "today_str":          today_str,
-        "day_of_week":        dow,
-        "variants_detail":    [],
-        "sample_timetable_stop_ids": list(tt.get("stop_times", {}).keys())[:10],
-    }
-
-    for variant in variants:
-        raw_times = tt.get("stop_times", {}).get(variant, [])
-        # Take up to 5 sample entries and show full detail
-        samples = []
-        filtered_reasons = {}
-        for (dep_secs, trip_id) in raw_times[:50]:
-            trip     = tt["trips"].get(trip_id, {})
-            route    = tt["routes"].get(trip.get("route_id",""), {})
-            sid      = trip.get("service_id","")
-            cal      = tt["calendar"].get(sid, {})
-            runs     = _runs_today(sid, today, today_str, dow,
-                                   tt["calendar"], tt["calendar_dates"])
-            in_window = now_secs <= dep_secs <= now_secs + 7200
-
-            reason = None
-            if not in_window:
-                reason = f"outside window (dep_secs={dep_secs}, now={now_secs})"
-            elif not runs:
-                reason = f"not running today (cal={cal})"
-
-            if len(samples) < 5:
-                samples.append({
-                    "dep_secs":    dep_secs,
-                    "dep_time":    f"{dep_secs//3600:02d}:{(dep_secs%3600)//60:02d}",
-                    "trip_id":     trip_id,
-                    "service":     route.get("short_name","?"),
-                    "headsign":    trip.get("headsign","?"),
-                    "runs_today":  runs,
-                    "in_window":   in_window,
-                    "skip_reason": reason,
-                    "calendar":    cal,
-                })
-
-        result["variants_detail"].append({
-            "variant":         variant,
-            "raw_times_count": len(raw_times),
-            "samples":         samples,
-        })
-
-    return result
 # ── TransXChange parser ───────────────────────────────────────
 def _parse_transxchange_zip(zip_bytes: bytes) -> dict:
     result: dict = {
@@ -420,7 +407,7 @@ def _parse_txc_xml(xml_bytes: bytes, out: dict) -> None:
     def tf(el, path):
         return el.find(f"t:{path}", ns)
 
-    # Stop names
+    # ── Stop names ────────────────────────────────────────────
     for s in root.findall(".//t:AnnotatedStopPointRef", ns):
         ref  = tx(s, "StopPointRef")
         name = tx(s, "CommonName", "Bus Stop")
@@ -429,11 +416,12 @@ def _parse_txc_xml(xml_bytes: bytes, out: dict) -> None:
 
     for s in root.findall(".//t:StopPoint", ns):
         ref  = tx(s, "AtcoCode") or tx(s, "StopPointRef")
-        name = tx(s, "Descriptor/CommonName") or tx(s, "CommonName", "Bus Stop")
+        name = (tx(s, "Descriptor/CommonName")
+                or tx(s, "CommonName", "Bus Stop"))
         if ref and ref not in out["stops"]:
             out["stops"][ref] = {"name": name}
 
-    # Routes
+    # ── Routes ────────────────────────────────────────────────
     for svc in root.findall(".//t:Service", ns):
         code = tx(svc, "ServiceCode")
         if not code:
@@ -445,7 +433,7 @@ def _parse_txc_xml(xml_bytes: bytes, out: dict) -> None:
             "long_name":  tx(svc, "Description"),
         }
 
-    # Journey Pattern Sections
+    # ── Journey Pattern Sections ──────────────────────────────
     jps_map: dict = {}
     for jps in root.findall(".//t:JourneyPatternSection", ns):
         jps_id = jps.get("id", "")
@@ -469,17 +457,21 @@ def _parse_txc_xml(xml_bytes: bytes, out: dict) -> None:
                 seq.append((to_ref, cumul + wait_to))
         jps_map[jps_id] = seq
 
-    # Journey Patterns
+    # ── Journey Patterns ──────────────────────────────────────
     jp_map: dict = {}
     for jp in root.findall(".//t:JourneyPattern", ns):
         jp_id    = jp.get("id", "")
-        sec_refs = [el.text for el in jp.findall("t:JourneyPatternSectionRefs", ns) if el.text]
+        sec_refs = [
+            el.text for el in
+            jp.findall("t:JourneyPatternSectionRefs", ns)
+            if el.text
+        ]
         combined = []
         for sr in sec_refs:
             combined.extend(jps_map.get(sr, []))
         jp_map[jp_id] = combined
 
-    # Vehicle Journeys
+    # ── Vehicle Journeys ──────────────────────────────────────
     for vj in root.findall(".//t:VehicleJourney", ns):
         vj_code  = tx(vj, "VehicleJourneyCode")
         svc_ref  = tx(vj, "ServiceRef")
@@ -491,11 +483,11 @@ def _parse_txc_xml(xml_bytes: bytes, out: dict) -> None:
         if base_secs < 0:
             continue
 
-        trip_id    = vj_code or f"{svc_ref}_{jp_ref}_{dep_str}"
-        op_el      = tf(vj, "OperatingProfile")
-        out["calendar"][trip_id] = _parse_operating_profile(op_el, ns)
+        trip_id = vj_code or f"{svc_ref}_{jp_ref}_{dep_str}"
+        op_el   = tf(vj, "OperatingProfile")
+        out["calendar"][trip_id] = _parse_operating_profile(op_el)
 
-        headsign = (tx(vj, "DestinationDisplay") or "")
+        headsign = tx(vj, "DestinationDisplay") or ""
         if not headsign:
             route    = out["routes"].get(svc_ref, {})
             headsign = route.get("long_name") or route.get("short_name") or ""
@@ -506,13 +498,12 @@ def _parse_txc_xml(xml_bytes: bytes, out: dict) -> None:
             "headsign":   headsign,
         }
 
-for (stop_ref, offset) in jp_map.get(jp_ref, []):
+        # Only index West Sussex stops (ATCO prefix 1400)
+        # so Surrey/London stops from multi-area operators are excluded
+        for (stop_ref, offset) in jp_map.get(jp_ref, []):
             if not stop_ref:
                 continue
-            # Only index West Sussex stops (ATCO area code 1400)
-            # This prevents Surrey (2400), London (490) etc from
-            # flooding the index when operators serve multiple areas
-            if not stop_ref.startswith("1400"):
+            if not stop_ref.startswith(WEST_SUSSEX_ATCO_PREFIX):
                 continue
             dep_secs = base_secs + offset
             if stop_ref not in out["stop_times"]:
@@ -520,7 +511,7 @@ for (stop_ref, offset) in jp_map.get(jp_ref, []):
             out["stop_times"][stop_ref].append((dep_secs, trip_id))
 
 
-def _parse_operating_profile(el, ns) -> dict:
+def _parse_operating_profile(el) -> dict:
     cal = {
         "monday": "0", "tuesday": "0", "wednesday": "0",
         "thursday": "0", "friday": "0", "saturday": "0", "sunday": "0",
@@ -533,7 +524,8 @@ def _parse_operating_profile(el, ns) -> dict:
                 cal[d] = "1"
         return cal
 
-    days_el = el.find(".//t:DaysOfWeek", {"t": TXC_NS})
+    ns_t    = {"t": TXC_NS}
+    days_el = el.find(".//t:DaysOfWeek", ns_t)
     if days_el is None:
         for d in list(cal.keys()):
             if d not in ("start_date", "end_date"):
@@ -549,13 +541,15 @@ def _parse_operating_profile(el, ns) -> dict:
         "Saturday":         ["saturday"],
         "Sunday":           ["sunday"],
         "MondayToFriday":   ["monday","tuesday","wednesday","thursday","friday"],
-        "MondayToSaturday": ["monday","tuesday","wednesday","thursday","friday","saturday"],
-        "MondayToSunday":   ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"],
+        "MondayToSaturday": ["monday","tuesday","wednesday","thursday",
+                             "friday","saturday"],
+        "MondayToSunday":   ["monday","tuesday","wednesday","thursday",
+                             "friday","saturday","sunday"],
         "Weekend":          ["saturday","sunday"],
-        "NotSaturday":      ["monday","tuesday","wednesday","thursday","friday","sunday"],
+        "NotSaturday":      ["monday","tuesday","wednesday","thursday",
+                             "friday","sunday"],
         "HolidaysOnly":     [],
     }
-    ns_t = {"t": TXC_NS}
     for tag, days in day_map.items():
         if days_el.find(f"t:{tag}", ns_t) is not None:
             for d in days:
@@ -573,19 +567,18 @@ def _departures_for_stop(tt: dict, stop_id: str) -> dict:
                  + now_local.second)
     lookahead = 7200
 
-# Try the stop_id as-is first, then alternative ATCO prefix variants
-    atco_variants = _normalise_atco(stop_id)
-    matched_id    = stop_id
-    raw_times     = []
-
-    for variant in atco_variants:
-        times = tt.get("stop_times", {}).get(variant, [])
+    variants  = _normalise_atco(stop_id)
+    matched   = stop_id
+    raw_times = []
+    for v in variants:
+        times = tt.get("stop_times", {}).get(v, [])
         if times:
-            matched_id = variant
-            raw_times  = times
+            matched   = v
+            raw_times = times
             break
 
-    stop_name = tt.get("stops", {}).get(matched_id, {}).get("name", stop_id)
+    stop_name = tt.get("stops", {}).get(matched, {}).get("name", stop_id)
+
     if not raw_times:
         return {
             "stop_name":  stop_name,
@@ -593,8 +586,8 @@ def _departures_for_stop(tt: dict, stop_id: str) -> dict:
             "note": (
                 f"No timetable entry for stop {stop_id}. "
                 "This stop may be served by an operator not yet in our "
-                "timetable, or the ATCO code in OSM may differ from the "
-                "timetable. Try a nearby stop."
+                "timetable, or the ATCO code may not match. "
+                "Try a nearby stop."
             ),
         }
 
@@ -635,12 +628,14 @@ def _runs_today(service_id: str, today: date, today_str: str,
     cal = calendar.get(service_id)
     if not cal:
         return True
-    if today_str < cal.get("start_date", "") or today_str > cal.get("end_date", "99991231"):
+    if (today_str < cal.get("start_date", "")
+            or today_str > cal.get("end_date", "99991231")):
         return False
-    days = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
+    days = ["monday","tuesday","wednesday","thursday",
+            "friday","saturday","sunday"]
     return cal.get(days[dow], "0") == "1"
 
-# ── Merge helper ──────────────────────────────────────────────
+# ── Merge ─────────────────────────────────────────────────────
 def _merge_into(merged: dict, parsed: dict) -> None:
     merged["stops"].update(parsed.get("stops", {}))
     merged["routes"].update(parsed.get("routes", {}))
@@ -662,15 +657,10 @@ def _check_api_key():
             detail="BODS_API_KEY not configured.")
 
 def _normalise_atco(stop_id: str) -> list:
-    """
-    Normalise ATCO code to West Sussex prefix (1400).
-    Returns list with corrected code first, original as fallback.
-    """
     if stop_id.startswith("4400"):
-        corrected = "1400" + stop_id[4:]
-        return [corrected, stop_id]
+        return ["1400" + stop_id[4:], stop_id]
     return [stop_id]
-  
+
 def _safe_float(v) -> Optional[float]:
     try:
         return float(v)
