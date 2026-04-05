@@ -123,12 +123,22 @@ async def root():
 # ────────────────────────────────────────────────────────────
 @app.get("/api/stops")
 async def get_stops():
-    """Bus stops in the Adur & Worthing bounding box. Cached 24 h."""
+    """
+    Bus stops in the Adur & Worthing bounding box.
+    Source: Overpass (OpenStreetMap) — no dependency on timetable load.
+    Cached 24 h.
+    """
     cached = cache_get("stops")
     if cached:
         return cached
 
-    stops = await _fetch_overpass_stops()
+    try:
+        stops = await _fetch_overpass_stops()
+    except HTTPException:
+        # Overpass occasionally has outages — return empty rather than crashing
+        log.warning("Overpass fetch failed — returning empty stop list")
+        return {"stops": [], "count": 0}
+
     result = {"stops": stops, "count": len(stops)}
     cache_set("stops", result, GTFS_CACHE_TTL)
     log.info("Serving %d stops from Overpass", len(stops))
@@ -323,14 +333,13 @@ async def _discover_dataset_urls() -> list[str]:
     async with httpx.AsyncClient(timeout=30) as client:
         for noc in AREA_OPERATOR_NOCS:
             try:
-                resp = await client.get(
+                   resp = await client.get(
                     f"{BODS_BASE}/dataset/",
                     params={
-                        "api_key":  BODS_API_KEY,
-                        "noc":      noc,
-                        "status":   "published",
-                        "limit":    50,
-                        "ordering": "-modified",   # most recent first
+                        "api_key": BODS_API_KEY,
+                        "noc":     noc,
+                        "status":  "published",
+                        "limit":   20,
                     },
                 )
                 resp.raise_for_status()
@@ -688,7 +697,22 @@ def _merge_into(merged: dict, parsed: dict) -> None:
         if stop_id not in merged["stop_times"]:
             merged["stop_times"][stop_id] = []
         merged["stop_times"][stop_id].extend(times)
-
+      
+@app.on_event("startup")
+async def warmup():
+    """
+    Pre-load the stops cache when the server starts.
+    This means the first map load is fast even on a cold Vercel instance.
+    Timetable loading is intentionally NOT done here — it's too slow for
+    startup and is loaded lazily on the first /api/departures request.
+    """
+    try:
+        log.info("Startup: warming stops cache…")
+        stops = await _fetch_overpass_stops()
+        cache_set("stops", {"stops": stops, "count": len(stops)}, GTFS_CACHE_TTL)
+        log.info("Startup: cached %d stops", len(stops))
+    except Exception as exc:
+        log.warning("Startup warmup failed (non-fatal): %s", exc)
 # ────────────────────────────────────────────────────────────
 # HELPERS
 # ────────────────────────────────────────────────────────────
