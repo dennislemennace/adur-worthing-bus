@@ -44,7 +44,7 @@ AREA_OPERATOR_NOCS = [
 
 # Increased to 8 so we reach the West Sussex datasets
 # (earlier datasets for each operator may cover other regions)
-MAX_DATASETS_PER_OPERATOR = 3
+MAX_DATASETS_PER_OPERATOR = 4
 TIMETABLE_CACHE_TTL = 86_400
 
 # ── Cache ─────────────────────────────────────────────────────
@@ -325,32 +325,38 @@ async def _download_and_merge_timetables() -> dict:
 
 
 async def _discover_dataset_urls() -> list:
+    """
+    Query BODS timetable datasets by bounding box only.
+    This returns all operators covering Adur & Worthing in one call,
+    avoiding the 400 error caused by combining noc + boundingBox.
+    """
     urls = []
     seen = set()
+    page = 1
+
     async with httpx.AsyncClient(timeout=30) as client:
-        for noc in AREA_OPERATOR_NOCS:
+        while True:
             try:
                 resp = await client.get(
                     f"{BODS_BASE}/dataset/",
                     params={
-                        "api_key": BODS_API_KEY,
-                        "noc":     noc,
-                        "status":  "published",
-                        "limit":   20,
-                        "boundingBox": BBOX_STR,
+                        "api_key":    BODS_API_KEY,
+                        "status":     "published",
+                        "limit":      25,
+                        "offset":     (page - 1) * 25,
+                        "adminArea":  "014",  # West Sussex admin area code
                     },
                 )
                 resp.raise_for_status()
                 data = resp.json()
             except Exception as exc:
-                log.warning("Dataset query failed for NOC %s: %s", noc, exc)
-                continue
+                log.warning("Dataset query failed (page %d): %s", page, exc)
+                break
+
             results = data.get("results", [])
-            log.info("NOC %s — %d dataset(s)", noc, len(results))
-            count = 0
+            log.info("Page %d — %d dataset(s) returned", page, len(results))
+
             for dataset in results:
-                if count >= MAX_DATASETS_PER_OPERATOR:
-                    break
                 dl_url = dataset.get("url", "")
                 if not dl_url:
                     continue
@@ -360,8 +366,13 @@ async def _discover_dataset_urls() -> list:
                     continue
                 seen.add(dl_url)
                 urls.append(dl_url)
-                count += 1
                 log.info("  Queued: %s", dl_url)
+
+            # Stop if we have enough or there are no more pages
+            if len(urls) >= MAX_DATASETS_PER_OPERATOR or not data.get("next"):
+                break
+            page += 1
+
     log.info("Total datasets to download: %d", len(urls))
     return urls
 
