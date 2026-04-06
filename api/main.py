@@ -326,37 +326,55 @@ async def _download_and_merge_timetables() -> dict:
 
 async def _discover_dataset_urls() -> list:
     """
-    Query BODS timetable datasets by bounding box only.
-    This returns all operators covering Adur & Worthing in one call,
-    avoiding the 400 error caused by combining noc + boundingBox.
+    Query BODS by NOC (which works), then filter results to only
+    datasets whose adminAreas include West Sussex before downloading.
+    This avoids downloading London/Surrey datasets from multi-region operators.
     """
     urls = []
     seen = set()
-    page = 1
+
+    # West Sussex identifiers that may appear in BODS adminAreas
+    WEST_SUSSEX_MARKERS = {
+        "west sussex", "worthing", "adur", "horsham",
+        "crawley", "chichester", "arun", "mid sussex"
+    }
 
     async with httpx.AsyncClient(timeout=30) as client:
-        while True:
+        for noc in AREA_OPERATOR_NOCS:
             try:
                 resp = await client.get(
                     f"{BODS_BASE}/dataset/",
                     params={
-                        "api_key":    BODS_API_KEY,
-                        "status":     "published",
-                        "limit":      25,
-                        "offset":     (page - 1) * 25,
-                        "adminArea":  "014",  # West Sussex admin area code
+                        "api_key": BODS_API_KEY,
+                        "noc":     noc,
+                        "status":  "published",
+                        "limit":   20,
                     },
                 )
                 resp.raise_for_status()
                 data = resp.json()
             except Exception as exc:
-                log.warning("Dataset query failed (page %d): %s", page, exc)
-                break
+                log.warning("Dataset query failed for NOC %s: %s", noc, exc)
+                continue
 
             results = data.get("results", [])
-            log.info("Page %d — %d dataset(s) returned", page, len(results))
+            log.info("NOC %s — %d dataset(s) found", noc, len(results))
 
+            count = 0
             for dataset in results:
+                if count >= MAX_DATASETS_PER_OPERATOR:
+                    break
+
+                # Check adminAreas and localities for West Sussex coverage
+                covers_west_sussex = _dataset_covers_west_sussex(
+                    dataset, WEST_SUSSEX_MARKERS
+                )
+
+                if not covers_west_sussex:
+                    name = dataset.get("name", "unknown")
+                    log.info("  Skipping '%s' — not West Sussex", name)
+                    continue
+
                 dl_url = dataset.get("url", "")
                 if not dl_url:
                     continue
@@ -364,19 +382,58 @@ async def _discover_dataset_urls() -> list:
                     dl_url = dl_url.rstrip("/") + "/download/"
                 if dl_url in seen:
                     continue
+
                 seen.add(dl_url)
                 urls.append(dl_url)
-                log.info("  Queued: %s", dl_url)
+                count += 1
+                log.info("  Queued (West Sussex): %s — %s",
+                         dataset.get("name", ""), dl_url)
 
-            # Stop if we have enough or there are no more pages
-            if len(urls) >= MAX_DATASETS_PER_OPERATOR or not data.get("next"):
-                break
-            page += 1
+            if count == 0:
+                # No West Sussex datasets found after filtering —
+                # fall back to queuing the first dataset anyway
+                # so we at least attempt something for this operator
+                for dataset in results[:1]:
+                    dl_url = dataset.get("url", "")
+                    if dl_url and dl_url not in seen:
+                        if "/download/" not in dl_url:
+                            dl_url = dl_url.rstrip("/") + "/download/"
+                        seen.add(dl_url)
+                        urls.append(dl_url)
+                        log.info("  Fallback (no WS match): %s", dl_url)
 
     log.info("Total datasets to download: %d", len(urls))
     return urls
 
 
+def _dataset_covers_west_sussex(dataset: dict, markers: set) -> bool:
+    """
+    Return True if the dataset's adminAreas or localities
+    mention West Sussex or any of the area markers.
+    """
+    # Check adminAreas list
+    for area in dataset.get("adminAreas", []):
+        area_name = (area.get("name") or area.get("atcoAreaCode") or "").lower()
+        if any(m in area_name for m in markers):
+            return True
+        # BODS sometimes uses the NaPTAN area code — 14 = West Sussex
+        atco_code = str(area.get("atcoAreaCode") or "")
+        if atco_code in ("14", "140"):
+            return True
+
+    # Check localities list
+    for locality in dataset.get("localities", []):
+        loc_name = (locality.get("name") or "").lower()
+        if any(m in loc_name for m in markers):
+            return True
+
+    # Check the dataset name and description directly
+    name = (dataset.get("name") or "").lower()
+    desc = (dataset.get("description") or "").lower()
+    if any(m in name or m in desc for m in markers):
+        return True
+
+    return False
 async def _download_and_parse_dataset(url: str) -> dict:
     log.info("Downloading %s", url)
     async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
