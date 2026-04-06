@@ -44,7 +44,7 @@ AREA_OPERATOR_NOCS = [
 
 # Increased to 8 so we reach the West Sussex datasets
 # (earlier datasets for each operator may cover other regions)
-MAX_DATASETS_PER_OPERATOR = 8
+MAX_DATASETS_PER_OPERATOR = 3
 TIMETABLE_CACHE_TTL = 86_400
 
 # ── Cache ─────────────────────────────────────────────────────
@@ -337,6 +337,7 @@ async def _discover_dataset_urls() -> list:
                         "noc":     noc,
                         "status":  "published",
                         "limit":   20,
+                        "boundingBox": BBOX_STR,
                     },
                 )
                 resp.raise_for_status()
