@@ -69,13 +69,18 @@ _timetable_at: float          = 0.0
 # ── App ───────────────────────────────────────────────────────
 app = FastAPI(title="Adur & Worthing Bus API", version="2.0.0")
 
+# Build list of allowed origins — include with and without trailing slash
+_origins = ["*"] if ALLOWED_ORIGIN == "*" else [
+    ALLOWED_ORIGIN.rstrip("/"),
+    ALLOWED_ORIGIN.rstrip("/") + "/",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[ALLOWED_ORIGIN] if ALLOWED_ORIGIN != "*" else ["*"],
+    allow_origins=_origins,
     allow_methods=["GET"],
     allow_headers=["*"],
 )
-
 # ── Health ────────────────────────────────────────────────────
 @app.get("/")
 async def root():
