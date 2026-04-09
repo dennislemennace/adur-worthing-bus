@@ -82,7 +82,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 # ── Health ────────────────────────────────────────────────────
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     t = _timetable or {}
     return {
