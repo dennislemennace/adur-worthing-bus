@@ -8,7 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions: write-all
 
     steps:
       - name: Checkout repo
@@ -22,9 +21,23 @@ jobs:
       - name: Install dependencies
         run: |
           pip install httpx
-          python -c "import httpx; print('httpx OK')"
+          python -c "import httpx; print('httpx', httpx.__version__, 'OK')"
 
-      - name: Test script can be imported
+      - name: Compile check
+        run: python -m py_compile scripts/build_timetable.py
+
+      - name: Verify script imports
+        env:
+          BODS_API_KEY: "test"
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from scripts.build_timetable import main, discover_dataset_urls
+          print('Import OK')
+          "
+
+      - name: Verify API key
         env:
           BODS_API_KEY: ${{ secrets.BODS_API_KEY }}
         run: |
@@ -33,27 +46,36 @@ jobs:
           key = os.environ.get('BODS_API_KEY', '')
           print(f'API key present: {bool(key)}')
           print(f'API key length: {len(key)}')
+          if not key:
+              print('ERROR: BODS_API_KEY secret is not set!')
+              exit(1)
           "
 
       - name: Build timetable
         env:
           BODS_API_KEY: ${{ secrets.BODS_API_KEY }}
-        run: |
-          set -x
-          python scripts/build_timetable.py
+        run: python -u scripts/build_timetable.py
 
       - name: Check output
         run: |
           ls -lh data/
           python -c "
-          import json
+          import json, sys
           with open('data/timetable.json') as f:
               d = json.load(f)
-          print('stops:', len(d.get('stops', {})))
-          print('routes:', len(d.get('routes', {})))
-          print('trips:', len(d.get('trips', {})))
-          print('stop_times:', len(d.get('stop_times', {})))
+          stops = len(d.get('stops', {}))
+          routes = len(d.get('routes', {}))
+          trips = len(d.get('trips', {}))
+          stop_times = len(d.get('stop_times', {}))
+          print(f'stops: {stops}')
+          print(f'routes: {routes}')
+          print(f'trips: {trips}')
+          print(f'stop_times: {stop_times}')
+          if stop_times == 0:
+              print('WARNING: timetable is empty — no stop_times found')
+              sys.exit(1)
           "
+
       - name: Commit timetable if changed
         run: |
           git config user.name  "github-actions[bot]"
