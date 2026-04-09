@@ -445,21 +445,98 @@ async def _download_and_parse_dataset(url: str) -> dict:
 
 # ── TransXChange parser ───────────────────────────────────────
 def _parse_transxchange_zip(zip_bytes: bytes) -> dict:
+    """
+    Parse a TransXChange zip file memory-efficiently.
+    Processes one XML file at a time and discards it before
+    opening the next, so a 34 MB zip with 405 files doesn't
+    exhaust Render's free tier RAM.
+    """
     result: dict = {
         "stops": {}, "routes": {}, "trips": {},
         "stop_times": {}, "calendar": {}, "calendar_dates": {},
     }
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            xml_files = [n for n in zf.namelist() if n.lower().endswith(".xml")]
-            log.info("  Zip has %d XML file(s)", len(xml_files))
-            for xml_name in xml_files:
-                with zf.open(xml_name) as f:
-                    _parse_txc_xml(f.read(), result)
+            all_xml = [n for n in zf.namelist() if n.lower().endswith(".xml")]
+            log.info("  Zip has %d XML file(s)", len(all_xml))
+
+            for i, xml_name in enumerate(all_xml):
+                try:
+                    with zf.open(xml_name) as f:
+                        xml_bytes = f.read()
+
+                    # Parse into a temporary dict, then merge only
+                    # West Sussex data into the main result.
+                    # The temp dict is discarded after each file.
+                    temp: dict = {
+                        "stops": {}, "routes": {}, "trips": {},
+                        "stop_times": {}, "calendar": {}, "calendar_dates": {},
+                    }
+                    _parse_txc_xml(xml_bytes, temp)
+                    del xml_bytes   # free raw bytes immediately
+
+                    # Only keep stop_times for West Sussex stops
+                    ws_stop_times = {
+                        k: v for k, v in temp["stop_times"].items()
+                        if k.startswith(WEST_SUSSEX_ATCO_PREFIX)
+                    }
+
+                    # Only keep trips that serve at least one West Sussex stop
+                    ws_trip_ids = {
+                        trip_id
+                        for times in ws_stop_times.values()
+                        for (_, trip_id) in times
+                    }
+                    ws_trips = {
+                        k: v for k, v in temp["trips"].items()
+                        if k in ws_trip_ids
+                    }
+
+                    # Only keep routes that have West Sussex trips
+                    ws_route_ids = {
+                        t["route_id"] for t in ws_trips.values()
+                    }
+                    ws_routes = {
+                        k: v for k, v in temp["routes"].items()
+                        if k in ws_route_ids
+                    }
+
+                    # Only keep calendar entries for West Sussex trips
+                    ws_calendar = {
+                        k: v for k, v in temp["calendar"].items()
+                        if k in ws_trip_ids
+                    }
+
+                    # Merge filtered data into main result
+                    result["stops"].update(temp["stops"])   # stop names are small
+                    result["routes"].update(ws_routes)
+                    result["trips"].update(ws_trips)
+                    result["calendar"].update(ws_calendar)
+                    for stop_id, times in ws_stop_times.items():
+                        if stop_id not in result["stop_times"]:
+                            result["stop_times"][stop_id] = []
+                        result["stop_times"][stop_id].extend(times)
+
+                    # Log progress every 50 files so we can track it
+                    if (i + 1) % 50 == 0 or (i + 1) == len(all_xml):
+                        log.info(
+                            "  Processed %d/%d files — "
+                            "%d WS stops, %d WS trips so far",
+                            i + 1, len(all_xml),
+                            len(result["stop_times"]),
+                            len(result["trips"]),
+                        )
+
+                    del temp    # free the temp dict before next file
+
+                except Exception as exc:
+                    log.warning("  Skipping %s — %s", xml_name, exc)
+                    continue
+
     except zipfile.BadZipFile as exc:
         log.error("Bad zip: %s", exc)
-    return result
 
+    return result
 
 def _parse_txc_xml(xml_bytes: bytes, out: dict) -> None:
     try:
