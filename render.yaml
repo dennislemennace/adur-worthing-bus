@@ -19,12 +19,12 @@ services:
   - type: web
     name: adur-worthing-bus-api
     runtime: python
-    plan: free               # Free tier — sleeps after 15 min inactivity; wakes on first request
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
     envVars:
       - key: BODS_API_KEY
-        sync: false          # Set this manually in the Render dashboard
+        sync: false
       - key: ALLOWED_ORIGIN
-        sync: false          # Set this manually in the Render dashboard
-    healthCheckPath: /
+        sync: false
