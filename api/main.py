@@ -1,14 +1,25 @@
 """
-api/main.py — Adur & Worthing Bus Tracker Backend v1.5
+api/main.py — Adur & Worthing Bus Tracker Backend v2.0
+=======================================================
+
+Timetable data is loaded from data/timetable.json which is built
+weekly by GitHub Actions (scripts/build_timetable.py).
+
+Only live vehicle positions are fetched from BODS at runtime —
+no large downloads, no timeouts.
+
+Environment variables:
+  BODS_API_KEY    — https://data.bus-data.dft.gov.uk/
+  ALLOWED_ORIGIN  — your GitHub Pages URL
 """
 
-import io
+import json
 import os
 import time
 import logging
-import zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, date
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -26,28 +37,16 @@ ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
 
 BODS_BASE = "https://data.bus-data.dft.gov.uk/api/v1"
 SIRI_NS   = "http://www.siri.org.uk/siri"
-TXC_NS    = "http://www.transxchange.org.uk/"
 
 BBOX_MIN_LAT, BBOX_MAX_LAT =  50.78,  50.87
 BBOX_MIN_LON, BBOX_MAX_LON = -0.42,  -0.10
 BBOX_STR = f"{BBOX_MIN_LON},{BBOX_MIN_LAT},{BBOX_MAX_LON},{BBOX_MAX_LAT}"
 
-# West Sussex ATCO area prefix
 WEST_SUSSEX_ATCO_PREFIX = "1400"
+TIMETABLE_CACHE_TTL     = 3600   # Re-read file from disk every hour
+TIMETABLE_PATH = Path(__file__).parent.parent / "data" / "timetable.json"
 
-AREA_OPERATOR_NOCS = [
-    "SCSO",
-    "BHBC",
-    "CMPA",
-    "METR",
-]
-
-# Increased to 8 so we reach the West Sussex datasets
-# (earlier datasets for each operator may cover other regions)
-MAX_DATASETS_PER_OPERATOR = 4
-TIMETABLE_CACHE_TTL = 86_400
-
-# ── Cache ─────────────────────────────────────────────────────
+# ── In-memory cache ───────────────────────────────────────────
 _cache: dict = {}
 
 def cache_get(key: str):
@@ -68,7 +67,7 @@ _timetable:    Optional[dict] = None
 _timetable_at: float          = 0.0
 
 # ── App ───────────────────────────────────────────────────────
-app = FastAPI(title="Adur & Worthing Bus API", version="1.5.0")
+app = FastAPI(title="Adur & Worthing Bus API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -85,16 +84,18 @@ async def root():
         "status":              "ok",
         "bods_key_configured": bool(BODS_API_KEY),
         "timetable_loaded":    _timetable is not None,
+        "timetable_file":      str(TIMETABLE_PATH),
+        "timetable_exists":    TIMETABLE_PATH.exists(),
         "stops_in_timetable":  len(t.get("stops",      {})),
         "stop_times_indexed":  len(t.get("stop_times", {})),
         "routes_loaded":       len(t.get("routes",     {})),
         "trips_loaded":        len(t.get("trips",      {})),
     }
 
-# ── Debug endpoint (remove once departures are working) ───────
+# ── Debug endpoint (remove once departures are confirmed working)
 @app.get("/api/debug/stop")
 async def debug_stop(stopId: str = Query(...)):
-    tt        = _timetable or {}
+    tt        = await _get_timetable()
     variants  = _normalise_atco(stopId)
     now_local = datetime.now()
     today     = now_local.date()
@@ -154,6 +155,7 @@ async def debug_stop(stopId: str = Query(...)):
 # ── /api/stops ────────────────────────────────────────────────
 @app.get("/api/stops")
 async def get_stops():
+    """Bus stops in Adur & Worthing bounding box. Cached 24 h."""
     cached = cache_get("stops")
     if cached:
         return cached
@@ -163,7 +165,7 @@ async def get_stops():
         log.warning("Overpass fetch failed: %s", exc)
         return {"stops": [], "count": 0}
     result = {"stops": stops, "count": len(stops)}
-    cache_set("stops", result, TIMETABLE_CACHE_TTL)
+    cache_set("stops", result, 86_400)
     log.info("Serving %d stops from Overpass", len(stops))
     return result
 
@@ -210,6 +212,7 @@ async def _fetch_overpass_stops() -> list:
 # ── /api/vehicles ─────────────────────────────────────────────
 @app.get("/api/vehicles")
 async def get_vehicles():
+    """Live bus positions from BODS SIRI-VM. Cached 15 s."""
     _check_api_key()
     cached = cache_get("vehicles")
     if cached:
@@ -241,15 +244,19 @@ def _parse_siri_vm(xml_text: str) -> list:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
         return []
+
     ns       = {"s": SIRI_NS}
     vehicles = []
+
     for activity in root.findall(".//s:VehicleActivity", ns):
         journey = activity.find("s:MonitoredVehicleJourney", ns)
         if journey is None:
             continue
+
         def jtext(tag):
             el = journey.find(f"s:{tag}", ns)
             return el.text.strip() if el is not None and el.text else ""
+
         loc = journey.find("s:VehicleLocation", ns)
         if loc is None:
             continue
@@ -258,9 +265,11 @@ def _parse_siri_vm(xml_text: str) -> list:
             lon = float(loc.find("s:Longitude", ns).text)
         except (TypeError, ValueError, AttributeError):
             continue
+
         delay_el = activity.find(".//s:Delay", ns)
         delay_s  = _parse_iso_duration(delay_el.text) if delay_el is not None else None
         rec_el   = activity.find("s:RecordedAtTime", ns)
+
         vehicles.append({
             "vehicle_ref":   jtext("VehicleRef"),
             "service_ref":   jtext("PublishedLineName") or jtext("LineRef"),
@@ -277,6 +286,7 @@ def _parse_siri_vm(xml_text: str) -> list:
 # ── /api/departures ───────────────────────────────────────────
 @app.get("/api/departures")
 async def get_departures(stopId: str = Query(...)):
+    """Scheduled departures for a stop from pre-built timetable. Cached 60 s."""
     _check_api_key()
     if not stopId or len(stopId) > 20:
         raise HTTPException(status_code=400, detail="Invalid stopId.")
@@ -290,417 +300,62 @@ async def get_departures(stopId: str = Query(...)):
 
 # ── Timetable loader ──────────────────────────────────────────
 async def _get_timetable() -> dict:
+    """
+    Load timetable from data/timetable.json (built by GitHub Actions).
+    Cached in memory for 1 hour, then re-read from disk in case
+    the file was updated by a new Action run.
+    """
     global _timetable, _timetable_at
+
     if _timetable and (time.time() - _timetable_at) < TIMETABLE_CACHE_TTL:
         return _timetable
-    log.info("Loading timetable from BODS…")
-    _timetable    = await _download_and_merge_timetables()
-    _timetable_at = time.time()
-    log.info(
-        "Timetable ready: %d stops, %d stop_time entries, %d routes, %d trips",
-        len(_timetable.get("stops",      {})),
-        len(_timetable.get("stop_times", {})),
-        len(_timetable.get("routes",     {})),
-        len(_timetable.get("trips",      {})),
-    )
+
+    log.info("Loading timetable from %s…", TIMETABLE_PATH)
+
+    try:
+        with open(TIMETABLE_PATH, encoding="utf-8") as f:
+            raw = json.load(f)
+
+        # stop_times are stored as [[dep_secs, trip_id], ...] in JSON
+        # Convert back to list of tuples for internal use
+        raw["stop_times"] = {
+            k: [(int(entry[0]), entry[1]) for entry in v]
+            for k, v in raw.get("stop_times", {}).items()
+        }
+
+        _timetable    = raw
+        _timetable_at = time.time()
+
+        log.info(
+            "Timetable loaded: %d stops, %d stop_time entries, "
+            "%d routes, %d trips",
+            len(_timetable.get("stops",      {})),
+            len(_timetable.get("stop_times", {})),
+            len(_timetable.get("routes",     {})),
+            len(_timetable.get("trips",      {})),
+        )
+
+    except FileNotFoundError:
+        log.error(
+            "data/timetable.json not found. "
+            "Run the GitHub Action or: "
+            "BODS_API_KEY=your_key python scripts/build_timetable.py"
+        )
+        _timetable = {
+            "stops": {}, "routes": {}, "trips": {},
+            "stop_times": {}, "calendar": {}, "calendar_dates": {},
+        }
+        _timetable_at = time.time()
+
+    except json.JSONDecodeError as exc:
+        log.error("Corrupt timetable.json: %s", exc)
+        _timetable = {
+            "stops": {}, "routes": {}, "trips": {},
+            "stop_times": {}, "calendar": {}, "calendar_dates": {},
+        }
+        _timetable_at = time.time()
+
     return _timetable
-
-
-async def _download_and_merge_timetables() -> dict:
-    merged: dict = {
-        "stops": {}, "routes": {}, "trips": {},
-        "stop_times": {}, "calendar": {}, "calendar_dates": {},
-    }
-    urls = await _discover_dataset_urls()
-    if not urls:
-        log.warning("No dataset URLs found")
-        return merged
-    for url in urls:
-        try:
-            parsed = await _download_and_parse_dataset(url)
-            _merge_into(merged, parsed)
-        except Exception as exc:
-            log.warning("Skipping %s — %s", url, exc)
-    return merged
-
-
-async def _discover_dataset_urls() -> list:
-    """
-    Query BODS by NOC (which works), then filter results to only
-    datasets whose adminAreas include West Sussex before downloading.
-    This avoids downloading London/Surrey datasets from multi-region operators.
-    """
-    urls = []
-    seen = set()
-
-    # West Sussex identifiers that may appear in BODS adminAreas
-    WEST_SUSSEX_MARKERS = {
-        "west sussex", "worthing", "adur", "horsham",
-        "crawley", "chichester", "arun", "mid sussex"
-    }
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        for noc in AREA_OPERATOR_NOCS:
-            try:
-                resp = await client.get(
-                    f"{BODS_BASE}/dataset/",
-                    params={
-                        "api_key": BODS_API_KEY,
-                        "noc":     noc,
-                        "status":  "published",
-                        "limit":   20,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception as exc:
-                log.warning("Dataset query failed for NOC %s: %s", noc, exc)
-                continue
-
-            results = data.get("results", [])
-            log.info("NOC %s — %d dataset(s) found", noc, len(results))
-
-            count = 0
-            for dataset in results:
-                if count >= MAX_DATASETS_PER_OPERATOR:
-                    break
-
-                # Check adminAreas and localities for West Sussex coverage
-                covers_west_sussex = _dataset_covers_west_sussex(
-                    dataset, WEST_SUSSEX_MARKERS
-                )
-
-                if not covers_west_sussex:
-                    name = dataset.get("name", "unknown")
-                    log.info("  Skipping '%s' — not West Sussex", name)
-                    continue
-
-                dl_url = dataset.get("url", "")
-                if not dl_url:
-                    continue
-                if "/download/" not in dl_url:
-                    dl_url = dl_url.rstrip("/") + "/download/"
-                if dl_url in seen:
-                    continue
-
-                seen.add(dl_url)
-                urls.append(dl_url)
-                count += 1
-                log.info("  Queued (West Sussex): %s — %s",
-                         dataset.get("name", ""), dl_url)
-
-            if count == 0:
-                # No West Sussex datasets found after filtering —
-                # fall back to queuing the first dataset anyway
-                # so we at least attempt something for this operator
-                for dataset in results[:1]:
-                    dl_url = dataset.get("url", "")
-                    if dl_url and dl_url not in seen:
-                        if "/download/" not in dl_url:
-                            dl_url = dl_url.rstrip("/") + "/download/"
-                        seen.add(dl_url)
-                        urls.append(dl_url)
-                        log.info("  Fallback (no WS match): %s", dl_url)
-
-    log.info("Total datasets to download: %d", len(urls))
-    return urls
-
-
-def _dataset_covers_west_sussex(dataset: dict, markers: set) -> bool:
-    """
-    Return True if the dataset's adminAreas or localities
-    mention West Sussex or any of the area markers.
-    """
-    # Check adminAreas list
-    for area in dataset.get("adminAreas", []):
-        area_name = (area.get("name") or area.get("atcoAreaCode") or "").lower()
-        if any(m in area_name for m in markers):
-            return True
-        # BODS sometimes uses the NaPTAN area code — 14 = West Sussex
-        atco_code = str(area.get("atcoAreaCode") or "")
-        if atco_code in ("14", "140"):
-            return True
-
-    # Check localities list
-    for locality in dataset.get("localities", []):
-        loc_name = (locality.get("name") or "").lower()
-        if any(m in loc_name for m in markers):
-            return True
-
-    # Check the dataset name and description directly
-    name = (dataset.get("name") or "").lower()
-    desc = (dataset.get("description") or "").lower()
-    if any(m in name or m in desc for m in markers):
-        return True
-
-    return False
-async def _download_and_parse_dataset(url: str) -> dict:
-    log.info("Downloading %s", url)
-    async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
-        resp = await client.get(url, params={"api_key": BODS_API_KEY})
-        resp.raise_for_status()
-        zip_bytes = resp.content
-    log.info("Downloaded %.1f MB", len(zip_bytes) / 1_048_576)
-    return _parse_transxchange_zip(zip_bytes)
-
-# ── TransXChange parser ───────────────────────────────────────
-def _parse_transxchange_zip(zip_bytes: bytes) -> dict:
-    """
-    Parse a TransXChange zip file memory-efficiently.
-    Processes one XML file at a time and discards it before
-    opening the next, so a 34 MB zip with 405 files doesn't
-    exhaust Render's free tier RAM.
-    """
-    result: dict = {
-        "stops": {}, "routes": {}, "trips": {},
-        "stop_times": {}, "calendar": {}, "calendar_dates": {},
-    }
-    try:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            all_xml = [n for n in zf.namelist() if n.lower().endswith(".xml")]
-            log.info("  Zip has %d XML file(s)", len(all_xml))
-
-            for i, xml_name in enumerate(all_xml):
-                try:
-                    with zf.open(xml_name) as f:
-                        xml_bytes = f.read()
-
-                    # Parse into a temporary dict, then merge only
-                    # West Sussex data into the main result.
-                    # The temp dict is discarded after each file.
-                    temp: dict = {
-                        "stops": {}, "routes": {}, "trips": {},
-                        "stop_times": {}, "calendar": {}, "calendar_dates": {},
-                    }
-                    _parse_txc_xml(xml_bytes, temp)
-                    del xml_bytes   # free raw bytes immediately
-
-                    # Only keep stop_times for West Sussex stops
-                    ws_stop_times = {
-                        k: v for k, v in temp["stop_times"].items()
-                        if k.startswith(WEST_SUSSEX_ATCO_PREFIX)
-                    }
-
-                    # Only keep trips that serve at least one West Sussex stop
-                    ws_trip_ids = {
-                        trip_id
-                        for times in ws_stop_times.values()
-                        for (_, trip_id) in times
-                    }
-                    ws_trips = {
-                        k: v for k, v in temp["trips"].items()
-                        if k in ws_trip_ids
-                    }
-
-                    # Only keep routes that have West Sussex trips
-                    ws_route_ids = {
-                        t["route_id"] for t in ws_trips.values()
-                    }
-                    ws_routes = {
-                        k: v for k, v in temp["routes"].items()
-                        if k in ws_route_ids
-                    }
-
-                    # Only keep calendar entries for West Sussex trips
-                    ws_calendar = {
-                        k: v for k, v in temp["calendar"].items()
-                        if k in ws_trip_ids
-                    }
-
-                    # Merge filtered data into main result
-                    result["stops"].update(temp["stops"])   # stop names are small
-                    result["routes"].update(ws_routes)
-                    result["trips"].update(ws_trips)
-                    result["calendar"].update(ws_calendar)
-                    for stop_id, times in ws_stop_times.items():
-                        if stop_id not in result["stop_times"]:
-                            result["stop_times"][stop_id] = []
-                        result["stop_times"][stop_id].extend(times)
-
-                    # Log progress every 50 files so we can track it
-                    if (i + 1) % 50 == 0 or (i + 1) == len(all_xml):
-                        log.info(
-                            "  Processed %d/%d files — "
-                            "%d WS stops, %d WS trips so far",
-                            i + 1, len(all_xml),
-                            len(result["stop_times"]),
-                            len(result["trips"]),
-                        )
-
-                    del temp    # free the temp dict before next file
-
-                except Exception as exc:
-                    log.warning("  Skipping %s — %s", xml_name, exc)
-                    continue
-
-    except zipfile.BadZipFile as exc:
-        log.error("Bad zip: %s", exc)
-
-    return result
-
-def _parse_txc_xml(xml_bytes: bytes, out: dict) -> None:
-    try:
-        root = ET.fromstring(xml_bytes)
-    except ET.ParseError as exc:
-        log.warning("XML parse error: %s", exc)
-        return
-
-    ns = {"t": TXC_NS}
-
-    def tx(el, path, default=""):
-        return el.findtext(f"t:{path}", default, ns)
-
-    def tf(el, path):
-        return el.find(f"t:{path}", ns)
-
-    # ── Stop names ────────────────────────────────────────────
-    for s in root.findall(".//t:AnnotatedStopPointRef", ns):
-        ref  = tx(s, "StopPointRef")
-        name = tx(s, "CommonName", "Bus Stop")
-        if ref and ref not in out["stops"]:
-            out["stops"][ref] = {"name": name}
-
-    for s in root.findall(".//t:StopPoint", ns):
-        ref  = tx(s, "AtcoCode") or tx(s, "StopPointRef")
-        name = (tx(s, "Descriptor/CommonName")
-                or tx(s, "CommonName", "Bus Stop"))
-        if ref and ref not in out["stops"]:
-            out["stops"][ref] = {"name": name}
-
-    # ── Routes ────────────────────────────────────────────────
-    for svc in root.findall(".//t:Service", ns):
-        code = tx(svc, "ServiceCode")
-        if not code:
-            continue
-        line_el   = svc.find(".//t:Line", ns)
-        line_name = tx(line_el, "LineName") if line_el is not None else ""
-        out["routes"][code] = {
-            "short_name": line_name,
-            "long_name":  tx(svc, "Description"),
-        }
-
-    # ── Journey Pattern Sections ──────────────────────────────
-    jps_map: dict = {}
-    for jps in root.findall(".//t:JourneyPatternSection", ns):
-        jps_id = jps.get("id", "")
-        links  = jps.findall("t:JourneyPatternTimingLink", ns)
-        cumul  = 0
-        seq    = []
-        for i, link in enumerate(links):
-            from_el = tf(link, "From")
-            to_el   = tf(link, "To")
-            if from_el is None or to_el is None:
-                continue
-            from_ref  = tx(from_el, "StopPointRef")
-            to_ref    = tx(to_el,   "StopPointRef")
-            wait_from = _dur(tx(from_el, "WaitTime"))
-            run_time  = _dur(tx(link,    "RunTime"))
-            wait_to   = _dur(tx(to_el,   "WaitTime"))
-            if i == 0 and from_ref:
-                seq.append((from_ref, cumul + wait_from))
-            cumul += wait_from + run_time
-            if to_ref:
-                seq.append((to_ref, cumul + wait_to))
-        jps_map[jps_id] = seq
-
-    # ── Journey Patterns ──────────────────────────────────────
-    jp_map: dict = {}
-    for jp in root.findall(".//t:JourneyPattern", ns):
-        jp_id    = jp.get("id", "")
-        sec_refs = [
-            el.text for el in
-            jp.findall("t:JourneyPatternSectionRefs", ns)
-            if el.text
-        ]
-        combined = []
-        for sr in sec_refs:
-            combined.extend(jps_map.get(sr, []))
-        jp_map[jp_id] = combined
-
-    # ── Vehicle Journeys ──────────────────────────────────────
-    for vj in root.findall(".//t:VehicleJourney", ns):
-        vj_code  = tx(vj, "VehicleJourneyCode")
-        svc_ref  = tx(vj, "ServiceRef")
-        jp_ref   = tx(vj, "JourneyPatternRef")
-        dep_str  = tx(vj, "DepartureTime")
-        if not dep_str or not jp_ref:
-            continue
-        base_secs = _hms_to_secs(dep_str)
-        if base_secs < 0:
-            continue
-
-        trip_id = vj_code or f"{svc_ref}_{jp_ref}_{dep_str}"
-        op_el   = tf(vj, "OperatingProfile")
-        out["calendar"][trip_id] = _parse_operating_profile(op_el)
-
-        headsign = tx(vj, "DestinationDisplay") or ""
-        if not headsign:
-            route    = out["routes"].get(svc_ref, {})
-            headsign = route.get("long_name") or route.get("short_name") or ""
-
-        out["trips"][trip_id] = {
-            "route_id":   svc_ref,
-            "service_id": trip_id,
-            "headsign":   headsign,
-        }
-
-        # Only index West Sussex stops (ATCO prefix 1400)
-        # so Surrey/London stops from multi-area operators are excluded
-        for (stop_ref, offset) in jp_map.get(jp_ref, []):
-            if not stop_ref:
-                continue
-            if not stop_ref.startswith(WEST_SUSSEX_ATCO_PREFIX):
-                continue
-            dep_secs = base_secs + offset
-            if stop_ref not in out["stop_times"]:
-                out["stop_times"][stop_ref] = []
-            out["stop_times"][stop_ref].append((dep_secs, trip_id))
-
-
-def _parse_operating_profile(el) -> dict:
-    cal = {
-        "monday": "0", "tuesday": "0", "wednesday": "0",
-        "thursday": "0", "friday": "0", "saturday": "0", "sunday": "0",
-        "start_date": "20240101",
-        "end_date":   "20991231",
-    }
-    if el is None:
-        for d in list(cal.keys()):
-            if d not in ("start_date", "end_date"):
-                cal[d] = "1"
-        return cal
-
-    ns_t    = {"t": TXC_NS}
-    days_el = el.find(".//t:DaysOfWeek", ns_t)
-    if days_el is None:
-        for d in list(cal.keys()):
-            if d not in ("start_date", "end_date"):
-                cal[d] = "1"
-        return cal
-
-    day_map = {
-        "Monday":           ["monday"],
-        "Tuesday":          ["tuesday"],
-        "Wednesday":        ["wednesday"],
-        "Thursday":         ["thursday"],
-        "Friday":           ["friday"],
-        "Saturday":         ["saturday"],
-        "Sunday":           ["sunday"],
-        "MondayToFriday":   ["monday","tuesday","wednesday","thursday","friday"],
-        "MondayToSaturday": ["monday","tuesday","wednesday","thursday",
-                             "friday","saturday"],
-        "MondayToSunday":   ["monday","tuesday","wednesday","thursday",
-                             "friday","saturday","sunday"],
-        "Weekend":          ["saturday","sunday"],
-        "NotSaturday":      ["monday","tuesday","wednesday","thursday",
-                             "friday","sunday"],
-        "HolidaysOnly":     [],
-    }
-    for tag, days in day_map.items():
-        if days_el.find(f"t:{tag}", ns_t) is not None:
-            for d in days:
-                cal[d] = "1"
-    return cal
 
 # ── Departure calculation ─────────────────────────────────────
 def _departures_for_stop(tt: dict, stop_id: str) -> dict:
@@ -711,7 +366,7 @@ def _departures_for_stop(tt: dict, stop_id: str) -> dict:
     now_secs  = (now_local.hour * 3600
                  + now_local.minute * 60
                  + now_local.second)
-    lookahead = 7200
+    lookahead = 7200   # 2 hours
 
     variants  = _normalise_atco(stop_id)
     matched   = stop_id
@@ -731,9 +386,9 @@ def _departures_for_stop(tt: dict, stop_id: str) -> dict:
             "departures": [],
             "note": (
                 f"No timetable entry for stop {stop_id}. "
-                "This stop may be served by an operator not yet in our "
-                "timetable, or the ATCO code may not match. "
-                "Try a nearby stop."
+                "This stop may be served by an operator not yet in the "
+                "timetable, or the timetable may need rebuilding via "
+                "the GitHub Action."
             ),
         }
 
@@ -756,9 +411,9 @@ def _departures_for_stop(tt: dict, stop_id: str) -> dict:
             "service":            route.get("short_name", "?"),
             "destination":        trip.get("headsign", "Unknown"),
             "aimed_departure":    dep_dt.isoformat(),
-            "expected_departure": None,
+            "expected_departure": None,   # Phase 2: filled from GTFS-RT
             "status":             "Scheduled",
-            "delay_seconds":      None,
+            "delay_seconds":      None,   # Phase 2: filled from GTFS-RT
             "_trip_id":           trip_id,
         })
 
@@ -773,28 +428,13 @@ def _runs_today(service_id: str, today: date, today_str: str,
         return exceptions[today_str] == "1"
     cal = calendar.get(service_id)
     if not cal:
-        return True
+        return True   # no calendar info — assume it runs
     if (today_str < cal.get("start_date", "")
             or today_str > cal.get("end_date", "99991231")):
         return False
     days = ["monday","tuesday","wednesday","thursday",
             "friday","saturday","sunday"]
     return cal.get(days[dow], "0") == "1"
-
-# ── Merge ─────────────────────────────────────────────────────
-def _merge_into(merged: dict, parsed: dict) -> None:
-    merged["stops"].update(parsed.get("stops", {}))
-    merged["routes"].update(parsed.get("routes", {}))
-    merged["trips"].update(parsed.get("trips", {}))
-    merged["calendar"].update(parsed.get("calendar", {}))
-    for sid, dates in parsed.get("calendar_dates", {}).items():
-        if sid not in merged["calendar_dates"]:
-            merged["calendar_dates"][sid] = {}
-        merged["calendar_dates"][sid].update(dates)
-    for stop_id, times in parsed.get("stop_times", {}).items():
-        if stop_id not in merged["stop_times"]:
-            merged["stop_times"][stop_id] = []
-        merged["stop_times"][stop_id].extend(times)
 
 # ── Helpers ───────────────────────────────────────────────────
 def _check_api_key():
@@ -803,6 +443,7 @@ def _check_api_key():
             detail="BODS_API_KEY not configured.")
 
 def _normalise_atco(stop_id: str) -> list:
+    """Try corrected 1400 prefix first, then original as fallback."""
     if stop_id.startswith("4400"):
         return ["1400" + stop_id[4:], stop_id]
     return [stop_id]
@@ -812,18 +453,6 @@ def _safe_float(v) -> Optional[float]:
         return float(v)
     except (TypeError, ValueError):
         return None
-
-def _hms_to_secs(t: str) -> int:
-    try:
-        parts = t.strip().split(":")
-        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-    except (ValueError, IndexError):
-        return -1
-
-def _dur(s: str) -> int:
-    if not s:
-        return 0
-    return abs(_parse_iso_duration(s) or 0)
 
 def _parse_iso_duration(duration: str) -> Optional[int]:
     if not duration:
