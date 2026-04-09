@@ -29,7 +29,11 @@ logging.basicConfig(
 )
 log = logging.getLogger("build_timetable")
 
-import httpx
+try:
+    import httpx
+except ImportError:
+    print("FATAL: httpx is not installed. Run: pip install httpx", flush=True)
+    sys.exit(1)
 
 # ── Config ───────────────────────────────────────────────────
 BODS_API_KEY = os.environ.get("BODS_API_KEY", "")
@@ -45,7 +49,7 @@ AREA_OPERATOR_NOCS = [
     "METR",
 ]
 
-MAX_DATASETS_PER_OPERATOR = 6
+MAX_DATASETS_PER_OPERATOR = 10
 OUTPUT_PATH = Path(__file__).parent.parent / "data" / "timetable.json"
 
 
@@ -113,6 +117,41 @@ def main():
     )
 
 
+# ── HTTP retry helper ─────────────────────────────────────────
+def _http_get_with_retry(client, url, retries=3, **kwargs):
+    """GET request with exponential backoff retry."""
+    import time as _time
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            resp = client.get(url, **kwargs)
+            resp.raise_for_status()
+            return resp
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            last_exc = exc
+            wait = 2 ** attempt
+            log.warning("  Attempt %d/%d failed: %s — retrying in %ds",
+                        attempt + 1, retries, exc, wait)
+            _time.sleep(wait)
+    raise last_exc
+
+
+def _http_stream_with_retry(client, url, retries=3, **kwargs):
+    """Streaming GET with exponential backoff retry."""
+    import time as _time
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            return client.stream("GET", url, **kwargs)
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            last_exc = exc
+            wait = 2 ** attempt
+            log.warning("  Stream attempt %d/%d failed: %s — retrying in %ds",
+                        attempt + 1, retries, exc, wait)
+            _time.sleep(wait)
+    raise last_exc
+
+
 # ── Dataset discovery ─────────────────────────────────────────
 def discover_dataset_urls() -> list:
     urls = []
@@ -127,27 +166,29 @@ def discover_dataset_urls() -> list:
         for noc in AREA_OPERATOR_NOCS:
             log.info("Querying BODS for NOC: %s", noc)
             try:
-                resp = client.get(
+                resp = _http_get_with_retry(
+                    client,
                     f"{BODS_BASE}/dataset/",
                     params={
                         "api_key": BODS_API_KEY,
                         "noc":     noc,
                         "status":  "published",
-                        "limit":   20,
+                        "limit":   25,
                     },
                 )
-                log.info("  Response status: %d", resp.status_code)
-                resp.raise_for_status()
                 data = resp.json()
             except Exception as exc:
-                log.warning("  Query failed for NOC %s: %s", noc, exc)
+                log.warning("  Query failed for NOC %s after retries: %s", noc, exc)
                 continue
 
             results = data.get("results", [])
-            log.info("  Found %d dataset(s)", len(results))
+            total   = data.get("count", "?")
+            next_pg = data.get("next", None)
+            log.info("  Found %d dataset(s) (total=%s, has_next=%s)",
+                     len(results), total, bool(next_pg))
 
             # Log what we found for debugging
-            for i, ds in enumerate(results[:3]):
+            for i, ds in enumerate(results[:5]):
                 log.info("  Dataset %d: %s | adminAreas: %s | localities: %s",
                          i,
                          ds.get("name", "?"),
@@ -198,7 +239,12 @@ def discover_dataset_urls() -> list:
                     urls.append(dl_url)
                     log.info("  Fallback queued: %s", dl_url)
 
+    log.info("=== Discovery summary ===")
     log.info("Total datasets to download: %d", len(urls))
+    for i, u in enumerate(urls):
+        log.info("  [%d] %s", i + 1, u)
+    if not urls:
+        log.warning("No dataset URLs found! Check BODS API key and operator NOCs.")
     return urls
 
 
@@ -224,18 +270,34 @@ def download_and_parse(url: str) -> dict:
         "stop_times": {}, "calendar": {}, "calendar_dates": {},
     }
 
+    import time as _time
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
         tmp_path = tmp.name
-        with httpx.Client(timeout=600, follow_redirects=True) as client:
-            with client.stream(
-                "GET", url, params={"api_key": BODS_API_KEY}
-            ) as resp:
-                resp.raise_for_status()
-                total = 0
-                for chunk in resp.iter_bytes(chunk_size=65536):
-                    tmp.write(chunk)
-                    total += len(chunk)
-        log.info("Downloaded %.1f MB to disk", total / 1_048_576)
+        last_exc = None
+        for attempt in range(3):
+            try:
+                with httpx.Client(timeout=600, follow_redirects=True) as client:
+                    with client.stream(
+                        "GET", url, params={"api_key": BODS_API_KEY}
+                    ) as resp:
+                        resp.raise_for_status()
+                        total = 0
+                        for chunk in resp.iter_bytes(chunk_size=65536):
+                            tmp.write(chunk)
+                            total += len(chunk)
+                log.info("Downloaded %.1f MB to disk", total / 1_048_576)
+                last_exc = None
+                break
+            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+                last_exc = exc
+                wait = 2 ** attempt
+                log.warning("  Download attempt %d/3 failed: %s — retrying in %ds",
+                            attempt + 1, exc, wait)
+                tmp.seek(0)
+                tmp.truncate()
+                _time.sleep(wait)
+        if last_exc:
+            raise last_exc
 
     try:
         with zipfile.ZipFile(tmp_path) as zf:
