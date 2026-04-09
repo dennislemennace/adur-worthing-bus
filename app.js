@@ -18,7 +18,7 @@ const CONFIG = {
   // Development:  "http://localhost:8000"
   // Production:   Replace with your Vercel/Render deployment URL, e.g.
   //               "https://adur-worthing-bus-api.vercel.app"
-  API_BASE_URL: "https://adur-worthing-bus.vercel.app",
+  API_BASE_URL: "https://adur-worthing-bus.onrender.com",
 
   // Geographic centre of Adur & Worthing
   MAP_CENTER:  [50.818, -0.372],   // [lat, lon] — Worthing town centre area
