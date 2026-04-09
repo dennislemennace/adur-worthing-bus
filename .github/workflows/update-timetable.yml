@@ -54,10 +54,11 @@ jobs:
           print('stop_times:', len(d.get('stop_times', {})))
           "
 
-      - name: Commit timetable if changed
+- name: Commit timetable if changed
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
           git add data/timetable.json
           git diff --staged --quiet || git commit -m "Update timetable data [skip ci]"
           git push
