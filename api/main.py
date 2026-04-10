@@ -40,7 +40,7 @@ BBOX_MIN_LAT, BBOX_MAX_LAT =  50.78,  50.87
 BBOX_MIN_LON, BBOX_MAX_LON = -0.42,  -0.10
 BBOX_STR = f"{BBOX_MIN_LON},{BBOX_MIN_LAT},{BBOX_MAX_LON},{BBOX_MAX_LAT}"
 
-WEST_SUSSEX_ATCO_PREFIX = "1400"
+WEST_SUSSEX_ATCO_PREFIX = "4400"
 TIMETABLE_CACHE_TTL     = 3600   # Re-read file from disk every hour
 TIMETABLE_PATH = Path(__file__).parent.parent / "data" / "timetable.json"
 
@@ -195,9 +195,6 @@ async def _fetch_overpass_stops() -> list:
         atco = (tags.get("naptan:AtcoCode")
                 or tags.get("ref")
                 or str(el["id"]))
-        # Correct OSM 4400 prefix to proper West Sussex 1400 prefix
-        if atco.startswith("4400"):
-            atco = "1400" + atco[4:]
         name = tags.get("name") or tags.get("naptan:CommonName") or "Bus Stop"
         stops.append({
             "atco_code": atco,
@@ -441,10 +438,16 @@ def _check_api_key():
             detail="BODS_API_KEY not configured.")
 
 def _normalise_atco(stop_id: str) -> list:
-    """Try corrected 1400 prefix first, then original as fallback."""
-    if stop_id.startswith("4400"):
-        return ["1400" + stop_id[4:], stop_id]
-    return [stop_id]
+    """
+    Return lookup variants for a NaPTAN stop ID. Historically the
+    backend mangled 4400 (West Sussex) into 1400 (East Sussex); we
+    now keep the original code and also try the mangled form so old
+    clients/cached references still resolve.
+    """
+    variants = [stop_id]
+    if stop_id.startswith("1400"):
+        variants.append("4400" + stop_id[4:])
+    return variants
 
 def _safe_float(v) -> Optional[float]:
     try:

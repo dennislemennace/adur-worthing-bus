@@ -4,18 +4,23 @@ scripts/build_timetable.py
 Run by GitHub Actions weekly to download and pre-process
 timetable data from BODS, saving the result to data/timetable.json
 
+This uses the BODS regional GTFS feed for South East England, which
+covers all operators serving West Sussex in a single standardised
+download (rather than hunting operator-by-operator through
+TransXChange files).
+
 Run locally:
-    BODS_API_KEY=your_key python scripts/build_timetable.py
+    python scripts/build_timetable.py
 """
 
+import csv
 import io
-import os
-import sys
 import json
 import logging
-import zipfile
+import os
+import sys
 import tempfile
-import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 # Flush output immediately so GitHub Actions shows logs in real time
@@ -36,69 +41,39 @@ except ImportError:
     sys.exit(1)
 
 # ── Config ───────────────────────────────────────────────────
-BODS_API_KEY = os.environ.get("BODS_API_KEY", "")
-BODS_BASE    = "https://data.bus-data.dft.gov.uk/api/v1"
-TXC_NS       = "http://www.transxchange.org.uk/"
+# BODS publishes regional GTFS bundles; South East covers West Sussex
+GTFS_URL = "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/south_east/"
 
-WEST_SUSSEX_ATCO_PREFIX = "1400"
+# Keep stops whose ATCO code begins with this prefix (West Sussex = 4400).
+# NaPTAN admin area 440 = West Sussex, giving stop IDs like "4400AD0316"
+# for Adur, "4400WO..." for Worthing, etc.
+WEST_SUSSEX_ATCO_PREFIX = "4400"
 
-AREA_OPERATOR_NOCS = [
-    "SCSO",
-    "BHBC",
-    "CMPA",
-    "METR",
-]
-
-MAX_DATASETS_PER_OPERATOR = 10
 OUTPUT_PATH = Path(__file__).parent.parent / "data" / "timetable.json"
 
 
 # ── Main ─────────────────────────────────────────────────────
 def main():
-    print("Script started", flush=True)
-    print(f"Output path: {OUTPUT_PATH}", flush=True)
-    print(f"API key present: {bool(BODS_API_KEY)}", flush=True)
-    print(f"API key length: {len(BODS_API_KEY)}", flush=True)
-
-    if not BODS_API_KEY:
-        print("ERROR: BODS_API_KEY is not set — aborting", flush=True)
-        sys.exit(1)
+    log.info("Script started")
+    log.info("Output path: %s", OUTPUT_PATH)
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Output directory ready: {OUTPUT_PATH.parent}", flush=True)
 
-    timetable: dict = {
-        "stops":          {},
-        "routes":         {},
-        "trips":          {},
-        "stop_times":     {},
-        "calendar":       {},
-        "calendar_dates": {},
-    }
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        tmp_path = tmp.name
 
-    urls = discover_dataset_urls()
-    if not urls:
-        log.error("No dataset URLs found — writing empty timetable")
-        # Write empty file so the backend doesn't crash on startup
-        with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
-            json.dump(timetable, f)
-        return
-
-    for url in urls:
+    try:
+        download_gtfs(GTFS_URL, tmp_path)
+        timetable = parse_gtfs(tmp_path)
+    finally:
         try:
-            parsed = download_and_parse(url)
-            merge_into(timetable, parsed)
-            log.info(
-                "Running totals: %d WS stops, %d trips",
-                len(timetable["stop_times"]),
-                len(timetable["trips"]),
-            )
-        except Exception as exc:
-            log.warning("Skipping %s — %s", url, exc)
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
     # Convert stop_times tuples to lists for JSON serialisation
     timetable["stop_times"] = {
-        k: [[dep_secs, trip_id] for dep_secs, trip_id in v]
+        k: [[dep_secs, trip_id] for (dep_secs, trip_id) in v]
         for k, v in timetable["stop_times"].items()
     }
 
@@ -107,471 +82,241 @@ def main():
         json.dump(timetable, f, separators=(",", ":"))
 
     size_mb = OUTPUT_PATH.stat().st_size / 1_048_576
+    total_stop_time_entries = sum(
+        len(v) for v in timetable["stop_times"].values()
+    )
     log.info("Done — %.1f MB written", size_mb)
     log.info(
-        "Final counts: %d stops, %d routes, %d trips, %d stop_time entries",
+        "Final counts: %d stops, %d routes, %d trips, "
+        "%d stops with departures, %d total stop_time entries",
         len(timetable["stops"]),
         len(timetable["routes"]),
         len(timetable["trips"]),
         len(timetable["stop_times"]),
+        total_stop_time_entries,
     )
 
 
-# ── HTTP retry helper ─────────────────────────────────────────
-def _http_get_with_retry(client, url, retries=3, **kwargs):
-    """GET request with exponential backoff retry."""
-    import time as _time
+# ── Download ─────────────────────────────────────────────────
+def download_gtfs(url: str, dest_path: str) -> None:
+    log.info("Downloading GTFS from %s", url)
     last_exc = None
-    for attempt in range(retries):
+    for attempt in range(3):
         try:
-            resp = client.get(url, **kwargs)
-            resp.raise_for_status()
-            return resp
+            with open(dest_path, "wb") as out, \
+                 httpx.Client(timeout=600, follow_redirects=True) as client:
+                with client.stream("GET", url) as resp:
+                    resp.raise_for_status()
+                    total = 0
+                    for chunk in resp.iter_bytes(chunk_size=262144):
+                        out.write(chunk)
+                        total += len(chunk)
+            log.info("Downloaded %.1f MB", total / 1_048_576)
+            return
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
             last_exc = exc
             wait = 2 ** attempt
-            log.warning("  Attempt %d/%d failed: %s — retrying in %ds",
-                        attempt + 1, retries, exc, wait)
+            log.warning(
+                "  Download attempt %d/3 failed: %s — retrying in %ds",
+                attempt + 1, exc, wait,
+            )
+            import time as _time
             _time.sleep(wait)
-    raise last_exc
+    raise RuntimeError(f"GTFS download failed after 3 attempts: {last_exc}")
 
 
-def _http_stream_with_retry(client, url, retries=3, **kwargs):
-    """Streaming GET with exponential backoff retry."""
-    import time as _time
-    last_exc = None
-    for attempt in range(retries):
-        try:
-            return client.stream("GET", url, **kwargs)
-        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-            last_exc = exc
-            wait = 2 ** attempt
-            log.warning("  Stream attempt %d/%d failed: %s — retrying in %ds",
-                        attempt + 1, retries, exc, wait)
-            _time.sleep(wait)
-    raise last_exc
-
-
-# ── Dataset discovery ─────────────────────────────────────────
-def discover_dataset_urls() -> list:
-    urls = []
-    seen = set()
-
-    WEST_SUSSEX_MARKERS = {
-        "west sussex", "worthing", "adur", "horsham",
-        "crawley", "chichester", "arun", "mid sussex"
+# ── GTFS parser ──────────────────────────────────────────────
+def parse_gtfs(zip_path: str) -> dict:
+    """
+    Extract West Sussex timetable data from a GTFS zip.
+    Returns a dict matching the format the backend expects.
+    """
+    timetable = {
+        "stops":          {},
+        "routes":         {},
+        "trips":          {},
+        "stop_times":     {},
+        "calendar":       {},
+        "calendar_dates": {},
     }
 
-    with httpx.Client(timeout=30) as client:
-        for noc in AREA_OPERATOR_NOCS:
-            log.info("Querying BODS for NOC: %s", noc)
-            try:
-                resp = _http_get_with_retry(
-                    client,
-                    f"{BODS_BASE}/dataset/",
-                    params={
-                        "api_key": BODS_API_KEY,
-                        "noc":     noc,
-                        "status":  "published",
-                        "limit":   25,
-                    },
+    with zipfile.ZipFile(zip_path) as zf:
+        names = set(zf.namelist())
+        log.info("GTFS zip contains: %s", sorted(names))
+
+        _require(names, "stops.txt")
+        _require(names, "stop_times.txt")
+        _require(names, "trips.txt")
+        _require(names, "routes.txt")
+
+        # 1. stops.txt — keep West Sussex stops only
+        log.info("Parsing stops.txt…")
+        ws_stop_ids = set()
+        with zf.open("stops.txt") as f:
+            reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
+            for row in reader:
+                stop_id = row.get("stop_id", "")
+                if not stop_id.startswith(WEST_SUSSEX_ATCO_PREFIX):
+                    continue
+                ws_stop_ids.add(stop_id)
+                timetable["stops"][stop_id] = {
+                    "name": row.get("stop_name") or "Bus Stop",
+                }
+        log.info("  %d West Sussex stops", len(ws_stop_ids))
+
+        if not ws_stop_ids:
+            log.error("No West Sussex stops found — aborting")
+            return timetable
+
+        # 2. stop_times.txt — keep only rows for WS stops.
+        # This is the biggest file; stream through it.
+        log.info("Parsing stop_times.txt (this is the big one)…")
+        needed_trip_ids = set()
+        row_count = 0
+        kept_count = 0
+        with zf.open("stop_times.txt") as f:
+            reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
+            for row in reader:
+                row_count += 1
+                if row_count % 1_000_000 == 0:
+                    log.info(
+                        "  processed %s rows, kept %s entries",
+                        f"{row_count:,}", f"{kept_count:,}",
+                    )
+                stop_id = row.get("stop_id", "")
+                if stop_id not in ws_stop_ids:
+                    continue
+                trip_id = row.get("trip_id", "")
+                dep_time = (row.get("departure_time")
+                            or row.get("arrival_time", ""))
+                dep_secs = _hms_to_secs(dep_time)
+                if dep_secs < 0 or not trip_id:
+                    continue
+                if stop_id not in timetable["stop_times"]:
+                    timetable["stop_times"][stop_id] = []
+                timetable["stop_times"][stop_id].append((dep_secs, trip_id))
+                needed_trip_ids.add(trip_id)
+                kept_count += 1
+        log.info(
+            "  processed %s rows total; kept %s entries across %d trips",
+            f"{row_count:,}", f"{kept_count:,}", len(needed_trip_ids),
+        )
+
+        # 3. trips.txt — keep only trips that serve a WS stop
+        log.info("Parsing trips.txt…")
+        needed_route_ids = set()
+        needed_service_ids = set()
+        with zf.open("trips.txt") as f:
+            reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
+            for row in reader:
+                trip_id = row.get("trip_id", "")
+                if trip_id not in needed_trip_ids:
+                    continue
+                route_id = row.get("route_id", "")
+                service_id = row.get("service_id", "")
+                timetable["trips"][trip_id] = {
+                    "route_id":   route_id,
+                    "service_id": service_id,
+                    "headsign":   row.get("trip_headsign") or "",
+                }
+                needed_route_ids.add(route_id)
+                needed_service_ids.add(service_id)
+        log.info(
+            "  %d trips, %d routes, %d services needed",
+            len(timetable["trips"]),
+            len(needed_route_ids),
+            len(needed_service_ids),
+        )
+
+        # 4. routes.txt
+        log.info("Parsing routes.txt…")
+        with zf.open("routes.txt") as f:
+            reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
+            for row in reader:
+                route_id = row.get("route_id", "")
+                if route_id not in needed_route_ids:
+                    continue
+                timetable["routes"][route_id] = {
+                    "short_name": row.get("route_short_name") or "",
+                    "long_name":  row.get("route_long_name") or "",
+                }
+        log.info("  %d routes kept", len(timetable["routes"]))
+
+        # 5. calendar.txt
+        if "calendar.txt" in names:
+            log.info("Parsing calendar.txt…")
+            with zf.open("calendar.txt") as f:
+                reader = csv.DictReader(
+                    io.TextIOWrapper(f, encoding="utf-8-sig")
                 )
-                data = resp.json()
-            except Exception as exc:
-                log.warning("  Query failed for NOC %s after retries: %s", noc, exc)
-                continue
+                for row in reader:
+                    service_id = row.get("service_id", "")
+                    if service_id not in needed_service_ids:
+                        continue
+                    timetable["calendar"][service_id] = {
+                        "monday":     row.get("monday",    "0"),
+                        "tuesday":    row.get("tuesday",   "0"),
+                        "wednesday":  row.get("wednesday", "0"),
+                        "thursday":   row.get("thursday",  "0"),
+                        "friday":     row.get("friday",    "0"),
+                        "saturday":   row.get("saturday",  "0"),
+                        "sunday":     row.get("sunday",    "0"),
+                        "start_date": row.get("start_date") or "20240101",
+                        "end_date":   row.get("end_date")   or "20991231",
+                    }
+            log.info("  %d calendar entries kept", len(timetable["calendar"]))
 
-            results = data.get("results", [])
-            total   = data.get("count", "?")
-            next_pg = data.get("next", None)
-            log.info("  Found %d dataset(s) (total=%s, has_next=%s)",
-                     len(results), total, bool(next_pg))
-
-            # Log what we found for debugging
-            for i, ds in enumerate(results[:5]):
-                log.info("  Dataset %d: %s | adminAreas: %s | localities: %s",
-                         i,
-                         ds.get("name", "?"),
-                         [a.get("name","?") for a in ds.get("adminAreas", [])[:3]],
-                         [l.get("name","?") for l in ds.get("localities", [])[:3]])
-
-            count = 0
-            for dataset in results:
-                if count >= MAX_DATASETS_PER_OPERATOR:
-                    break
-
-                covers = _covers_west_sussex(dataset, WEST_SUSSEX_MARKERS)
-                log.info("  '%s' covers West Sussex: %s",
-                         dataset.get("name", "?"), covers)
-
-                if not covers:
-                    continue
-
-                dl_url = dataset.get("url", "")
-                if not dl_url:
-                    continue
-                if "/download/" not in dl_url:
-                    dl_url = dl_url.rstrip("/") + "/download/"
-                if dl_url in seen:
-                    continue
-
-                seen.add(dl_url)
-                urls.append(dl_url)
-                count += 1
-                log.info("  Queued: %s", dl_url)
-
-            # Fallback — if nothing matched West Sussex filter,
-            # queue all datasets for this operator up to the limit
-            if count == 0 and results:
-                log.info(
-                    "  No WS match for NOC %s — queuing all %d as fallback",
-                    noc, min(len(results), MAX_DATASETS_PER_OPERATOR)
+        # 6. calendar_dates.txt — exception days (added/removed services)
+        if "calendar_dates.txt" in names:
+            log.info("Parsing calendar_dates.txt…")
+            entry_count = 0
+            with zf.open("calendar_dates.txt") as f:
+                reader = csv.DictReader(
+                    io.TextIOWrapper(f, encoding="utf-8-sig")
                 )
-                for dataset in results[:MAX_DATASETS_PER_OPERATOR]:
-                    dl_url = dataset.get("url", "")
-                    if not dl_url:
+                for row in reader:
+                    service_id = row.get("service_id", "")
+                    if service_id not in needed_service_ids:
                         continue
-                    if "/download/" not in dl_url:
-                        dl_url = dl_url.rstrip("/") + "/download/"
-                    if dl_url in seen:
-                        continue
-                    seen.add(dl_url)
-                    urls.append(dl_url)
-                    log.info("  Fallback queued: %s", dl_url)
+                    date = row.get("date", "")
+                    # GTFS exception_type: 1 = service added, 2 = removed
+                    value = "1" if row.get("exception_type") == "1" else "0"
+                    if service_id not in timetable["calendar_dates"]:
+                        timetable["calendar_dates"][service_id] = {}
+                    timetable["calendar_dates"][service_id][date] = value
+                    entry_count += 1
+            log.info(
+                "  %d calendar_dates entries across %d services",
+                entry_count, len(timetable["calendar_dates"]),
+            )
 
-    log.info("=== Discovery summary ===")
-    log.info("Total datasets to download: %d", len(urls))
-    for i, u in enumerate(urls):
-        log.info("  [%d] %s", i + 1, u)
-    if not urls:
-        log.warning("No dataset URLs found! Check BODS API key and operator NOCs.")
-    return urls
+    # Sort stop_times per stop so the backend can slice them in order
+    for stop_id, times in timetable["stop_times"].items():
+        times.sort(key=lambda t: t[0])
 
-
-def _covers_west_sussex(dataset: dict, markers: set) -> bool:
-    for area in dataset.get("adminAreas", []):
-        name = (area.get("name") or "").lower()
-        code = str(area.get("atcoAreaCode") or "")
-        if any(m in name for m in markers) or code in ("14", "140"):
-            return True
-    for locality in dataset.get("localities", []):
-        if any(m in (locality.get("name") or "").lower() for m in markers):
-            return True
-    name = (dataset.get("name") or "").lower()
-    desc = (dataset.get("description") or "").lower()
-    return any(m in name or m in desc for m in markers)
-
-
-# ── Download and parse ────────────────────────────────────────
-def download_and_parse(url: str) -> dict:
-    log.info("Downloading %s", url)
-    result: dict = {
-        "stops": {}, "routes": {}, "trips": {},
-        "stop_times": {}, "calendar": {}, "calendar_dates": {},
-    }
-
-    import time as _time
-    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
-        tmp_path = tmp.name
-        last_exc = None
-        for attempt in range(3):
-            try:
-                with httpx.Client(timeout=600, follow_redirects=True) as client:
-                    with client.stream(
-                        "GET", url, params={"api_key": BODS_API_KEY}
-                    ) as resp:
-                        resp.raise_for_status()
-                        total = 0
-                        for chunk in resp.iter_bytes(chunk_size=65536):
-                            tmp.write(chunk)
-                            total += len(chunk)
-                log.info("Downloaded %.1f MB to disk", total / 1_048_576)
-                last_exc = None
-                break
-            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-                last_exc = exc
-                wait = 2 ** attempt
-                log.warning("  Download attempt %d/3 failed: %s — retrying in %ds",
-                            attempt + 1, exc, wait)
-                tmp.seek(0)
-                tmp.truncate()
-                _time.sleep(wait)
-        if last_exc:
-            raise last_exc
-
-    try:
-        with zipfile.ZipFile(tmp_path) as zf:
-            all_xml = [n for n in zf.namelist() if n.lower().endswith(".xml")]
-            log.info("Zip has %d XML file(s)", len(all_xml))
-
-            for i, xml_name in enumerate(all_xml):
-                try:
-                    with zf.open(xml_name) as f:
-                        xml_bytes = f.read()
-
-                    temp: dict = {
-                        "stops": {}, "routes": {}, "trips": {},
-                        "stop_times": {}, "calendar": {}, "calendar_dates": {},
-                    }
-                    parse_txc_xml(xml_bytes, temp)
-                    del xml_bytes
-
-                    # Filter to West Sussex stops only
-                    ws_stop_times = {
-                        k: v for k, v in temp["stop_times"].items()
-                        if k.startswith(WEST_SUSSEX_ATCO_PREFIX)
-                    }
-                    ws_trip_ids = {
-                        trip_id
-                        for times in ws_stop_times.values()
-                        for (_, trip_id) in times
-                    }
-                    ws_trips     = {k: v for k, v in temp["trips"].items()
-                                    if k in ws_trip_ids}
-                    ws_route_ids = {t["route_id"] for t in ws_trips.values()}
-                    ws_routes    = {k: v for k, v in temp["routes"].items()
-                                    if k in ws_route_ids}
-                    ws_calendar  = {k: v for k, v in temp["calendar"].items()
-                                    if k in ws_trip_ids}
-
-                    result["stops"].update(temp["stops"])
-                    result["routes"].update(ws_routes)
-                    result["trips"].update(ws_trips)
-                    result["calendar"].update(ws_calendar)
-                    for stop_id, times in ws_stop_times.items():
-                        if stop_id not in result["stop_times"]:
-                            result["stop_times"][stop_id] = []
-                        result["stop_times"][stop_id].extend(times)
-                    del temp
-
-                    if (i + 1) % 50 == 0 or (i + 1) == len(all_xml):
-                        log.info(
-                            "  %d/%d files — %d WS stops, %d WS trips",
-                            i + 1, len(all_xml),
-                            len(result["stop_times"]),
-                            len(result["trips"]),
-                        )
-
-                except Exception as exc:
-                    log.warning("  Skipping %s — %s", xml_name, exc)
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
-
-    return result
-
-
-# ── TransXChange parser ───────────────────────────────────────
-def parse_txc_xml(xml_bytes: bytes, out: dict) -> None:
-    try:
-        root = ET.fromstring(xml_bytes)
-    except ET.ParseError as exc:
-        log.warning("XML parse error: %s", exc)
-        return
-
-    ns = {"t": TXC_NS}
-
-    def tx(el, path, default=""):
-        return el.findtext(f"t:{path}", default, ns)
-
-    def tf(el, path):
-        return el.find(f"t:{path}", ns)
-
-    # Stop names
-    for s in root.findall(".//t:AnnotatedStopPointRef", ns):
-        ref  = tx(s, "StopPointRef")
-        name = tx(s, "CommonName", "Bus Stop")
-        if ref and ref not in out["stops"]:
-            out["stops"][ref] = {"name": name}
-
-    for s in root.findall(".//t:StopPoint", ns):
-        ref  = tx(s, "AtcoCode") or tx(s, "StopPointRef")
-        name = (tx(s, "Descriptor/CommonName")
-                or tx(s, "CommonName", "Bus Stop"))
-        if ref and ref not in out["stops"]:
-            out["stops"][ref] = {"name": name}
-
-    # Routes
-    for svc in root.findall(".//t:Service", ns):
-        code = tx(svc, "ServiceCode")
-        if not code:
-            continue
-        line_el   = svc.find(".//t:Line", ns)
-        line_name = tx(line_el, "LineName") if line_el is not None else ""
-        out["routes"][code] = {
-            "short_name": line_name,
-            "long_name":  tx(svc, "Description"),
-        }
-
-    # Journey Pattern Sections
-    jps_map: dict = {}
-    for jps in root.findall(".//t:JourneyPatternSection", ns):
-        jps_id = jps.get("id", "")
-        cumul, seq = 0, []
-        for i, link in enumerate(
-            jps.findall("t:JourneyPatternTimingLink", ns)
-        ):
-            from_el = tf(link, "From")
-            to_el   = tf(link, "To")
-            if from_el is None or to_el is None:
-                continue
-            from_ref  = tx(from_el, "StopPointRef")
-            to_ref    = tx(to_el,   "StopPointRef")
-            wait_from = _dur(tx(from_el, "WaitTime"))
-            run_time  = _dur(tx(link,    "RunTime"))
-            wait_to   = _dur(tx(to_el,   "WaitTime"))
-            if i == 0 and from_ref:
-                seq.append((from_ref, cumul + wait_from))
-            cumul += wait_from + run_time
-            if to_ref:
-                seq.append((to_ref, cumul + wait_to))
-        jps_map[jps_id] = seq
-
-    # Journey Patterns
-    jp_map: dict = {}
-    for jp in root.findall(".//t:JourneyPattern", ns):
-        jp_id    = jp.get("id", "")
-        sec_refs = [
-            el.text for el in
-            jp.findall("t:JourneyPatternSectionRefs", ns)
-            if el.text
-        ]
-        combined = []
-        for sr in sec_refs:
-            combined.extend(jps_map.get(sr, []))
-        jp_map[jp_id] = combined
-
-    # Vehicle Journeys
-    for vj in root.findall(".//t:VehicleJourney", ns):
-        vj_code   = tx(vj, "VehicleJourneyCode")
-        svc_ref   = tx(vj, "ServiceRef")
-        jp_ref    = tx(vj, "JourneyPatternRef")
-        dep_str   = tx(vj, "DepartureTime")
-        if not dep_str or not jp_ref:
-            continue
-        base_secs = _hms_to_secs(dep_str)
-        if base_secs < 0:
-            continue
-
-        trip_id  = vj_code or f"{svc_ref}_{jp_ref}_{dep_str}"
-        op_el    = tf(vj, "OperatingProfile")
-        out["calendar"][trip_id] = _parse_operating_profile(op_el)
-
-        headsign = tx(vj, "DestinationDisplay") or ""
-        if not headsign:
-            route    = out["routes"].get(svc_ref, {})
-            headsign = (route.get("long_name")
-                        or route.get("short_name") or "")
-
-        out["trips"][trip_id] = {
-            "route_id":   svc_ref,
-            "service_id": trip_id,
-            "headsign":   headsign,
-        }
-
-        for (stop_ref, offset) in jp_map.get(jp_ref, []):
-            if not stop_ref:
-                continue
-            dep_secs = base_secs + offset
-            if stop_ref not in out["stop_times"]:
-                out["stop_times"][stop_ref] = []
-            out["stop_times"][stop_ref].append((dep_secs, trip_id))
-
-
-def _parse_operating_profile(el) -> dict:
-    cal = {
-        "monday": "0", "tuesday": "0", "wednesday": "0",
-        "thursday": "0", "friday": "0", "saturday": "0", "sunday": "0",
-        "start_date": "20240101", "end_date": "20991231",
-    }
-    if el is None:
-        for d in list(cal.keys()):
-            if d not in ("start_date", "end_date"):
-                cal[d] = "1"
-        return cal
-
-    ns_t    = {"t": TXC_NS}
-    days_el = el.find(".//t:DaysOfWeek", ns_t)
-    if days_el is None:
-        for d in list(cal.keys()):
-            if d not in ("start_date", "end_date"):
-                cal[d] = "1"
-        return cal
-
-    day_map = {
-        "Monday":           ["monday"],
-        "Tuesday":          ["tuesday"],
-        "Wednesday":        ["wednesday"],
-        "Thursday":         ["thursday"],
-        "Friday":           ["friday"],
-        "Saturday":         ["saturday"],
-        "Sunday":           ["sunday"],
-        "MondayToFriday":   ["monday","tuesday","wednesday",
-                             "thursday","friday"],
-        "MondayToSaturday": ["monday","tuesday","wednesday",
-                             "thursday","friday","saturday"],
-        "MondayToSunday":   ["monday","tuesday","wednesday","thursday",
-                             "friday","saturday","sunday"],
-        "Weekend":          ["saturday","sunday"],
-        "NotSaturday":      ["monday","tuesday","wednesday",
-                             "thursday","friday","sunday"],
-        "HolidaysOnly":     [],
-    }
-    for tag, days in day_map.items():
-        if days_el.find(f"t:{tag}", ns_t) is not None:
-            for d in days:
-                cal[d] = "1"
-    return cal
-
-
-# ── Merge ─────────────────────────────────────────────────────
-def merge_into(merged: dict, parsed: dict) -> None:
-    merged["stops"].update(parsed.get("stops", {}))
-    merged["routes"].update(parsed.get("routes", {}))
-    merged["trips"].update(parsed.get("trips", {}))
-    merged["calendar"].update(parsed.get("calendar", {}))
-    for sid, dates in parsed.get("calendar_dates", {}).items():
-        if sid not in merged["calendar_dates"]:
-            merged["calendar_dates"][sid] = {}
-        merged["calendar_dates"][sid].update(dates)
-    for stop_id, times in parsed.get("stop_times", {}).items():
-        if stop_id not in merged["stop_times"]:
-            merged["stop_times"][stop_id] = []
-        merged["stop_times"][stop_id].extend(times)
+    return timetable
 
 
 # ── Helpers ───────────────────────────────────────────────────
+def _require(names: set, filename: str) -> None:
+    if filename not in names:
+        raise RuntimeError(f"GTFS zip missing required file: {filename}")
+
+
 def _hms_to_secs(t: str) -> int:
+    """
+    Convert a GTFS HH:MM:SS time to seconds since midnight.
+    GTFS allows hours > 24 for overnight services — we mod by 86400
+    so they land in the next-day slot.
+    """
+    if not t:
+        return -1
     try:
         parts = t.strip().split(":")
-        return (int(parts[0]) * 3600
-                + int(parts[1]) * 60
-                + int(parts[2]))
+        secs = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        return secs % 86400
     except (ValueError, IndexError):
         return -1
-
-
-def _dur(s: str) -> int:
-    if not s:
-        return 0
-    try:
-        s = s.strip().lstrip("-P")
-        parts = s.split("T")
-        t    = parts[1] if len(parts) > 1 else parts[0]
-        secs = 0
-        for token, mult in [("H", 3600), ("M", 60), ("S", 1)]:
-            idx = t.find(token)
-            if idx >= 0:
-                try:
-                    secs += int(float(t[:idx])) * mult
-                except ValueError:
-                    pass
-                t = t[idx + 1:]
-        return secs
-    except Exception:
-        return 0
 
 
 # ── Entry point ───────────────────────────────────────────────
