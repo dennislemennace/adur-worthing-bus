@@ -33,8 +33,6 @@ log = logging.getLogger("bus_api")
 
 # ── Config ───────────────────────────────────────────────────
 BODS_API_KEY   = os.environ.get("BODS_API_KEY", "")
-ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
-
 BODS_BASE = "https://data.bus-data.dft.gov.uk/api/v1"
 SIRI_NS   = "http://www.siri.org.uk/siri"
 
@@ -69,15 +67,9 @@ _timetable_at: float          = 0.0
 # ── App ───────────────────────────────────────────────────────
 app = FastAPI(title="Adur & Worthing Bus API", version="2.0.0")
 
-# Build list of allowed origins — include with and without trailing slash
-_origins = ["*"] if ALLOWED_ORIGIN == "*" else [
-    ALLOWED_ORIGIN.rstrip("/"),
-    ALLOWED_ORIGIN.rstrip("/") + "/",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_origins,
+    allow_origins=["*"],
     allow_methods=["GET"],
     allow_headers=["*"],
 )
