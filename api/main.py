@@ -162,7 +162,8 @@ async def get_stops():
         log.warning("Overpass fetch failed: %s", exc)
         return {"stops": [], "count": 0}
     result = {"stops": stops, "count": len(stops)}
-    cache_set("stops", result, 86_400)
+    if stops:
+        cache_set("stops", result, 86_400)
     log.info("Serving %d stops from Overpass", len(stops))
     return result
 
