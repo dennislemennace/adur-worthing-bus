@@ -44,6 +44,15 @@ const state = {
   refreshTimer:  null,  // setInterval handle for bus positions
   isRefreshing:  true,
   currentPopup:  null,  // open Leaflet popup (so we can close it)
+
+  // ── Bus info panel state ──
+  selectedVehicleRef:      null,   // vehicle_ref of bus shown in Bus tab
+  selectedVehicle:         null,   // last-known vehicle object for that ref
+  selectedVehicleLastSeen: null,   // Date of last feed where the bus appeared
+  selectedVehicleLost:     false,  // true once it drops out of the feed
+  followSelectedBus:       false,  // map-follow checkbox state
+  activeTab:               "stop", // "stop" | "bus"
+  busInfoTickTimer:        null,   // setInterval handle for "X ago" text
 };
 
 // ============================================================
@@ -67,6 +76,18 @@ const dom = {
   departuresCount:    document.getElementById("departures-count"),
   refreshStopBtn:     document.getElementById("refresh-stop-btn"),
   toast:              document.getElementById("toast"),
+
+  // ── Tabs ──
+  tabStop:            document.getElementById("tab-stop"),
+  tabBus:             document.getElementById("tab-bus"),
+  tabContentStop:     document.getElementById("tab-content-stop"),
+  tabContentBus:      document.getElementById("tab-content-bus"),
+
+  // ── Bus tab ──
+  panelBusName:       document.getElementById("panel-bus-name"),
+  panelBusId:         document.getElementById("panel-bus-id"),
+  busPanelPrompt:     document.getElementById("bus-panel-prompt"),
+  busInfoContainer:   document.getElementById("bus-info-container"),
 };
 
 // ============================================================
@@ -108,7 +129,7 @@ function initMap() {
 
   // Close panel when clicking an empty area of the map
   state.map.on("click", () => {
-    if (state.selectedStop) closePanel();
+    if (state.selectedStop || state.selectedVehicleRef) closePanel();
   });
 }
 
@@ -197,7 +218,7 @@ function updateVehicleMarkers(vehicles) {
   const seenRefs = new Set();
 
   vehicles.forEach(vehicle => {
-    // vehicle: { vehicle_ref, service_ref, destination, latitude, longitude, bearing, delay_seconds }
+    // vehicle: { vehicle_ref, service_ref, destination, latitude, longitude, bearing, delay_seconds, operator_ref }
     if (!vehicle.latitude || !vehicle.longitude) return;
 
     const ref = vehicle.vehicle_ref;
@@ -208,27 +229,36 @@ function updateVehicleMarkers(vehicles) {
       ? Number(vehicle.bearing)
       : null;
 
-    const popupHtml = `
-      <div>
-        <p class="bus-popup-line"><span class="bus-popup-service">Service ${escapeHtml(label)}</span></p>
-        <p class="bus-popup-line">To: ${escapeHtml(vehicle.destination || "Unknown")}</p>
-        ${vehicle.delay_seconds != null
-          ? `<p class="bus-popup-line">${formatDelayText(vehicle.delay_seconds)}</p>`
-          : ""}
-      </div>`;
+    const popupHtml = buildBusPopupHtml(vehicle, label);
 
     let marker = state.busMarkers[ref];
     if (marker) {
       // Move existing marker smoothly and update bearing/label in place
+      marker._vehicle = vehicle;
       marker.setLatLng([vehicle.latitude, vehicle.longitude]);
       marker.setPopupContent(popupHtml);
       updateBusMarkerInPlace(marker, label, bearing);
     } else {
       const icon = createBusIcon(vehicle.operator_ref, label, bearing);
       marker = L.marker([vehicle.latitude, vehicle.longitude], { icon, zIndexOffset: 200 })
-        .bindPopup(popupHtml, { maxWidth: 200 })
+        .bindPopup(popupHtml, { maxWidth: 220 })
         .addTo(state.map);
+      marker._vehicle = vehicle;
+      marker.on("click", () => {
+        if (marker._vehicle) openBusInfo(marker._vehicle);
+      });
       state.busMarkers[ref] = marker;
+    }
+
+    // Keep selected-bus state in sync if this is the one we're tracking
+    if (state.selectedVehicleRef && ref === state.selectedVehicleRef) {
+      state.selectedVehicle = vehicle;
+      state.selectedVehicleLastSeen = new Date();
+      state.selectedVehicleLost = false;
+      if (state.activeTab === "bus") renderBusTab();
+      if (state.followSelectedBus) {
+        state.map.panTo([vehicle.latitude, vehicle.longitude], { animate: true });
+      }
     }
   });
 
@@ -239,6 +269,45 @@ function updateVehicleMarkers(vehicles) {
       delete state.busMarkers[ref];
     }
   });
+
+  // If our selected bus dropped out of the feed, mark as lost
+  if (state.selectedVehicleRef
+      && !seenRefs.has(state.selectedVehicleRef)
+      && !state.selectedVehicleLost) {
+    state.selectedVehicleLost = true;
+    if (state.activeTab === "bus") renderBusTab();
+  }
+}
+
+/**
+ * Build the small popup that appears when a bus marker is clicked.
+ * Restyled in Phase 1 to show operator icon, badge, destination,
+ * status chip and a hint pointing the user at the side panel.
+ */
+function buildBusPopupHtml(vehicle, label) {
+  const iconUrl = OPERATOR_ICONS[vehicle.operator_ref];
+  const colour  = getOperatorColour(vehicle.operator_ref);
+
+  const iconHtml = iconUrl
+    ? `<img class="bus-popup-icon" src="${escapeAttr(iconUrl)}" alt="">`
+    : `<div class="bus-popup-icon bus-popup-icon-fallback" style="background:${colour}"></div>`;
+
+  let statusHtml = "";
+  if (vehicle.delay_seconds != null) {
+    const chip = buildStatusChip({ delay_seconds: vehicle.delay_seconds });
+    statusHtml = `<p class="bus-popup-status"><span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span></p>`;
+  }
+
+  return `
+    <div class="bus-popup">
+      <div class="bus-popup-header">
+        ${iconHtml}
+        <span class="service-badge" style="background:${colour}">${escapeHtml(label)}</span>
+      </div>
+      <p class="bus-popup-destination">To ${escapeHtml(vehicle.destination || "Unknown")}</p>
+      ${statusHtml}
+      <p class="bus-popup-hint">See Bus tab for full details →</p>
+    </div>`;
 }
 
 /**
@@ -357,6 +426,9 @@ window.openDepartures = async function(atcoCode, stopName) {
   // Update panel header
   dom.panelStopName.textContent = stopName;
   dom.panelStopId.textContent   = `ATCO: ${atcoCode}`;
+
+  // Make sure the Stop tab is the one in front
+  setActiveTab("stop");
 
   // Show panel, hide prompt
   showPanelState("loading");
@@ -489,6 +561,167 @@ function isWithinMinutes(isoString, minutes) {
 }
 
 // ============================================================
+// TABS + BUS INFO PANEL
+// ============================================================
+
+/** Switch the active panel tab. */
+function setActiveTab(tab) {
+  state.activeTab = tab;
+  const stopActive = tab === "stop";
+
+  dom.tabStop.classList.toggle("active", stopActive);
+  dom.tabBus.classList.toggle("active", !stopActive);
+  dom.tabStop.setAttribute("aria-selected", String(stopActive));
+  dom.tabBus.setAttribute("aria-selected", String(!stopActive));
+
+  dom.tabContentStop.classList.toggle("hidden", !stopActive);
+  dom.tabContentBus.classList.toggle("hidden", stopActive);
+
+  // Re-render the bus tab when becoming visible so its "X ago" is fresh
+  if (!stopActive && state.selectedVehicle) {
+    renderBusTab();
+  }
+}
+
+/**
+ * openBusInfo — called when a bus marker is clicked.
+ * Switches to the Bus tab and renders the latest known data.
+ */
+function openBusInfo(vehicle) {
+  state.selectedVehicleRef      = vehicle.vehicle_ref;
+  state.selectedVehicle         = vehicle;
+  state.selectedVehicleLastSeen = new Date();
+  state.selectedVehicleLost     = false;
+
+  setActiveTab("bus");
+  renderBusTab();
+  startBusInfoTicker();
+
+  // On mobile, scroll the panel into view
+  dom.departurePanel.scrollIntoView({ behavior: "smooth", block: "end" });
+}
+
+/** Build the Bus tab body from the latest selected vehicle. */
+function renderBusTab() {
+  const v = state.selectedVehicle;
+
+  if (!v) {
+    dom.busPanelPrompt.classList.remove("hidden");
+    dom.busInfoContainer.classList.add("hidden");
+    dom.panelBusName.textContent = "No bus selected";
+    dom.panelBusId.textContent   = "";
+    return;
+  }
+
+  const operatorName = getOperatorName(v.operator_ref);
+  const iconUrl      = OPERATOR_ICONS[v.operator_ref];
+  const colour       = getOperatorColour(v.operator_ref);
+  const service      = v.service_ref || "?";
+  const destination  = v.destination || "Unknown";
+  const fleetId      = v.vehicle_ref || "–";
+  const chip         = buildStatusChip({ delay_seconds: v.delay_seconds });
+
+  const iconHtml = iconUrl
+    ? `<img class="bus-info-icon" src="${escapeAttr(iconUrl)}" alt="">`
+    : `<div class="bus-info-icon bus-info-icon-fallback" style="background:${colour}"></div>`;
+
+  const lostBanner = state.selectedVehicleLost
+    ? `<div class="bus-info-lost">⚠️ Signal lost — last seen ${escapeHtml(formatTimeOfDay(state.selectedVehicleLastSeen))}</div>`
+    : "";
+
+  dom.panelBusName.textContent = `Service ${service}`;
+  dom.panelBusId.textContent   = operatorName;
+
+  dom.busInfoContainer.innerHTML = `
+    ${lostBanner}
+    <div class="bus-info-hero">
+      ${iconHtml}
+      <div class="bus-info-hero-text">
+        <span class="service-badge service-badge-large" style="background:${colour}">${escapeHtml(service)}</span>
+        <p class="bus-info-operator">${escapeHtml(operatorName)}</p>
+      </div>
+    </div>
+
+    <dl class="bus-info-grid">
+      <div class="bus-info-row">
+        <dt>Destination</dt>
+        <dd>${escapeHtml(destination)}</dd>
+      </div>
+      <div class="bus-info-row">
+        <dt>Status</dt>
+        <dd><span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span></dd>
+      </div>
+      <div class="bus-info-row">
+        <dt>Fleet ID</dt>
+        <dd class="bus-info-mono">${escapeHtml(fleetId)}</dd>
+      </div>
+      <div class="bus-info-row">
+        <dt>Updated</dt>
+        <dd id="bus-info-updated">${escapeHtml(formatAgo(state.selectedVehicleLastSeen))}</dd>
+      </div>
+    </dl>
+
+    <label class="follow-bus-toggle">
+      <input type="checkbox" id="follow-bus-checkbox" ${state.followSelectedBus ? "checked" : ""}>
+      <span>Follow this bus on the map</span>
+    </label>
+
+    <p class="bus-info-footer">Live data · auto-refreshes every 20s</p>
+  `;
+
+  dom.busPanelPrompt.classList.add("hidden");
+  dom.busInfoContainer.classList.remove("hidden");
+
+  const cb = document.getElementById("follow-bus-checkbox");
+  if (cb) {
+    cb.addEventListener("change", (e) => {
+      state.followSelectedBus = e.target.checked;
+      if (state.followSelectedBus && state.selectedVehicle) {
+        state.map.panTo(
+          [state.selectedVehicle.latitude, state.selectedVehicle.longitude],
+          { animate: true }
+        );
+      }
+    });
+  }
+}
+
+/** Re-tick the "X ago" line every second without re-rendering the tab. */
+function tickBusInfoUpdated() {
+  const el = document.getElementById("bus-info-updated");
+  if (el && state.selectedVehicleLastSeen) {
+    el.textContent = formatAgo(state.selectedVehicleLastSeen);
+  }
+}
+
+function startBusInfoTicker() {
+  if (state.busInfoTickTimer) return;
+  state.busInfoTickTimer = setInterval(tickBusInfoUpdated, 1000);
+}
+
+function stopBusInfoTicker() {
+  if (state.busInfoTickTimer) {
+    clearInterval(state.busInfoTickTimer);
+    state.busInfoTickTimer = null;
+  }
+}
+
+function formatAgo(ts) {
+  if (!ts) return "–";
+  const secs = Math.floor((Date.now() - ts.getTime()) / 1000);
+  if (secs < 5)  return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} min${mins !== 1 ? "s" : ""} ago`;
+  return ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatTimeOfDay(ts) {
+  if (!ts) return "–";
+  return ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+// ============================================================
 // PANEL STATE MACHINE
 // ============================================================
 function showPanelState(stateKey, errorMsg) {
@@ -510,16 +743,37 @@ function showPanelState(stateKey, errorMsg) {
 }
 
 function closePanel() {
+  // Clear stop selection
   state.selectedStop = null;
   showPanelState("prompt");
   dom.panelStopName.textContent = "Select a stop";
   dom.panelStopId.textContent   = "";
+
+  // Clear bus selection
+  state.selectedVehicleRef      = null;
+  state.selectedVehicle         = null;
+  state.selectedVehicleLastSeen = null;
+  state.selectedVehicleLost     = false;
+  state.followSelectedBus       = false;
+  stopBusInfoTicker();
+  dom.panelBusName.textContent  = "No bus selected";
+  dom.panelBusId.textContent    = "";
+  dom.busInfoContainer.classList.add("hidden");
+  dom.busInfoContainer.innerHTML = "";
+  dom.busPanelPrompt.classList.remove("hidden");
+
+  // Default back to the Stop tab
+  setActiveTab("stop");
 }
 
 // ============================================================
 // UI EVENT BINDINGS
 // ============================================================
 function bindUIEvents() {
+  // Tab switcher
+  dom.tabStop.addEventListener("click", () => setActiveTab("stop"));
+  dom.tabBus.addEventListener("click",  () => setActiveTab("bus"));
+
   // Close panel button
   dom.closePanelBtn.addEventListener("click", closePanel);
 
@@ -665,6 +919,29 @@ function getOperatorColour(operatorRef) {
 
 function getOperatorBorderColour(operatorRef) {
   return OPERATOR_BORDER_COLOURS[operatorRef] || OPERATOR_BORDER_COLOURS["DEFAULT"];
+}
+
+// ============================================================
+// OPERATOR FULL NAMES
+// Used by the Bus info tab to show a friendly operator name
+// alongside the National Operator Code.
+// ============================================================
+const OPERATOR_NAMES = {
+  "SCSO": "Stagecoach South",
+  "SCSC": "Stagecoach South",
+  "BHBC": "Brighton & Hove Buses",
+  "CMPA": "Compass Travel",
+  "COMT": "Compass Travel",
+  "NTXP": "National Express",
+  "TNXB": "National Express",
+  "ARBB": "Arriva",
+  "ARHE": "Arriva",
+  "METR": "Metrobus",
+  "SVCT": "Southern Vectis",
+};
+
+function getOperatorName(operatorRef) {
+  return OPERATOR_NAMES[operatorRef] || operatorRef || "Unknown operator";
 }
 // ============================================================
 // SECURITY HELPERS — prevent XSS in dynamically built HTML
