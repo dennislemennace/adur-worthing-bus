@@ -16,8 +16,7 @@
 const CONFIG = {
   // ─── Backend API base URL ────────────────────────────────────────────────
   // Development:  "http://localhost:8000"
-  // Production:   Replace with your Vercel/Render deployment URL, e.g.
-  //               "https://adur-worthing-bus-api.vercel.app"
+  // Production:   Render deployment URL.
   API_BASE_URL: "https://adur-worthing-bus.onrender.com",
 
   // Geographic centre of Adur & Worthing
@@ -43,7 +42,6 @@ const state = {
   selectedStop:  null,  // { atcoCode, name }
   refreshTimer:  null,  // setInterval handle for bus positions
   isRefreshing:  true,
-  currentPopup:  null,  // open Leaflet popup (so we can close it)
 
   // ── Bus info panel state ──
   selectedVehicleRef:      null,   // vehicle_ref of bus shown in Bus tab
@@ -397,15 +395,6 @@ function updateBusMarkerInPlace(marker, label, bearing) {
   if (labelEl && labelEl.textContent !== label) {
     labelEl.textContent = label;
   }
-}
-
-function formatDelayText(delaySecs) {
-  if (delaySecs == null) return "";
-  const abs = Math.abs(delaySecs);
-  const mins = Math.round(abs / 60);
-  if (mins === 0) return "🟢 On time";
-  if (delaySecs < 0) return `🔵 ${mins} min${mins !== 1 ? "s" : ""} early`;
-  return `🔴 ${mins} min${mins !== 1 ? "s" : ""} late`;
 }
 
 // ============================================================
@@ -891,7 +880,7 @@ function showToast(message, durationMs = 3500) {
 // OPERATOR COLOURS
 // Keyed by National Operator Code (operator_ref from BODS).
 // Add more entries here as you discover operator codes in your area.
-// To find a code: check the Vercel logs — operator_ref is logged
+// To find a code: check the Render logs — operator_ref is logged
 // with each vehicle fetch, or visit /api/vehicles and look at
 // the operator_ref field in the JSON.
 // ============================================================
@@ -1004,32 +993,3 @@ function escapeHtml(str) {
 function escapeAttr(str) {
   return String(str).replace(/'/g, "\\'").replace(/"/g, "&quot;");
 }
-
-/*
- * ============================================================
- * FUTURE EXTENSION POINTS
- * ============================================================
- *
- * SERVICE ALERTS
- *   - Add a call to apiFetch("/api/alerts") in init()
- *   - Display results in a new banner below the header or in the panel
- *
- * ROUTE DETAIL PAGE
- *   - Create a route.html page
- *   - Add apiFetch("/api/route?serviceRef=...") to the backend
- *   - Link from the departure table row or the bus vehicle popup
- *
- * TICKETING INFO
- *   - Add a static "ticketing.html" page or a modal triggered from the header
- *   - No backend needed — this is static content from Stagecoach/Brighton Buses websites
- *
- * NEARBY STOPS
- *   - Use navigator.geolocation.getCurrentPosition() to get the user's coords
- *   - Call apiFetch(`/api/stops?lat=...&lon=...&radius=...`)  (add that filter to the backend)
- *   - Highlight the nearest 3 stops on the map
- *
- * OPERATOR FILTER
- *   - Add a checkbox UI in the header to filter bus markers by operator
- *   - The backend /api/vehicles response already includes operator_ref
- * ============================================================
- */

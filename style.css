@@ -185,40 +185,6 @@ button {
   height: 100%;
 }
 
-/* Map legend */
-.map-legend {
-  position: absolute;
-  bottom: var(--space-lg);
-  left: var(--space-md);
-  background: var(--color-surface);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  padding: var(--space-sm) var(--space-md);
-  z-index: 500;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-
-.legend-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  display: inline-block;
-  flex-shrink: 0;
-}
-
-.legend-bus  { background: var(--color-accent); border: 2px solid #c07800; }
-.legend-stop { background: var(--color-primary); border: 2px solid var(--color-primary-dark); }
-
 /* Map loading overlay */
 .map-loading {
   position: absolute;
@@ -285,11 +251,6 @@ button {
     max-height: 45vh;
     min-height: 0;
     flex-shrink: 0;
-  }
-
-  .departure-panel.panel-mobile-collapsed {
-    max-height: 52px;
-    overflow: hidden;
   }
 }
 

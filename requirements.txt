@@ -3,7 +3,7 @@
 # Install with:
 #   pip install -r requirements.txt
 #
-# Deployed automatically by Vercel or Render from this file.
+# Deployed automatically by Render from this file.
 
 fastapi==0.111.0          # Web framework — lightweight, fast, great docs
 uvicorn[standard]==0.30.1 # ASGI server for local development
