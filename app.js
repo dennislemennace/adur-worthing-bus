@@ -500,12 +500,50 @@ function buildDepartureRow(dep) {
   const { label, cssClass } = buildStatusChip(dep);
 
   return `
-    <tr>
+    <tr class="departure-row" data-service="${escapeHtml(service)}" title="Show this bus on the map">
       <td><span class="service-badge">${escapeHtml(service)}</span></td>
       <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span></td>
       <td><span class="due-time ${isImminent ? "due-imminent" : ""}">${escapeHtml(dueText)}</span></td>
       <td><span class="status-chip ${cssClass}">${escapeHtml(label)}</span></td>
     </tr>`;
+}
+
+/**
+ * Open the Bus tab for whichever live vehicle currently runs `service`.
+ * If multiple vehicles share the service number, picks the one closest
+ * to the selected stop. Shows a toast if no live vehicle is tracked.
+ */
+function openBusFromService(service) {
+  const matches = [];
+  Object.values(state.busMarkers).forEach(marker => {
+    const v = marker._vehicle;
+    if (v && v.service_ref === service) matches.push(v);
+  });
+
+  if (matches.length === 0) {
+    showToast(`No live vehicle currently tracked for service ${service}.`);
+    return;
+  }
+
+  let chosen = matches[0];
+
+  // Prefer the closest match to the selected stop, if we know its position
+  if (state.selectedStop) {
+    const stopMarker = state.stopMarkers[state.selectedStop.atcoCode];
+    if (stopMarker) {
+      const { lat, lng } = stopMarker.getLatLng();
+      let bestDist = Infinity;
+      for (const v of matches) {
+        const d = Math.hypot(v.latitude - lat, v.longitude - lng);
+        if (d < bestDist) {
+          bestDist = d;
+          chosen = v;
+        }
+      }
+    }
+  }
+
+  openBusInfo(chosen);
 }
 
 function buildStatusChip(dep) {
@@ -789,6 +827,14 @@ function bindUIEvents() {
     if (state.selectedStop) {
       fetchDepartures(state.selectedStop.atcoCode);
     }
+  });
+
+  // Click a departure row → open the matching live vehicle in the Bus tab
+  dom.departuresTbody.addEventListener("click", (e) => {
+    const tr = e.target.closest("tr.departure-row");
+    if (!tr) return;
+    const service = tr.dataset.service;
+    if (service) openBusFromService(service);
   });
 
   // Toggle live refresh pause/resume
