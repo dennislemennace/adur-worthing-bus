@@ -18,7 +18,7 @@ import os
 import time
 import logging
 import xml.etree.ElementTree as ET
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -43,6 +43,10 @@ BBOX_STR = f"{BBOX_MIN_LON},{BBOX_MIN_LAT},{BBOX_MAX_LON},{BBOX_MAX_LAT}"
 WEST_SUSSEX_ATCO_PREFIX = "4400"
 TIMETABLE_CACHE_TTL     = 3600   # Re-read file from disk every hour
 TIMETABLE_PATH = Path(__file__).parent.parent / "data" / "timetable.json"
+
+# Drop vehicles whose last RecordedAtTime is older than this. Clears out
+# depot-parked buses that stop reporting (and BODS "zombie" vehicles).
+VEHICLE_STALE_SECONDS = 300
 
 # ── In-memory cache ───────────────────────────────────────────
 _cache: dict = {}
@@ -242,6 +246,8 @@ def _parse_siri_vm(xml_text: str) -> list:
 
     ns       = {"s": SIRI_NS}
     vehicles = []
+    now_utc  = datetime.now(timezone.utc)
+    dropped_stale = 0
 
     for activity in root.findall(".//s:VehicleActivity", ns):
         journey = activity.find("s:MonitoredVehicleJourney", ns)
@@ -264,6 +270,16 @@ def _parse_siri_vm(xml_text: str) -> list:
         delay_el = activity.find(".//s:Delay", ns)
         delay_s  = _parse_iso_duration(delay_el.text) if delay_el is not None else None
         rec_el   = activity.find("s:RecordedAtTime", ns)
+        recorded_at = rec_el.text.strip() if rec_el is not None and rec_el.text else None
+
+        # Drop vehicles whose last report is older than VEHICLE_STALE_SECONDS.
+        # If we can't parse the timestamp, keep the vehicle (safer default).
+        recorded_dt = _parse_iso_datetime(recorded_at)
+        if recorded_dt is not None:
+            age = (now_utc - recorded_dt).total_seconds()
+            if age > VEHICLE_STALE_SECONDS:
+                dropped_stale += 1
+                continue
 
         vehicles.append({
             "vehicle_ref":   jtext("VehicleRef"),
@@ -274,8 +290,12 @@ def _parse_siri_vm(xml_text: str) -> list:
             "longitude":     lon,
             "bearing":       _safe_float(jtext("Bearing")),
             "delay_seconds": delay_s,
-            "recorded_at":   rec_el.text.strip() if rec_el is not None and rec_el.text else None,
+            "recorded_at":   recorded_at,
         })
+
+    if dropped_stale:
+        log.info("Dropped %d stale vehicle(s) (>%ds old)",
+                 dropped_stale, VEHICLE_STALE_SECONDS)
     return vehicles
 
 # ── /api/departures ───────────────────────────────────────────
@@ -454,6 +474,25 @@ def _safe_float(v) -> Optional[float]:
         return float(v)
     except (TypeError, ValueError):
         return None
+
+def _parse_iso_datetime(s: Optional[str]) -> Optional[datetime]:
+    """
+    Parse an ISO 8601 timestamp (as emitted by BODS SIRI-VM) into a
+    timezone-aware UTC datetime. Returns None if it can't be parsed.
+    """
+    if not s:
+        return None
+    try:
+        # Python's fromisoformat only gained 'Z' support in 3.11;
+        # normalise for older runtimes just in case.
+        normalised = s.strip().replace("Z", "+00:00")
+        dt = datetime.fromisoformat(normalised)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
 
 def _parse_iso_duration(duration: str) -> Optional[int]:
     if not duration:
