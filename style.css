@@ -592,22 +592,72 @@ button {
   transform: scale(1.4);
 }
 
-/* Bus vehicle icon (amber, rounded square) */
-.bus-marker-icon {
+/* Bus vehicle marker — divIcon root */
+.bus-marker-divicon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.bus-marker-wrapper {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+/* Operator icon image — rotated by bearing.
+   Source icons should face EAST (right) at 0deg. */
+.bus-icon-img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  transform-origin: center center;
+  transition: transform 0.4s ease-out;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
+  display: block;
+}
+
+/* Route number overlaid on the icon. Stays upright (not rotated). */
+.bus-icon-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  font-family: var(--font-family);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+  text-shadow:
+    -1px -1px 0 #000,
+     1px -1px 0 #000,
+    -1px  1px 0 #000,
+     1px  1px 0 #000,
+     0    0   2px rgba(0,0,0,0.85);
+}
+
+/* Fallback for operators without an icon — keeps the old amber box look */
+.bus-icon-fallback {
   background: var(--color-accent);
   border: 2px solid #c07800;
   border-radius: 4px;
   color: #fff;
   font-size: 10px;
   font-weight: 700;
-  display: flex !important;
+  display: flex;
   align-items: center;
   justify-content: center;
   line-height: 1;
   white-space: nowrap;
-  padding: 0 3px;
-  min-width: 24px;
-  height: 18px !important;
+  padding: 0 4px;
+  min-width: 26px;
+  height: 18px;
   box-shadow: var(--shadow-sm);
 }
 

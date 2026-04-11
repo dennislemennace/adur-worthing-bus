@@ -204,6 +204,10 @@ function updateVehicleMarkers(vehicles) {
     seenRefs.add(ref);
 
     const label = vehicle.service_ref || "?";
+    const bearing = (vehicle.bearing != null && !isNaN(vehicle.bearing))
+      ? Number(vehicle.bearing)
+      : null;
+
     const popupHtml = `
       <div>
         <p class="bus-popup-line"><span class="bus-popup-service">Service ${escapeHtml(label)}</span></p>
@@ -213,24 +217,17 @@ function updateVehicleMarkers(vehicles) {
           : ""}
       </div>`;
 
-    if (state.busMarkers[ref]) {
-      // Move existing marker smoothly
-      state.busMarkers[ref].setLatLng([vehicle.latitude, vehicle.longitude]);
-      state.busMarkers[ref].setPopupContent(popupHtml);
+    let marker = state.busMarkers[ref];
+    if (marker) {
+      // Move existing marker smoothly and update bearing/label in place
+      marker.setLatLng([vehicle.latitude, vehicle.longitude]);
+      marker.setPopupContent(popupHtml);
+      updateBusMarkerInPlace(marker, label, bearing);
     } else {
-      // Create new marker
-        const icon = L.divIcon({
-          className: "",
-          html: `<div class="bus-marker-icon" style="background:${getOperatorColour(vehicle.operator_ref)};border-color:${getOperatorBorderColour(vehicle.operator_ref)}">${escapeHtml(label)}</div>`,
-          iconSize:  [28, 20],
-          iconAnchor:[14, 10],
-          popupAnchor:[0, -12],
-        });
-
-      const marker = L.marker([vehicle.latitude, vehicle.longitude], { icon, zIndexOffset: 200 })
+      const icon = createBusIcon(vehicle.operator_ref, label, bearing);
+      marker = L.marker([vehicle.latitude, vehicle.longitude], { icon, zIndexOffset: 200 })
         .bindPopup(popupHtml, { maxWidth: 200 })
         .addTo(state.map);
-
       state.busMarkers[ref] = marker;
     }
   });
@@ -242,6 +239,60 @@ function updateVehicleMarkers(vehicles) {
       delete state.busMarkers[ref];
     }
   });
+}
+
+/**
+ * Build a Leaflet divIcon for a bus.
+ * If the operator has an icon in OPERATOR_ICONS, render an <img> rotated
+ * by `bearing - 90` (icons face east at 0deg) with the route number
+ * overlaid as an outlined label. Otherwise, fall back to the coloured box.
+ */
+function createBusIcon(operatorRef, label, bearing) {
+  const iconUrl  = OPERATOR_ICONS[operatorRef];
+  const rotation = bearing != null ? bearing - 90 : 0;
+
+  let inner;
+  if (iconUrl) {
+    inner = `
+      <img class="bus-icon-img" src="${escapeAttr(iconUrl)}" alt=""
+           style="transform:rotate(${rotation}deg)">
+      <span class="bus-icon-label">${escapeHtml(label)}</span>`;
+  } else {
+    const bg     = getOperatorColour(operatorRef);
+    const border = getOperatorBorderColour(operatorRef);
+    inner = `
+      <div class="bus-icon-fallback"
+           style="background:${bg};border-color:${border}">${escapeHtml(label)}</div>`;
+  }
+
+  return L.divIcon({
+    className:  "bus-marker-divicon",
+    html:       `<div class="bus-marker-wrapper">${inner}</div>`,
+    iconSize:   [40, 40],
+    iconAnchor: [20, 20],
+    popupAnchor:[0, -20],
+  });
+}
+
+/**
+ * Update an existing bus marker's rotation and route label without
+ * recreating the icon. Cheaper and avoids a flash on every refresh.
+ */
+function updateBusMarkerInPlace(marker, label, bearing) {
+  const el = marker.getElement();
+  if (!el) return;
+
+  if (bearing != null) {
+    const img = el.querySelector(".bus-icon-img");
+    if (img) {
+      img.style.transform = `rotate(${bearing - 90}deg)`;
+    }
+  }
+
+  const labelEl = el.querySelector(".bus-icon-label, .bus-icon-fallback");
+  if (labelEl && labelEl.textContent !== label) {
+    labelEl.textContent = label;
+  }
 }
 
 function formatDelayText(delaySecs) {
@@ -522,6 +573,23 @@ const OPERATOR_COLOURS = {
 
   // Default fallback — used for any operator not listed above
   "DEFAULT": "#f4a020",
+};
+
+// ============================================================
+// OPERATOR ICONS
+// Map National Operator Code → PNG path under icons/.
+// Source icons should face EAST (right) at 0 degrees so that the
+// `bearing - 90` rotation in createBusIcon points them correctly.
+// Operators not listed here fall back to the coloured-box marker.
+// ============================================================
+const OPERATOR_ICONS = {
+  // "SCSC": "icons/scsc.png",
+  // "SCSO": "icons/scsc.png",
+  // "BHBC": "icons/bhbc.png",
+  // "ARBB": "icons/arriva.png",
+  // "ARHE": "icons/arriva.png",
+  // "METR": "icons/metrobus.png",
+  // "COMT": "icons/compass.png",
 };
 
 const OPERATOR_BORDER_COLOURS = {
