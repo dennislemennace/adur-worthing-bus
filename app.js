@@ -270,9 +270,9 @@ function createBusIcon(operatorRef, label, bearing) {
   return L.divIcon({
     className:  "bus-marker-divicon",
     html:       `<div class="bus-marker-wrapper">${inner}</div>`,
-    iconSize:   [40, 40],
-    iconAnchor: [20, 20],
-    popupAnchor:[0, -20],
+    iconSize:   [56, 56],
+    iconAnchor: [28, 28],
+    popupAnchor:[0, -28],
   });
 }
 
