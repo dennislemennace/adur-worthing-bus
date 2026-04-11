@@ -243,19 +243,21 @@ function updateVehicleMarkers(vehicles) {
 
 /**
  * Build a Leaflet divIcon for a bus.
- * If the operator has an icon in OPERATOR_ICONS, render an <img> rotated
- * by `bearing - 90` (icons face east at 0deg) with the route number
- * overlaid as an outlined label. Otherwise, fall back to the coloured box.
+ * Icons are side-profile (wheels-at-bottom) and authored facing EAST.
+ * We don't rotate them — rotating a side view puts the wheels on top
+ * whenever the bus heads west. Instead we mirror the image horizontally
+ * when the heading is in the western half, so the bus always stays
+ * right-side-up and still indicates direction via left/right facing.
  */
 function createBusIcon(operatorRef, label, bearing) {
   const iconUrl  = OPERATOR_ICONS[operatorRef];
-  const rotation = bearing != null ? bearing - 90 : 0;
+  const transform = iconTransformForBearing(bearing);
 
   let inner;
   if (iconUrl) {
     inner = `
       <img class="bus-icon-img" src="${escapeAttr(iconUrl)}" alt=""
-           style="transform:rotate(${rotation}deg)">
+           style="transform:${transform}">
       <span class="bus-icon-label">${escapeHtml(label)}</span>`;
   } else {
     const bg     = getOperatorColour(operatorRef);
@@ -275,18 +277,27 @@ function createBusIcon(operatorRef, label, bearing) {
 }
 
 /**
- * Update an existing bus marker's rotation and route label without
+ * Pick a CSS transform for the bus image based on its compass bearing.
+ * Returns "scaleX(-1)" when the bus is heading west-ish, otherwise
+ * the identity transform so the icon stays facing east.
+ */
+function iconTransformForBearing(bearing) {
+  if (bearing == null) return "none";
+  const b = ((Number(bearing) % 360) + 360) % 360;
+  return (b > 90 && b < 270) ? "scaleX(-1)" : "none";
+}
+
+/**
+ * Update an existing bus marker's facing and route label without
  * recreating the icon. Cheaper and avoids a flash on every refresh.
  */
 function updateBusMarkerInPlace(marker, label, bearing) {
   const el = marker.getElement();
   if (!el) return;
 
-  if (bearing != null) {
-    const img = el.querySelector(".bus-icon-img");
-    if (img) {
-      img.style.transform = `rotate(${bearing - 90}deg)`;
-    }
+  const img = el.querySelector(".bus-icon-img");
+  if (img) {
+    img.style.transform = iconTransformForBearing(bearing);
   }
 
   const labelEl = el.querySelector(".bus-icon-label, .bus-icon-fallback");
