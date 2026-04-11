@@ -279,30 +279,40 @@ function createBusIcon(operatorRef, label, bearing) {
 /**
  * Pick a CSS transform for the bus image based on its compass bearing.
  *
- * Side-profile icons look fine flat-east, flat-west, or tilted ±45°
- * for N/S, but arbitrary diagonal rotations look wrong (the wheels
- * end up at an angle that no real bus ever sits at). Reported bearings
- * are also noisy — a bus on a dead-straight E/W road often pings in
- * at 80°–100° rather than exactly 90°.
+ * Side-profile icons can't represent every angle naturally, so we
+ * quantize the 360° compass into 8 buckets (45° wide, centred on each
+ * cardinal / intercardinal direction) and pick a discrete transform
+ * for each. Three tilt levels — flat for E/W, gentle ±22.5° for the
+ * diagonals, strong ±45° for N/S — give each bucket a distinct look
+ * without any continuous diagonal wobble.
  *
- * We therefore quantize the 360° compass into four buckets:
- *   - E band (bearing   15..165) → flat east
- *   - S band (bearing  165..195) → east-facing, rotate +45°
- *   - W band (bearing  195..345) → flat west (scaleX(-1))
- *   - N band (bearing  345..15)  → east-facing, rotate −45°
+ *   Bucket   Bearing range     Transform
+ *   ─────────────────────────────────────────────────────────
+ *   N        337.5° – 22.5°    rotate(−45°)
+ *   NE       22.5°  – 67.5°    rotate(−22.5°)
+ *   E        67.5°  – 112.5°   rotate(0°)
+ *   SE       112.5° – 157.5°   rotate(22.5°)
+ *   S        157.5° – 202.5°   rotate(45°)
+ *   SW       202.5° – 247.5°   scaleX(−1) rotate(22.5°)
+ *   W        247.5° – 292.5°   scaleX(−1) rotate(0°)
+ *   NW       292.5° – 337.5°   scaleX(−1) rotate(−22.5°)
  *
- * The E/W bands are 150° wide so small bearing jitter on lateral
- * roads stays flat; the N/S bands are 30° wide so the tilt only
- * triggers for genuinely north/south travel.
+ * (For the mirrored west-facing buckets the rotation sign is what the
+ * image needs *before* the horizontal flip — positive rotate there
+ * ends up pointing down-west visually, negative rotate points up-west.)
  */
 function iconTransformForBearing(bearing) {
   if (bearing == null) return "none";
   const b = ((Number(bearing) % 360) + 360) % 360;
 
-  if (b >= 15 && b < 165)  return "rotate(0deg)";               // E
-  if (b >= 165 && b < 195) return "rotate(45deg)";              // S
-  if (b >= 195 && b < 345) return "scaleX(-1) rotate(0deg)";    // W
-  return "rotate(-45deg)";                                      // N
+  if (b >= 22.5  && b < 67.5)  return "rotate(-22.5deg)";            // NE
+  if (b >= 67.5  && b < 112.5) return "rotate(0deg)";                // E
+  if (b >= 112.5 && b < 157.5) return "rotate(22.5deg)";             // SE
+  if (b >= 157.5 && b < 202.5) return "rotate(45deg)";               // S
+  if (b >= 202.5 && b < 247.5) return "scaleX(-1) rotate(22.5deg)";  // SW
+  if (b >= 247.5 && b < 292.5) return "scaleX(-1) rotate(0deg)";     // W
+  if (b >= 292.5 && b < 337.5) return "scaleX(-1) rotate(-22.5deg)"; // NW
+  return "rotate(-45deg)";                                           // N
 }
 
 /**
