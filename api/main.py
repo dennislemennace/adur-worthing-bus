@@ -21,6 +21,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, date, timezone
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
@@ -43,6 +44,10 @@ BBOX_STR = f"{BBOX_MIN_LON},{BBOX_MIN_LAT},{BBOX_MAX_LON},{BBOX_MAX_LAT}"
 WEST_SUSSEX_ATCO_PREFIX = "4400"
 TIMETABLE_CACHE_TTL     = 3600   # Re-read file from disk every hour
 TIMETABLE_PATH = Path(__file__).parent.parent / "data" / "timetable.json"
+
+# GTFS stop_times are in local UK time; Render runs in UTC. Using an
+# explicit zone makes the departure filter correct across BST/GMT.
+UK_TZ = ZoneInfo("Europe/London")
 
 # Drop vehicles whose last RecordedAtTime is older than this. Clears out
 # depot-parked buses that stop reporting (and BODS "zombie" vehicles).
@@ -98,7 +103,7 @@ async def root():
 async def debug_stop(stopId: str = Query(...)):
     tt        = await _get_timetable()
     variants  = _normalise_atco(stopId)
-    now_local = datetime.now()
+    now_local = datetime.now(UK_TZ)
     today     = now_local.date()
     dow       = today.weekday()
     today_str = today.strftime("%Y%m%d")
@@ -374,7 +379,7 @@ async def _get_timetable() -> dict:
 
 # ── Departure calculation ─────────────────────────────────────
 def _departures_for_stop(tt: dict, stop_id: str) -> dict:
-    now_local = datetime.now()
+    now_local = datetime.now(UK_TZ)
     today     = now_local.date()
     dow       = today.weekday()
     today_str = today.strftime("%Y%m%d")
