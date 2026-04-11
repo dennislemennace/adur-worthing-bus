@@ -58,56 +58,99 @@
       </div>
     </section>
 
-    <!-- ── Right: Departure Board Panel ── -->
-    <aside class="departure-panel" id="departure-panel" aria-label="Departure board" aria-hidden="true">
+    <!-- ── Right: Departure / Bus Info Panel ── -->
+    <aside class="departure-panel" id="departure-panel" aria-label="Information panel">
 
-      <div class="panel-header">
-        <div class="panel-header-text">
-          <!-- Stop name populated by JS -->
-          <h2 class="panel-stop-name" id="panel-stop-name">Select a stop</h2>
-          <p class="panel-stop-id" id="panel-stop-id"></p>
+      <!-- Tab strip + close button -->
+      <div class="panel-tabs-bar">
+        <div class="panel-tabs" role="tablist" aria-label="Panel views">
+          <button class="panel-tab active" data-tab="stop" role="tab"
+                  aria-selected="true" id="tab-stop" aria-controls="tab-content-stop">
+            <span class="panel-tab-icon" aria-hidden="true">📍</span>
+            <span class="panel-tab-label">Stop</span>
+          </button>
+          <button class="panel-tab" data-tab="bus" role="tab"
+                  aria-selected="false" id="tab-bus" aria-controls="tab-content-bus">
+            <span class="panel-tab-icon" aria-hidden="true">🚌</span>
+            <span class="panel-tab-label">Bus</span>
+          </button>
         </div>
-        <button class="btn-close" id="close-panel-btn" aria-label="Close departure board">✕</button>
+        <button class="btn-close" id="close-panel-btn" aria-label="Close panel">✕</button>
       </div>
 
-      <!-- Loading state for departures -->
-      <div class="panel-loading hidden" id="panel-loading" aria-live="polite">
-        <div class="spinner small" aria-hidden="true"></div>
-        <p>Fetching departures…</p>
-      </div>
+      <!-- ── STOP TAB ── -->
+      <div class="panel-tab-content" id="tab-content-stop" role="tabpanel" aria-labelledby="tab-stop">
 
-      <!-- Error state -->
-      <div class="panel-error hidden" id="panel-error" role="alert">
-        <p>⚠️ <span id="panel-error-msg">Could not load departures.</span></p>
-        <button class="btn-retry" id="panel-retry-btn">Try again</button>
-      </div>
-
-      <!-- Prompt shown before a stop is selected (desktop only) -->
-      <div class="panel-prompt" id="panel-prompt">
-        <span class="panel-prompt-icon" aria-hidden="true">📍</span>
-        <p>Click any bus stop on the map to see live departures.</p>
-      </div>
-
-      <!-- Departure list populated by JS -->
-      <div class="departures-container hidden" id="departures-container">
-        <div class="departures-meta">
-          <span id="departures-count"></span>
-          <button class="btn-text" id="refresh-stop-btn" aria-label="Refresh departures">↻ Refresh</button>
+        <div class="panel-header">
+          <div class="panel-header-text">
+            <h2 class="panel-stop-name" id="panel-stop-name">Select a stop</h2>
+            <p class="panel-stop-id" id="panel-stop-id"></p>
+          </div>
         </div>
-        <table class="departures-table" aria-label="Upcoming departures">
-          <thead>
-            <tr>
-              <th scope="col">Service</th>
-              <th scope="col">Destination</th>
-              <th scope="col">Due</th>
-              <th scope="col">Status</th>
-            </tr>
-          </thead>
-          <tbody id="departures-tbody">
-            <!-- Rows injected by app.js -->
-          </tbody>
-        </table>
-        <p class="departures-footer">Data from Bus Open Data Service (BODS)</p>
+
+        <!-- Loading state for departures -->
+        <div class="panel-loading hidden" id="panel-loading" aria-live="polite">
+          <div class="spinner small" aria-hidden="true"></div>
+          <p>Fetching departures…</p>
+        </div>
+
+        <!-- Error state -->
+        <div class="panel-error hidden" id="panel-error" role="alert">
+          <p>⚠️ <span id="panel-error-msg">Could not load departures.</span></p>
+          <button class="btn-retry" id="panel-retry-btn">Try again</button>
+        </div>
+
+        <!-- Prompt shown before a stop is selected (desktop only) -->
+        <div class="panel-prompt" id="panel-prompt">
+          <span class="panel-prompt-icon" aria-hidden="true">📍</span>
+          <p>Click any bus stop on the map to see live departures.</p>
+        </div>
+
+        <!-- Departure list populated by JS -->
+        <div class="departures-container hidden" id="departures-container">
+          <div class="departures-meta">
+            <span id="departures-count"></span>
+            <button class="btn-text" id="refresh-stop-btn" aria-label="Refresh departures">↻ Refresh</button>
+          </div>
+          <table class="departures-table" aria-label="Upcoming departures">
+            <thead>
+              <tr>
+                <th scope="col">Service</th>
+                <th scope="col">Destination</th>
+                <th scope="col">Due</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody id="departures-tbody">
+              <!-- Rows injected by app.js -->
+            </tbody>
+          </table>
+          <p class="departures-footer">Data from Bus Open Data Service (BODS)</p>
+        </div>
+
+      </div>
+
+      <!-- ── BUS TAB ── -->
+      <div class="panel-tab-content hidden" id="tab-content-bus" role="tabpanel" aria-labelledby="tab-bus">
+
+        <div class="panel-header">
+          <div class="panel-header-text">
+            <h2 class="panel-stop-name" id="panel-bus-name">No bus selected</h2>
+            <p class="panel-stop-id" id="panel-bus-id"></p>
+          </div>
+        </div>
+
+        <!-- Prompt shown before a bus is selected -->
+        <div class="panel-prompt" id="bus-panel-prompt">
+          <span class="panel-prompt-icon" aria-hidden="true">🚌</span>
+          <p>Click any bus on the map to see its live details.</p>
+        </div>
+
+        <!-- Bus info — populated by renderBusTab() -->
+        <div class="bus-info-container hidden" id="bus-info-container">
+          <!-- content injected by app.js -->
+        </div>
+
       </div>
 
       <!--
