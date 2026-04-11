@@ -583,13 +583,20 @@ const OPERATOR_COLOURS = {
 // Operators not listed here fall back to the coloured-box marker.
 // ============================================================
 const OPERATOR_ICONS = {
-  // "SCSC": "icons/scsc.png",
-  // "SCSO": "icons/scsc.png",
-  // "BHBC": "icons/bhbc.png",
-  // "ARBB": "icons/arriva.png",
-  // "ARHE": "icons/arriva.png",
-  // "METR": "icons/metrobus.png",
-  // "COMT": "icons/compass.png",
+  // Stagecoach South — share one icon across the region's NOCs
+  "SCSO": "icons/SCSO.png",
+  "SCSC": "icons/SCSO.png",
+
+  // Brighton & Hove Buses
+  "BHBC": "icons/BHBC.png",
+
+  // Compass Travel
+  "CMPA": "icons/CMPA.png",
+  "COMT": "icons/CMPA.png",
+
+  // National Express
+  "NTXP": "icons/NTXP.png",
+  "TNXB": "icons/NTXP.png",
 };
 
 const OPERATOR_BORDER_COLOURS = {
