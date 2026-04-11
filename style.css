@@ -600,8 +600,8 @@ button {
 
 .bus-marker-wrapper {
   position: relative;
-  width: 40px;
-  height: 40px;
+  width: 56px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -611,8 +611,8 @@ button {
 /* Operator icon image — rotated by bearing.
    Source icons should face EAST (right) at 0deg. */
 .bus-icon-img {
-  width: 40px;
-  height: 40px;
+  width: 56px;
+  height: 56px;
   object-fit: contain;
   transform-origin: center center;
   transition: transform 0.4s ease-out;
@@ -628,7 +628,7 @@ button {
   transform: translate(-50%, -50%);
   color: #fff;
   font-family: var(--font-family);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;
