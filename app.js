@@ -278,31 +278,31 @@ function createBusIcon(operatorRef, label, bearing) {
 
 /**
  * Pick a CSS transform for the bus image based on its compass bearing.
- * Strategy for side-profile icons:
- *   - Bearings 0..180  → east-facing (no flip), rotation = bearing − 90
- *   - Bearings 180..360 → west-facing (scaleX(-1)), rotation = 270 − bearing
- * Rotation is clamped to ±45° so the bus never tips past a visible tilt —
- * this means due N/S get rendered as a 45°-tilted NE/SE or NW/SW bus,
- * which is the closest a side view can get to "up" or "down" without
- * putting the wheels in the air.
+ *
+ * Side-profile icons look fine flat-east, flat-west, or tilted ±45°
+ * for N/S, but arbitrary diagonal rotations look wrong (the wheels
+ * end up at an angle that no real bus ever sits at). Reported bearings
+ * are also noisy — a bus on a dead-straight E/W road often pings in
+ * at 80°–100° rather than exactly 90°.
+ *
+ * We therefore quantize the 360° compass into four buckets:
+ *   - E band (bearing   15..165) → flat east
+ *   - S band (bearing  165..195) → east-facing, rotate +45°
+ *   - W band (bearing  195..345) → flat west (scaleX(-1))
+ *   - N band (bearing  345..15)  → east-facing, rotate −45°
+ *
+ * The E/W bands are 150° wide so small bearing jitter on lateral
+ * roads stays flat; the N/S bands are 30° wide so the tilt only
+ * triggers for genuinely north/south travel.
  */
 function iconTransformForBearing(bearing) {
   if (bearing == null) return "none";
   const b = ((Number(bearing) % 360) + 360) % 360;
 
-  let rot, flip;
-  if (b <= 180) {
-    flip = false;
-    rot  = b - 90;          // −90 (N) … 0 (E) … 90 (S)
-  } else {
-    flip = true;
-    rot  = 270 - b;         // 90 (S) … 0 (W) … −90 (N)
-  }
-  rot = Math.max(-45, Math.min(45, rot));
-
-  return flip
-    ? `scaleX(-1) rotate(${rot}deg)`
-    : `rotate(${rot}deg)`;
+  if (b >= 15 && b < 165)  return "rotate(0deg)";               // E
+  if (b >= 165 && b < 195) return "rotate(45deg)";              // S
+  if (b >= 195 && b < 345) return "scaleX(-1) rotate(0deg)";    // W
+  return "rotate(-45deg)";                                      // N
 }
 
 /**
@@ -374,7 +374,19 @@ async function fetchDepartures(atcoCode) {
 
 function renderDepartures(data) {
   // data: { stop_name, departures: [ { service, destination, aimed_departure, expected_departure, status } ] }
-  const departures = data?.departures ?? [];
+  const raw = data?.departures ?? [];
+
+  // Belt-and-braces: drop anything whose display time is more than
+  // 30 seconds in the past. The backend already filters past trips,
+  // but cached responses can briefly contain entries that have just
+  // departed.
+  const now = Date.now();
+  const departures = raw.filter(d => {
+    const iso = d.expected_departure || d.aimed_departure;
+    if (!iso) return true;
+    const t = new Date(iso).getTime();
+    return isNaN(t) || (t - now) > -30_000;
+  });
 
   if (departures.length === 0) {
     dom.departuresTbody.innerHTML = `<tr><td colspan="4" class="no-departures">No departures found for this stop in the next 2 hours.</td></tr>`;
@@ -438,7 +450,7 @@ function buildStatusChip(dep) {
   return { label: "Scheduled", cssClass: "status-scheduled" };
 }
 
-/** Format an ISO datetime string as HH:MM */
+/** Format an ISO datetime string as a due-time label */
 function formatDueTime(isoString) {
   try {
     const d = new Date(isoString);
@@ -447,7 +459,7 @@ function formatDueTime(isoString) {
     const diffMs = d - now;
     const diffMins = Math.round(diffMs / 60_000);
 
-    if (diffMins < 0)    return "Due";
+    if (diffMins < 0)    return "Departed";
     if (diffMins === 0)  return "Due";
     if (diffMins === 1)  return "1 min";
     if (diffMins < 60)   return `${diffMins} mins`;
