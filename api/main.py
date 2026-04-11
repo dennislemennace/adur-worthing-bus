@@ -18,7 +18,7 @@ import os
 import time
 import logging
 import xml.etree.ElementTree as ET
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -306,17 +306,104 @@ def _parse_siri_vm(xml_text: str) -> list:
 # ── /api/departures ───────────────────────────────────────────
 @app.get("/api/departures")
 async def get_departures(stopId: str = Query(...)):
-    """Scheduled departures for a stop from pre-built timetable. Cached 60 s."""
+    """
+    Scheduled departures for a stop from the pre-built timetable, with
+    a live "fleet delay" overlay applied from current SIRI-VM vehicles.
+
+    The schedule itself is cached for 60 s; the live overlay is
+    re-applied on every request so users always see the freshest delay.
+    """
     _check_api_key()
     if not stopId or len(stopId) > 20:
         raise HTTPException(status_code=400, detail="Invalid stopId.")
-    cached = cache_get(f"dep:{stopId}")
+
+    cache_key = f"dep:{stopId}"
+    base = cache_get(cache_key)
+    if base is None:
+        tt   = await _get_timetable()
+        base = _departures_for_stop(tt, stopId)
+        cache_set(cache_key, base, 60)
+
+    vehicles = await _get_vehicles_or_empty()
+    return _apply_live_overlay(base, vehicles)
+
+
+async def _get_vehicles_or_empty() -> list:
+    """
+    Return live vehicles from the 15s cache, fetching if necessary.
+    Never raises — if BODS is unreachable we just return [] so the
+    departures endpoint can still serve scheduled times.
+    """
+    cached = cache_get("vehicles")
     if cached:
-        return cached
-    tt     = await _get_timetable()
-    result = _departures_for_stop(tt, stopId)
-    cache_set(f"dep:{stopId}", result, 60)
-    return result
+        return cached.get("vehicles", [])
+    try:
+        vehicles = await _fetch_siri_vm()
+    except HTTPException:
+        return []
+    except Exception as exc:
+        log.warning("Live vehicle fetch failed during overlay: %s", exc)
+        return []
+    cache_set("vehicles", {"vehicles": vehicles, "count": len(vehicles)}, 15)
+    return vehicles
+
+
+def _apply_live_overlay(base: dict, vehicles: list) -> dict:
+    """
+    Overlay current vehicle delays onto a scheduled departures payload.
+
+    Strategy (Phase 2a — fleet-delay heuristic):
+      • Group all live vehicles by service_ref.
+      • For each service with at least one delay reading, take the
+        median delay_seconds across its vehicles.
+      • Apply that delta to every scheduled departure of the same
+        service to compute expected_departure / status / delay_seconds.
+
+    The base payload is never mutated; a new dict is returned with
+    fresh departure entries.
+    """
+    departures = base.get("departures") or []
+    if not departures or not vehicles:
+        return base
+
+    delays_by_service: dict = {}
+    for v in vehicles:
+        svc = v.get("service_ref")
+        delay = v.get("delay_seconds")
+        if svc and delay is not None:
+            delays_by_service.setdefault(svc, []).append(int(delay))
+
+    if not delays_by_service:
+        return base
+
+    overlaid = []
+    for dep in departures:
+        new = dict(dep)
+        svc = dep.get("service")
+        delays = delays_by_service.get(svc)
+        if delays:
+            ordered = sorted(delays)
+            median = ordered[len(ordered) // 2]
+            try:
+                aimed_dt = datetime.fromisoformat(dep["aimed_departure"])
+                expected_dt = aimed_dt + timedelta(seconds=median)
+                new["expected_departure"] = expected_dt.isoformat()
+                new["delay_seconds"]      = median
+                new["status"]             = _delay_to_status(median)
+            except (ValueError, KeyError, TypeError):
+                pass
+        overlaid.append(new)
+
+    return {**base, "departures": overlaid}
+
+
+def _delay_to_status(delay_secs: int) -> str:
+    """Map a delay in seconds to a human-readable status string."""
+    if abs(delay_secs) <= 60:
+        return "On time"
+    if delay_secs < 0:
+        return "Early"
+    return "Late"
 
 # ── Timetable loader ──────────────────────────────────────────
 async def _get_timetable() -> dict:
