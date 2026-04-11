@@ -1,8 +1,7 @@
-# render.yaml — Alternative deployment config for Render.com free tier
+# render.yaml — Deployment config for Render.com free tier
 #
-# Use this INSTEAD of vercel.json if you prefer Render over Vercel.
-# Render gives you a persistent server (unlike Vercel's serverless functions),
-# which means the in-memory cache in main.py works better.
+# Render gives us a persistent server, so the in-memory cache in
+# api/main.py works correctly between requests.
 #
 # SETUP STEPS:
 #   1. Create a free account at https://render.com
