@@ -448,6 +448,10 @@ button {
   border-bottom: none;
 }
 
+.departures-table tr.departure-row {
+  cursor: pointer;
+}
+
 .departures-table tr:hover td {
   background: var(--color-primary-light);
 }
