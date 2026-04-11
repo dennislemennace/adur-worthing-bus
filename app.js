@@ -280,39 +280,35 @@ function createBusIcon(operatorRef, label, bearing) {
  * Pick a CSS transform for the bus image based on its compass bearing.
  *
  * Side-profile icons can't represent every angle naturally, so we
- * quantize the 360° compass into 8 buckets (45° wide, centred on each
- * cardinal / intercardinal direction) and pick a discrete transform
- * for each. Three tilt levels — flat for E/W, gentle ±22.5° for the
- * diagonals, strong ±45° for N/S — give each bucket a distinct look
- * without any continuous diagonal wobble.
+ * quantize the 360° compass into 8 buckets. Cardinal buckets (N, E,
+ * S, W) are 60° wide so ±30° of BODS bearing noise on a straight road
+ * still lands in the right bucket; intercardinal buckets (NE, SE, SW,
+ * NW) are 30° wide, so a bus has to be genuinely within 15° of a true
+ * diagonal heading to render tilted.
  *
- *   Bucket   Bearing range     Transform
- *   ─────────────────────────────────────────────────────────
- *   N        337.5° – 22.5°    rotate(−45°)
- *   NE       22.5°  – 67.5°    rotate(−22.5°)
- *   E        67.5°  – 112.5°   rotate(0°)
- *   SE       112.5° – 157.5°   rotate(22.5°)
- *   S        157.5° – 202.5°   rotate(45°)
- *   SW       202.5° – 247.5°   scaleX(−1) rotate(22.5°)
- *   W        247.5° – 292.5°   scaleX(−1) rotate(0°)
- *   NW       292.5° – 337.5°   scaleX(−1) rotate(−22.5°)
- *
- * (For the mirrored west-facing buckets the rotation sign is what the
- * image needs *before* the horizontal flip — positive rotate there
- * ends up pointing down-west visually, negative rotate points up-west.)
+ *   Bucket   Bearing range    Transform
+ *   ────────────────────────────────────────────────────────
+ *   N        330° – 30°       rotate(−45°)
+ *   NE       30°  – 60°       rotate(−22.5°)
+ *   E        60°  – 120°      rotate(0°)
+ *   SE       120° – 150°      rotate(22.5°)
+ *   S        150° – 210°      rotate(45°)
+ *   SW       210° – 240°      scaleX(−1) rotate(22.5°)
+ *   W        240° – 300°      scaleX(−1) rotate(0°)
+ *   NW       300° – 330°      scaleX(−1) rotate(−22.5°)
  */
 function iconTransformForBearing(bearing) {
   if (bearing == null) return "none";
   const b = ((Number(bearing) % 360) + 360) % 360;
 
-  if (b >= 22.5  && b < 67.5)  return "rotate(-22.5deg)";            // NE
-  if (b >= 67.5  && b < 112.5) return "rotate(0deg)";                // E
-  if (b >= 112.5 && b < 157.5) return "rotate(22.5deg)";             // SE
-  if (b >= 157.5 && b < 202.5) return "rotate(45deg)";               // S
-  if (b >= 202.5 && b < 247.5) return "scaleX(-1) rotate(22.5deg)";  // SW
-  if (b >= 247.5 && b < 292.5) return "scaleX(-1) rotate(0deg)";     // W
-  if (b >= 292.5 && b < 337.5) return "scaleX(-1) rotate(-22.5deg)"; // NW
-  return "rotate(-45deg)";                                           // N
+  if (b >= 30  && b < 60)  return "rotate(-22.5deg)";            // NE
+  if (b >= 60  && b < 120) return "rotate(0deg)";                // E
+  if (b >= 120 && b < 150) return "rotate(22.5deg)";             // SE
+  if (b >= 150 && b < 210) return "rotate(45deg)";               // S
+  if (b >= 210 && b < 240) return "scaleX(-1) rotate(22.5deg)";  // SW
+  if (b >= 240 && b < 300) return "scaleX(-1) rotate(0deg)";     // W
+  if (b >= 300 && b < 330) return "scaleX(-1) rotate(-22.5deg)"; // NW
+  return "rotate(-45deg)";                                       // N
 }
 
 /**
