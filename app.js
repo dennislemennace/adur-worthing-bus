@@ -278,13 +278,31 @@ function createBusIcon(operatorRef, label, bearing) {
 
 /**
  * Pick a CSS transform for the bus image based on its compass bearing.
- * Returns "scaleX(-1)" when the bus is heading west-ish, otherwise
- * the identity transform so the icon stays facing east.
+ * Strategy for side-profile icons:
+ *   - Bearings 0..180  → east-facing (no flip), rotation = bearing − 90
+ *   - Bearings 180..360 → west-facing (scaleX(-1)), rotation = 270 − bearing
+ * Rotation is clamped to ±45° so the bus never tips past a visible tilt —
+ * this means due N/S get rendered as a 45°-tilted NE/SE or NW/SW bus,
+ * which is the closest a side view can get to "up" or "down" without
+ * putting the wheels in the air.
  */
 function iconTransformForBearing(bearing) {
   if (bearing == null) return "none";
   const b = ((Number(bearing) % 360) + 360) % 360;
-  return (b > 90 && b < 270) ? "scaleX(-1)" : "none";
+
+  let rot, flip;
+  if (b <= 180) {
+    flip = false;
+    rot  = b - 90;          // −90 (N) … 0 (E) … 90 (S)
+  } else {
+    flip = true;
+    rot  = 270 - b;         // 90 (S) … 0 (W) … −90 (N)
+  }
+  rot = Math.max(-45, Math.min(45, rot));
+
+  return flip
+    ? `scaleX(-1) rotate(${rot}deg)`
+    : `rotate(${rot}deg)`;
 }
 
 /**
