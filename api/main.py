@@ -378,25 +378,31 @@ async def debug_match_stats():
     with_calls = sum(1 for v in vehicles if v.get("calls"))
     with_trip = sum(1 for v in vehicles if v.get("trip_id"))
     with_headsign = sum(1 for v in vehicles if v.get("trip_headsign"))
-    sample_calls = []
+    unmatched = []
+    matched_samples = []
     for v in vehicles:
-        if v.get("calls"):
-            sample_calls.append({
-                "ref": v["vehicle_ref"],
-                "svc": v.get("service_ref"),
-                "calls_count": len(v["calls"]),
-                "first_call_stop": v["calls"][0].get("stop_id"),
-                "trip_id": v.get("trip_id"),
-                "headsign": v.get("trip_headsign"),
-            })
-            if len(sample_calls) >= 5:
-                break
+        info = {
+            "ref": v["vehicle_ref"],
+            "svc": v.get("service_ref"),
+            "op": v.get("operator_ref"),
+            "origin_ref": v.get("origin_ref"),
+            "dest_ref": v.get("destination_ref"),
+            "trip_id": v.get("trip_id"),
+            "headsign": v.get("trip_headsign"),
+        }
+        if v.get("trip_id"):
+            if len(matched_samples) < 5:
+                matched_samples.append(info)
+        else:
+            if len(unmatched) < 5:
+                unmatched.append(info)
     return {
         "total": len(vehicles),
         "with_calls": with_calls,
         "with_trip_id": with_trip,
         "with_headsign": with_headsign,
-        "sample_vehicles_with_calls": sample_calls,
+        "matched_samples": matched_samples,
+        "unmatched_samples": unmatched,
     }
 
 # ── /api/vehicle ──────────────────────────────────────────────
