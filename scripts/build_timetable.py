@@ -49,6 +49,12 @@ GTFS_URL = "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/south_
 # for Adur, "4400WO..." for Worthing, etc.
 WEST_SUSSEX_ATCO_PREFIX = "4400"
 
+# Also keep stops inside the map bounding box regardless of ATCO prefix.
+# This captures Brighton & Hove (East Sussex, prefix 1400) stops that are
+# within the Adur & Worthing area, so BHBC routes get trip-matched.
+BBOX_MIN_LAT, BBOX_MAX_LAT =  50.78,  50.87
+BBOX_MIN_LON, BBOX_MAX_LON = -0.42,  -0.10
+
 OUTPUT_PATH = Path(__file__).parent.parent / "data" / "timetable.json"
 
 
@@ -149,23 +155,37 @@ def parse_gtfs(zip_path: str) -> dict:
         _require(names, "trips.txt")
         _require(names, "routes.txt")
 
-        # 1. stops.txt — keep West Sussex stops only
+        # 1. stops.txt — keep West Sussex stops + any stop inside the bbox
         log.info("Parsing stops.txt…")
         ws_stop_ids = set()
+        bbox_extra = 0
         with zf.open("stops.txt") as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
             for row in reader:
                 stop_id = row.get("stop_id", "")
-                if not stop_id.startswith(WEST_SUSSEX_ATCO_PREFIX):
+                by_prefix = stop_id.startswith(WEST_SUSSEX_ATCO_PREFIX)
+                by_bbox = False
+                if not by_prefix:
+                    try:
+                        slat = float(row.get("stop_lat", ""))
+                        slon = float(row.get("stop_lon", ""))
+                        by_bbox = (BBOX_MIN_LAT <= slat <= BBOX_MAX_LAT
+                                   and BBOX_MIN_LON <= slon <= BBOX_MAX_LON)
+                    except (ValueError, TypeError):
+                        pass
+                if not by_prefix and not by_bbox:
                     continue
                 ws_stop_ids.add(stop_id)
                 timetable["stops"][stop_id] = {
                     "name": row.get("stop_name") or "Bus Stop",
                 }
-        log.info("  %d West Sussex stops", len(ws_stop_ids))
+                if by_bbox and not by_prefix:
+                    bbox_extra += 1
+        log.info("  %d stops kept (%d West Sussex + %d bbox-only)",
+                 len(ws_stop_ids), len(ws_stop_ids) - bbox_extra, bbox_extra)
 
         if not ws_stop_ids:
-            log.error("No West Sussex stops found — aborting")
+            log.error("No stops found in target area — aborting")
             return timetable
 
         # 2. stop_times.txt — keep only rows for WS stops.
