@@ -132,9 +132,13 @@ function initMap() {
   // ignore anything whose DOM target is inside a marker or popup —
   // otherwise selecting a bus would immediately re-close the panel.
   state.map.on("click", (e) => {
+    if (state._ignoreNextMapClick) {
+      state._ignoreNextMapClick = false;
+      return;
+    }
     const t = e.originalEvent && e.originalEvent.target;
     if (t && t.closest &&
-        t.closest(".leaflet-marker-icon, .leaflet-marker-pane, .leaflet-popup, .leaflet-popup-pane")) {
+        t.closest(".leaflet-marker-icon, .leaflet-marker-pane, .leaflet-popup, .leaflet-popup-pane, .bus-marker-wrapper")) {
       return;
     }
     if (state.selectedStop || state.selectedVehicleRef) closePanel();
@@ -253,6 +257,7 @@ function updateVehicleMarkers(vehicles) {
         .addTo(state.map);
       marker._vehicle = vehicle;
       marker.on("click", () => {
+        state._ignoreNextMapClick = true;
         if (marker._vehicle) openBusInfo(marker._vehicle);
       });
       state.busMarkers[ref] = marker;
