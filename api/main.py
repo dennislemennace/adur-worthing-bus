@@ -298,6 +298,22 @@ async def get_vehicles():
     return {"vehicles": public, "count": len(public)}
 
 
+@app.get("/api/debug/siri-sample")
+async def debug_siri_sample():
+    """Dump raw XML structure of first 2 VehicleActivity elements."""
+    _check_api_key()
+    params = {"api_key": BODS_API_KEY, "boundingBox": BBOX_STR}
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{BODS_BASE}/datafeed/", params=params)
+        resp.raise_for_status()
+    ns = {"s": SIRI_NS}
+    root = ET.fromstring(resp.text)
+    samples = []
+    for act in root.findall(".//s:VehicleActivity", ns)[:2]:
+        samples.append(ET.tostring(act, encoding="unicode"))
+    return {"count": len(root.findall(".//s:VehicleActivity", ns)),
+            "samples_xml": samples}
+
 @app.get("/api/debug/match-stats")
 async def debug_match_stats():
     """Diagnostics: how many vehicles have calls, trip matches, etc."""
