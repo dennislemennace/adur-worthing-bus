@@ -127,8 +127,16 @@ function initMap() {
     maxZoom: 19,
   }).addTo(state.map);
 
-  // Close panel when clicking an empty area of the map
-  state.map.on("click", () => {
+  // Close panel when clicking an empty area of the map. Leaflet bubbles
+  // marker/popup clicks up to the map 'click' event, so we need to
+  // ignore anything whose DOM target is inside a marker or popup —
+  // otherwise selecting a bus would immediately re-close the panel.
+  state.map.on("click", (e) => {
+    const t = e.originalEvent && e.originalEvent.target;
+    if (t && t.closest &&
+        t.closest(".leaflet-marker-icon, .leaflet-marker-pane, .leaflet-popup, .leaflet-popup-pane")) {
+      return;
+    }
     if (state.selectedStop || state.selectedVehicleRef) closePanel();
   });
 }
@@ -300,7 +308,7 @@ function buildBusPopupHtml(vehicle, label) {
     statusHtml = `<p class="bus-popup-status"><span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span></p>`;
   }
 
-  const destText = vehicle.trip_headsign || vehicle.destination || "Unknown";
+  const destText = prettifyName(vehicle.trip_headsign || vehicle.destination) || "Unknown";
 
   return `
     <div class="bus-popup">
@@ -482,7 +490,7 @@ function buildDepartureRow(dep) {
   // dep: { service, destination, aimed_departure, expected_departure, status, delay_seconds }
 
   const service     = dep.service     || "?";
-  const destination = dep.destination || "Unknown";
+  const destination = prettifyName(dep.destination) || "Unknown";
   const aimed       = dep.aimed_departure;
   const expected    = dep.expected_departure;
 
@@ -682,10 +690,11 @@ function renderBusTab() {
   const iconUrl      = OPERATOR_ICONS[v.operator_ref];
   const colour       = getOperatorColour(v.operator_ref);
   const service      = v.service_ref || "?";
-  const destination  = state.busDetails?.vehicle?.trip_headsign
-                       || v.trip_headsign
-                       || v.destination
-                       || "Unknown";
+  const destination  = prettifyName(
+                         state.busDetails?.vehicle?.trip_headsign
+                         || v.trip_headsign
+                         || v.destination
+                       ) || "Unknown";
   const fleetId      = v.vehicle_ref || "–";
   const chip         = buildStatusChip({ delay_seconds: v.delay_seconds });
   const upcomingHtml = buildUpcomingStopsHtml();
@@ -780,7 +789,7 @@ function buildUpcomingStopsHtml() {
     return `
       <li class="upcoming-stop">
         <span class="upcoming-stop-marker" aria-hidden="true">${marker}</span>
-        <span class="upcoming-stop-name">${escapeHtml(s.stop_name || s.stop_id)}</span>
+        <span class="upcoming-stop-name">${escapeHtml(prettifyName(s.stop_name) || s.stop_id)}</span>
         <span class="upcoming-stop-time">${escapeHtml(time)}</span>
       </li>`;
   }).join("");
@@ -1071,6 +1080,11 @@ function getOperatorName(operatorRef) {
 function stripNightPrefix(svc) {
   if (!svc) return "";
   return /^N\d+$/i.test(svc) ? svc.slice(1) : svc;
+}
+
+function prettifyName(s) {
+  if (!s) return "";
+  return String(s).replace(/_/g, " ");
 }
 
 // ============================================================

@@ -974,14 +974,16 @@ def _strip_night_prefix(svc: str) -> str:
 
 def _normalise_atco(stop_id: str) -> list:
     """
-    Return lookup variants for a NaPTAN stop ID. Historically the
-    backend mangled 4400 (West Sussex) into 1400 (East Sussex); we
-    now keep the original code and also try the mangled form so old
-    clients/cached references still resolve.
+    Return lookup variants for a NaPTAN stop ID. West Sussex uses
+    prefix 4400, Brighton & Hove uses 1490. SIRI-VM and timetable
+    data may reference the same physical stop with either prefix,
+    so try both forms.
     """
     variants = [stop_id]
     if stop_id.startswith("1400"):
         variants.append("4400" + stop_id[4:])
+    elif stop_id.startswith("4400"):
+        variants.append("1400" + stop_id[4:])
     return variants
 
 def _safe_float(v) -> Optional[float]:
