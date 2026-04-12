@@ -51,6 +51,8 @@ const state = {
   followSelectedBus:       false,  // map-follow checkbox state
   activeTab:               "stop", // "stop" | "bus"
   busInfoTickTimer:        null,   // setInterval handle for "X ago" text
+  busDetails:              null,   // /api/vehicle response for selected bus
+  busDetailsLoading:       false,  // true while waiting on /api/vehicle
 };
 
 // ============================================================
@@ -257,6 +259,8 @@ function updateVehicleMarkers(vehicles) {
       if (state.followSelectedBus) {
         state.map.panTo([vehicle.latitude, vehicle.longitude], { animate: true });
       }
+      // Refresh the upcoming-stops list as the bus moves
+      fetchBusDetails(ref);
     }
   });
 
@@ -296,13 +300,15 @@ function buildBusPopupHtml(vehicle, label) {
     statusHtml = `<p class="bus-popup-status"><span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span></p>`;
   }
 
+  const destText = vehicle.trip_headsign || vehicle.destination || "Unknown";
+
   return `
     <div class="bus-popup">
       <div class="bus-popup-header">
         ${iconHtml}
         <span class="service-badge" style="background:${colour}">${escapeHtml(label)}</span>
       </div>
-      <p class="bus-popup-destination">To ${escapeHtml(vehicle.destination || "Unknown")}</p>
+      <p class="bus-popup-destination">To ${escapeHtml(destText)}</p>
       ${statusHtml}
       <p class="bus-popup-hint">See Bus tab for full details →</p>
     </div>`;
@@ -629,13 +635,35 @@ function openBusInfo(vehicle) {
   state.selectedVehicle         = vehicle;
   state.selectedVehicleLastSeen = new Date();
   state.selectedVehicleLost     = false;
+  state.busDetails              = null;
+  state.busDetailsLoading       = true;
 
   setActiveTab("bus");
   renderBusTab();
   startBusInfoTicker();
 
+  // Fetch the matched GTFS trip + upcoming stops. Fire-and-forget:
+  // when it resolves we update state.busDetails and re-render, but
+  // only if the user is still looking at the same vehicle.
+  fetchBusDetails(vehicle.vehicle_ref);
+
   // On mobile, scroll the panel into view
   dom.departurePanel.scrollIntoView({ behavior: "smooth", block: "end" });
+}
+
+async function fetchBusDetails(vehicleRef) {
+  try {
+    const data = await apiFetch(`/api/vehicle?vehicleRef=${encodeURIComponent(vehicleRef)}`);
+    if (state.selectedVehicleRef !== vehicleRef) return;   // user moved on
+    state.busDetails        = data;
+    state.busDetailsLoading = false;
+    renderBusTab();
+  } catch (err) {
+    if (state.selectedVehicleRef !== vehicleRef) return;
+    state.busDetails        = null;
+    state.busDetailsLoading = false;
+    renderBusTab();
+  }
 }
 
 /** Build the Bus tab body from the latest selected vehicle. */
@@ -654,9 +682,13 @@ function renderBusTab() {
   const iconUrl      = OPERATOR_ICONS[v.operator_ref];
   const colour       = getOperatorColour(v.operator_ref);
   const service      = v.service_ref || "?";
-  const destination  = v.destination || "Unknown";
+  const destination  = state.busDetails?.vehicle?.trip_headsign
+                       || v.trip_headsign
+                       || v.destination
+                       || "Unknown";
   const fleetId      = v.vehicle_ref || "–";
   const chip         = buildStatusChip({ delay_seconds: v.delay_seconds });
+  const upcomingHtml = buildUpcomingStopsHtml();
 
   const iconHtml = iconUrl
     ? `<img class="bus-info-icon" src="${escapeAttr(iconUrl)}" alt="">`
@@ -703,6 +735,8 @@ function renderBusTab() {
       <span>Follow this bus on the map</span>
     </label>
 
+    ${upcomingHtml}
+
     <p class="bus-info-footer">Live data · auto-refreshes every 20s</p>
   `;
 
@@ -721,6 +755,46 @@ function renderBusTab() {
       }
     });
   }
+}
+
+/**
+ * Build the "Upcoming stops" section for the Bus tab from the detail
+ * fetch. Returns an empty string when the fetch is still in flight or
+ * returned no stops — keeps the layout tidy.
+ */
+function buildUpcomingStopsHtml() {
+  if (state.busDetailsLoading) {
+    return `
+      <div class="upcoming-stops">
+        <h3 class="upcoming-stops-title">Upcoming stops</h3>
+        <p class="upcoming-stops-loading">Loading route…</p>
+      </div>`;
+  }
+  const stops = state.busDetails?.upcoming_stops || [];
+  if (stops.length === 0) return "";
+
+  const rows = stops.map((s, i) => {
+    const iso  = s.expected_departure || s.aimed_departure;
+    const time = iso ? formatTimeOfDay(new Date(iso)) : "–";
+    const marker = i === 0 ? "●" : "○";
+    return `
+      <li class="upcoming-stop">
+        <span class="upcoming-stop-marker" aria-hidden="true">${marker}</span>
+        <span class="upcoming-stop-name">${escapeHtml(s.stop_name || s.stop_id)}</span>
+        <span class="upcoming-stop-time">${escapeHtml(time)}</span>
+      </li>`;
+  }).join("");
+
+  const sourceNote = state.busDetails?.source === "siri_onward_calls"
+    ? `<p class="upcoming-stops-note">From live vehicle · may be partial</p>`
+    : "";
+
+  return `
+    <div class="upcoming-stops">
+      <h3 class="upcoming-stops-title">Upcoming stops</h3>
+      <ol class="upcoming-stops-list">${rows}</ol>
+      ${sourceNote}
+    </div>`;
 }
 
 /** Re-tick the "X ago" line every second without re-rendering the tab. */
@@ -792,6 +866,8 @@ function closePanel() {
   state.selectedVehicleLastSeen = null;
   state.selectedVehicleLost     = false;
   state.followSelectedBus       = false;
+  state.busDetails              = null;
+  state.busDetailsLoading       = false;
   stopBusInfoTicker();
   dom.panelBusName.textContent  = "No bus selected";
   dom.panelBusId.textContent    = "";
