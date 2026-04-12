@@ -309,10 +309,33 @@ async def debug_siri_sample():
     ns = {"s": SIRI_NS}
     root = ET.fromstring(resp.text)
     samples = []
-    for act in root.findall(".//s:VehicleActivity", ns)[:2]:
-        samples.append(ET.tostring(act, encoding="unicode"))
-    return {"count": len(root.findall(".//s:VehicleActivity", ns)),
-            "samples_xml": samples}
+    for act in root.findall(".//s:VehicleActivity", ns):
+        j = act.find("s:MonitoredVehicleJourney", ns)
+        if j is None:
+            continue
+        vref_el = j.find("s:VehicleRef", ns)
+        vref = vref_el.text.strip() if vref_el is not None and vref_el.text else ""
+        has_mc = j.find("s:MonitoredCall", ns) is not None
+        has_oc = j.find("s:OnwardCalls", ns) is not None
+        op_el = j.find("s:OperatorRef", ns)
+        op = op_el.text.strip() if op_el is not None and op_el.text else ""
+        if has_mc or has_oc or len(samples) < 4:
+            samples.append({
+                "vehicle_ref": vref,
+                "operator": op,
+                "has_monitored_call": has_mc,
+                "has_onward_calls": has_oc,
+                "xml": ET.tostring(act, encoding="unicode")[:800],
+            })
+        if len(samples) >= 10:
+            break
+    all_acts = root.findall(".//s:VehicleActivity", ns)
+    mc_count = sum(1 for a in all_acts
+                   if a.find("s:MonitoredVehicleJourney", ns) is not None
+                   and a.find("s:MonitoredVehicleJourney/s:MonitoredCall", ns) is not None)
+    return {"total_activities": len(all_acts),
+            "with_monitored_call": mc_count,
+            "samples": samples}
 
 @app.get("/api/debug/match-stats")
 async def debug_match_stats():
