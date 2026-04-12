@@ -18,7 +18,7 @@ import os
 import time
 import logging
 import xml.etree.ElementTree as ET
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, date, timezone
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -219,13 +219,15 @@ async def get_vehicles():
     """Live bus positions from BODS SIRI-VM. Cached 15 s."""
     _check_api_key()
     cached = cache_get("vehicles")
-    if cached:
-        return cached
-    vehicles = await _fetch_siri_vm()
-    result   = {"vehicles": vehicles, "count": len(vehicles)}
-    cache_set("vehicles", result, 15)
-    log.info("Fetched %d vehicles", len(vehicles))
-    return result
+    if cached is None:
+        vehicles = await _fetch_siri_vm()
+        cached   = {"vehicles": vehicles, "count": len(vehicles)}
+        cache_set("vehicles", cached, 15)
+    # 'calls' is an internal field used by the departures overlay; strip
+    # it from the public response to keep payloads small.
+    public = [{k: val for k, val in v.items() if k != "calls"}
+              for v in cached["vehicles"]]
+    return {"vehicles": public, "count": len(public)}
 
 
 async def _fetch_siri_vm() -> list:
@@ -286,6 +288,8 @@ def _parse_siri_vm(xml_text: str) -> list:
                 dropped_stale += 1
                 continue
 
+        calls = _extract_calls(journey, ns)
+
         vehicles.append({
             "vehicle_ref":   jtext("VehicleRef"),
             "service_ref":   jtext("PublishedLineName") or jtext("LineRef"),
@@ -296,12 +300,55 @@ def _parse_siri_vm(xml_text: str) -> list:
             "bearing":       _safe_float(jtext("Bearing")),
             "delay_seconds": delay_s,
             "recorded_at":   recorded_at,
+            "calls":         calls,
         })
 
     if dropped_stale:
         log.info("Dropped %d stale vehicle(s) (>%ds old)",
                  dropped_stale, VEHICLE_STALE_SECONDS)
+    with_calls = sum(1 for v in vehicles if v.get("calls"))
+    log.info("SIRI-VM parsed: %d vehicles (%d with onward calls)",
+             len(vehicles), with_calls)
     return vehicles
+
+
+def _extract_calls(journey, ns) -> list:
+    """
+    Extract MonitoredCall + OnwardCall blocks from a MonitoredVehicleJourney.
+
+    Each entry is the vehicle's prediction for a specific downstream stop.
+    MonitoredCall is the *next* stop; OnwardCall entries are the stops after.
+    Returns a list of {stop_id, aimed_arrival, expected_arrival,
+    aimed_departure, expected_departure} dicts (fields may be None).
+    """
+    def parse_call(el):
+        if el is None:
+            return None
+        def txt(tag):
+            e = el.find(f"s:{tag}", ns)
+            return e.text.strip() if e is not None and e.text else None
+        stop_id = txt("StopPointRef")
+        if not stop_id:
+            return None
+        return {
+            "stop_id":            stop_id,
+            "aimed_arrival":      txt("AimedArrivalTime"),
+            "expected_arrival":   txt("ExpectedArrivalTime"),
+            "aimed_departure":    txt("AimedDepartureTime"),
+            "expected_departure": txt("ExpectedDepartureTime"),
+        }
+
+    calls = []
+    mon = parse_call(journey.find("s:MonitoredCall", ns))
+    if mon:
+        calls.append(mon)
+    onward_container = journey.find("s:OnwardCalls", ns)
+    if onward_container is not None:
+        for oc in onward_container.findall("s:OnwardCall", ns):
+            c = parse_call(oc)
+            if c:
+                calls.append(c)
+    return calls
 
 # ── /api/departures ───────────────────────────────────────────
 @app.get("/api/departures")
@@ -325,7 +372,7 @@ async def get_departures(stopId: str = Query(...)):
         cache_set(cache_key, base, 60)
 
     vehicles = await _get_vehicles_or_empty()
-    return _apply_live_overlay(base, vehicles)
+    return _apply_live_overlay(base, vehicles, stopId)
 
 
 async def _get_vehicles_or_empty() -> list:
@@ -348,53 +395,108 @@ async def _get_vehicles_or_empty() -> list:
     return vehicles
 
 
-def _apply_live_overlay(base: dict, vehicles: list) -> dict:
+def _apply_live_overlay(base: dict, vehicles: list, stop_id: str) -> dict:
     """
-    Overlay current vehicle delays onto a scheduled departures payload.
+    Overlay live per-stop predictions onto a scheduled departures payload.
 
-    Strategy (Phase 2a — fleet-delay heuristic):
-      • Group all live vehicles by service_ref.
-      • For each service with at least one delay reading, take the
-        median delay_seconds across its vehicles.
-      • Apply that delta to every scheduled departure of the same
-        service to compute expected_departure / status / delay_seconds.
+    Strategy (Phase 2a v2 — SIRI-VM MonitoredCall/OnwardCall):
+      • Every live vehicle carries a list of upcoming stop calls, each
+        with an aimed and (hopefully) expected time for a specific
+        StopPointRef.
+      • For each scheduled departure we look up predictions matching
+        (stop_id, service) and pick the one whose aimed time is closest
+        to the scheduled aimed time.
+      • If the match is within 5 minutes, use the expected time as the
+        live prediction and derive delay_seconds from (expected - aimed).
 
-    The base payload is never mutated; a new dict is returned with
-    fresh departure entries.
+    The base payload is never mutated; a new dict is returned.
     """
     departures = base.get("departures") or []
     if not departures or not vehicles:
         return base
 
-    delays_by_service: dict = {}
-    for v in vehicles:
-        svc = v.get("service_ref")
-        delay = v.get("delay_seconds")
-        if svc and delay is not None:
-            delays_by_service.setdefault(svc, []).append(int(delay))
-
-    if not delays_by_service:
+    index = _build_prediction_index(vehicles)
+    if not index:
         return base
 
+    # Try every stop-id variant so 1400/4400 mangled references still match.
+    variants = _normalise_atco(stop_id)
+
     overlaid = []
+    matched  = 0
     for dep in departures:
         new = dict(dep)
         svc = dep.get("service")
-        delays = delays_by_service.get(svc)
-        if delays:
-            ordered = sorted(delays)
-            median = ordered[len(ordered) // 2]
-            try:
-                aimed_dt = datetime.fromisoformat(dep["aimed_departure"])
-                expected_dt = aimed_dt + timedelta(seconds=median)
-                new["expected_departure"] = expected_dt.isoformat()
-                new["delay_seconds"]      = median
-                new["status"]             = _delay_to_status(median)
-            except (ValueError, KeyError, TypeError):
-                pass
+        try:
+            aimed_dt = datetime.fromisoformat(dep["aimed_departure"])
+        except (ValueError, KeyError, TypeError):
+            overlaid.append(new)
+            continue
+
+        candidates = []
+        for variant in variants:
+            candidates.extend(index.get((variant, svc), []))
+        if not candidates:
+            overlaid.append(new)
+            continue
+
+        best = None
+        best_delta = None
+        for c in candidates:
+            if c["aimed"] is None:
+                continue
+            delta = abs((c["aimed"] - aimed_dt).total_seconds())
+            if best_delta is None or delta < best_delta:
+                best = c
+                best_delta = delta
+        if best is None or best_delta is None or best_delta > 300:
+            overlaid.append(new)
+            continue
+
+        expected = best["expected"]
+        if expected is None:
+            overlaid.append(new)
+            continue
+
+        delay = int((expected - aimed_dt).total_seconds())
+        new["expected_departure"] = expected.isoformat()
+        new["delay_seconds"]      = delay
+        new["status"]             = _delay_to_status(delay)
+        matched += 1
         overlaid.append(new)
 
+    log.info("Live overlay for %s: matched %d/%d departures",
+             stop_id, matched, len(departures))
     return {**base, "departures": overlaid}
+
+
+def _build_prediction_index(vehicles: list) -> dict:
+    """
+    Build a lookup keyed on (stop_id, service_ref) → list of calls,
+    each call being {aimed: datetime|None, expected: datetime|None}.
+    Prefers *departure* times; falls back to *arrival* times if the
+    feed only publishes those.
+    """
+    index: dict = {}
+    for v in vehicles:
+        svc = v.get("service_ref")
+        if not svc:
+            continue
+        for c in v.get("calls") or []:
+            stop_id = c.get("stop_id")
+            if not stop_id:
+                continue
+            aimed_dt    = _parse_iso_datetime(
+                c.get("aimed_departure") or c.get("aimed_arrival"))
+            expected_dt = _parse_iso_datetime(
+                c.get("expected_departure") or c.get("expected_arrival"))
+            if aimed_dt is None and expected_dt is None:
+                continue
+            index.setdefault((stop_id, svc), []).append({
+                "aimed":    aimed_dt,
+                "expected": expected_dt,
+            })
+    return index
 
 
 def _delay_to_status(delay_secs: int) -> str:
