@@ -35,8 +35,23 @@ const CONFIG = {
 // ============================================================
 // STATE
 // ============================================================
+const TILES = {
+  light: {
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+  },
+  dark: {
+    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom: 19,
+  },
+};
+
 const state = {
   map: null,
+  tileLayer: null,       // active Leaflet tile layer
+  darkMode: false,
   stopMarkers:   {},    // atcoCode → Leaflet marker
   busMarkers:    {},    // vehicleRef → Leaflet marker
   selectedStop:  null,  // { atcoCode, name }
@@ -62,6 +77,7 @@ const dom = {
   mapLoading:         document.getElementById("map-loading"),
   lastUpdatedLabel:   document.getElementById("last-updated-label"),
   toggleRefreshBtn:   document.getElementById("toggle-refresh-btn"),
+  darkModeBtn:        document.getElementById("dark-mode-btn"),
   departurePanel:     document.getElementById("departure-panel"),
   panelStopName:      document.getElementById("panel-stop-name"),
   panelStopId:        document.getElementById("panel-stop-id"),
@@ -96,6 +112,14 @@ const dom = {
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
+  // Apply dark mode before map/paint so there's no flash
+  if (localStorage.getItem("darkMode") === "1") {
+    state.darkMode = true;
+    document.body.classList.add("dark-mode");
+    dom.darkModeBtn.textContent = "☀️";
+    dom.darkModeBtn.title = "Switch to light mode";
+  }
+
   initMap();
   bindUIEvents();
 
@@ -121,10 +145,11 @@ function initMap() {
     zoomControl: true,
   });
 
-  // OpenStreetMap tiles — free, no API key required
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
+  // Tile layer — swapped when dark mode toggles
+  const t = state.darkMode ? TILES.dark : TILES.light;
+  state.tileLayer = L.tileLayer(t.url, {
+    attribution: t.attribution,
+    maxZoom: t.maxZoom,
   }).addTo(state.map);
 
   // Close panel when clicking an empty area of the map. Leaflet bubbles
@@ -867,6 +892,26 @@ function showPanelState(stateKey, errorMsg) {
   }
 }
 
+function toggleDarkMode() {
+  state.darkMode = !state.darkMode;
+  document.body.classList.toggle("dark-mode", state.darkMode);
+  localStorage.setItem("darkMode", state.darkMode ? "1" : "0");
+  dom.darkModeBtn.textContent = state.darkMode ? "☀️" : "🌙";
+  dom.darkModeBtn.title = state.darkMode ? "Switch to light mode" : "Toggle dark mode";
+
+  // Swap the map tile layer
+  if (state.tileLayer) {
+    state.map.removeLayer(state.tileLayer);
+  }
+  const t = state.darkMode ? TILES.dark : TILES.light;
+  state.tileLayer = L.tileLayer(t.url, {
+    attribution: t.attribution,
+    maxZoom: t.maxZoom,
+  }).addTo(state.map);
+  // Ensure tiles sit below markers
+  state.tileLayer.bringToBack();
+}
+
 function closePanel() {
   // Clear stop selection
   state.selectedStop = null;
@@ -925,6 +970,9 @@ function bindUIEvents() {
     const service = tr.dataset.service;
     if (service) openBusFromService(service);
   });
+
+  // Dark mode toggle
+  dom.darkModeBtn.addEventListener("click", toggleDarkMode);
 
   // Toggle live refresh pause/resume
   dom.toggleRefreshBtn.addEventListener("click", () => {
