@@ -491,16 +491,22 @@ def _apply_live_overlay(base: dict, vehicles: list, stop_id: str) -> dict:
     matched  = 0
     for dep in departures:
         new = dict(dep)
-        svc = dep.get("service")
+        svc = dep.get("service") or ""
         try:
             aimed_dt = datetime.fromisoformat(dep["aimed_departure"])
         except (ValueError, KeyError, TypeError):
             overlaid.append(new)
             continue
 
+        # Some operators publish night services without the leading "N",
+        # so "N700" in the schedule may need to match "700" in live data.
+        svc_keys = {svc}
+        svc_keys.add(_strip_night_prefix(svc))
+
         candidates = []
         for variant in variants:
-            candidates.extend(index.get((variant, svc), []))
+            for key in svc_keys:
+                candidates.extend(index.get((variant, key), []))
         if not candidates:
             overlaid.append(new)
             continue
@@ -715,6 +721,17 @@ def _check_api_key():
     if not BODS_API_KEY:
         raise HTTPException(status_code=503,
             detail="BODS_API_KEY not configured.")
+
+def _strip_night_prefix(svc: str) -> str:
+    """
+    Return the service label with a leading "N" removed when the rest is
+    purely digits, so "N700" and "700" can be treated as the same line.
+    Used to reconcile operators that publish night variants without the
+    N prefix (Stagecoach SCSO) against timetables that keep it.
+    """
+    if svc and len(svc) > 1 and svc[0] in ("N", "n") and svc[1:].isdigit():
+        return svc[1:]
+    return svc
 
 def _normalise_atco(stop_id: str) -> list:
     """
