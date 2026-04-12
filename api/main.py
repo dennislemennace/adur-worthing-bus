@@ -292,7 +292,7 @@ async def get_vehicles():
         cache_set("vehicles", cached, 15)
     # 'calls' and 'trip_id' are internal; strip from the public payload
     # to keep responses small. 'trip_headsign' is what the client needs.
-    hidden = {"calls", "trip_id"}
+    hidden = {"calls", "trip_id", "origin_ref", "destination_ref"}
     public = [{k: val for k, val in v.items() if k not in hidden}
               for v in cached["vehicles"]]
     return {"vehicles": public, "count": len(public)}
@@ -512,6 +512,8 @@ def _parse_siri_vm(xml_text: str) -> list:
             "service_ref":   jtext("PublishedLineName") or jtext("LineRef"),
             "operator_ref":  jtext("OperatorRef"),
             "destination":   jtext("DestinationName") or jtext("DirectionRef"),
+            "origin_ref":    jtext("OriginRef"),
+            "destination_ref": jtext("DestinationRef"),
             "latitude":      lat,
             "longitude":     lon,
             "bearing":       _safe_float(jtext("Bearing")),
@@ -738,13 +740,21 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
     is currently running. When a match is found, attach `trip_id` and
     `trip_headsign` to the vehicle dict in place.
 
-    Matching keys off the vehicle's first upcoming stop call:
-      (service short_name, next stop_id, aimed_time at that stop)
+    Strategy 1 (preferred): if the vehicle has MonitoredCall data, match
+    on (service, next_stop_id, aimed_time).
+
+    Strategy 2 (fallback): match on (service, origin_ref, destination_ref)
+    from the SIRI-VM journey, picking the trip whose scheduled start
+    is closest to the current time. This works even when operators don't
+    publish MonitoredCall/OnwardCall blocks.
     """
     if not vehicles or not tt.get("trip_stops"):
         return
 
     now_local = datetime.now(UK_TZ)
+    now_secs  = (now_local.hour * 3600
+                 + now_local.minute * 60
+                 + now_local.second)
     today     = now_local.date()
     dow       = today.weekday()
     today_str = today.strftime("%Y%m%d")
@@ -753,62 +763,113 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
     trips          = tt.get("trips", {})
     routes         = tt.get("routes", {})
     stop_times     = tt.get("stop_times", {})
+    svc_endpoints  = tt.get("svc_trip_endpoints", {})
 
     matched_n = 0
     for v in vehicles:
         svc = v.get("service_ref") or ""
+        if not svc:
+            continue
+
+        # ── Strategy 1: MonitoredCall-based matching ──
         calls = v.get("calls") or []
-        if not svc or not calls:
-            continue
+        if calls:
+            next_call = calls[0]
+            next_stop = next_call.get("stop_id")
+            aimed_iso = (next_call.get("aimed_departure")
+                         or next_call.get("aimed_arrival"))
+            aimed_dt  = _parse_iso_datetime(aimed_iso)
+            if next_stop and aimed_dt is not None:
+                aimed_local = aimed_dt.astimezone(UK_TZ)
+                aimed_secs  = (aimed_local.hour * 3600
+                               + aimed_local.minute * 60
+                               + aimed_local.second)
+                match = _match_by_stop(
+                    svc, next_stop, aimed_secs, stop_times, trips, routes,
+                    today, today_str, dow, calendar, calendar_dates, 120)
+                if match:
+                    v["trip_id"]       = match
+                    v["trip_headsign"] = trips.get(match, {}).get("headsign") or None
+                    matched_n += 1
+                    continue
 
-        # First call (MonitoredCall) is the vehicle's *next* stop.
-        next_call   = calls[0]
-        next_stop   = next_call.get("stop_id")
-        aimed_iso   = (next_call.get("aimed_departure")
-                       or next_call.get("aimed_arrival"))
-        aimed_dt    = _parse_iso_datetime(aimed_iso)
-        if not next_stop or aimed_dt is None:
+        # ── Strategy 2: origin/destination endpoint matching ──
+        origin_ref = v.get("origin_ref") or ""
+        dest_ref   = v.get("destination_ref") or ""
+        if not origin_ref and not dest_ref:
             continue
-
-        # Convert the aimed time into GTFS seconds-of-day (UK local).
-        aimed_local = aimed_dt.astimezone(UK_TZ)
-        aimed_secs  = (aimed_local.hour * 3600
-                       + aimed_local.minute * 60
-                       + aimed_local.second)
 
         svc_set = {svc, _strip_night_prefix(svc)}
-        entries = stop_times.get(next_stop, [])
-
         best_trip  = None
         best_delta = None
-        for dep_secs, trip_id in entries:
-            trip  = trips.get(trip_id, {})
-            route = routes.get(trip.get("route_id", ""), {})
-            short_name = route.get("short_name", "")
-            if (short_name not in svc_set
-                    and _strip_night_prefix(short_name) not in svc_set):
-                continue
-            if not _runs_today(trip.get("service_id", ""), today, today_str,
-                               dow, calendar, calendar_dates):
-                continue
-            delta = abs(dep_secs - aimed_secs)
-            if delta > 43200:                  # midnight wrap
-                delta = 86400 - delta
-            if best_delta is None or delta < best_delta:
-                best_trip  = trip_id
-                best_delta = delta
 
-        if best_trip is None or best_delta is None or best_delta > 120:
-            continue
+        for svc_key in svc_set:
+            candidates = svc_endpoints.get(svc_key, [])
+            for trip_id, first_stop, last_stop, first_secs in candidates:
+                origin_match = _atco_match(origin_ref, first_stop)
+                dest_match   = _atco_match(dest_ref, last_stop)
+                if not origin_match and not dest_match:
+                    continue
+                trip = trips.get(trip_id, {})
+                if not _runs_today(trip.get("service_id", ""), today,
+                                   today_str, dow, calendar, calendar_dates):
+                    continue
+                delta = abs(first_secs - now_secs)
+                if delta > 43200:
+                    delta = 86400 - delta
+                if best_delta is None or delta < best_delta:
+                    best_trip  = trip_id
+                    best_delta = delta
 
-        trip = trips.get(best_trip, {})
-        v["trip_id"]       = best_trip
-        v["trip_headsign"] = trip.get("headsign") or None
-        matched_n += 1
+        if best_trip is not None and best_delta is not None and best_delta <= 7200:
+            v["trip_id"]       = best_trip
+            v["trip_headsign"] = trips.get(best_trip, {}).get("headsign") or None
+            matched_n += 1
 
     if vehicles:
         log.info("Trip match: %d/%d vehicles linked to a GTFS trip",
                  matched_n, len(vehicles))
+
+
+def _match_by_stop(svc, stop_id, aimed_secs, stop_times, trips, routes,
+                   today, today_str, dow, calendar, calendar_dates,
+                   max_delta):
+    """Try to match a vehicle to a trip via a stop_id and aimed time."""
+    svc_set = {svc, _strip_night_prefix(svc)}
+    entries = stop_times.get(stop_id, [])
+    best_trip  = None
+    best_delta = None
+    for dep_secs, trip_id in entries:
+        trip  = trips.get(trip_id, {})
+        route = routes.get(trip.get("route_id", ""), {})
+        short_name = route.get("short_name", "")
+        if (short_name not in svc_set
+                and _strip_night_prefix(short_name) not in svc_set):
+            continue
+        if not _runs_today(trip.get("service_id", ""), today, today_str,
+                           dow, calendar, calendar_dates):
+            continue
+        delta = abs(dep_secs - aimed_secs)
+        if delta > 43200:
+            delta = 86400 - delta
+        if best_delta is None or delta < best_delta:
+            best_trip  = trip_id
+            best_delta = delta
+    if best_trip and best_delta is not None and best_delta <= max_delta:
+        return best_trip
+    return None
+
+
+def _atco_match(ref: str, stop_id: str) -> bool:
+    """Check if a SIRI-VM stop ref matches a GTFS stop_id, allowing
+    for ATCO prefix differences (4400 vs 1490 vs 1400)."""
+    if not ref or not stop_id:
+        return False
+    if ref == stop_id:
+        return True
+    if len(ref) >= 4 and len(stop_id) >= 4 and ref[4:] == stop_id[4:]:
+        return True
+    return False
 
 
 def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
@@ -830,7 +891,16 @@ def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
     start_idx = 0
     if next_stop:
         for i, (_secs, sid) in enumerate(trip_stops):
-            if sid == next_stop:
+            if sid == next_stop or _atco_match(next_stop, sid):
+                start_idx = i
+                break
+    else:
+        now_local_tmp = datetime.now(UK_TZ)
+        now_secs = (now_local_tmp.hour * 3600
+                    + now_local_tmp.minute * 60
+                    + now_local_tmp.second)
+        for i, (dep_secs, _sid) in enumerate(trip_stops):
+            if dep_secs >= now_secs:
                 start_idx = i
                 break
 
@@ -976,6 +1046,24 @@ def _build_trip_indices(tt: dict) -> None:
         if rid:
             route_trips.setdefault(rid, []).append(trip_id)
     tt["route_trips"] = route_trips
+
+    svc_trip_endpoints: dict = {}
+    routes = tt.get("routes", {})
+    trips = tt.get("trips", {})
+    for trip_id, stops in trip_stops.items():
+        if not stops:
+            continue
+        trip = trips.get(trip_id, {})
+        route = routes.get(trip.get("route_id", ""), {})
+        svc = route.get("short_name", "")
+        if not svc:
+            continue
+        first_stop = stops[0][1]
+        first_secs = stops[0][0]
+        last_stop  = stops[-1][1]
+        svc_trip_endpoints.setdefault(svc, []).append(
+            (trip_id, first_stop, last_stop, first_secs))
+    tt["svc_trip_endpoints"] = svc_trip_endpoints
 
 # ── Departure calculation ─────────────────────────────────────
 def _departures_for_stop(tt: dict, stop_id: str) -> dict:
