@@ -49,9 +49,14 @@ GTFS_URL = "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/south_
 # for Adur, "4400WO..." for Worthing, etc.
 WEST_SUSSEX_ATCO_PREFIX = "4400"
 
-# Also keep stops inside the map bounding box regardless of ATCO prefix.
-# This captures Brighton & Hove (East Sussex, prefix 1400) stops that are
-# within the Adur & Worthing area, so BHBC routes get trip-matched.
+# Brighton & Hove routes to include in the timetable even though their
+# stops use prefix 1490 (East Sussex) rather than 4400.  These are
+# services that connect into or are relevant to Adur & Worthing.
+EXTRA_ROUTES = {
+    "N1", "N5", "1X", "3X", "6", "13X", "21", "23X", "25X", "29X",
+    "37", "37B", "47", "49",
+}
+
 BBOX_MIN_LAT, BBOX_MAX_LAT =  50.78,  50.87
 BBOX_MIN_LON, BBOX_MAX_LON = -0.42,  -0.10
 
@@ -155,10 +160,12 @@ def parse_gtfs(zip_path: str) -> dict:
         _require(names, "trips.txt")
         _require(names, "routes.txt")
 
-        # 1. stops.txt — keep West Sussex stops + any stop inside the bbox
+        # ── Phase 1: stops ────────────────────────────────────────
+        # Keep West Sussex stops (4400) plus any stop inside the bbox
+        # (for stop name lookups in upcoming-stops lists).
         log.info("Parsing stops.txt…")
         ws_stop_ids = set()
-        bbox_extra = 0
+        bbox_stop_ids = set()
         with zf.open("stops.txt") as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
             for row in reader:
@@ -175,21 +182,57 @@ def parse_gtfs(zip_path: str) -> dict:
                         pass
                 if not by_prefix and not by_bbox:
                     continue
-                ws_stop_ids.add(stop_id)
+                if by_prefix:
+                    ws_stop_ids.add(stop_id)
+                else:
+                    bbox_stop_ids.add(stop_id)
                 timetable["stops"][stop_id] = {
                     "name": row.get("stop_name") or "Bus Stop",
                 }
-                if by_bbox and not by_prefix:
-                    bbox_extra += 1
-        log.info("  %d stops kept (%d West Sussex + %d bbox-only)",
-                 len(ws_stop_ids), len(ws_stop_ids) - bbox_extra, bbox_extra)
+        all_stop_ids = ws_stop_ids | bbox_stop_ids
+        log.info("  %d stops (%d West Sussex + %d bbox-only)",
+                 len(all_stop_ids), len(ws_stop_ids), len(bbox_stop_ids))
 
         if not ws_stop_ids:
-            log.error("No stops found in target area — aborting")
+            log.error("No West Sussex stops found — aborting")
             return timetable
 
-        # 2. stop_times.txt — keep only rows for WS stops.
-        # This is the biggest file; stream through it.
+        # ── Phase 2: routes.txt (need this early to identify EXTRA_ROUTES)
+        log.info("Parsing routes.txt…")
+        all_routes = {}
+        extra_route_ids = set()
+        with zf.open("routes.txt") as f:
+            reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
+            for row in reader:
+                route_id = row.get("route_id", "")
+                short_name = row.get("route_short_name") or ""
+                all_routes[route_id] = {
+                    "short_name": short_name,
+                    "long_name":  row.get("route_long_name") or "",
+                }
+                if short_name in EXTRA_ROUTES:
+                    extra_route_ids.add(route_id)
+        log.info("  %d EXTRA_ROUTES matched by short_name", len(extra_route_ids))
+
+        # ── Phase 3: trips.txt (need this to know which trips are EXTRA)
+        log.info("Parsing trips.txt (first pass — index all)…")
+        all_trips = {}
+        extra_trip_ids = set()
+        with zf.open("trips.txt") as f:
+            reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
+            for row in reader:
+                trip_id = row.get("trip_id", "")
+                route_id = row.get("route_id", "")
+                all_trips[trip_id] = row
+                if route_id in extra_route_ids:
+                    extra_trip_ids.add(trip_id)
+        log.info("  %d total trips, %d belong to EXTRA_ROUTES",
+                 len(all_trips), len(extra_trip_ids))
+
+        # ── Phase 4: stop_times.txt ──────────────────────────────
+        # Keep entries for:
+        #   • any stop in ws_stop_ids (4400 prefix) — all routes
+        #   • any stop in bbox_stop_ids — only EXTRA_ROUTES trips
         log.info("Parsing stop_times.txt (this is the big one)…")
         needed_trip_ids = set()
         row_count = 0
@@ -204,17 +247,20 @@ def parse_gtfs(zip_path: str) -> dict:
                         f"{row_count:,}", f"{kept_count:,}",
                     )
                 stop_id = row.get("stop_id", "")
-                if stop_id not in ws_stop_ids:
-                    continue
                 trip_id = row.get("trip_id", "")
+                if stop_id in ws_stop_ids:
+                    pass  # always keep
+                elif stop_id in bbox_stop_ids and trip_id in extra_trip_ids:
+                    pass  # keep for curated Brighton routes
+                else:
+                    continue
                 dep_time = (row.get("departure_time")
                             or row.get("arrival_time", ""))
                 dep_secs = _hms_to_secs(dep_time)
                 if dep_secs < 0 or not trip_id:
                     continue
-                if stop_id not in timetable["stop_times"]:
-                    timetable["stop_times"][stop_id] = []
-                timetable["stop_times"][stop_id].append((dep_secs, trip_id))
+                timetable["stop_times"].setdefault(stop_id, []).append(
+                    (dep_secs, trip_id))
                 needed_trip_ids.add(trip_id)
                 kept_count += 1
         log.info(
@@ -222,45 +268,36 @@ def parse_gtfs(zip_path: str) -> dict:
             f"{row_count:,}", f"{kept_count:,}", len(needed_trip_ids),
         )
 
-        # 3. trips.txt — keep only trips that serve a WS stop
-        log.info("Parsing trips.txt…")
+        # ── Phase 5: filter trips & routes to only what's needed ─
+        log.info("Filtering trips and routes…")
         needed_route_ids = set()
         needed_service_ids = set()
-        with zf.open("trips.txt") as f:
-            reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
-            for row in reader:
-                trip_id = row.get("trip_id", "")
-                if trip_id not in needed_trip_ids:
-                    continue
-                route_id = row.get("route_id", "")
-                service_id = row.get("service_id", "")
-                timetable["trips"][trip_id] = {
-                    "route_id":   route_id,
-                    "service_id": service_id,
-                    "headsign":   row.get("trip_headsign") or "",
-                }
-                needed_route_ids.add(route_id)
-                needed_service_ids.add(service_id)
+        for trip_id in needed_trip_ids:
+            row = all_trips.get(trip_id)
+            if not row:
+                continue
+            route_id = row.get("route_id", "")
+            service_id = row.get("service_id", "")
+            timetable["trips"][trip_id] = {
+                "route_id":   route_id,
+                "service_id": service_id,
+                "headsign":   row.get("trip_headsign") or "",
+            }
+            needed_route_ids.add(route_id)
+            needed_service_ids.add(service_id)
+
+        for route_id in needed_route_ids:
+            if route_id in all_routes:
+                timetable["routes"][route_id] = all_routes[route_id]
+
+        del all_trips, all_routes
+
         log.info(
-            "  %d trips, %d routes, %d services needed",
+            "  %d trips, %d routes, %d services kept",
             len(timetable["trips"]),
-            len(needed_route_ids),
+            len(timetable["routes"]),
             len(needed_service_ids),
         )
-
-        # 4. routes.txt
-        log.info("Parsing routes.txt…")
-        with zf.open("routes.txt") as f:
-            reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
-            for row in reader:
-                route_id = row.get("route_id", "")
-                if route_id not in needed_route_ids:
-                    continue
-                timetable["routes"][route_id] = {
-                    "short_name": row.get("route_short_name") or "",
-                    "long_name":  row.get("route_long_name") or "",
-                }
-        log.info("  %d routes kept", len(timetable["routes"]))
 
         # 5. calendar.txt
         if "calendar.txt" in names:
