@@ -301,8 +301,15 @@ async def get_vehicles():
 @app.get("/api/debug/match-stats")
 async def debug_match_stats():
     """Diagnostics: how many vehicles have calls, trip matches, etc."""
+    _check_api_key()
     cached = cache_get("vehicles")
-    vehicles = cached.get("vehicles", []) if cached else []
+    if cached is None:
+        vehicles = await _fetch_siri_vm()
+        tt = await _get_timetable()
+        _enrich_vehicles_with_trip_match(vehicles, tt)
+        cached = {"vehicles": vehicles, "count": len(vehicles)}
+        cache_set("vehicles", cached, 15)
+    vehicles = cached.get("vehicles", [])
     with_calls = sum(1 for v in vehicles if v.get("calls"))
     with_trip = sum(1 for v in vehicles if v.get("trip_id"))
     with_headsign = sum(1 for v in vehicles if v.get("trip_headsign"))
