@@ -298,6 +298,35 @@ async def get_vehicles():
     return {"vehicles": public, "count": len(public)}
 
 
+@app.get("/api/debug/match-stats")
+async def debug_match_stats():
+    """Diagnostics: how many vehicles have calls, trip matches, etc."""
+    cached = cache_get("vehicles")
+    vehicles = cached.get("vehicles", []) if cached else []
+    with_calls = sum(1 for v in vehicles if v.get("calls"))
+    with_trip = sum(1 for v in vehicles if v.get("trip_id"))
+    with_headsign = sum(1 for v in vehicles if v.get("trip_headsign"))
+    sample_calls = []
+    for v in vehicles:
+        if v.get("calls"):
+            sample_calls.append({
+                "ref": v["vehicle_ref"],
+                "svc": v.get("service_ref"),
+                "calls_count": len(v["calls"]),
+                "first_call_stop": v["calls"][0].get("stop_id"),
+                "trip_id": v.get("trip_id"),
+                "headsign": v.get("trip_headsign"),
+            })
+            if len(sample_calls) >= 5:
+                break
+    return {
+        "total": len(vehicles),
+        "with_calls": with_calls,
+        "with_trip_id": with_trip,
+        "with_headsign": with_headsign,
+        "sample_vehicles_with_calls": sample_calls,
+    }
+
 # ── /api/vehicle ──────────────────────────────────────────────
 @app.get("/api/vehicle")
 async def get_vehicle(vehicleRef: str = Query(...)):
