@@ -333,9 +333,35 @@ async def debug_siri_sample():
     mc_count = sum(1 for a in all_acts
                    if a.find("s:MonitoredVehicleJourney", ns) is not None
                    and a.find("s:MonitoredVehicleJourney/s:MonitoredCall", ns) is not None)
+
+    tt = await _get_timetable()
+    trip_ids = set(tt.get("trips", {}).keys())
+    journey_refs = []
+    for a in all_acts:
+        j = a.find("s:MonitoredVehicleJourney", ns)
+        if j is None:
+            continue
+        fvjr = j.find("s:FramedVehicleJourneyRef", ns)
+        dvjr = fvjr.find("s:DatedVehicleJourneyRef", ns) if fvjr is not None else None
+        ref = dvjr.text.strip() if dvjr is not None and dvjr.text else ""
+        vref_el = j.find("s:VehicleRef", ns)
+        vref = vref_el.text.strip() if vref_el is not None and vref_el.text else ""
+        op_el = j.find("s:OperatorRef", ns)
+        op = op_el.text.strip() if op_el is not None and op_el.text else ""
+        svc_el = j.find("s:PublishedLineName", ns)
+        svc = svc_el.text.strip() if svc_el is not None and svc_el.text else ""
+        matched = ref in trip_ids if ref else False
+        journey_refs.append({
+            "vehicle_ref": vref, "operator": op, "service": svc,
+            "dated_vehicle_journey_ref": ref, "matches_gtfs_trip": matched,
+        })
+
+    matched_count = sum(1 for j in journey_refs if j["matches_gtfs_trip"])
     return {"total_activities": len(all_acts),
             "with_monitored_call": mc_count,
-            "samples": samples}
+            "journey_ref_matched": matched_count,
+            "journey_ref_total": len(journey_refs),
+            "samples": journey_refs[:15]}
 
 @app.get("/api/debug/match-stats")
 async def debug_match_stats():
