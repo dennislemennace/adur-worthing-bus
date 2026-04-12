@@ -213,6 +213,71 @@ async def _fetch_overpass_stops() -> list:
         })
     return stops
 
+# ── Debug: raw SIRI-VM dump with no stale filter
+@app.get("/api/debug/vehicles-raw")
+async def debug_vehicles_raw(q: str = Query("")):
+    """
+    Fetches raw BODS SIRI-VM and returns every VehicleActivity — including
+    stale ones — with all the fields we care about for diagnostics.
+    Use ?q=N700 to filter down to matches containing that substring.
+    """
+    _check_api_key()
+    params = {"api_key": BODS_API_KEY, "boundingBox": BBOX_STR}
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{BODS_BASE}/datafeed/", params=params)
+        resp.raise_for_status()
+
+    try:
+        root = ET.fromstring(resp.text)
+    except ET.ParseError as exc:
+        return {"error": f"parse_error: {exc}"}
+
+    ns      = {"s": SIRI_NS}
+    now_utc = datetime.now(timezone.utc)
+    q_lower = q.lower()
+    out     = []
+
+    for activity in root.findall(".//s:VehicleActivity", ns):
+        journey = activity.find("s:MonitoredVehicleJourney", ns)
+        if journey is None:
+            continue
+
+        def jtext(tag):
+            el = journey.find(f"s:{tag}", ns)
+            return el.text.strip() if el is not None and el.text else ""
+
+        rec_el = activity.find("s:RecordedAtTime", ns)
+        recorded_at = rec_el.text.strip() if rec_el is not None and rec_el.text else None
+        recorded_dt = _parse_iso_datetime(recorded_at)
+        age = int((now_utc - recorded_dt).total_seconds()) if recorded_dt else None
+
+        info = {
+            "vehicle_ref":         jtext("VehicleRef"),
+            "line_ref":            jtext("LineRef"),
+            "published_line_name": jtext("PublishedLineName"),
+            "operator_ref":        jtext("OperatorRef"),
+            "origin_ref":          jtext("OriginRef"),
+            "destination_ref":     jtext("DestinationRef"),
+            "destination_name":    jtext("DestinationName"),
+            "direction_ref":       jtext("DirectionRef"),
+            "recorded_at":         recorded_at,
+            "age_seconds":         age,
+            "is_stale":            age is not None and age > VEHICLE_STALE_SECONDS,
+        }
+
+        if q_lower:
+            blob = " ".join(str(v) for v in info.values() if v is not None).lower()
+            if q_lower not in blob:
+                continue
+
+        out.append(info)
+
+    return {
+        "count":           len(out),
+        "stale_threshold": VEHICLE_STALE_SECONDS,
+        "vehicles":        out,
+    }
+
 # ── /api/vehicles ─────────────────────────────────────────────
 @app.get("/api/vehicles")
 async def get_vehicles():
