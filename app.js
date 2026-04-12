@@ -1080,7 +1080,7 @@ const OPERATOR_ICONS = {
 
   // National Express
   "NTXP": "icons/NTXP.png",
-  "TNXB": "icons/NTXP.png",
+  "TNXB": "icons/TNXB.png",
 };
 
 const OPERATOR_BORDER_COLOURS = {
