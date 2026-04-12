@@ -799,23 +799,20 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
                     matched_n += 1
                     continue
 
-        # ── Strategy 2: origin/destination endpoint matching ──
-        origin_ref = v.get("origin_ref") or ""
-        dest_ref   = v.get("destination_ref") or ""
-        if not origin_ref and not dest_ref:
-            continue
-
+        # ── Strategy 2: service + time-of-day matching ──
+        # Without MonitoredCall data, match on service name and pick the
+        # trip whose first departure is closest to now. The destination
+        # name from SIRI-VM is used as a tiebreaker when multiple trips
+        # start at similar times.
         svc_set = {svc, _strip_night_prefix(svc)}
+        dest_name = (v.get("destination") or "").replace("_", " ").lower()
         best_trip  = None
         best_delta = None
+        best_name_match = False
 
         for svc_key in svc_set:
             candidates = svc_endpoints.get(svc_key, [])
             for trip_id, first_stop, last_stop, first_secs in candidates:
-                origin_match = _atco_match(origin_ref, first_stop)
-                dest_match   = _atco_match(dest_ref, last_stop)
-                if not origin_match and not dest_match:
-                    continue
                 trip = trips.get(trip_id, {})
                 if not _runs_today(trip.get("service_id", ""), today,
                                    today_str, dow, calendar, calendar_dates):
@@ -823,9 +820,17 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
                 delta = abs(first_secs - now_secs)
                 if delta > 43200:
                     delta = 86400 - delta
+                headsign = (trip.get("headsign") or "").lower()
+                name_match = (dest_name and headsign
+                              and dest_name in headsign)
                 if best_delta is None or delta < best_delta:
                     best_trip  = trip_id
                     best_delta = delta
+                    best_name_match = name_match
+                elif (delta == best_delta and name_match
+                      and not best_name_match):
+                    best_trip  = trip_id
+                    best_name_match = name_match
 
         if best_trip is not None and best_delta is not None and best_delta <= 7200:
             v["trip_id"]       = best_trip
@@ -893,14 +898,16 @@ def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
     calls = vehicle.get("calls") or []
     next_stop = calls[0].get("stop_id") if calls else None
 
-    # Locate the index of the vehicle's next stop in the trip sequence.
     start_idx = 0
+
     if next_stop:
         for i, (_secs, sid) in enumerate(trip_stops):
             if sid == next_stop or _atco_match(next_stop, sid):
                 start_idx = i
                 break
     else:
+        # No MonitoredCall — estimate position using current time.
+        # Find the first stop whose scheduled departure is still ahead.
         now_local_tmp = datetime.now(UK_TZ)
         now_secs = (now_local_tmp.hour * 3600
                     + now_local_tmp.minute * 60
@@ -909,6 +916,8 @@ def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
             if dep_secs >= now_secs:
                 start_idx = i
                 break
+        else:
+            start_idx = len(trip_stops)
 
     # Build a lookup from the vehicle's own SIRI-VM calls so we can
     # attach live predicted times when the operator provides them.
