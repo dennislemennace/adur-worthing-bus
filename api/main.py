@@ -286,13 +286,64 @@ async def get_vehicles():
     cached = cache_get("vehicles")
     if cached is None:
         vehicles = await _fetch_siri_vm()
+        tt       = await _get_timetable()
+        _enrich_vehicles_with_trip_match(vehicles, tt)
         cached   = {"vehicles": vehicles, "count": len(vehicles)}
         cache_set("vehicles", cached, 15)
-    # 'calls' is an internal field used by the departures overlay; strip
-    # it from the public response to keep payloads small.
-    public = [{k: val for k, val in v.items() if k != "calls"}
+    # 'calls' and 'trip_id' are internal; strip from the public payload
+    # to keep responses small. 'trip_headsign' is what the client needs.
+    hidden = {"calls", "trip_id"}
+    public = [{k: val for k, val in v.items() if k not in hidden}
               for v in cached["vehicles"]]
     return {"vehicles": public, "count": len(public)}
+
+
+# ── /api/vehicle ──────────────────────────────────────────────
+@app.get("/api/vehicle")
+async def get_vehicle(vehicleRef: str = Query(...)):
+    """
+    Detailed info for a single live vehicle: its matched GTFS trip (so
+    we can show the friendly headsign) and an upcoming-stops list.
+
+    Preferred source for upcoming stops is the matched trip's full
+    scheduled remainder; SIRI-VM OnwardCalls are used as a fallback
+    when no trip match is found.
+    """
+    _check_api_key()
+    if not vehicleRef or len(vehicleRef) > 80:
+        raise HTTPException(status_code=400, detail="Invalid vehicleRef.")
+
+    vehicles = await _get_vehicles_or_empty()
+    vehicle  = next((v for v in vehicles
+                     if v.get("vehicle_ref") == vehicleRef), None)
+    if vehicle is None:
+        raise HTTPException(status_code=404,
+                            detail="Vehicle not currently tracked.")
+
+    tt = await _get_timetable()
+
+    trip_id  = vehicle.get("trip_id")
+    headsign = vehicle.get("trip_headsign")
+    upcoming = _upcoming_stops_from_trip(vehicle, tt, trip_id)
+    source   = "trip"
+    if not upcoming:
+        upcoming = _upcoming_stops_from_calls(vehicle, tt)
+        source   = "siri_onward_calls" if upcoming else "none"
+
+    return {
+        "vehicle": {
+            "vehicle_ref":   vehicle.get("vehicle_ref"),
+            "service_ref":   vehicle.get("service_ref"),
+            "operator_ref":  vehicle.get("operator_ref"),
+            "destination":   vehicle.get("destination"),
+            "trip_headsign": headsign,
+            "latitude":      vehicle.get("latitude"),
+            "longitude":     vehicle.get("longitude"),
+            "recorded_at":   vehicle.get("recorded_at"),
+        },
+        "upcoming_stops": upcoming,
+        "source":         source,
+    }
 
 
 async def _fetch_siri_vm() -> list:
@@ -578,6 +629,164 @@ def _delay_to_status(delay_secs: int) -> str:
         return "Early"
     return "Late"
 
+
+# ── Trip matcher & enrichment ─────────────────────────────────
+def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
+    """
+    For each live vehicle, attempt to find the scheduled GTFS trip it
+    is currently running. When a match is found, attach `trip_id` and
+    `trip_headsign` to the vehicle dict in place.
+
+    Matching keys off the vehicle's first upcoming stop call:
+      (service short_name, next stop_id, aimed_time at that stop)
+    """
+    if not vehicles or not tt.get("trip_stops"):
+        return
+
+    now_local = datetime.now(UK_TZ)
+    today     = now_local.date()
+    dow       = today.weekday()
+    today_str = today.strftime("%Y%m%d")
+    calendar       = tt.get("calendar", {})
+    calendar_dates = tt.get("calendar_dates", {})
+    trips          = tt.get("trips", {})
+    routes         = tt.get("routes", {})
+    stop_times     = tt.get("stop_times", {})
+
+    matched_n = 0
+    for v in vehicles:
+        svc = v.get("service_ref") or ""
+        calls = v.get("calls") or []
+        if not svc or not calls:
+            continue
+
+        # First call (MonitoredCall) is the vehicle's *next* stop.
+        next_call   = calls[0]
+        next_stop   = next_call.get("stop_id")
+        aimed_iso   = (next_call.get("aimed_departure")
+                       or next_call.get("aimed_arrival"))
+        aimed_dt    = _parse_iso_datetime(aimed_iso)
+        if not next_stop or aimed_dt is None:
+            continue
+
+        # Convert the aimed time into GTFS seconds-of-day (UK local).
+        aimed_local = aimed_dt.astimezone(UK_TZ)
+        aimed_secs  = (aimed_local.hour * 3600
+                       + aimed_local.minute * 60
+                       + aimed_local.second)
+
+        svc_set = {svc, _strip_night_prefix(svc)}
+        entries = stop_times.get(next_stop, [])
+
+        best_trip  = None
+        best_delta = None
+        for dep_secs, trip_id in entries:
+            trip  = trips.get(trip_id, {})
+            route = routes.get(trip.get("route_id", ""), {})
+            short_name = route.get("short_name", "")
+            if (short_name not in svc_set
+                    and _strip_night_prefix(short_name) not in svc_set):
+                continue
+            if not _runs_today(trip.get("service_id", ""), today, today_str,
+                               dow, calendar, calendar_dates):
+                continue
+            delta = abs(dep_secs - aimed_secs)
+            if delta > 43200:                  # midnight wrap
+                delta = 86400 - delta
+            if best_delta is None or delta < best_delta:
+                best_trip  = trip_id
+                best_delta = delta
+
+        if best_trip is None or best_delta is None or best_delta > 120:
+            continue
+
+        trip = trips.get(best_trip, {})
+        v["trip_id"]       = best_trip
+        v["trip_headsign"] = trip.get("headsign") or None
+        matched_n += 1
+
+    if vehicles:
+        log.info("Trip match: %d/%d vehicles linked to a GTFS trip",
+                 matched_n, len(vehicles))
+
+
+def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
+    """
+    Return the list of upcoming scheduled stops for a vehicle whose
+    trip has been matched. Slices the trip's stop sequence from the
+    vehicle's next-stop onward; returns up to 12 entries.
+    """
+    if not trip_id:
+        return []
+    trip_stops = tt.get("trip_stops", {}).get(trip_id) or []
+    if not trip_stops:
+        return []
+
+    calls = vehicle.get("calls") or []
+    next_stop = calls[0].get("stop_id") if calls else None
+
+    # Locate the index of the vehicle's next stop in the trip sequence.
+    start_idx = 0
+    if next_stop:
+        for i, (_secs, sid) in enumerate(trip_stops):
+            if sid == next_stop:
+                start_idx = i
+                break
+
+    # Build a lookup from the vehicle's own SIRI-VM calls so we can
+    # attach live predicted times when the operator provides them.
+    call_pred: dict = {}
+    for c in calls:
+        sid = c.get("stop_id")
+        if not sid:
+            continue
+        call_pred[sid] = (c.get("expected_departure")
+                          or c.get("expected_arrival")
+                          or c.get("aimed_departure")
+                          or c.get("aimed_arrival"))
+
+    stops_meta = tt.get("stops", {})
+    now_local  = datetime.now(UK_TZ)
+    out = []
+    for dep_secs, sid in trip_stops[start_idx:start_idx + 12]:
+        dep_h = (dep_secs // 3600) % 24
+        dep_m = (dep_secs % 3600) // 60
+        aimed_dt = now_local.replace(
+            hour=dep_h, minute=dep_m, second=0, microsecond=0)
+        out.append({
+            "stop_id":          sid,
+            "stop_name":        stops_meta.get(sid, {}).get("name", sid),
+            "aimed_departure":  aimed_dt.isoformat(),
+            "expected_departure": call_pred.get(sid),
+        })
+    return out
+
+
+def _upcoming_stops_from_calls(vehicle: dict, tt: dict) -> list:
+    """
+    Fallback when no GTFS trip was matched: build the upcoming-stops
+    list directly from the vehicle's SIRI-VM MonitoredCall + OnwardCall
+    entries. Only as rich as what the operator chose to publish.
+    """
+    calls = vehicle.get("calls") or []
+    if not calls:
+        return []
+    stops_meta = tt.get("stops", {})
+    out = []
+    for c in calls[:12]:
+        sid = c.get("stop_id")
+        if not sid:
+            continue
+        out.append({
+            "stop_id":            sid,
+            "stop_name":          stops_meta.get(sid, {}).get("name", sid),
+            "aimed_departure":    (c.get("aimed_departure")
+                                   or c.get("aimed_arrival")),
+            "expected_departure": (c.get("expected_departure")
+                                   or c.get("expected_arrival")),
+        })
+    return out
+
 # ── Timetable loader ──────────────────────────────────────────
 async def _get_timetable() -> dict:
     """
@@ -603,16 +812,20 @@ async def _get_timetable() -> dict:
             for k, v in raw.get("stop_times", {}).items()
         }
 
+        _build_trip_indices(raw)
+
         _timetable    = raw
         _timetable_at = time.time()
 
         log.info(
             "Timetable loaded: %d stops, %d stop_time entries, "
-            "%d routes, %d trips",
-            len(_timetable.get("stops",      {})),
-            len(_timetable.get("stop_times", {})),
-            len(_timetable.get("routes",     {})),
-            len(_timetable.get("trips",      {})),
+            "%d routes, %d trips, %d route→trips, %d trip→stops",
+            len(_timetable.get("stops",       {})),
+            len(_timetable.get("stop_times",  {})),
+            len(_timetable.get("routes",      {})),
+            len(_timetable.get("trips",       {})),
+            len(_timetable.get("route_trips", {})),
+            len(_timetable.get("trip_stops",  {})),
         )
 
     except FileNotFoundError:
@@ -636,6 +849,32 @@ async def _get_timetable() -> dict:
         _timetable_at = time.time()
 
     return _timetable
+
+# ── Trip index builder ────────────────────────────────────────
+def _build_trip_indices(tt: dict) -> None:
+    """
+    Build two in-memory indices used by the trip matcher and the
+    upcoming-stops endpoint:
+
+      trip_stops  : trip_id → [(dep_secs, stop_id), ...] ordered by time
+      route_trips : route_id → [trip_id, ...]
+
+    Runs once per timetable reload (cost ≈ 0.2 s on the current file).
+    """
+    trip_stops: dict = {}
+    for stop_id, entries in tt.get("stop_times", {}).items():
+        for dep_secs, trip_id in entries:
+            trip_stops.setdefault(trip_id, []).append((int(dep_secs), stop_id))
+    for entries in trip_stops.values():
+        entries.sort()
+    tt["trip_stops"] = trip_stops
+
+    route_trips: dict = {}
+    for trip_id, trip in tt.get("trips", {}).items():
+        rid = trip.get("route_id")
+        if rid:
+            route_trips.setdefault(rid, []).append(trip_id)
+    tt["route_trips"] = route_trips
 
 # ── Departure calculation ─────────────────────────────────────
 def _departures_for_stop(tt: dict, stop_id: str) -> dict:
