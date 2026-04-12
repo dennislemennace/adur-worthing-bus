@@ -503,10 +503,20 @@ function buildDepartureRow(dep) {
  * to the selected stop. Shows a toast if no live vehicle is tracked.
  */
 function openBusFromService(service) {
+  // Some operators (Stagecoach SCSO) publish night variants without the
+  // leading "N" — e.g. the timetable says "N700" but the live vehicle
+  // reports "700". Match either form.
+  const target     = service || "";
+  const targetBare = stripNightPrefix(target);
+
   const matches = [];
   Object.values(state.busMarkers).forEach(marker => {
     const v = marker._vehicle;
-    if (v && v.service_ref === service) matches.push(v);
+    if (!v) return;
+    const ref = v.service_ref || "";
+    if (ref === target || stripNightPrefix(ref) === targetBare) {
+      matches.push(v);
+    }
   });
 
   if (matches.length === 0) {
@@ -978,6 +988,15 @@ const OPERATOR_NAMES = {
 function getOperatorName(operatorRef) {
   return OPERATOR_NAMES[operatorRef] || operatorRef || "Unknown operator";
 }
+// Strip a leading "N" from a service label when the rest is all digits,
+// so "N700" and "700" can be treated as the same service. Used when
+// matching scheduled departures to live vehicles, because some operators
+// (Stagecoach SCSO) publish night variants without the N prefix.
+function stripNightPrefix(svc) {
+  if (!svc) return "";
+  return /^N\d+$/i.test(svc) ? svc.slice(1) : svc;
+}
+
 // ============================================================
 // SECURITY HELPERS — prevent XSS in dynamically built HTML
 // ============================================================
