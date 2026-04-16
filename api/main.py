@@ -715,7 +715,7 @@ def _parse_transportapi_json(data: dict) -> list:
     """
     predictions = []
     for dep in data.get("departures", {}).get("all", []):
-        service = (dep.get("line") or dep.get("line_name") or "").strip()
+        service = (dep.get("line_name") or dep.get("line") or "").strip()
         if not service:
             continue
         aimed_iso = _hhmm_to_iso(dep.get("date"), dep.get("aimed_departure_time"))
