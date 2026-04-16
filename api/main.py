@@ -654,7 +654,7 @@ async def _get_vehicles_or_empty() -> list:
     return vehicles
 
 
-async def _fetch_nextbuses(stop_id: str) -> list | None:
+async def _fetch_nextbuses(stop_id: str) -> Optional[list]:
     """
     POST a SIRI-SM StopMonitoringRequest to Traveline NextBuses.
 
