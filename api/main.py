@@ -53,8 +53,28 @@ UK_TZ = ZoneInfo("Europe/London")
 # depot-parked buses that stop reporting (and BODS "zombie" vehicles).
 VEHICLE_STALE_SECONDS = 300
 
+# ── Traveline NextBuses (SIRI-SM real-time predictions) ───────
+# Set NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY in Render env vars once you
+# have API access. app_id is your application identifier; app_key is the
+# secret. Both are passed as URL query parameters; app_id is also used as
+# the RequestorRef inside the SIRI XML body.
+# NEXTBUSES_BASE_URL may need adjusting based on Traveline's documentation.
+NEXTBUSES_APP_ID             = os.environ.get("NEXTBUSES_APP_ID", "")
+NEXTBUSES_APP_KEY            = os.environ.get("NEXTBUSES_APP_KEY", "")
+NEXTBUSES_BASE_URL           = os.environ.get("NEXTBUSES_BASE_URL",
+                               "https://nextbuses.mobi/optin/siri/SM")
+NEXTBUSES_CACHE_TTL          = 90   # seconds to cache per-stop predictions
+NEXTBUSES_SKIP_THRESHOLD_SEC = (
+    int(os.getenv("NEXTBUSES_SKIP_THRESHOLD_MINUTES", "30")) * 60
+)
+NEXTBUSES_DAILY_LIMIT        = int(os.getenv("NEXTBUSES_DAILY_LIMIT", "300"))
+
 # ── In-memory cache ───────────────────────────────────────────
 _cache: dict = {}
+
+# ── NextBuses daily quota counter ─────────────────────────────
+# Single-process (Render free tier); no Redis needed.
+_nb_quota: dict = {"date": None, "count": 0}
 
 def cache_get(key: str):
     entry = _cache.get(key)
@@ -405,6 +425,19 @@ async def debug_match_stats():
         "unmatched_samples": unmatched,
     }
 
+@app.get("/api/debug/nb-quota")
+async def debug_nb_quota():
+    """Diagnostics: current NextBuses daily quota usage."""
+    return {
+        "date":            _nb_quota.get("date"),
+        "count":           _nb_quota.get("count", 0),
+        "limit":           NEXTBUSES_DAILY_LIMIT,
+        "remaining":       max(0, NEXTBUSES_DAILY_LIMIT - _nb_quota.get("count", 0)),
+        "app_id_configured":  bool(NEXTBUSES_APP_ID),
+        "app_key_configured": bool(NEXTBUSES_APP_KEY),
+    }
+
+
 # ── /api/vehicle ──────────────────────────────────────────────
 @app.get("/api/vehicle")
 async def get_vehicle(vehicleRef: str = Query(...)):
@@ -580,10 +613,12 @@ def _extract_calls(journey, ns) -> list:
 async def get_departures(stopId: str = Query(...)):
     """
     Scheduled departures for a stop from the pre-built timetable, with
-    a live "fleet delay" overlay applied from current SIRI-VM vehicles.
+    a real-time overlay from Traveline NextBuses SIRI-SM when configured.
 
-    The schedule itself is cached for 60 s; the live overlay is
-    re-applied on every request so users always see the freshest delay.
+    The schedule itself is cached for 60 s. NextBuses predictions are
+    cached separately per stop for 90 s and subject to a daily quota cap.
+    Adds `live` (bool) and `live_reason` (str) fields to the response so
+    the frontend can show a notice when live data is unavailable.
     """
     _check_api_key()
     if not stopId or len(stopId) > 20:
@@ -596,8 +631,7 @@ async def get_departures(stopId: str = Query(...)):
         base = _departures_for_stop(tt, stopId)
         cache_set(cache_key, base, 60)
 
-    vehicles = await _get_vehicles_or_empty()
-    return _apply_live_overlay(base, vehicles, stopId)
+    return await _apply_live_overlay(base, stopId)
 
 
 async def _get_vehicles_or_empty() -> list:
@@ -620,85 +654,192 @@ async def _get_vehicles_or_empty() -> list:
     return vehicles
 
 
-def _apply_live_overlay(base: dict, vehicles: list, stop_id: str) -> dict:
+async def _fetch_nextbuses(stop_id: str) -> list | None:
     """
-    Overlay live per-stop predictions onto a scheduled departures payload.
+    POST a SIRI-SM StopMonitoringRequest to Traveline NextBuses.
 
-    Strategy (Phase 2a v2 — SIRI-VM MonitoredCall/OnwardCall):
-      • Every live vehicle carries a list of upcoming stop calls, each
-        with an aimed and (hopefully) expected time for a specific
-        StopPointRef.
-      • For each scheduled departure we look up predictions matching
-        (stop_id, service) and pick the one whose aimed time is closest
-        to the scheduled aimed time.
-      • If the match is within 5 minutes, use the expected time as the
-        live prediction and derive delay_seconds from (expected - aimed).
+    Returns:
+      list  — parsed predictions, possibly empty (no live data for this stop)
+      None  — network / HTTP / XML error; caller should show "upstream" notice
 
-    The base payload is never mutated; a new dict is returned.
+    Does NOT handle caching or quota — that is the caller's responsibility.
+    """
+    now_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Siri xmlns="http://www.siri.org.uk/siri" version="2.0">'
+        '<ServiceRequest>'
+        f'<RequestTimestamp>{now_ts}</RequestTimestamp>'
+        f'<RequestorRef>{NEXTBUSES_APP_ID}</RequestorRef>'
+        '<StopMonitoringRequest version="2.0">'
+        f'<RequestTimestamp>{now_ts}</RequestTimestamp>'
+        f'<MonitoringRef>{stop_id}</MonitoringRef>'
+        '<MaximumNumberOfCallsOnwards>10</MaximumNumberOfCallsOnwards>'
+        '</StopMonitoringRequest>'
+        '</ServiceRequest>'
+        '</Siri>'
+    )
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                NEXTBUSES_BASE_URL,
+                params={"app_id": NEXTBUSES_APP_ID, "app_key": NEXTBUSES_APP_KEY},
+                content=body,
+                headers={"Content-Type": "application/xml"},
+            )
+        resp.raise_for_status()
+    except Exception as exc:
+        log.warning("NextBuses request failed for stop %s: %s", stop_id, exc)
+        return None
+
+    return _parse_nextbuses_xml(resp.text)
+
+
+def _parse_nextbuses_xml(xml_text: str) -> list:
+    """
+    Parse a SIRI-SM StopMonitoringDelivery response into prediction dicts.
+    Each dict: {service, aimed (ISO str), expected (ISO str | None)}.
+    """
+    predictions = []
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        log.warning("NextBuses: XML parse error: %s", exc)
+        return []
+
+    ns = {"s": SIRI_NS}
+    for visit in root.findall(".//s:MonitoredStopVisit", ns):
+        mvj = visit.find("s:MonitoredVehicleJourney", ns)
+        if mvj is None:
+            continue
+        call = mvj.find("s:MonitoredCall", ns)
+        if call is None:
+            continue
+
+        line_el = mvj.find("s:LineRef", ns)
+        service = line_el.text.strip() if line_el is not None and line_el.text else None
+        if not service:
+            pub_el  = mvj.find("s:PublishedLineName", ns)
+            service = pub_el.text.strip() if pub_el is not None and pub_el.text else None
+        if not service:
+            continue
+
+        aimed_el    = call.find("s:AimedDepartureTime",    ns)
+        expected_el = call.find("s:ExpectedDepartureTime", ns)
+        aimed_txt    = aimed_el.text    if aimed_el    is not None else None
+        expected_txt = expected_el.text if expected_el is not None else None
+        if not aimed_txt:
+            continue
+
+        predictions.append({
+            "service":  service,
+            "aimed":    aimed_txt,
+            "expected": expected_txt,
+        })
+    return predictions
+
+
+async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
+    """
+    Overlay real-time departure predictions from Traveline NextBuses onto
+    a scheduled departures payload.
+
+    Returns the base payload (scheduled only) when:
+    - No NextBuses API key is configured (feature not yet enabled)
+    - Next departure is more than NEXTBUSES_SKIP_THRESHOLD_SEC away
+    - The daily quota is exhausted
+    - NextBuses returns an upstream error or no predictions
+
+    A `live` bool and `live_reason` string are added when live data is
+    expected but unavailable, so the frontend can show a subtle notice.
+    No flag is added when the feature is simply not configured yet.
     """
     departures = base.get("departures") or []
-    if not departures or not vehicles:
+    if not departures or not NEXTBUSES_APP_ID or not NEXTBUSES_APP_KEY:
         return base
 
-    index = _build_prediction_index(vehicles)
-    if not index:
-        return base
+    # Skip-if-far: don't call NextBuses when next departure is > threshold away.
+    # No banner — this is normal expected behaviour, not a degradation.
+    try:
+        first_aimed = _parse_iso_datetime(departures[0].get("aimed_departure"))
+        if first_aimed:
+            gap = (first_aimed - datetime.now(timezone.utc)).total_seconds()
+            if gap > NEXTBUSES_SKIP_THRESHOLD_SEC:
+                return {**base, "live": False, "live_reason": "too_far"}
+    except Exception:
+        pass
 
-    # Try every stop-id variant so 1400/4400 mangled references still match.
-    variants = _normalise_atco(stop_id)
+    # Cache hits never count against quota — check before the quota gate.
+    cached_preds = cache_get(f"nb:{stop_id}")
+    if cached_preds is None:
+        # About to make a real network call — gate on quota first.
+        today = date.today().isoformat()
+        if _nb_quota["date"] != today:
+            _nb_quota["date"] = today
+            _nb_quota["count"] = 0
+        if _nb_quota["count"] >= NEXTBUSES_DAILY_LIMIT:
+            log.info("NextBuses quota exhausted (%d/%d)", _nb_quota["count"], NEXTBUSES_DAILY_LIMIT)
+            return {**base, "live": False, "live_reason": "quota"}
 
+        _nb_quota["count"] += 1
+        log.info("NextBuses hit %d/%d for stop %s", _nb_quota["count"], NEXTBUSES_DAILY_LIMIT, stop_id)
+
+        result = await _fetch_nextbuses(stop_id)
+        if result is None:
+            _nb_quota["count"] -= 1  # don't burn quota on a broken/unreachable API
+            return {**base, "live": False, "live_reason": "upstream"}
+
+        cache_set(f"nb:{stop_id}", result, NEXTBUSES_CACHE_TTL)
+        cached_preds = result
+
+    predictions = cached_preds
+    if not predictions:
+        return {**base, "live": False, "live_reason": "no_coverage"}
+
+    # Merge predictions onto scheduled departures by service + aimed time.
     overlaid = []
     matched  = 0
     for dep in departures:
-        new = dict(dep)
-        svc = dep.get("service") or ""
-        try:
-            aimed_dt = datetime.fromisoformat(dep["aimed_departure"])
-        except (ValueError, KeyError, TypeError):
+        new      = dict(dep)
+        svc      = dep.get("service") or ""
+        aimed_dt = _parse_iso_datetime(dep.get("aimed_departure"))
+        if aimed_dt is None:
             overlaid.append(new)
             continue
 
-        # Some operators publish night services without the leading "N",
-        # so "N700" in the schedule may need to match "700" in live data.
-        svc_keys = {svc}
-        svc_keys.add(_strip_night_prefix(svc))
+        svc_keys = {svc, _strip_night_prefix(svc)}
 
-        candidates = []
-        for variant in variants:
-            for key in svc_keys:
-                candidates.extend(index.get((variant, key), []))
-        if not candidates:
-            overlaid.append(new)
-            continue
-
-        best = None
+        best       = None
         best_delta = None
-        for c in candidates:
-            if c["aimed"] is None:
+        for pred in predictions:
+            if pred.get("service") not in svc_keys:
                 continue
-            delta = abs((c["aimed"] - aimed_dt).total_seconds())
+            pred_aimed = _parse_iso_datetime(pred.get("aimed"))
+            if pred_aimed is None:
+                continue
+            delta = abs((pred_aimed - aimed_dt).total_seconds())
             if best_delta is None or delta < best_delta:
-                best = c
+                best       = pred
                 best_delta = delta
+
         if best is None or best_delta is None or best_delta > 300:
             overlaid.append(new)
             continue
 
-        expected = best["expected"]
-        if expected is None:
+        expected_dt = _parse_iso_datetime(best.get("expected"))
+        if expected_dt is None:
             overlaid.append(new)
             continue
 
-        delay = int((expected - aimed_dt).total_seconds())
-        new["expected_departure"] = expected.isoformat()
+        delay                    = int((expected_dt - aimed_dt).total_seconds())
+        new["expected_departure"] = expected_dt.isoformat()
         new["delay_seconds"]      = delay
         new["status"]             = _delay_to_status(delay)
         matched += 1
         overlaid.append(new)
 
-    log.info("Live overlay for %s: matched %d/%d departures",
-             stop_id, matched, len(departures))
-    return {**base, "departures": overlaid}
+    log.info("NextBuses overlay %s: matched %d/%d departures", stop_id, matched, len(departures))
+    return {**base, "departures": overlaid, "live": True}
 
 
 def _build_prediction_index(vehicles: list) -> dict:
