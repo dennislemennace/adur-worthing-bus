@@ -90,6 +90,7 @@ const dom = {
   departuresContainer:document.getElementById("departures-container"),
   departuresTbody:    document.getElementById("departures-tbody"),
   departuresCount:    document.getElementById("departures-count"),
+  departuresNotice:   document.getElementById("departures-notice"),
   refreshStopBtn:     document.getElementById("refresh-stop-btn"),
   toast:              document.getElementById("toast"),
 
@@ -484,8 +485,23 @@ async function fetchDepartures(atcoCode) {
 }
 
 function renderDepartures(data) {
-  // data: { stop_name, departures: [ { service, destination, aimed_departure, expected_departure, status } ] }
+  // data: { stop_name, departures: [...], live?: bool, live_reason?: string }
   const raw = data?.departures ?? [];
+
+  // Live-data notice: show when live=false and it's a degradation (not just "too far away")
+  const liveNoticeMessages = {
+    quota:       "Showing scheduled times only \u2014 live predictions paused for today",
+    upstream:    "Showing scheduled times only \u2014 live data unavailable",
+    no_coverage: "Showing scheduled times only \u2014 no live tracking for this stop",
+    ip_quota:    "Showing scheduled times only \u2014 live predictions paused",
+  };
+  const reason = data?.live_reason;
+  if (data?.live === false && reason && reason !== "too_far" && liveNoticeMessages[reason]) {
+    dom.departuresNotice.textContent = liveNoticeMessages[reason];
+    dom.departuresNotice.classList.remove("hidden");
+  } else {
+    dom.departuresNotice.classList.add("hidden");
+  }
 
   // Belt-and-braces: drop anything whose display time is more than
   // 30 seconds in the past. The backend already filters past trips,
