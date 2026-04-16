@@ -436,6 +436,31 @@ async def debug_nb_quota():
     }
 
 
+@app.get("/api/debug/live-raw")
+async def debug_live_raw(stopId: str = Query(...)):
+    """Diagnostics: raw Transport API response + parsed predictions for a stop."""
+    if not NEXTBUSES_APP_ID or not NEXTBUSES_APP_KEY:
+        return {"error": "Transport API credentials not configured"}
+    url = f"{NEXTBUSES_BASE_URL}/{stopId}/live.json"
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            resp = await client.get(url, params={
+                "app_id": NEXTBUSES_APP_ID, "app_key": NEXTBUSES_APP_KEY,
+                "group": "no", "nextbuses": "yes",
+            })
+        resp.raise_for_status()
+        raw = resp.json()
+    except Exception as exc:
+        return {"error": str(exc)}
+    predictions = _parse_transportapi_json(raw)
+    return {
+        "raw_keys":   list(raw.keys()),
+        "departures_keys": list(raw.get("departures", {}).keys()),
+        "raw_all_sample": raw.get("departures", {}).get("all", [])[:3],
+        "parsed_predictions": predictions[:10],
+    }
+
+
 # ── /api/vehicle ──────────────────────────────────────────────
 @app.get("/api/vehicle")
 async def get_vehicle(vehicleRef: str = Query(...)):
