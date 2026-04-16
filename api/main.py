@@ -721,13 +721,45 @@ def _parse_transportapi_json(data: dict) -> list:
         aimed_iso = _hhmm_to_iso(dep.get("date"), dep.get("aimed_departure_time"))
         if aimed_iso is None:
             continue
-        exp_iso = _hhmm_to_iso(dep.get("date"), dep.get("expected_departure_time"))
+        exp_iso   = _hhmm_to_iso(dep.get("date"), dep.get("expected_departure_time"))
+        direction = (dep.get("direction") or dep.get("dir") or "").strip()
         predictions.append({
-            "service":  service,
-            "aimed":    aimed_iso,
-            "expected": exp_iso,
+            "service":   service,
+            "aimed":     aimed_iso,
+            "expected":  exp_iso,
+            "direction": direction,
         })
     return predictions
+
+
+def _transportapi_to_departures(predictions: list) -> list:
+    """
+    Convert Transport API prediction dicts into our departure row format.
+    Used when the GTFS timetable has no data for a stop — Transport API
+    becomes the sole source of both scheduled and live times.
+    """
+    now_utc    = datetime.now(timezone.utc)
+    departures = []
+    for pred in predictions:
+        aimed_dt = _parse_iso_datetime(pred.get("aimed"))
+        if aimed_dt is None:
+            continue
+        if (aimed_dt - now_utc).total_seconds() < -30:
+            continue   # already departed
+        dep = {
+            "service":         pred.get("service", "?"),
+            "destination":     (pred.get("direction") or "").replace("_", " "),
+            "aimed_departure": aimed_dt.isoformat(),
+            "status":          "Scheduled",
+        }
+        exp_dt = _parse_iso_datetime(pred.get("expected"))
+        if exp_dt is not None:
+            delay              = int((exp_dt - aimed_dt).total_seconds())
+            dep["expected_departure"] = exp_dt.isoformat()
+            dep["delay_seconds"]      = delay
+            dep["status"]             = _delay_to_status(delay)
+        departures.append(dep)
+    return sorted(departures, key=lambda d: d["aimed_departure"])
 
 
 def _hhmm_to_iso(date_str: Optional[str], time_str: Optional[str]) -> Optional[str]:
@@ -766,10 +798,37 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
     No flag is added when the feature is simply not configured yet.
     """
     departures = base.get("departures") or []
-    if not departures or not NEXTBUSES_APP_ID or not NEXTBUSES_APP_KEY:
+    if not NEXTBUSES_APP_ID or not NEXTBUSES_APP_KEY:
         return base
 
-    # Skip-if-far: don't call NextBuses when next departure is > threshold away.
+    # ── PATH A: timetable empty — use Transport API as sole source ────────
+    if not departures:
+        cached_preds = cache_get(f"nb:{stop_id}")
+        if cached_preds is None:
+            today = date.today().isoformat()
+            if _nb_quota["date"] != today:
+                _nb_quota["date"] = today
+                _nb_quota["count"] = 0
+            if _nb_quota["count"] >= NEXTBUSES_DAILY_LIMIT:
+                return base
+            _nb_quota["count"] += 1
+            log.info("NextBuses hit %d/%d for stop %s (timetable fallback)",
+                     _nb_quota["count"], NEXTBUSES_DAILY_LIMIT, stop_id)
+            result = await _fetch_nextbuses(stop_id)
+            if result is None:
+                _nb_quota["count"] -= 1
+                return base
+            cache_set(f"nb:{stop_id}", result, NEXTBUSES_CACHE_TTL)
+            cached_preds = result
+        if not cached_preds:
+            return base
+        ta_deps = _transportapi_to_departures(cached_preds)
+        return {**base, "departures": ta_deps, "live": bool(
+            any(d.get("expected_departure") for d in ta_deps)
+        )}
+
+    # ── PATH B: timetable has data — overlay Transport API live times ──────
+    # Skip-if-far: don't call Transport API when next departure is > threshold away.
     # No banner — this is normal expected behaviour, not a degradation.
     try:
         first_aimed = _parse_iso_datetime(departures[0].get("aimed_departure"))
