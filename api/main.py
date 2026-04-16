@@ -664,7 +664,7 @@ async def _fetch_nextbuses(stop_id: str) -> Optional[list]:
     """
     url = f"{NEXTBUSES_BASE_URL}/{stop_id}/live.json"
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
             resp = await client.get(
                 url,
                 params={
