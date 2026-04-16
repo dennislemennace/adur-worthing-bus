@@ -909,6 +909,23 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
         overlaid.append(new)
 
     log.info("NextBuses overlay %s: matched %d/%d departures", stop_id, matched, len(departures))
+
+    # Append Transport API departures for services not in the timetable at all.
+    # e.g. a stop served by both 700 (in GTFS) and 2 (not in GTFS) should show both.
+    timetable_svcs = set()
+    for dep in departures:
+        svc = dep.get("service") or ""
+        timetable_svcs.add(svc)
+        timetable_svcs.add(_strip_night_prefix(svc))
+
+    extra_preds = [p for p in predictions
+                   if p.get("service") not in timetable_svcs]
+    if extra_preds:
+        extra_deps = _transportapi_to_departures(extra_preds)
+        overlaid.extend(extra_deps)
+        overlaid.sort(key=lambda d: d.get("aimed_departure") or "")
+        log.info("NextBuses overlay %s: added %d extra-service departures", stop_id, len(extra_deps))
+
     return {**base, "departures": overlaid, "live": True}
 
 
