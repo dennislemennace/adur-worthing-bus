@@ -18,7 +18,7 @@ import os
 import time
 import logging
 import xml.etree.ElementTree as ET
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -54,15 +54,13 @@ UK_TZ = ZoneInfo("Europe/London")
 VEHICLE_STALE_SECONDS = 300
 
 # ── Traveline NextBuses (SIRI-SM real-time predictions) ───────
-# Set NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY in Render env vars once you
-# have API access. app_id is your application identifier; app_key is the
-# secret. Both are passed as URL query parameters; app_id is also used as
-# the RequestorRef inside the SIRI XML body.
-# NEXTBUSES_BASE_URL may need adjusting based on Traveline's documentation.
+# Transport API (transportapi.com) — REST JSON live bus departures.
+# Set NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY in Render env vars.
+# Endpoint: GET {NEXTBUSES_BASE_URL}/{atcocode}/live.json?app_id=...&app_key=...
 NEXTBUSES_APP_ID             = os.environ.get("NEXTBUSES_APP_ID", "")
 NEXTBUSES_APP_KEY            = os.environ.get("NEXTBUSES_APP_KEY", "")
 NEXTBUSES_BASE_URL           = os.environ.get("NEXTBUSES_BASE_URL",
-                               "https://nextbuses.mobi/optin/siri/SM")
+                               "https://transportapi.com/v3/uk/bus/stop")
 NEXTBUSES_CACHE_TTL          = 90   # seconds to cache per-stop predictions
 NEXTBUSES_SKIP_THRESHOLD_SEC = (
     int(os.getenv("NEXTBUSES_SKIP_THRESHOLD_MINUTES", "30")) * 60
@@ -656,87 +654,75 @@ async def _get_vehicles_or_empty() -> list:
 
 async def _fetch_nextbuses(stop_id: str) -> Optional[list]:
     """
-    POST a SIRI-SM StopMonitoringRequest to Traveline NextBuses.
+    GET live departures from Transport API for a single stop.
 
     Returns:
       list  — parsed predictions, possibly empty (no live data for this stop)
-      None  — network / HTTP / XML error; caller should show "upstream" notice
+      None  — network / HTTP / JSON error; caller should show "upstream" notice
 
     Does NOT handle caching or quota — that is the caller's responsibility.
     """
-    now_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    body = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<Siri xmlns="http://www.siri.org.uk/siri" version="2.0">'
-        '<ServiceRequest>'
-        f'<RequestTimestamp>{now_ts}</RequestTimestamp>'
-        f'<RequestorRef>{NEXTBUSES_APP_ID}</RequestorRef>'
-        '<StopMonitoringRequest version="2.0">'
-        f'<RequestTimestamp>{now_ts}</RequestTimestamp>'
-        f'<MonitoringRef>{stop_id}</MonitoringRef>'
-        '<MaximumNumberOfCallsOnwards>10</MaximumNumberOfCallsOnwards>'
-        '</StopMonitoringRequest>'
-        '</ServiceRequest>'
-        '</Siri>'
-    )
+    url = f"{NEXTBUSES_BASE_URL}/{stop_id}/live.json"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(
-                NEXTBUSES_BASE_URL,
-                params={"app_id": NEXTBUSES_APP_ID, "app_key": NEXTBUSES_APP_KEY},
-                content=body,
-                headers={"Content-Type": "application/xml"},
+            resp = await client.get(
+                url,
+                params={
+                    "app_id":    NEXTBUSES_APP_ID,
+                    "app_key":   NEXTBUSES_APP_KEY,
+                    "group":     "no",
+                    "nextbuses": "yes",
+                },
             )
         resp.raise_for_status()
+        return _parse_transportapi_json(resp.json())
     except Exception as exc:
-        log.warning("NextBuses request failed for stop %s: %s", stop_id, exc)
+        log.warning("Transport API request failed for stop %s: %s", stop_id, exc)
         return None
 
-    return _parse_nextbuses_xml(resp.text)
 
-
-def _parse_nextbuses_xml(xml_text: str) -> list:
+def _parse_transportapi_json(data: dict) -> list:
     """
-    Parse a SIRI-SM StopMonitoringDelivery response into prediction dicts.
+    Parse a Transport API /live.json response into prediction dicts.
     Each dict: {service, aimed (ISO str), expected (ISO str | None)}.
+    Times in the response are "HH:MM" local UK time (possibly "24:xx"
+    for past-midnight services); these are converted to ISO 8601.
     """
     predictions = []
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError as exc:
-        log.warning("NextBuses: XML parse error: %s", exc)
-        return []
-
-    ns = {"s": SIRI_NS}
-    for visit in root.findall(".//s:MonitoredStopVisit", ns):
-        mvj = visit.find("s:MonitoredVehicleJourney", ns)
-        if mvj is None:
-            continue
-        call = mvj.find("s:MonitoredCall", ns)
-        if call is None:
-            continue
-
-        line_el = mvj.find("s:LineRef", ns)
-        service = line_el.text.strip() if line_el is not None and line_el.text else None
-        if not service:
-            pub_el  = mvj.find("s:PublishedLineName", ns)
-            service = pub_el.text.strip() if pub_el is not None and pub_el.text else None
+    for dep in data.get("departures", {}).get("all", []):
+        service = (dep.get("line") or dep.get("line_name") or "").strip()
         if not service:
             continue
-
-        aimed_el    = call.find("s:AimedDepartureTime",    ns)
-        expected_el = call.find("s:ExpectedDepartureTime", ns)
-        aimed_txt    = aimed_el.text    if aimed_el    is not None else None
-        expected_txt = expected_el.text if expected_el is not None else None
-        if not aimed_txt:
+        aimed_iso = _hhmm_to_iso(dep.get("date"), dep.get("aimed_departure_time"))
+        if aimed_iso is None:
             continue
-
+        exp_iso = _hhmm_to_iso(dep.get("date"), dep.get("expected_departure_time"))
         predictions.append({
             "service":  service,
-            "aimed":    aimed_txt,
-            "expected": expected_txt,
+            "aimed":    aimed_iso,
+            "expected": exp_iso,
         })
     return predictions
+
+
+def _hhmm_to_iso(date_str: Optional[str], time_str: Optional[str]) -> Optional[str]:
+    """
+    Convert a Transport API date "YYYY-MM-DD" and time "HH:MM" (which may
+    use hours >= 24 for past-midnight services) into a timezone-aware ISO
+    8601 string using the UK local timezone.
+    """
+    if not date_str or not time_str:
+        return None
+    try:
+        h, m    = time_str.split(":")
+        hours   = int(h)
+        mins    = int(m)
+        base    = date.fromisoformat(date_str) + timedelta(days=hours // 24)
+        dt      = datetime(base.year, base.month, base.day,
+                           hours % 24, mins, tzinfo=UK_TZ)
+        return dt.isoformat()
+    except (ValueError, IndexError, TypeError, AttributeError):
+        return None
 
 
 async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
