@@ -1117,7 +1117,8 @@ const OPERATOR_COLOURS = {
   "ARHE": "#00a0df",
 
   // National Express / Coaches
-  "TNXB": "#ffcc00",   // National Express yellow
+  "NATX": "#ffcc00",   // National Express yellow
+  "TNXB": "#ffcc00",
 
   // Metrobus (Go-Ahead)
   "METR": "#007a4c",   // Metrobus green
@@ -1151,6 +1152,7 @@ const OPERATOR_ICONS = {
   "COMT": "icons/CMPA.png",
 
   // National Express
+  "NATX": "icons/NTXP.png",
   "NTXP": "icons/NTXP.png",
   "TNXB": "icons/TNXB.png",
 };
@@ -1161,6 +1163,7 @@ const OPERATOR_BORDER_COLOURS = {
   "BHBC": "#a00010",
   "ARBB": "#007aaf",
   "ARHE": "#007aaf",
+  "NATX": "#c8a000",
   "TNXB": "#c8a000",
   "METR": "#005a38",
   "SVCT": "#005a38",
@@ -1187,6 +1190,7 @@ const OPERATOR_NAMES = {
   "BHBC": "Brighton & Hove Buses",
   "CMPA": "Compass Travel",
   "COMT": "Compass Travel",
+  "NATX": "National Express",
   "NTXP": "National Express",
   "TNXB": "National Express",
   "ARBB": "Arriva",
@@ -1232,6 +1236,16 @@ const OPERATOR_TICKETS = {
     app:     null,
     dayPass: "Day tickets available on bus",
     url:     "https://www.compass-travel.co.uk/fares.html",
+  },
+  "NATX": {
+    app:     null,
+    dayPass: "Coach tickets — book in advance online",
+    url:     "https://www.nationalexpress.com/en/cheap-coach-tickets",
+  },
+  "NTXP": {
+    app:     null,
+    dayPass: "Coach tickets — book in advance online",
+    url:     "https://www.nationalexpress.com/en/cheap-coach-tickets",
   },
 };
 // Strip a leading "N" from a service label when the rest is all digits,
