@@ -634,7 +634,11 @@ def _extract_calls(journey, ns) -> list:
 
 # ── /api/departures ───────────────────────────────────────────
 @app.get("/api/departures")
-async def get_departures(stopId: str = Query(...)):
+async def get_departures(
+    stopId: str = Query(...),
+    lat: Optional[float] = Query(None),
+    lon: Optional[float] = Query(None),
+):
     """
     Scheduled departures for a stop from the pre-built timetable, with
     a real-time overlay from Traveline NextBuses SIRI-SM when configured.
@@ -643,19 +647,25 @@ async def get_departures(stopId: str = Query(...)):
     cached separately per stop for 90 s and subject to a daily quota cap.
     Adds `live` (bool) and `live_reason` (str) fields to the response so
     the frontend can show a notice when live data is unavailable.
+
+    Optional lat/lon parameters enable geographic proximity fallback: if
+    the stopId has no timetable entry (e.g. OSM node IDs that don't match
+    NaPTAN ATCO codes), the nearest timetable stop within 100 m is used.
     """
     _check_api_key()
-    if not stopId or len(stopId) > 20:
+    if not stopId or len(stopId) > 30:
         raise HTTPException(status_code=400, detail="Invalid stopId.")
 
-    cache_key = f"dep:{stopId}"
+    tt       = await _get_timetable()
+    resolved = _resolve_stop_id(tt, stopId, lat, lon)
+
+    cache_key = f"dep:{resolved}"
     base = cache_get(cache_key)
     if base is None:
-        tt   = await _get_timetable()
-        base = _departures_for_stop(tt, stopId)
+        base = _departures_for_stop(tt, resolved)
         cache_set(cache_key, base, 60)
 
-    return await _apply_live_overlay(base, stopId)
+    return await _apply_live_overlay(base, resolved)
 
 
 async def _get_vehicles_or_empty() -> list:
@@ -1503,6 +1513,54 @@ def _svc_variants(svc: str) -> set:
     stripped_zero  = svc.lstrip("0") or svc
     stripped_both  = _strip_night_prefix(stripped_zero)
     return {svc, stripped_night, stripped_zero, stripped_both}
+
+
+def _resolve_stop_id(tt: dict,
+                      stop_id: str,
+                      lat: Optional[float],
+                      lon: Optional[float]) -> str:
+    """
+    Resolve a stop_id to a known timetable stop_id.
+
+    First tries the standard ATCO normalization variants.  If no match
+    is found and coordinates are supplied, falls back to finding the
+    nearest timetable stop within 100 m.  This handles OSM bus-stop nodes
+    that carry a Traveline reference (or a raw OSM node ID) instead of a
+    proper NaPTAN ATCO code — e.g. B&H routes like 37/37B whose stops
+    appear in OSM with numeric IDs rather than 1490* codes.
+    """
+    stop_times = tt.get("stop_times", {})
+
+    # Standard variant lookup
+    for v in _normalise_atco(stop_id):
+        if v in stop_times:
+            return v
+
+    # Geographic proximity fallback (requires lat/lon in timetable stops)
+    if lat is not None and lon is not None:
+        stops = tt.get("stops", {})
+        best_dist_sq: Optional[float] = None
+        best_id: Optional[str] = None
+        for sid, sdata in stops.items():
+            slat = sdata.get("lat") or 0.0
+            slon = sdata.get("lon") or 0.0
+            if slat == 0.0 or slon == 0.0:
+                continue
+            if sid not in stop_times:
+                continue
+            d = _haversine_sq(lat, lon, slat, slon)
+            if best_dist_sq is None or d < best_dist_sq:
+                best_dist_sq = d
+                best_id = sid
+        # 0.01 km² ≈ 100 m radius
+        if best_id and best_dist_sq is not None and best_dist_sq < 0.01:
+            log.info(
+                "Stop %s resolved via geo-proximity to %s (%.0f m)",
+                stop_id, best_id, (best_dist_sq ** 0.5) * 1000,
+            )
+            return best_id
+
+    return stop_id
 
 
 def _normalise_atco(stop_id: str) -> list:
