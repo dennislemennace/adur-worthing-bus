@@ -881,7 +881,7 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
             overlaid.append(new)
             continue
 
-        svc_keys = {svc, _strip_night_prefix(svc)}
+        svc_keys = _svc_variants(svc)
 
         best       = None
         best_delta = None
@@ -919,8 +919,7 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
     timetable_svcs = set()
     for dep in departures:
         svc = dep.get("service") or ""
-        timetable_svcs.add(svc)
-        timetable_svcs.add(_strip_night_prefix(svc))
+        timetable_svcs.update(_svc_variants(svc))
 
     extra_preds = [p for p in predictions
                    if p.get("service") not in timetable_svcs]
@@ -1038,7 +1037,7 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
         # as a primary filter — not just a tiebreaker — so a bus mid-route
         # on a frequent bidirectional corridor isn't matched to a freshly-
         # starting trip in the opposite direction.
-        svc_set = {svc, _strip_night_prefix(svc)}
+        svc_set = _svc_variants(svc)
         dest_name = (v.get("destination") or "").replace("_", " ").lower()
         best_trip      = None   # overall closest (fallback)
         best_delta     = None
@@ -1094,7 +1093,7 @@ def _match_by_stop(svc, stop_id, aimed_secs, stop_times, trips, routes,
                    today, today_str, dow, calendar, calendar_dates,
                    max_delta):
     """Try to match a vehicle to a trip via a stop_id and aimed time."""
-    svc_set = {svc, _strip_night_prefix(svc)}
+    svc_set = _svc_variants(svc)
     entries = stop_times.get(stop_id, [])
     best_trip  = None
     best_delta = None
@@ -1102,8 +1101,7 @@ def _match_by_stop(svc, stop_id, aimed_secs, stop_times, trips, routes,
         trip  = trips.get(trip_id, {})
         route = routes.get(trip.get("route_id", ""), {})
         short_name = route.get("short_name", "")
-        if (short_name not in svc_set
-                and _strip_night_prefix(short_name) not in svc_set):
+        if not (_svc_variants(short_name) & svc_set):
             continue
         if not _runs_today(trip.get("service_id", ""), today, today_str,
                            dow, calendar, calendar_dates):
@@ -1493,6 +1491,19 @@ def _strip_night_prefix(svc: str) -> str:
     if svc and len(svc) > 1 and svc[0] in ("N", "n") and svc[1:].isdigit():
         return svc[1:]
     return svc
+
+def _svc_variants(svc: str) -> set:
+    """
+    Return the set of service-name variants to try when matching.
+    Covers two common mismatches between SIRI-VM and GTFS:
+      - Night-prefix: "N700" ↔ "700"  (handled by _strip_night_prefix)
+      - Leading zeros: "025" ↔ "25"
+    """
+    stripped_night = _strip_night_prefix(svc)
+    stripped_zero  = svc.lstrip("0") or svc
+    stripped_both  = _strip_night_prefix(stripped_zero)
+    return {svc, stripped_night, stripped_zero, stripped_both}
+
 
 def _normalise_atco(stop_id: str) -> list:
     """

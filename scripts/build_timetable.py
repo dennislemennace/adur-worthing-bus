@@ -53,8 +53,12 @@ WEST_SUSSEX_ATCO_PREFIX = "4400"
 # stops use prefix 1490 (East Sussex) rather than 4400.  These are
 # services that connect into or are relevant to Adur & Worthing.
 EXTRA_ROUTES = {
-    "N1", "N5", "1X", "3X", "6", "13X", "21", "23X", "25X", "29X",
+    # Brighton & Hove day routes crossing into the bbox
+    "1", "1A", "1B", "5", "5B", "7", "7A",
+    "1X", "3X", "6", "13X", "21", "23X", "25X", "29X",
     "37", "37B", "47", "49",
+    # Brighton & Hove night routes
+    "N1", "N5", "N7", "N25",
 }
 
 BBOX_MIN_LAT, BBOX_MAX_LAT =  50.78,  50.87
