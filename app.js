@@ -53,6 +53,7 @@ const state = {
   tileLayer: null,       // active Leaflet tile layer
   darkMode: false,
   stopMarkers:   {},    // atcoCode → Leaflet marker
+  stopData:      {},    // atcoCode → { lat, lon }
   busMarkers:    {},    // vehicleRef → Leaflet marker
   selectedStop:  null,  // { atcoCode, name }
   refreshTimer:  null,  // setInterval handle for bus positions
@@ -216,6 +217,7 @@ function renderStopMarker(stop) {
   });
 
   state.stopMarkers[stop.atco_code] = marker;
+  state.stopData[stop.atco_code]    = { lat: stop.latitude, lon: stop.longitude };
 }
 
 // ============================================================
@@ -476,7 +478,10 @@ window.openDepartures = async function(atcoCode, stopName) {
 async function fetchDepartures(atcoCode) {
   showPanelState("loading");
   try {
-    const data = await apiFetch(`/api/departures?stopId=${encodeURIComponent(atcoCode)}`);
+    let url = `/api/departures?stopId=${encodeURIComponent(atcoCode)}`;
+    const pos = state.stopData[atcoCode];
+    if (pos) url += `&lat=${pos.lat}&lon=${pos.lon}`;
+    const data = await apiFetch(url);
     renderDepartures(data);
   } catch (err) {
     console.error("Departures fetch failed:", err);
