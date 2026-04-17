@@ -1,37 +1,38 @@
-/*
+/* ================================================================
  * style.css — Adur & Worthing Live Bus Tracker
- *
- * All colours and spacing are defined as CSS custom properties (variables)
- * in :root so the design can be easily rebranded — for example, to match
- * Adur & Worthing Councils' colour palette — by changing only this block.
- *
- * FUTURE THEMING: Replace the values in :root below to rebrand.
- */
+ * Aesthetic: Coastal — warm sandy light mode, deep ocean dark mode
+ * Fonts loaded via <link> in index.html
+ * ================================================================ */
 
-/* ===== DESIGN TOKENS ===== */
+/* ===== DESIGN TOKENS — Coastal Sand (light, default) ===== */
 :root {
-  /* Brand colours */
-  --color-primary:        #005ea5;   /* Main blue — change for council branding */
-  --color-primary-dark:   #004378;
-  --color-primary-light:  #e8f1fb;
-  --color-accent:         #f4a020;   /* Amber highlight for live/on-time */
+  /* Typography */
+  --font-brand:         'Fraunces', Georgia, serif;
+  --font-family:        'Outfit', system-ui, sans-serif;
+  --font-mono:          'JetBrains Mono', 'Courier New', monospace;
 
-  /* Status colours */
-  --color-on-time:        #2e7d32;   /* Green */
-  --color-early:          #1565c0;   /* Blue */
-  --color-late:           #c62828;   /* Red */
-  --color-unknown:        #616161;   /* Grey */
+  /* Brand / interactive */
+  --color-primary:        #1a4b82;
+  --color-primary-dark:   #0f3264;
+  --color-primary-light:  #e4edf7;
+  --color-accent:         #c07808;
 
-  /* Neutral palette */
-  --color-bg:             #f5f7fa;
-  --color-surface:        #ffffff;
-  --color-border:         #dde3ec;
-  --color-text:           #1a1a2e;
-  --color-text-muted:     #5a6378;
+  /* Status */
+  --color-on-time:        #1c7844;
+  --color-early:          #1a70b5;
+  --color-late:           #bc3220;
+  --color-unknown:        #6a5e58;
+
+  /* Neutrals — warm sandy palette */
+  --color-bg:             #edeae3;
+  --color-surface:        #f7f4ef;
+  --color-surface-2:      #e8e4dc;
+  --color-border:         #cfc9be;
+  --color-text:           #18202e;
+  --color-text-muted:     #6a625a;
   --color-text-inverse:   #ffffff;
 
-  /* Typography */
-  --font-family:          system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* Font sizes */
   --font-size-xs:         0.72rem;
   --font-size-sm:         0.85rem;
   --font-size-base:       1rem;
@@ -39,31 +40,55 @@
   --font-size-xl:         1.35rem;
 
   /* Spacing */
-  --space-xs:   0.25rem;
-  --space-sm:   0.5rem;
-  --space-md:   1rem;
-  --space-lg:   1.5rem;
-  --space-xl:   2rem;
+  --space-xs:  0.25rem;
+  --space-sm:  0.5rem;
+  --space-md:  1rem;
+  --space-lg:  1.5rem;
+  --space-xl:  2rem;
 
-  /* Border radius */
-  --radius-sm:  4px;
-  --radius-md:  8px;
-  --radius-lg:  12px;
+  /* Radii */
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   14px;
+  --radius-pill: 100px;
 
   /* Shadows */
-  --shadow-sm:  0 1px 3px rgba(0,0,0,0.08);
-  --shadow-md:  0 4px 12px rgba(0,0,0,0.12);
-  --shadow-lg:  0 8px 24px rgba(0,0,0,0.16);
+  --shadow-sm: 0 1px 3px rgba(10,18,32,0.08);
+  --shadow-md: 0 4px 14px rgba(10,18,32,0.12);
+  --shadow-lg: 0 8px 28px rgba(10,18,32,0.16);
 
-  /* Transitions */
-  --transition: 200ms ease;
+  --transition: 180ms ease;
 
-  /* Layout */
-  --header-height:       60px;
-  --panel-width:         360px;
+  --header-height: 56px;
+  --panel-width:   360px;
 }
 
-/* ===== RESET & BASE ===== */
+/* ===== DARK MODE — Coastal Night ===== */
+body.dark-mode {
+  --color-primary:        #2872c2;
+  --color-primary-dark:   #1a508e;
+  --color-primary-light:  #091523;
+  --color-accent:         #e6a820;
+
+  --color-on-time:        #34c06a;
+  --color-early:          #28b4c4;
+  --color-late:           #e84e3c;
+  --color-unknown:        #5a7488;
+
+  --color-bg:             #090e1a;
+  --color-surface:        #0d1525;
+  --color-surface-2:      #111e30;
+  --color-border:         #1a2c44;
+  --color-text:           #c8d8ec;
+  --color-text-muted:     #5a7898;
+  --color-text-inverse:   #090e1a;
+
+  --shadow-sm: 0 1px 4px rgba(0,0,0,0.45);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.55);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.65);
+}
+
+/* ===== RESET ===== */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -72,7 +97,7 @@
 
 html, body {
   height: 100%;
-  overflow: hidden;           /* Prevent page scroll — map fills viewport */
+  overflow: hidden;
 }
 
 body {
@@ -82,25 +107,26 @@ body {
   background: var(--color-bg);
   display: flex;
   flex-direction: column;
+  -webkit-font-smoothing: antialiased;
 }
 
-a {
-  color: var(--color-primary);
-}
-
-button {
-  font-family: inherit;
-  cursor: pointer;
-}
+a { color: var(--color-primary); }
+button { font-family: inherit; cursor: pointer; }
 
 /* ===== HEADER ===== */
 .site-header {
   height: var(--header-height);
   background: var(--color-primary);
-  color: var(--color-text-inverse);
+  border-bottom: 1px solid var(--color-primary-dark);
   box-shadow: var(--shadow-md);
   z-index: 1000;
   flex-shrink: 0;
+}
+
+body.dark-mode .site-header {
+  background: var(--color-surface);
+  border-bottom-color: var(--color-border);
+  box-shadow: var(--shadow-sm);
 }
 
 .header-inner {
@@ -109,7 +135,6 @@ button {
   justify-content: space-between;
   height: 100%;
   padding: 0 var(--space-lg);
-  max-width: 100%;
 }
 
 .header-brand {
@@ -119,20 +144,33 @@ button {
 }
 
 .header-icon {
-  font-size: 1.6rem;
+  font-size: 1.3rem;
   line-height: 1;
 }
 
 .header-title {
-  font-size: var(--font-size-lg);
+  font-family: var(--font-brand);
+  font-size: 1.2rem;
   font-weight: 700;
-  line-height: 1.1;
-  color: var(--color-text-inverse);
+  line-height: 1;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
+body.dark-mode .header-title {
+  color: var(--color-accent);
 }
 
 .header-subtitle {
   font-size: var(--font-size-xs);
-  opacity: 0.8;
+  color: rgba(255,255,255,0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+
+body.dark-mode .header-subtitle {
+  color: var(--color-text-muted);
 }
 
 .header-controls {
@@ -142,27 +180,43 @@ button {
 }
 
 .last-updated {
-  font-size: var(--font-size-xs);
-  opacity: 0.85;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: rgba(255,255,255,0.65);
   white-space: nowrap;
+}
+
+body.dark-mode .last-updated {
+  color: var(--color-text-muted);
 }
 
 .btn-icon {
   background: rgba(255,255,255,0.15);
-  border: 1px solid rgba(255,255,255,0.3);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-inverse);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: var(--radius-md);
+  color: rgba(255,255,255,0.9);
   width: 32px;
   height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1rem;
-  transition: background var(--transition);
+  font-size: 0.9rem;
+  transition: background var(--transition), border-color var(--transition);
 }
 
 .btn-icon:hover {
   background: rgba(255,255,255,0.25);
+}
+
+body.dark-mode .btn-icon {
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+body.dark-mode .btn-icon:hover {
+  background: var(--color-border);
+  color: var(--color-text);
 }
 
 /* ===== MAIN LAYOUT ===== */
@@ -185,18 +239,19 @@ button {
   height: 100%;
 }
 
-/* Map loading overlay */
 .map-loading {
   position: absolute;
   inset: 0;
-  background: rgba(245, 247, 250, 0.85);
+  background: rgba(237, 234, 227, 0.88);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--space-md);
   z-index: 600;
-  transition: opacity var(--transition);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  transition: opacity 400ms ease;
 }
 
 .map-loading.hidden {
@@ -204,20 +259,25 @@ button {
   pointer-events: none;
 }
 
+body.dark-mode .map-loading {
+  background: rgba(9, 14, 26, 0.9);
+  color: var(--color-text-muted);
+}
+
 /* ===== SPINNER ===== */
 .spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid var(--color-border);
-  border-top-color: var(--color-primary);
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-accent);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  animation: spin 0.9s linear infinite;
 }
 
 .spinner.small {
-  width: 24px;
-  height: 24px;
-  border-width: 3px;
+  width: 22px;
+  height: 22px;
+  border-width: 2.5px;
 }
 
 @keyframes spin {
@@ -234,16 +294,13 @@ button {
   flex-direction: column;
   overflow: hidden;
   z-index: 900;
-  transition: transform var(--transition), width var(--transition);
   flex-shrink: 0;
 }
 
-/* On mobile, the panel slides up from the bottom */
 @media (max-width: 700px) {
   .main-layout {
     flex-direction: column;
   }
-
   .departure-panel {
     width: 100%;
     border-left: none;
@@ -254,14 +311,92 @@ button {
   }
 }
 
-/* Panel header */
+/* ===== PANEL TABS BAR ===== */
+.panel-tabs-bar {
+  display: flex;
+  align-items: stretch;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.panel-tabs {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+}
+
+.panel-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 10px var(--space-md);
+  color: var(--color-text-muted);
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  border-bottom: 2px solid transparent;
+  transition: color var(--transition), border-color var(--transition);
+  letter-spacing: 0.03em;
+}
+
+.panel-tab:hover {
+  color: var(--color-text);
+}
+
+.panel-tab.active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+.panel-tab-icon {
+  font-size: 0.85rem;
+}
+
+.panel-tabs-bar .btn-close {
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--color-border);
+  border-radius: 0;
+  width: 42px;
+  height: auto;
+  align-self: stretch;
+  padding: 0;
+  font-size: 0.95rem;
+  margin: 0;
+  color: var(--color-text-muted);
+  transition: background var(--transition), color var(--transition);
+}
+
+.panel-tabs-bar .btn-close:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.panel-tab-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel-tab-content.hidden {
+  display: none !important;
+}
+
+/* ===== PANEL HEADER ===== */
 .panel-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: var(--space-md) var(--space-md) var(--space-sm);
+  padding: var(--space-md) var(--space-md) 10px;
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-primary-light);
+  background: var(--color-surface-2);
   flex-shrink: 0;
 }
 
@@ -273,36 +408,21 @@ button {
 .panel-stop-name {
   font-size: var(--font-size-lg);
   font-weight: 700;
-  color: var(--color-primary-dark);
+  color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .panel-stop-id {
+  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
-  margin-top: 2px;
+  margin-top: 3px;
+  letter-spacing: 0.05em;
 }
 
-.btn-close {
-  background: none;
-  border: none;
-  font-size: 1.1rem;
-  color: var(--color-text-muted);
-  padding: var(--space-xs);
-  border-radius: var(--radius-sm);
-  transition: background var(--transition), color var(--transition);
-  flex-shrink: 0;
-  margin-left: var(--space-sm);
-}
-
-.btn-close:hover {
-  background: var(--color-border);
-  color: var(--color-text);
-}
-
-/* Panel states */
+/* ===== PANEL STATES ===== */
 .panel-loading,
 .panel-error,
 .panel-prompt {
@@ -318,7 +438,8 @@ button {
 }
 
 .panel-prompt-icon {
-  font-size: 2.5rem;
+  font-size: 2rem;
+  opacity: 0.45;
 }
 
 .panel-error {
@@ -327,22 +448,24 @@ button {
 
 .btn-retry {
   background: var(--color-primary);
-  color: var(--color-text-inverse);
+  color: #fff;
   border: none;
   padding: var(--space-sm) var(--space-lg);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-family);
   font-size: var(--font-size-sm);
-  transition: background var(--transition);
+  font-weight: 600;
+  transition: opacity var(--transition);
 }
 
 .btn-retry:hover {
-  background: var(--color-primary-dark);
+  opacity: 0.85;
 }
 
-/* Departures container */
+/* ===== DEPARTURES CONTAINER ===== */
 .departures-container {
   flex: 1;
-  min-height: 0;           /* Allow shrinking below intrinsic content size */
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -351,7 +474,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px var(--space-md);
   background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
   font-size: var(--font-size-xs);
@@ -363,28 +486,34 @@ button {
   padding: var(--space-sm) var(--space-md);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
-  background: var(--color-bg);
+  background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border);
   border-left: 3px solid var(--color-accent);
-  flex-shrink: 0;
 }
 
 .btn-text {
   background: none;
   border: none;
   color: var(--color-primary);
+  font-family: var(--font-family);
   font-size: var(--font-size-xs);
   font-weight: 600;
-  padding: 2px 4px;
+  padding: 2px 6px;
   border-radius: var(--radius-sm);
   transition: background var(--transition);
 }
 
 .btn-text:hover {
-  background: var(--color-primary-light);
+  background: var(--color-surface-2);
 }
 
-/* Departures table */
+body.dark-mode .btn-text {
+  color: var(--color-accent);
+}
+
+/* ===== DEPARTURES TABLE ===== */
+/* Styled to evoke a real transit departure board */
+
 .departures-table {
   width: 100%;
   border-collapse: collapse;
@@ -392,15 +521,12 @@ button {
   table-layout: fixed;
 }
 
-/* Column widths — Service and Due are fixed; Status is fixed;
-   Destination takes the remainder so it can never push the table wide */
 .departures-table th:nth-child(1),
 .departures-table td:nth-child(1) { width: 54px; }   /* Service badge */
 .departures-table th:nth-child(3),
-.departures-table td:nth-child(3) { width: 52px; }   /* Due time */
+.departures-table td:nth-child(3) { width: 58px; }   /* Due time */
 .departures-table th:nth-child(4),
-.departures-table td:nth-child(4) { width: 80px; }   /* Status chip */
-/* Destination (col 2) gets the remaining width automatically */
+.departures-table td:nth-child(4) { width: 86px; }   /* Status chip */
 
 .departures-table thead {
   background: var(--color-bg);
@@ -411,17 +537,18 @@ button {
 
 .departures-table th {
   text-align: left;
-  padding: var(--space-xs) var(--space-sm);
-  font-size: var(--font-size-xs);
+  padding: 6px var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.1em;
   border-bottom: 1px solid var(--color-border);
 }
 
 .departures-table td {
-  padding: var(--space-xs) var(--space-sm);
+  padding: 8px var(--space-sm);
   border-bottom: 1px solid var(--color-border);
   vertical-align: middle;
   overflow: hidden;
@@ -433,29 +560,32 @@ button {
 
 .departures-table tr.departure-row {
   cursor: pointer;
+  transition: background var(--transition);
 }
 
-.departures-table tr:hover td {
-  background: var(--color-primary-light);
+.departures-table tr.departure-row:hover td {
+  background: var(--color-surface-2);
 }
 
-/* Service number badge */
+/* ===== SERVICE BADGE ===== */
 .service-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: var(--color-primary);
-  color: var(--color-text-inverse);
+  color: #fff;
+  font-family: var(--font-family);
   font-weight: 700;
-  font-size: var(--font-size-xs);
+  font-size: 0.7rem;
   min-width: 36px;
-  height: 24px;
+  height: 22px;
   padding: 0 6px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   white-space: nowrap;
+  letter-spacing: 0.02em;
 }
 
-/* Destination text */
+/* ===== DESTINATION TEXT ===== */
 .destination-text {
   color: var(--color-text);
   font-weight: 500;
@@ -465,44 +595,82 @@ button {
   white-space: nowrap;
 }
 
-/* Due time */
+/* ===== DUE TIME ===== */
 .due-time {
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: var(--font-size-sm);
   white-space: nowrap;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
 }
 
 .due-time.due-imminent {
   color: var(--color-accent);
 }
 
-/* Status chips */
+/* ===== STATUS CHIPS ===== */
 .status-chip {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   white-space: nowrap;
+  text-transform: uppercase;
+  border: 1px solid transparent;
 }
 
+/* Light mode chips */
 .status-on-time {
-  background: #e8f5e9;
+  background: #ebf7f1;
   color: var(--color-on-time);
+  border-color: #c2e8d5;
 }
 
 .status-early {
-  background: #e3f2fd;
+  background: #e3f3f9;
   color: var(--color-early);
+  border-color: #b5d8ec;
 }
 
 .status-late {
-  background: #ffebee;
+  background: #fbecea;
   color: var(--color-late);
+  border-color: #f2c0ba;
 }
 
 .status-scheduled {
-  background: var(--color-bg);
+  background: var(--color-surface-2);
   color: var(--color-unknown);
+  border-color: var(--color-border);
+}
+
+/* Dark mode chips */
+body.dark-mode .status-on-time {
+  background: rgba(52, 192, 106, 0.12);
+  color: var(--color-on-time);
+  border-color: rgba(52, 192, 106, 0.28);
+}
+
+body.dark-mode .status-early {
+  background: rgba(40, 180, 196, 0.12);
+  color: var(--color-early);
+  border-color: rgba(40, 180, 196, 0.28);
+}
+
+body.dark-mode .status-late {
+  background: rgba(232, 78, 60, 0.12);
+  color: var(--color-late);
+  border-color: rgba(232, 78, 60, 0.28);
+}
+
+body.dark-mode .status-scheduled {
+  background: rgba(90, 116, 136, 0.1);
+  color: var(--color-unknown);
+  border-color: rgba(90, 116, 136, 0.22);
 }
 
 .departures-footer {
@@ -521,14 +689,15 @@ button {
   font-size: var(--font-size-sm);
 }
 
-/* ===== TOAST NOTIFICATION ===== */
+/* ===== TOAST ===== */
 .toast {
   position: fixed;
   bottom: var(--space-lg);
   left: 50%;
   transform: translateX(-50%);
-  background: var(--color-text);
-  color: var(--color-text-inverse);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
   padding: var(--space-sm) var(--space-lg);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
@@ -545,15 +714,13 @@ button {
 }
 
 /* ===== UTILITY ===== */
-.hidden {
-  display: none !important;
-}
+.hidden { display: none !important; }
 
 /* ===== FOOTER ===== */
 .site-footer {
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
-  padding: var(--space-sm) var(--space-lg);
+  padding: 5px var(--space-lg);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   text-align: center;
@@ -561,9 +728,7 @@ button {
   z-index: 100;
 }
 
-/* ===== LEAFLET CUSTOM MARKERS ===== */
-
-/* Bus stop icon (circular, primary blue) */
+/* ===== STOP MARKERS ===== */
 .stop-marker-icon {
   background: var(--color-primary);
   border: 2px solid var(--color-primary-dark);
@@ -577,7 +742,7 @@ button {
   transform: scale(1.4);
 }
 
-/* Bus vehicle marker — divIcon root */
+/* ===== BUS VEHICLE MARKERS ===== */
 .bus-marker-divicon {
   background: transparent !important;
   border: none !important;
@@ -593,19 +758,16 @@ button {
   pointer-events: auto;
 }
 
-/* Operator icon image — rotated by bearing.
-   Source icons should face EAST (right) at 0deg. */
 .bus-icon-img {
   width: 56px;
   height: 56px;
   object-fit: contain;
   transform-origin: center center;
   transition: transform 0.4s ease-out;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
   display: block;
 }
 
-/* Route number overlaid on the icon. Stays upright (not rotated). */
 .bus-icon-label {
   position: absolute;
   top: 50%;
@@ -624,14 +786,13 @@ button {
      1px -1px 0 #000,
     -1px  1px 0 #000,
      1px  1px 0 #000,
-     0    0   2px rgba(0,0,0,0.85);
+     0    0   3px rgba(0,0,0,0.9);
 }
 
-/* Fallback for operators without an icon — keeps the old amber box look */
 .bus-icon-fallback {
   background: var(--color-accent);
-  border: 2px solid #c07800;
-  border-radius: 4px;
+  border: 2px solid rgba(0,0,0,0.2);
+  border-radius: var(--radius-sm);
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -646,127 +807,69 @@ button {
   box-shadow: var(--shadow-sm);
 }
 
-/* Leaflet popup customisation */
+/* ===== LEAFLET CUSTOMISATION ===== */
 .leaflet-popup-content-wrapper {
-  border-radius: var(--radius-md) !important;
+  background: var(--color-surface) !important;
+  border-radius: var(--radius-lg) !important;
   box-shadow: var(--shadow-lg) !important;
   font-family: var(--font-family) !important;
+  border: 1px solid var(--color-border) !important;
+  color: var(--color-text) !important;
+}
+
+.leaflet-popup-tip {
+  background: var(--color-surface) !important;
 }
 
 .leaflet-popup-content {
-  margin: 10px 14px !important;
+  margin: 12px 14px !important;
   font-size: var(--font-size-sm) !important;
+  color: var(--color-text) !important;
 }
 
 .popup-stop-name {
   font-weight: 700;
-  color: var(--color-primary-dark);
+  color: var(--color-text);
   margin-bottom: 4px;
 }
 
 .popup-stop-id {
+  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  letter-spacing: 0.05em;
 }
 
 .popup-btn {
   background: var(--color-primary);
   color: #fff;
   border: none;
-  padding: 5px 12px;
-  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-family);
   font-size: var(--font-size-xs);
   font-weight: 600;
   width: 100%;
-  transition: background var(--transition);
+  transition: opacity var(--transition);
 }
 
 .popup-btn:hover {
-  background: var(--color-primary-dark);
+  opacity: 0.85;
+}
+
+.leaflet-bar a {
+  background: var(--color-surface) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+
+.leaflet-bar a:hover {
+  background: var(--color-surface-2) !important;
 }
 
 /* ===== TABBED PANEL ===== */
-.panel-tabs-bar {
-  display: flex;
-  align-items: stretch;
-  background: var(--color-primary);
-  border-bottom: 1px solid var(--color-primary-dark);
-  flex-shrink: 0;
-}
-
-.panel-tabs {
-  display: flex;
-  flex: 1;
-  align-items: stretch;
-  gap: 0;
-}
-
-.panel-tab {
-  flex: 1;
-  background: transparent;
-  border: none;
-  padding: var(--space-sm) var(--space-md);
-  color: rgba(255, 255, 255, 0.75);
-  font-family: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-xs);
-  border-bottom: 3px solid transparent;
-  transition: color var(--transition),
-              border-color var(--transition),
-              background var(--transition);
-}
-
-.panel-tab:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.panel-tab.active {
-  color: #fff;
-  border-bottom-color: var(--color-accent);
-}
-
-.panel-tab-icon {
-  font-size: 1rem;
-}
-
-.panel-tab-label {
-  letter-spacing: 0.02em;
-}
-
-.panel-tabs-bar .btn-close {
-  color: rgba(255, 255, 255, 0.85);
-  background: transparent;
-  border-radius: 0;
-  width: 44px;
-  height: auto;
-  align-self: stretch;
-  padding: 0;
-  font-size: 1.1rem;
-  margin: 0;
-}
-
-.panel-tabs-bar .btn-close:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-}
-
-.panel-tab-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.panel-tab-content.hidden {
-  display: none !important;
-}
+/* (tab bar styles already defined above) */
 
 /* ===== BUS INFO TAB ===== */
 .bus-info-container {
@@ -787,11 +890,11 @@ button {
 }
 
 .bus-info-icon {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   object-fit: contain;
   flex-shrink: 0;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.3));
 }
 
 .bus-info-icon-fallback {
@@ -808,7 +911,7 @@ button {
 
 .service-badge-large {
   min-width: 48px;
-  height: 32px;
+  height: 30px;
   font-size: var(--font-size-base);
   padding: 0 10px;
 }
@@ -822,7 +925,9 @@ button {
 .bus-info-grid {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
+  gap: 6px;
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid var(--color-border);
   margin: 0;
 }
 
@@ -838,7 +943,7 @@ button {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.07em;
   font-weight: 600;
 }
 
@@ -850,7 +955,7 @@ button {
 }
 
 .bus-info-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
 }
 
@@ -859,23 +964,24 @@ button {
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-md);
-  background: var(--color-primary-light);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   cursor: pointer;
   font-size: var(--font-size-sm);
-  color: var(--color-primary-dark);
+  color: var(--color-text);
   font-weight: 600;
-  transition: background var(--transition);
+  transition: background var(--transition), border-color var(--transition);
 }
 
 .follow-bus-toggle:hover {
-  background: #d4e4f5;
+  background: var(--color-border);
 }
 
 .follow-bus-toggle input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: var(--color-primary);
+  accent-color: var(--color-accent);
   cursor: pointer;
 }
 
@@ -888,6 +994,7 @@ button {
   border-top: 1px solid var(--color-border);
 }
 
+/* ===== UPCOMING STOPS ===== */
 .upcoming-stops {
   display: flex;
   flex-direction: column;
@@ -895,9 +1002,12 @@ button {
 }
 
 .upcoming-stops-title {
-  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
   font-weight: 600;
-  color: var(--color-text);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   margin: 0;
   padding-bottom: var(--space-xs);
   border-bottom: 1px solid var(--color-border);
@@ -913,18 +1023,15 @@ button {
   list-style: none;
   padding: 0;
   margin: 0;
-  display: flex;
-  flex-direction: column;
 }
 
 .upcoming-stop {
   display: grid;
-  grid-template-columns: 14px 1fr auto;
+  grid-template-columns: 16px 1fr auto;
   align-items: center;
   gap: var(--space-sm);
-  padding: 6px 0;
-  font-size: var(--font-size-sm);
-  border-bottom: 1px dashed var(--color-border);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .upcoming-stop:last-child {
@@ -932,8 +1039,8 @@ button {
 }
 
 .upcoming-stop-marker {
-  color: var(--color-primary);
-  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
   text-align: center;
 }
 
@@ -943,16 +1050,18 @@ button {
 
 .upcoming-stop-name {
   color: var(--color-text);
+  font-size: var(--font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .upcoming-stop-time {
-  color: var(--color-text-muted);
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
   white-space: nowrap;
+  letter-spacing: -0.01em;
 }
 
 .upcoming-stops-note {
@@ -966,9 +1075,9 @@ button {
   list-style: none;
   text-align: center;
   color: var(--color-text-muted);
-  font-size: 0.7rem;
-  padding: 2px 0;
-  letter-spacing: 0.1em;
+  font-size: 0.65rem;
+  padding: 3px 0;
+  letter-spacing: 0.12em;
 }
 
 .upcoming-stop--terminus .upcoming-stop-marker {
@@ -976,34 +1085,36 @@ button {
   font-size: 0.9rem;
 }
 
-/* ===== TICKET INFO (bus tab) ===== */
+/* ===== TICKET INFO ===== */
 .ticket-info {
-  margin-top: var(--space-md);
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-2, var(--color-surface));
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
 }
 
 .ticket-info-title {
-  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
   font-weight: 600;
-  color: var(--color-text);
-  margin: 0 0 var(--space-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin: 0 0 4px;
 }
 
 .ticket-rows {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: 4px;
 }
 
 .ticket-row {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 64px 1fr;
   gap: var(--space-xs);
   font-size: var(--font-size-xs);
   align-items: baseline;
@@ -1019,7 +1130,7 @@ button {
 }
 
 .ticket-value a {
-  color: var(--color-primary);
+  color: var(--color-accent);
   text-decoration: none;
 }
 
@@ -1029,7 +1140,7 @@ button {
 
 .ticket-more-link {
   font-size: var(--font-size-xs);
-  color: var(--color-primary);
+  color: var(--color-accent);
   text-decoration: none;
   margin-top: var(--space-xs);
   align-self: flex-start;
@@ -1040,17 +1151,23 @@ button {
 }
 
 .bus-info-lost {
-  background: #fff3e0;
-  color: #8a4b00;
-  border: 1px solid #ffe0b2;
-  border-radius: var(--radius-sm);
+  background: #fff8e8;
+  color: #8a5200;
+  border: 1px solid #f0d898;
+  border-radius: var(--radius-md);
   padding: var(--space-sm) var(--space-md);
   font-size: var(--font-size-xs);
   font-weight: 600;
   text-align: center;
 }
 
-/* ===== BUS POPUP (restyled) ===== */
+body.dark-mode .bus-info-lost {
+  background: rgba(230, 168, 32, 0.1);
+  color: var(--color-accent);
+  border-color: rgba(230, 168, 32, 0.25);
+}
+
+/* ===== BUS POPUP ===== */
 .bus-popup {
   display: flex;
   flex-direction: column;
@@ -1067,8 +1184,8 @@ button {
 }
 
 .bus-popup-icon {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -1083,9 +1200,7 @@ button {
   margin: 0;
 }
 
-.bus-popup-status {
-  margin: 0;
-}
+.bus-popup-status { margin: 0; }
 
 .bus-popup-hint {
   font-size: 10px;
@@ -1095,137 +1210,20 @@ button {
   margin-top: 2px;
 }
 
-/* ===== DARK MODE ===== */
-body.dark-mode {
-  --color-primary:        #1a5fa8;   /* Deeper blue for headers/bars */
-  --color-primary-dark:   #0f3d6e;   /* Darker blue for active states */
-  --color-primary-light:  #0d1f33;   /* Near-black blue for panel header bg */
-  --color-accent:         #f4a020;
-
-  --color-on-time:        #4caf50;
-  --color-early:          #42a5f5;
-  --color-late:           #ef5350;
-  --color-unknown:        #9e9e9e;
-
-  --color-bg:             #121418;   /* Near-black background */
-  --color-surface:        #1c1f26;   /* Panel and card surfaces */
-  --color-border:         #2c3040;
-  --color-text:           #e2e8f0;
-  --color-text-muted:     #8fa3c0;   /* Cool blue-grey muted text */
-  --color-text-inverse:   #ffffff;
-
-  --shadow-sm:  0 1px 3px rgba(0,0,0,0.4);
-  --shadow-md:  0 4px 12px rgba(0,0,0,0.5);
-  --shadow-lg:  0 8px 24px rgba(0,0,0,0.6);
-}
-
-/* Header text colours in dark mode */
-body.dark-mode .header-title {
-  color: #93c5fd;   /* Cool blue title */
-}
-
-body.dark-mode .last-updated {
-  color: #93c5fd;
-  opacity: 1;
-}
-
-/* Panel header bg uses --color-primary-light (near-black blue) */
-body.dark-mode .panel-header {
-  background: var(--color-primary-light);
-  border-bottom-color: var(--color-border);
-}
-
-body.dark-mode .panel-stop-name {
-  color: #93c5fd;
-}
-
-/* Table header rows use bg colour */
-body.dark-mode .departures-table thead {
-  background: var(--color-bg);
-}
-
-body.dark-mode .departures-table tr:hover td {
-  background: #1a2a3a;
-}
-
-/* Status chips in dark mode */
-body.dark-mode .status-on-time {
-  background: #1b3a1c;
-  color: #81c784;
-}
-
-body.dark-mode .status-early {
-  background: #0d2540;
-  color: #64b5f6;
-}
-
-body.dark-mode .status-late {
-  background: #3b1212;
-  color: #ef9a9a;
-}
-
-body.dark-mode .status-scheduled {
-  background: var(--color-bg);
+/* ===== STANDALONE CLOSE BUTTON ===== */
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1rem;
   color: var(--color-text-muted);
+  padding: var(--space-xs);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition), color var(--transition);
+  flex-shrink: 0;
+  margin-left: var(--space-sm);
 }
 
-/* Follow toggle */
-body.dark-mode .follow-bus-toggle {
-  background: #0d1f33;
-  color: #93c5fd;
-}
-
-body.dark-mode .follow-bus-toggle:hover {
-  background: #122840;
-}
-
-/* Lost vehicle banner */
-body.dark-mode .bus-info-lost {
-  background: #2a1a00;
-  color: #ffcc80;
-  border-color: #5a3a00;
-}
-
-/* Leaflet popup in dark mode */
-body.dark-mode .leaflet-popup-content-wrapper,
-body.dark-mode .leaflet-popup-tip {
-  background: var(--color-surface) !important;
-  color: var(--color-text) !important;
-  box-shadow: var(--shadow-lg) !important;
-}
-
-body.dark-mode .leaflet-popup-content-wrapper {
-  border: 1px solid var(--color-border);
-}
-
-body.dark-mode .popup-stop-name {
-  color: #93c5fd;
-}
-
-body.dark-mode .bus-popup-header {
-  border-bottom-color: var(--color-border);
-}
-
-/* Map loading overlay */
-body.dark-mode .map-loading {
-  background: rgba(18, 20, 24, 0.9);
+.btn-close:hover {
+  background: var(--color-surface-2);
   color: var(--color-text);
-}
-
-/* Departures meta bar */
-body.dark-mode .departures-meta {
-  background: var(--color-bg);
-}
-
-body.dark-mode .departures-notice {
-  background: var(--color-surface);
-}
-
-/* Btn-text (↻ Refresh) — cool blue in dark mode */
-body.dark-mode .btn-text {
-  color: #93c5fd;
-}
-
-body.dark-mode .btn-text:hover {
-  background: #0d1f33;
 }
