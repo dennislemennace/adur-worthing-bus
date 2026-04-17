@@ -1198,14 +1198,23 @@ def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
                 if start_idx < len(trip_stops) - 1:
                     start_idx += 1
 
-        # Fallback: time-based estimation when no coords available
+        # Fallback: time-based estimation when no coords available.
+        # Uses a 12h wrap-around comparison so that GTFS times stored as
+        # 24:xx–30:xx (night services running past midnight) are treated
+        # correctly: e.g. dep_secs=94800 (26:20) vs now_secs=8700 (02:25)
+        # gives a signed delta of -300 (02:20 was 5 min ago), not +86100.
         if not gps_matched:
             now_local_tmp = datetime.now(UK_TZ)
             now_secs = (now_local_tmp.hour * 3600
                         + now_local_tmp.minute * 60
                         + now_local_tmp.second)
             for i, (dep_secs, _sid) in enumerate(trip_stops):
-                if dep_secs >= now_secs:
+                diff = dep_secs - now_secs
+                if diff > 43200:   # dep is "tomorrow" in GTFS notation
+                    diff -= 86400
+                elif diff < -43200:
+                    diff += 86400
+                if diff >= 0:
                     start_idx = i
                     break
             else:
