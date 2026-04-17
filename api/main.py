@@ -1000,6 +1000,7 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
     calendar_dates = tt.get("calendar_dates", {})
     trips          = tt.get("trips", {})
     routes         = tt.get("routes", {})
+    stops          = tt.get("stops", {})
     stop_times     = tt.get("stop_times", {})
     svc_endpoints  = tt.get("svc_trip_endpoints", {})
 
@@ -1031,16 +1032,18 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
                     matched_n += 1
                     continue
 
-        # ── Strategy 2: service + time-of-day matching ──
-        # Without MonitoredCall data, match on service name and pick the
-        # trip whose first departure is closest to now. The destination
-        # name from SIRI-VM is used as a tiebreaker when multiple trips
-        # start at similar times.
+        # ── Strategy 2: service + direction + time-of-day matching ──
+        # Without MonitoredCall data, match on service name. Direction
+        # (SIRI-VM destination vs trip headsign / last stop name) is used
+        # as a primary filter — not just a tiebreaker — so a bus mid-route
+        # on a frequent bidirectional corridor isn't matched to a freshly-
+        # starting trip in the opposite direction.
         svc_set = {svc, _strip_night_prefix(svc)}
         dest_name = (v.get("destination") or "").replace("_", " ").lower()
-        best_trip  = None
-        best_delta = None
-        best_name_match = False
+        best_trip      = None   # overall closest (fallback)
+        best_delta     = None
+        best_dir_trip  = None   # closest with direction match
+        best_dir_delta = None
 
         for svc_key in svc_set:
             candidates = svc_endpoints.get(svc_key, [])
@@ -1052,21 +1055,34 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
                 delta = abs(first_secs - now_secs)
                 if delta > 43200:
                     delta = 86400 - delta
-                headsign = (trip.get("headsign") or "").lower()
-                name_match = (dest_name and headsign
-                              and dest_name in headsign)
+
+                # Track overall best regardless of direction (fallback)
                 if best_delta is None or delta < best_delta:
                     best_trip  = trip_id
                     best_delta = delta
-                    best_name_match = name_match
-                elif (delta == best_delta and name_match
-                      and not best_name_match):
-                    best_trip  = trip_id
-                    best_name_match = name_match
 
-        if best_trip is not None and best_delta is not None and best_delta <= 7200:
-            v["trip_id"]       = best_trip
-            v["trip_headsign"] = trips.get(best_trip, {}).get("headsign") or None
+                # Direction filter: destination must overlap with headsign
+                # or the name of the last stop in the trip.
+                if dest_name:
+                    headsign  = (trip.get("headsign") or "").lower()
+                    last_name = (stops.get(last_stop, {}).get("name") or "").lower()
+                    dir_match = (dest_name in headsign
+                                 or dest_name in last_name
+                                 or (headsign and headsign in dest_name)
+                                 or (last_name and last_name in dest_name))
+                    if dir_match and (best_dir_delta is None
+                                      or delta < best_dir_delta):
+                        best_dir_trip  = trip_id
+                        best_dir_delta = delta
+
+        # Prefer direction-matched trip; fall back to overall best when
+        # no direction match was found (unknown / ambiguous destination).
+        chosen       = best_dir_trip  if best_dir_trip  is not None else best_trip
+        chosen_delta = best_dir_delta if best_dir_trip  is not None else best_delta
+
+        if chosen is not None and chosen_delta is not None and chosen_delta <= 7200:
+            v["trip_id"]       = chosen
+            v["trip_headsign"] = trips.get(chosen, {}).get("headsign") or None
             matched_n += 1
 
     if vehicles:
