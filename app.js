@@ -744,6 +744,7 @@ function renderBusTab() {
   const fleetId      = v.vehicle_ref || "–";
   const chip         = buildStatusChip({ delay_seconds: v.delay_seconds });
   const upcomingHtml = buildUpcomingStopsHtml();
+  const ticketHtml   = buildTicketInfoHtml(v.operator_ref);
 
   const iconHtml = iconUrl
     ? `<img class="bus-info-icon" src="${escapeAttr(iconUrl)}" alt="">`
@@ -792,6 +793,8 @@ function renderBusTab() {
 
     ${upcomingHtml}
 
+    ${ticketHtml}
+
     <p class="bus-info-footer">Live data · auto-refreshes every 20s</p>
   `;
 
@@ -810,6 +813,49 @@ function renderBusTab() {
       }
     });
   }
+}
+
+/**
+ * Build the "Tickets" section for the Bus tab.
+ * Uses static OPERATOR_TICKETS data for now; designed so that a future
+ * API response (e.g. from /api/tickets?operatorRef=...) can be merged in
+ * by passing it as the optional `liveData` argument.
+ */
+function buildTicketInfoHtml(operatorRef, liveData = null) {
+  // Future: merge liveData fields over the static entry when available.
+  const info = OPERATOR_TICKETS[operatorRef] || null;
+  if (!info && !liveData) return "";
+
+  const rows = [];
+
+  if (info?.dayPass) {
+    rows.push(`
+      <div class="ticket-row">
+        <span class="ticket-label">Day pass</span>
+        <span class="ticket-value">${escapeHtml(info.dayPass)}</span>
+      </div>`);
+  }
+
+  if (info?.app) {
+    rows.push(`
+      <div class="ticket-row">
+        <span class="ticket-label">Mobile app</span>
+        <span class="ticket-value">
+          <a href="${escapeAttr(info.app.url)}" target="_blank" rel="noopener">${escapeHtml(info.app.name)}</a>
+        </span>
+      </div>`);
+  }
+
+  const footerLink = info?.url
+    ? `<a class="ticket-more-link" href="${escapeAttr(info.url)}" target="_blank" rel="noopener">Full fares &amp; tickets →</a>`
+    : "";
+
+  return `
+    <div class="ticket-info">
+      <h3 class="ticket-info-title">Tickets</h3>
+      <div class="ticket-rows">${rows.join("")}</div>
+      ${footerLink}
+    </div>`;
 }
 
 /**
@@ -1152,6 +1198,42 @@ const OPERATOR_NAMES = {
 function getOperatorName(operatorRef) {
   return OPERATOR_NAMES[operatorRef] || operatorRef || "Unknown operator";
 }
+
+// ============================================================
+// OPERATOR TICKET INFO
+// Static ticket details per operator. Each entry can have:
+//   app:     { name, url }    — mobile ticketing app
+//   dayPass: string           — short description of day ticket
+//   url:     string           — link to full fares/tickets page
+// Future: replace or merge with live data from a tickets API.
+// ============================================================
+const OPERATOR_TICKETS = {
+  "SCSO": {
+    app:     { name: "Stagecoach Bus App", url: "https://www.stagecoachbus.com/app" },
+    dayPass: "Stagecoach South dayrider from £5.50",
+    url:     "https://www.stagecoachbus.com/tickets",
+  },
+  "SCSC": {
+    app:     { name: "Stagecoach Bus App", url: "https://www.stagecoachbus.com/app" },
+    dayPass: "Stagecoach South dayrider from £5.50",
+    url:     "https://www.stagecoachbus.com/tickets",
+  },
+  "BHBC": {
+    app:     { name: "B&H Buses App", url: "https://www.buses.co.uk/app" },
+    dayPass: "NETWORK Saver day ticket available",
+    url:     "https://www.buses.co.uk/tickets",
+  },
+  "CMPA": {
+    app:     null,
+    dayPass: "Day tickets available on bus",
+    url:     "https://www.compass-travel.co.uk/fares.html",
+  },
+  "COMT": {
+    app:     null,
+    dayPass: "Day tickets available on bus",
+    url:     "https://www.compass-travel.co.uk/fares.html",
+  },
+};
 // Strip a leading "N" from a service label when the rest is all digits,
 // so "N700" and "700" can be treated as the same service. Used when
 // matching scheduled departures to live vehicles, because some operators

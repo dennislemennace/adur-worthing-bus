@@ -963,6 +963,69 @@ button {
   font-size: 0.9rem;
 }
 
+/* ===== TICKET INFO (bus tab) ===== */
+.ticket-info {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2, var(--color-surface));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.ticket-info-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-xs);
+}
+
+.ticket-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.ticket-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  align-items: baseline;
+}
+
+.ticket-label {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.ticket-value {
+  color: var(--color-text);
+}
+
+.ticket-value a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.ticket-value a:hover {
+  text-decoration: underline;
+}
+
+.ticket-more-link {
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
+  text-decoration: none;
+  margin-top: var(--space-xs);
+  align-self: flex-start;
+}
+
+.ticket-more-link:hover {
+  text-decoration: underline;
+}
+
 .bus-info-lost {
   background: #fff3e0;
   color: #8a4b00;
