@@ -339,7 +339,7 @@ function buildBusPopupHtml(vehicle, label) {
     statusHtml = `<p class="bus-popup-status"><span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span></p>`;
   }
 
-  const destText = prettifyName(vehicle.trip_headsign || vehicle.destination) || "Unknown";
+  const destText = prettifyName(vehicle.destination || vehicle.trip_headsign) || "Unknown";
 
   return `
     <div class="bus-popup">
@@ -737,9 +737,9 @@ function renderBusTab() {
   const colour       = getOperatorColour(v.operator_ref);
   const service      = v.service_ref || "?";
   const destination  = prettifyName(
-                         state.busDetails?.vehicle?.trip_headsign
+                         v.destination
+                         || state.busDetails?.vehicle?.trip_headsign
                          || v.trip_headsign
-                         || v.destination
                        ) || "Unknown";
   const fleetId      = v.vehicle_ref || "–";
   const chip         = buildStatusChip({ delay_seconds: v.delay_seconds });
