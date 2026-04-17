@@ -831,11 +831,21 @@ function buildUpcomingStopsHtml() {
   const rows = stops.map((s, i) => {
     const iso  = s.expected_departure || s.aimed_departure;
     const time = iso ? formatTimeOfDay(new Date(iso)) : "–";
+    const name = escapeHtml(prettifyName(s.stop_name) || s.stop_id);
+    if (s.is_terminus) {
+      return `
+        <li class="upcoming-stop-gap" aria-hidden="true">···</li>
+        <li class="upcoming-stop upcoming-stop--terminus">
+          <span class="upcoming-stop-marker" aria-hidden="true">◉</span>
+          <span class="upcoming-stop-name">${name}</span>
+          <span class="upcoming-stop-time">${escapeHtml(time)}</span>
+        </li>`;
+    }
     const marker = i === 0 ? "●" : "○";
     return `
       <li class="upcoming-stop">
         <span class="upcoming-stop-marker" aria-hidden="true">${marker}</span>
-        <span class="upcoming-stop-name">${escapeHtml(prettifyName(s.stop_name) || s.stop_id)}</span>
+        <span class="upcoming-stop-name">${name}</span>
         <span class="upcoming-stop-time">${escapeHtml(time)}</span>
       </li>`;
   }).join("");
@@ -1153,7 +1163,9 @@ function stripNightPrefix(svc) {
 
 function prettifyName(s) {
   if (!s) return "";
-  return String(s).replace(/_/g, " ");
+  return String(s)
+    .replace(/_/g, " ")
+    .replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
 }
 
 // ============================================================

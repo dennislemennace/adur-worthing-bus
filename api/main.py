@@ -14,6 +14,7 @@ Environment variables:
 """
 
 import json
+import math
 import os
 import time
 import logging
@@ -1111,11 +1112,31 @@ def _atco_match(ref: str, stop_id: str) -> bool:
     return False
 
 
+def _haversine_sq(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Approximate squared distance in km² — fast, sufficient for closest-stop ranking."""
+    dlat = (lat2 - lat1) * 111.0
+    dlon = (lon2 - lon1) * 111.0 * math.cos(math.radians((lat1 + lat2) / 2))
+    return dlat * dlat + dlon * dlon
+
+
+# How many upcoming stops to show (before the terminus)
+_UPCOMING_COUNT = 5
+
+
 def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
     """
     Return the list of upcoming scheduled stops for a vehicle whose
-    trip has been matched. Slices the trip's stop sequence from the
-    vehicle's next-stop onward; returns up to 12 entries.
+    trip has been matched.
+
+    Position in trip:
+      - If SIRI-VM MonitoredCall is present, use the reported next-stop.
+      - Otherwise use GPS proximity: find the stop in the trip sequence
+        that is geographically closest to the vehicle's current position.
+        Falls back to time-based estimation when stop coords are missing.
+
+    Output: up to _UPCOMING_COUNT stops plus the final terminus stop
+    (marked with is_terminus=True), with expected_departure set to
+    aimed_departure + vehicle delay when a delay is known.
     """
     if not trip_id:
         return []
@@ -1127,28 +1148,51 @@ def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
     next_stop = calls[0].get("stop_id") if calls else None
 
     start_idx = 0
+    stops_meta = tt.get("stops", {})
 
     if next_stop:
+        # Strategy: MonitoredCall — use reported next stop
         for i, (_secs, sid) in enumerate(trip_stops):
             if sid == next_stop or _atco_match(next_stop, sid):
                 start_idx = i
                 break
     else:
-        # No MonitoredCall — estimate position using current time.
-        # Find the first stop whose scheduled departure is still ahead.
-        now_local_tmp = datetime.now(UK_TZ)
-        now_secs = (now_local_tmp.hour * 3600
-                    + now_local_tmp.minute * 60
-                    + now_local_tmp.second)
-        for i, (dep_secs, _sid) in enumerate(trip_stops):
-            if dep_secs >= now_secs:
-                start_idx = i
-                break
-        else:
-            start_idx = len(trip_stops)
+        # Strategy: GPS proximity — find stop nearest to vehicle's position
+        vlat = vehicle.get("latitude")
+        vlon = vehicle.get("longitude")
+        gps_matched = False
+        if vlat is not None and vlon is not None:
+            best_dist = None
+            for i, (_secs, sid) in enumerate(trip_stops):
+                s = stops_meta.get(sid, {})
+                slat = s.get("lat")
+                slon = s.get("lon")
+                if slat and slon:
+                    d = _haversine_sq(vlat, vlon, slat, slon)
+                    if best_dist is None or d < best_dist:
+                        best_dist = d
+                        start_idx = i
+                        gps_matched = True
+            if gps_matched:
+                # GPS gave us the closest stop; bus may have just departed it —
+                # advance by one so we show stops still ahead
+                if start_idx < len(trip_stops) - 1:
+                    start_idx += 1
 
-    # Build a lookup from the vehicle's own SIRI-VM calls so we can
-    # attach live predicted times when the operator provides them.
+        # Fallback: time-based estimation when no coords available
+        if not gps_matched:
+            now_local_tmp = datetime.now(UK_TZ)
+            now_secs = (now_local_tmp.hour * 3600
+                        + now_local_tmp.minute * 60
+                        + now_local_tmp.second)
+            for i, (dep_secs, _sid) in enumerate(trip_stops):
+                if dep_secs >= now_secs:
+                    start_idx = i
+                    break
+            else:
+                start_idx = len(trip_stops)
+
+    # Build call_pred from SIRI-VM calls (usually empty for this region)
     call_pred: dict = {}
     for c in calls:
         sid = c.get("stop_id")
@@ -1159,20 +1203,38 @@ def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
                           or c.get("aimed_departure")
                           or c.get("aimed_arrival"))
 
-    stops_meta = tt.get("stops", {})
-    now_local  = datetime.now(UK_TZ)
-    out = []
-    for dep_secs, sid in trip_stops[start_idx:start_idx + 12]:
+    # Blanket delay: apply vehicle's known delay to all upcoming aimed times
+    delay_s = vehicle.get("delay_seconds")
+    delay_td = timedelta(seconds=int(delay_s)) if delay_s else None
+
+    now_local = datetime.now(UK_TZ)
+
+    def _make_stop(dep_secs: int, sid: str, is_terminus: bool) -> dict:
         dep_h = (dep_secs // 3600) % 24
         dep_m = (dep_secs % 3600) // 60
-        aimed_dt = now_local.replace(
-            hour=dep_h, minute=dep_m, second=0, microsecond=0)
-        out.append({
-            "stop_id":          sid,
-            "stop_name":        stops_meta.get(sid, {}).get("name", sid),
-            "aimed_departure":  aimed_dt.isoformat(),
-            "expected_departure": call_pred.get(sid),
-        })
+        aimed_dt = now_local.replace(hour=dep_h, minute=dep_m, second=0, microsecond=0)
+        # Use call_pred first; then blanket delay; else None
+        expected_iso = call_pred.get(sid)
+        if expected_iso is None and delay_td is not None:
+            expected_iso = (aimed_dt + delay_td).isoformat()
+        return {
+            "stop_id":            sid,
+            "stop_name":          stops_meta.get(sid, {}).get("name", sid),
+            "aimed_departure":    aimed_dt.isoformat(),
+            "expected_departure": expected_iso,
+            "is_terminus":        is_terminus,
+        }
+
+    slice_stops = trip_stops[start_idx : start_idx + _UPCOMING_COUNT]
+    out = [_make_stop(dep_secs, sid, False) for dep_secs, sid in slice_stops]
+
+    # Append terminus unless it's already the last item in the slice
+    if trip_stops:
+        terminus_secs, terminus_sid = trip_stops[-1]
+        already_shown = any(s["stop_id"] == terminus_sid for s in out)
+        if not already_shown and out:
+            out.append(_make_stop(terminus_secs, terminus_sid, True))
+
     return out
 
 

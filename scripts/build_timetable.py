@@ -172,14 +172,14 @@ def parse_gtfs(zip_path: str) -> dict:
                 stop_id = row.get("stop_id", "")
                 by_prefix = stop_id.startswith(WEST_SUSSEX_ATCO_PREFIX)
                 by_bbox = False
+                try:
+                    slat = float(row.get("stop_lat", ""))
+                    slon = float(row.get("stop_lon", ""))
+                except (ValueError, TypeError):
+                    slat, slon = 0.0, 0.0
                 if not by_prefix:
-                    try:
-                        slat = float(row.get("stop_lat", ""))
-                        slon = float(row.get("stop_lon", ""))
-                        by_bbox = (BBOX_MIN_LAT <= slat <= BBOX_MAX_LAT
-                                   and BBOX_MIN_LON <= slon <= BBOX_MAX_LON)
-                    except (ValueError, TypeError):
-                        pass
+                    by_bbox = (BBOX_MIN_LAT <= slat <= BBOX_MAX_LAT
+                               and BBOX_MIN_LON <= slon <= BBOX_MAX_LON)
                 if not by_prefix and not by_bbox:
                     continue
                 if by_prefix:
@@ -188,6 +188,8 @@ def parse_gtfs(zip_path: str) -> dict:
                     bbox_stop_ids.add(stop_id)
                 timetable["stops"][stop_id] = {
                     "name": row.get("stop_name") or "Bus Stop",
+                    "lat":  slat,
+                    "lon":  slon,
                 }
         all_stop_ids = ws_stop_ids | bbox_stop_ids
         log.info("  %d stops (%d West Sussex + %d bbox-only)",

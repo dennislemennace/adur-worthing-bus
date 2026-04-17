@@ -949,6 +949,20 @@ button {
   font-style: italic;
 }
 
+.upcoming-stop-gap {
+  list-style: none;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  padding: 2px 0;
+  letter-spacing: 0.1em;
+}
+
+.upcoming-stop--terminus .upcoming-stop-marker {
+  color: var(--color-accent);
+  font-size: 0.9rem;
+}
+
 .bus-info-lost {
   background: #fff3e0;
   color: #8a4b00;
