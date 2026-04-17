@@ -661,8 +661,9 @@ async def get_departures(stopId: str = Query(...)):
 async def _get_vehicles_or_empty() -> list:
     """
     Return live vehicles from the 15s cache, fetching if necessary.
-    Never raises — if BODS is unreachable we just return [] so the
-    departures endpoint can still serve scheduled times.
+    Always enriches with trip matches so trip_id is available to
+    /api/vehicle even when the cache was cold.
+    Never raises — if BODS is unreachable we just return [].
     """
     cached = cache_get("vehicles")
     if cached:
@@ -674,6 +675,8 @@ async def _get_vehicles_or_empty() -> list:
     except Exception as exc:
         log.warning("Live vehicle fetch failed during overlay: %s", exc)
         return []
+    tt = await _get_timetable()
+    _enrich_vehicles_with_trip_match(vehicles, tt)
     cache_set("vehicles", {"vehicles": vehicles, "count": len(vehicles)}, 15)
     return vehicles
 
