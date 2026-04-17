@@ -344,6 +344,7 @@ button {
   flex: 1;
   min-height: 0;           /* Allow shrinking below intrinsic content size */
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .departures-meta {
@@ -388,7 +389,18 @@ button {
   width: 100%;
   border-collapse: collapse;
   font-size: var(--font-size-sm);
+  table-layout: fixed;
 }
+
+/* Column widths — Service and Due are fixed; Status is fixed;
+   Destination takes the remainder so it can never push the table wide */
+.departures-table th:nth-child(1),
+.departures-table td:nth-child(1) { width: 54px; }   /* Service badge */
+.departures-table th:nth-child(3),
+.departures-table td:nth-child(3) { width: 52px; }   /* Due time */
+.departures-table th:nth-child(4),
+.departures-table td:nth-child(4) { width: 80px; }   /* Status chip */
+/* Destination (col 2) gets the remaining width automatically */
 
 .departures-table thead {
   background: var(--color-bg);
@@ -399,7 +411,7 @@ button {
 
 .departures-table th {
   text-align: left;
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-xs) var(--space-sm);
   font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--color-text-muted);
@@ -409,9 +421,10 @@ button {
 }
 
 .departures-table td {
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-xs) var(--space-sm);
   border-bottom: 1px solid var(--color-border);
   vertical-align: middle;
+  overflow: hidden;
 }
 
 .departures-table tr:last-child td {
@@ -446,7 +459,7 @@ button {
 .destination-text {
   color: var(--color-text);
   font-weight: 500;
-  max-width: 120px;
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
