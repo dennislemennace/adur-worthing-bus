@@ -69,6 +69,8 @@ const state = {
   busInfoTickTimer:        null,   // setInterval handle for "X ago" text
   busDetails:              null,   // /api/vehicle response for selected bus
   busDetailsLoading:       false,  // true while waiting on /api/vehicle
+  zoneLayers:              {},     // zoneId → L.geoJSON layer on the map
+  zoneManifest:            null,   // loaded once from data/zones/index.json
 };
 
 // ============================================================
@@ -124,6 +126,9 @@ async function init() {
 
   initMap();
   bindUIEvents();
+
+  // Fire-and-forget — zones are decorative, don't block startup
+  loadZoneManifest();
 
   // Load stops first (cached 24 h on backend, so fast after first call)
   await loadStops();
@@ -690,6 +695,9 @@ function setActiveTab(tab) {
  * Switches to the Bus tab and renders the latest known data.
  */
 function openBusInfo(vehicle) {
+  clearZones();
+  showZonesForOperator(vehicle.operator_ref);
+
   state.selectedVehicleRef      = vehicle.vehicle_ref;
   state.selectedVehicle         = vehicle;
   state.selectedVehicleLastSeen = new Date();
@@ -989,7 +997,56 @@ function toggleDarkMode() {
   state.tileLayer.bringToBack();
 }
 
+// ============================================================
+// TICKET ZONE OVERLAYS
+// ============================================================
+
+async function loadZoneManifest() {
+  try {
+    const res = await fetch("data/zones/index.json");
+    if (!res.ok) return;
+    const data = await res.json();
+    state.zoneManifest = data.zones || [];
+  } catch {
+    // Zones are optional — silently skip if unavailable
+  }
+}
+
+async function showZonesForOperator(operatorRef) {
+  if (!state.zoneManifest) return;
+  const matching = state.zoneManifest.filter(z => z.operator_ref === operatorRef);
+  for (const zone of matching) {
+    if (state.zoneLayers[zone.id]) continue;
+    try {
+      const res = await fetch(zone.path);
+      if (!res.ok) continue;
+      const geo = await res.json();
+      state.zoneLayers[zone.id] = L.geoJSON(geo, {
+        style: {
+          fillColor:   zone.color,
+          fillOpacity: 0.14,
+          color:       zone.color,
+          weight:      1.5,
+          opacity:     0.6,
+        },
+        interactive: false,
+      }).addTo(state.map);
+    } catch {
+      // Silent — zone overlay is decorative
+    }
+  }
+}
+
+function clearZones() {
+  for (const layer of Object.values(state.zoneLayers)) {
+    state.map.removeLayer(layer);
+  }
+  state.zoneLayers = {};
+}
+
 function closePanel() {
+  clearZones();
+
   // Clear stop selection
   state.selectedStop = null;
   showPanelState("prompt");

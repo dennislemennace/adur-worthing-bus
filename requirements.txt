@@ -14,3 +14,7 @@ tzdata==2024.1            # IANA timezone data for zoneinfo (Europe/London)
 # Phase 2 — GTFS-RT real-time updates (already installed, used later)
 protobuf==4.25.3
 gtfs-realtime-bindings==1.0.0
+
+# Zone boundary generation (used by scripts/build_zones.py)
+shapely>=2.0
+pyproj>=3.6

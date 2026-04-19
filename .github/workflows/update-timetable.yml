@@ -20,8 +20,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install httpx
-          python -c "import httpx; print('httpx', httpx.__version__, 'OK')"
+          pip install httpx shapely pyproj
+          python -c "import httpx, shapely, pyproj; print('httpx', httpx.__version__, 'shapely', shapely.__version__, 'pyproj', pyproj.__version__, 'OK')"
 
       - name: Compile check
         run: python -m py_compile scripts/build_timetable.py
@@ -37,6 +37,9 @@ jobs:
 
       - name: Build timetable
         run: python -u scripts/build_timetable.py
+
+      - name: Build zone boundaries
+        run: python -u scripts/build_zones.py
 
       - name: Check output
         run: |
@@ -63,6 +66,6 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase --autostash origin main
-          git add data/timetable.json
+          git add data/timetable.json data/zones/
           git diff --staged --quiet || git commit -m "Update timetable data [skip ci]"
           git push
