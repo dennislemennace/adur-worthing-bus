@@ -1,0 +1,41 @@
+{
+  "zones": [
+    {
+      "id": "sc-worthing-dayrider",
+      "name": "Stagecoach Worthing DayRider",
+      "operator_ref": "SCSO",
+      "color": "#f4a020",
+      "atco_prefix": "4400",
+      "center_lat": 50.818,
+      "center_lon": -0.374,
+      "max_km": 22,
+      "routes": ["1", "1A", "2", "3", "7", "9", "17", "700"]
+    },
+    {
+      "id": "sc-brighton-dayrider",
+      "name": "Stagecoach Brighton DayRider",
+      "operator_ref": "SCSO",
+      "color": "#d4820a",
+      "center_lat": 50.822,
+      "center_lon": -0.137,
+      "max_km": 18,
+      "routes": ["12", "12A", "12X", "1X", "23X", "29X", "13X", "13", "14", "14A", "14C"]
+    },
+    {
+      "id": "bh-network-saver",
+      "name": "Brighton & Hove Network Saver",
+      "operator_ref": "BHBC",
+      "color": "#e30613",
+      "atco_prefix": "1490",
+      "routes": ["1", "1A", "1B", "5", "5B", "6", "7", "7A", "13X", "21", "25X", "37", "37B", "47", "49", "N1", "N5", "N7", "N25"]
+    },
+    {
+      "id": "bh-citysaver",
+      "name": "Brighton & Hove CitySaver",
+      "operator_ref": "BHBC",
+      "color": "#a60410",
+      "atco_prefix": "1490",
+      "routes": ["1", "1A", "5", "5B", "6", "7", "21", "49"]
+    }
+  ]
+}
