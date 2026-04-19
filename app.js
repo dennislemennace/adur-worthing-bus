@@ -33,6 +33,13 @@ const CONFIG = {
 };
 
 // ============================================================
+// ICON HELPER
+// ============================================================
+function svgIcon(id) {
+  return `<svg class="icon" aria-hidden="true"><use href="#${id}"/></svg>`;
+}
+
+// ============================================================
 // STATE
 // ============================================================
 const TILES = {
@@ -120,7 +127,7 @@ async function init() {
   if (localStorage.getItem("darkMode") === "1") {
     state.darkMode = true;
     document.body.classList.add("dark-mode");
-    dom.darkModeBtn.textContent = "☀️";
+    dom.darkModeBtn.innerHTML = svgIcon("i-sun");
     dom.darkModeBtn.title = "Switch to light mode";
   }
 
@@ -188,7 +195,7 @@ async function loadStops() {
     data.stops.forEach(renderStopMarker);
   } catch (err) {
     console.error("Failed to load stops:", err);
-    showToast("⚠️ Could not load bus stops. Check your API configuration.");
+    showToast("Could not load bus stops. Check your API configuration.");
   }
 }
 
@@ -210,7 +217,8 @@ function renderStopMarker(stop) {
       <p class="popup-stop-name">${escapeHtml(stop.name)}</p>
       <p class="popup-stop-id">Stop: ${escapeHtml(stop.atco_code)}</p>
       <button class="popup-btn" onclick="openDepartures('${stop.atco_code}', '${escapeAttr(stop.name)}')">
-        🕐 Live departures
+        <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
+        <span>Live departures</span>
       </button>
     </div>`;
 
@@ -232,7 +240,7 @@ function startVehicleRefresh() {
   fetchVehicles();   // immediate first call
   state.refreshTimer = setInterval(fetchVehicles, CONFIG.VEHICLE_REFRESH_MS);
   state.isRefreshing = true;
-  dom.toggleRefreshBtn.textContent = "⏸";
+  dom.toggleRefreshBtn.innerHTML = svgIcon("i-pause");
   dom.toggleRefreshBtn.setAttribute("aria-label", "Pause live updates");
 }
 
@@ -240,7 +248,7 @@ function stopVehicleRefresh() {
   clearInterval(state.refreshTimer);
   state.refreshTimer = null;
   state.isRefreshing = false;
-  dom.toggleRefreshBtn.textContent = "▶";
+  dom.toggleRefreshBtn.innerHTML = svgIcon("i-play");
   dom.toggleRefreshBtn.setAttribute("aria-label", "Resume live updates");
 }
 
@@ -334,7 +342,10 @@ function updateVehicleMarkers(vehicles) {
  */
 function buildBusPopupHtml(vehicle, label) {
   const iconUrl = OPERATOR_ICONS[vehicle.operator_ref];
-  const colour  = getOperatorColour(vehicle.operator_ref);
+  const colour  = getRouteColour(vehicle.service_ref || label, vehicle.operator_ref);
+  const badgeTextCls = pickTextOn(colour) === "dark"
+    ? "service-badge--dark-text"
+    : "service-badge--light-text";
 
   const iconHtml = iconUrl
     ? `<img class="bus-popup-icon" src="${escapeAttr(iconUrl)}" alt="">`
@@ -352,7 +363,7 @@ function buildBusPopupHtml(vehicle, label) {
     <div class="bus-popup">
       <div class="bus-popup-header">
         ${iconHtml}
-        <span class="service-badge" style="background:${colour}">${escapeHtml(label)}</span>
+        <span class="service-badge ${badgeTextCls}" style="background:${colour}">${escapeHtml(label)}</span>
       </div>
       <p class="bus-popup-destination">To ${escapeHtml(destText)}</p>
       ${statusHtml}
@@ -379,7 +390,7 @@ function createBusIcon(operatorRef, label, bearing) {
            style="transform:${transform}">
       <span class="bus-icon-label">${escapeHtml(label)}</span>`;
   } else {
-    const bg     = getOperatorColour(operatorRef);
+    const bg     = getRouteColour(label, operatorRef);
     const border = getOperatorBorderColour(operatorRef);
     inner = `
       <div class="bus-icon-fallback"
@@ -558,9 +569,14 @@ function buildDepartureRow(dep) {
   // Status
   const { label, cssClass } = buildStatusChip(dep);
 
+  const badgeColour  = getRouteColour(service, dep.operator_ref);
+  const badgeTextCls = pickTextOn(badgeColour) === "dark"
+    ? "service-badge--dark-text"
+    : "service-badge--light-text";
+
   return `
     <tr class="departure-row" data-service="${escapeHtml(service)}" title="Show this bus on the map">
-      <td><span class="service-badge">${escapeHtml(service)}</span></td>
+      <td><span class="service-badge ${badgeTextCls}" style="background:${badgeColour}">${escapeHtml(service)}</span></td>
       <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span></td>
       <td><span class="due-time ${isImminent ? "due-imminent" : ""}">${escapeHtml(dueText)}</span></td>
       <td><span class="status-chip ${cssClass}">${escapeHtml(label)}</span></td>
@@ -747,8 +763,11 @@ function renderBusTab() {
 
   const operatorName = getOperatorName(v.operator_ref);
   const iconUrl      = OPERATOR_ICONS[v.operator_ref];
-  const colour       = getOperatorColour(v.operator_ref);
   const service      = v.service_ref || "?";
+  const colour       = getRouteColour(service, v.operator_ref);
+  const badgeTextCls = pickTextOn(colour) === "dark"
+    ? "service-badge--dark-text"
+    : "service-badge--light-text";
   const destination  = prettifyName(
                          v.destination
                          || state.busDetails?.vehicle?.trip_headsign
@@ -764,7 +783,7 @@ function renderBusTab() {
     : `<div class="bus-info-icon bus-info-icon-fallback" style="background:${colour}"></div>`;
 
   const lostBanner = state.selectedVehicleLost
-    ? `<div class="bus-info-lost">⚠️ Signal lost — last seen ${escapeHtml(formatTimeOfDay(state.selectedVehicleLastSeen))}</div>`
+    ? `<div class="bus-info-lost"><svg class="icon" aria-hidden="true"><use href="#i-signal-off"/></svg><span>Signal lost — last seen ${escapeHtml(formatTimeOfDay(state.selectedVehicleLastSeen))}</span></div>`
     : "";
 
   dom.panelBusName.textContent = `Service ${service}`;
@@ -775,7 +794,7 @@ function renderBusTab() {
     <div class="bus-info-hero">
       ${iconHtml}
       <div class="bus-info-hero-text">
-        <span class="service-badge service-badge-large" style="background:${colour}">${escapeHtml(service)}</span>
+        <span class="service-badge service-badge-large ${badgeTextCls}" style="background:${colour}">${escapeHtml(service)}</span>
         <p class="bus-info-operator">${escapeHtml(operatorName)}</p>
       </div>
     </div>
@@ -981,7 +1000,7 @@ function toggleDarkMode() {
   state.darkMode = !state.darkMode;
   document.body.classList.toggle("dark-mode", state.darkMode);
   localStorage.setItem("darkMode", state.darkMode ? "1" : "0");
-  dom.darkModeBtn.textContent = state.darkMode ? "☀️" : "🌙";
+  dom.darkModeBtn.innerHTML = svgIcon(state.darkMode ? "i-sun" : "i-moon");
   dom.darkModeBtn.title = state.darkMode ? "Switch to light mode" : "Toggle dark mode";
 
   // Swap the map tile layer
@@ -1235,6 +1254,126 @@ const OPERATOR_BORDER_COLOURS = {
 
 function getOperatorColour(operatorRef) {
   return OPERATOR_COLOURS[operatorRef] || OPERATOR_COLOURS["DEFAULT"];
+}
+
+// ============================================================
+// ROUTE LIVERY COLOURS
+// Only verified, branded liveries. Unknown routes fall through
+// to the operator colour in OPERATOR_COLOURS, which already gives
+// visual variety across operators. Add a route here only when you
+// have evidence the operator paints that route in a distinct livery
+// (e.g. marketing page, fleet photography).
+// ============================================================
+const ROUTE_COLOURS = {
+  // Stagecoach South — Coastliner 700 / 700X (verified brand teal)
+  "700":  "#00796B",
+  "700X": "#00796B",
+  "N700": "#00796B",
+
+  // Brighton & Hove Buses — per the official route-colour guide.
+  // Note: routes 37, 37B, 52, 47 intentionally omitted.
+
+  // 1 / 1X / N1 — pink
+  "1":   "#E5007E",
+  "1X":  "#E5007E",
+  "N1":  "#E5007E",
+
+  // 2 — dark green
+  "2":   "#006838",
+
+  // 3X — teal-green
+  "3X":  "#007F5C",
+
+  // 5 / 5A / 5B / N5 — orange
+  "5":   "#F39200",
+  "5A":  "#F39200",
+  "5B":  "#F39200",
+  "N5":  "#F39200",
+
+  // 6 — plum
+  "6":   "#8E1B6B",
+
+  // 7 / N7 — red
+  "7":   "#D7282F",
+  "N7":  "#D7282F",
+
+  // Coaster family 11X / 12 / 12A / 12X / 13 / 13X / 14 / 14C — lime green
+  "11X": "#7AB800",
+  "12":  "#7AB800",
+  "12A": "#7AB800",
+  "12X": "#7AB800",
+  "13":  "#7AB800",
+  "13X": "#7AB800",
+  "14":  "#7AB800",
+  "14C": "#7AB800",
+
+  // 17 — maroon
+  "17":  "#8B1A32",
+
+  // 18 — turquoise
+  "18":  "#1FB5C4",
+
+  // 21 — red
+  "21":  "#D7282F",
+
+  // 22 — teal
+  "22":  "#008C8C",
+
+  // 24 — red-orange
+  "24":  "#E8491A",
+
+  // 25 / 25X / N25 — lime green
+  "25":  "#8CC540",
+  "25X": "#8CC540",
+  "N25": "#8CC540",
+
+  // 26 — purple
+  "26":  "#6E2A8C",
+
+  // 27 — green
+  "27":  "#00A651",
+
+  // 28 / 29 / 29X — purple
+  "28":  "#4E2A84",
+  "29":  "#4E2A84",
+  "29X": "#4E2A84",
+
+  // 46 — red
+  "46":  "#C8102E",
+
+  // 48 — blue
+  "48":  "#0072CE",
+
+  // 49 — blue
+  "49":  "#1E5AA8",
+
+  // 50 — blue
+  "50":  "#004B87",
+
+  // Breeze 77 / 78 / 79 — green
+  "77":  "#00A651",
+  "78":  "#00A651",
+  "79":  "#00A651",
+
+  // 270 — grey
+  "270": "#6D6E71",
+};
+
+function getRouteColour(service, operatorRef) {
+  if (!service) return getOperatorColour(operatorRef);
+  const key = String(service).trim().toUpperCase();
+  return ROUTE_COLOURS[key] || getOperatorColour(operatorRef);
+}
+
+// Return 'light' or 'dark' text depending on background luminance (WCAG-ish).
+function pickTextOn(bgHex) {
+  const h = String(bgHex || "").replace("#", "");
+  if (h.length !== 6) return "light";
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.62 ? "dark" : "light";
 }
 
 function getOperatorBorderColour(operatorRef) {

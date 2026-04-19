@@ -88,6 +88,22 @@ body.dark-mode {
   --shadow-lg: 0 8px 32px rgba(0,0,0,0.65);
 }
 
+/* ===== ICONS (Lucide via sprite) ===== */
+.icon {
+  width: 1.05em;
+  height: 1.05em;
+  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: -0.15em;
+  stroke-width: 2;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon-lg { width: 1.4em; height: 1.4em; }
+.icon-xl { width: 2em;   height: 2em;   }
+
 /* ===== RESET ===== */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -1227,3 +1243,269 @@ body.dark-mode .bus-info-lost {
   background: var(--color-surface-2);
   color: var(--color-text);
 }
+
+/* ================================================================
+ * PHASE 0 UPGRADES — visual polish (Civic Coastal direction)
+ * ================================================================ */
+
+/* ---- Header: enlarge + ridgeline motif ---- */
+:root { --header-height: 72px; }
+
+.site-header { position: relative; overflow: hidden; }
+
+.header-ridgeline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 60px;
+  pointer-events: none;
+  color: #ffffff;
+  z-index: 0;
+}
+body.dark-mode .header-ridgeline {
+  color: var(--color-accent);
+  opacity: 0.6;
+}
+
+.header-inner { position: relative; z-index: 1; gap: var(--space-md); }
+
+.header-brand { gap: 14px; }
+
+.header-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.18);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+.header-icon .icon { width: 22px; height: 22px; }
+body.dark-mode .header-icon {
+  background: rgba(230,168,32,0.12);
+  border-color: rgba(230,168,32,0.28);
+  color: var(--color-accent);
+}
+
+.header-title {
+  font-family: var(--font-brand);
+  font-size: 1.9rem;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+  color: #ffffff;
+}
+.header-subtitle {
+  font-size: 0.72rem;
+  margin-top: 4px;
+  letter-spacing: 0.1em;
+}
+
+@media (max-width: 700px) {
+  :root { --header-height: 64px; }
+  .header-title { font-size: 1.35rem; }
+  .header-subtitle { font-size: 0.62rem; }
+  .header-icon { width: 34px; height: 34px; }
+  .header-icon .icon { width: 19px; height: 19px; }
+}
+
+/* ---- Header controls: icon buttons hold svgs ---- */
+.btn-icon .icon { width: 18px; height: 18px; }
+.btn-icon { transition: background var(--transition), border-color var(--transition), transform var(--transition); }
+.btn-icon:active { transform: scale(0.94); }
+
+/* ---- Panel tab icons ---- */
+.panel-tab-icon { width: 16px; height: 16px; }
+
+/* ---- Panel prompt + inline svg ---- */
+.panel-prompt-icon {
+  width: 44px;
+  height: 44px;
+  opacity: 0.42;
+  color: var(--color-accent);
+  font-size: 0;
+}
+.panel-inline-icon {
+  width: 14px;
+  height: 14px;
+  vertical-align: -0.18em;
+  margin-right: 4px;
+}
+
+/* ---- Close button inside panel tab bar ---- */
+.panel-tabs-bar .btn-close .icon { width: 14px; height: 14px; }
+
+/* ---- Popup & text buttons: inline-flex layout for icon + label ---- */
+.popup-btn,
+.btn-text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.popup-btn .icon { width: 13px; height: 13px; }
+.btn-text .icon { width: 13px; height: 13px; }
+
+/* ---- Lost-bus banner: icon + text ---- */
+.bus-info-lost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.bus-info-lost .icon { width: 15px; height: 15px; flex-shrink: 0; }
+
+/* ---- Focus ring: visible, brand-coloured ---- */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+body.dark-mode :focus-visible { outline-color: var(--color-accent); }
+.leaflet-bar a:focus-visible { outline-offset: 0; }
+
+/* ---- Loading overlay: illustrated, not just text ---- */
+.map-loading {
+  gap: 14px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  background: linear-gradient(180deg,
+    rgba(237, 234, 227, 0.92) 0%,
+    rgba(237, 234, 227, 0.82) 100%);
+}
+body.dark-mode .map-loading {
+  background: linear-gradient(180deg,
+    rgba(9, 14, 26, 0.94) 0%,
+    rgba(9, 14, 26, 0.82) 100%);
+}
+.map-loading-icon {
+  width: 56px;
+  height: 56px;
+  color: var(--color-accent);
+  opacity: 0.9;
+}
+
+/* ---- Stop markers: ochre dot with ring, branded ---- */
+.stop-marker-icon {
+  background: var(--color-accent) !important;
+  border: 2px solid #ffffff !important;
+  border-radius: 50% !important;
+  width: 12px !important;
+  height: 12px !important;
+  box-shadow:
+    0 0 0 2px rgba(192, 120, 8, 0.25),
+    0 2px 4px rgba(10, 18, 32, 0.35);
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.18s;
+}
+.stop-marker-icon:hover {
+  transform: scale(1.6);
+  box-shadow:
+    0 0 0 3px rgba(192, 120, 8, 0.35),
+    0 3px 6px rgba(10, 18, 32, 0.45);
+}
+body.dark-mode .stop-marker-icon {
+  border-color: rgba(9, 14, 26, 0.85) !important;
+  box-shadow:
+    0 0 0 2px rgba(230, 168, 32, 0.28),
+    0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+/* ---- Service badge: livery-coloured variants ---- */
+.service-badge {
+  min-width: 40px;
+  height: 24px;
+  font-size: 0.74rem;
+  letter-spacing: 0.01em;
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.15);
+  border: 1px solid rgba(0,0,0,0.1);
+}
+.service-badge--light-text { color: #ffffff; }
+.service-badge--dark-text  { color: #0f1726; }
+
+/* ---- Departure board: editorial upgrade ---- */
+.departures-table { border-collapse: separate; border-spacing: 0; }
+.departures-table th {
+  border-bottom: 1px solid var(--color-border);
+  background: transparent;
+  padding: 8px var(--space-sm);
+}
+.departures-table td {
+  border-bottom: 1px solid rgba(10, 18, 32, 0.05);
+  padding: 10px var(--space-sm);
+}
+body.dark-mode .departures-table td {
+  border-bottom-color: rgba(200, 216, 236, 0.06);
+}
+.departures-table tr:last-child td { border-bottom: none; }
+
+.departures-table tr.departure-row:hover td {
+  background: rgba(192, 120, 8, 0.05);
+}
+body.dark-mode .departures-table tr.departure-row:hover td {
+  background: rgba(230, 168, 32, 0.06);
+}
+
+.departures-table td:nth-child(3),
+.departures-table th:nth-child(3) { text-align: right; }
+
+.due-time {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.98rem;
+  letter-spacing: -0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  justify-content: flex-end;
+}
+.due-time.due-imminent { color: var(--color-accent); }
+.due-time.due-imminent::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 0 rgba(192, 120, 8, 0.55);
+  animation: pulse-dot 1.6s ease-out infinite;
+}
+@keyframes pulse-dot {
+  0%   { box-shadow: 0 0 0 0   rgba(192, 120, 8, 0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(192, 120, 8, 0);    }
+  100% { box-shadow: 0 0 0 0   rgba(192, 120, 8, 0);    }
+}
+@media (prefers-reduced-motion: reduce) {
+  .due-time.due-imminent::before { animation: none; }
+}
+
+/* ---- Small spinner polish ---- */
+.spinner { border-top-color: var(--color-accent); }
+
+/* ---- Dark-mode map: coastal-navy tint over CARTO Dark Matter ---- */
+/* Leaves the tile source untouched; layers a subtle navy multiply
+   on the tile pane so the map integrates with the coastal palette
+   instead of reading as generic grey-black. */
+body.dark-mode .leaflet-tile-pane {
+  filter: hue-rotate(-6deg) saturate(1.08) contrast(1.04);
+}
+body.dark-mode #map::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none !important;
+  background: radial-gradient(
+    120% 90% at 50% 40%,
+    rgba(26, 75, 130, 0.0) 0%,
+    rgba(9, 21, 35, 0.18) 80%,
+    rgba(9, 21, 35, 0.28) 100%
+  );
+  mix-blend-mode: multiply;
+  z-index: 400;
+}
+#map { position: relative; isolation: isolate; }
+
