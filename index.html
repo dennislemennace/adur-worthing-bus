@@ -18,11 +18,75 @@
 </head>
 <body>
 
+  <!-- ===== SVG ICON SPRITE (Lucide, MIT) ===== -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-bus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 6v6"/><path d="M15 6v6"/><path d="M2 12h19.6"/>
+        <path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/>
+        <circle cx="7" cy="18" r="2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/>
+      </symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/>
+        <circle cx="12" cy="10" r="3"/>
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+      </symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4"/>
+        <path d="M12 2v2"/><path d="M12 20v2"/>
+        <path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/>
+        <path d="M2 12h2"/><path d="M20 12h2"/>
+        <path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
+      </symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6" y="4" width="4" height="16" rx="1"/>
+        <rect x="14" y="4" width="4" height="16" rx="1"/>
+      </symbol>
+      <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="6 3 20 12 6 21 6 3"/>
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+        <path d="M21 3v5h-5"/>
+      </symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+        <path d="M12 9v4"/><path d="M12 17h.01"/>
+      </symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <polyline points="12 6 12 12 16 14"/>
+      </symbol>
+      <symbol id="i-signal-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 20h.01"/>
+        <path d="M8.5 16.429a5 5 0 0 1 7 0"/>
+        <path d="M5 12.859a10 10 0 0 1 5.17-2.69"/>
+        <path d="M19 12.859a10 10 0 0 0-2.007-1.523"/>
+        <path d="M2 8.82a15 15 0 0 1 4.177-2.643"/>
+        <path d="M22 8.82a15 15 0 0 0-11.288-3.764"/>
+        <path d="m2 2 20 20"/>
+      </symbol>
+      <!-- Decorative South Downs ridgeline for the header -->
+      <symbol id="i-ridgeline" viewBox="0 0 800 60" preserveAspectRatio="none">
+        <path d="M0 48 L60 30 L110 40 L170 18 L230 32 L290 22 L350 36 L410 14 L470 30 L530 20 L590 34 L650 22 L710 38 L770 26 L800 32 L800 60 L0 60 Z" fill="currentColor" opacity="0.16"/>
+        <path d="M0 48 L60 30 L110 40 L170 18 L230 32 L290 22 L350 36 L410 14 L470 30 L530 20 L590 34 L650 22 L710 38 L770 26 L800 32" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.45"/>
+      </symbol>
+    </defs>
+  </svg>
+
   <!-- ===== HEADER ===== -->
   <header class="site-header">
+    <svg class="header-ridgeline" aria-hidden="true" preserveAspectRatio="none"><use href="#i-ridgeline"/></svg>
     <div class="header-inner">
       <div class="header-brand">
-        <span class="header-icon" aria-hidden="true">🚌</span>
+        <span class="header-icon" aria-hidden="true">
+          <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
+        </span>
         <div>
           <h1 class="header-title">Adur &amp; Worthing Buses</h1>
           <p class="header-subtitle">Live departures &amp; vehicle tracking</p>
@@ -33,11 +97,11 @@
         <span class="last-updated" id="last-updated-label">Connecting…</span>
         <!-- Dark mode toggle -->
         <button class="btn-icon" id="dark-mode-btn" title="Toggle dark mode" aria-label="Toggle dark mode">
-          🌙
+          <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg>
         </button>
         <!-- Refresh toggle button -->
         <button class="btn-icon" id="toggle-refresh-btn" title="Pause/Resume live updates" aria-label="Pause live updates">
-          ⏸
+          <svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg>
         </button>
       </div>
     </div>
@@ -52,7 +116,17 @@
 
       <!-- Loading overlay shown while initial data loads -->
       <div class="map-loading" id="map-loading" aria-live="polite">
-        <div class="spinner" aria-hidden="true"></div>
+        <svg class="map-loading-icon" aria-hidden="true" viewBox="0 0 64 40" fill="none">
+          <!-- Stylised coastal pier + bus -->
+          <line x1="0"  y1="34" x2="64" y2="34" stroke="currentColor" stroke-width="1" opacity="0.35"/>
+          <path d="M2 34 L2 24 L10 24 L10 34 M18 34 L18 22 L26 22 L26 34 M34 34 L34 20 L42 20 L42 34"
+                stroke="currentColor" stroke-width="1.2" opacity="0.55" stroke-linecap="round"/>
+          <rect x="44" y="14" width="18" height="12" rx="2.5" stroke="currentColor" stroke-width="1.8" fill="none"/>
+          <line x1="48" y1="17" x2="48" y2="23" stroke="currentColor" stroke-width="1.2"/>
+          <line x1="54" y1="17" x2="54" y2="23" stroke="currentColor" stroke-width="1.2"/>
+          <circle cx="49" cy="28" r="2" fill="currentColor"/>
+          <circle cx="58" cy="28" r="2" fill="currentColor"/>
+        </svg>
         <p>Loading live bus data…</p>
       </div>
     </section>
@@ -65,16 +139,18 @@
         <div class="panel-tabs" role="tablist" aria-label="Panel views">
           <button class="panel-tab active" data-tab="stop" role="tab"
                   aria-selected="true" id="tab-stop" aria-controls="tab-content-stop">
-            <span class="panel-tab-icon" aria-hidden="true">📍</span>
+            <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-pin"/></svg>
             <span class="panel-tab-label">Stop</span>
           </button>
           <button class="panel-tab" data-tab="bus" role="tab"
                   aria-selected="false" id="tab-bus" aria-controls="tab-content-bus">
-            <span class="panel-tab-icon" aria-hidden="true">🚌</span>
+            <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-bus"/></svg>
             <span class="panel-tab-label">Bus</span>
           </button>
         </div>
-        <button class="btn-close" id="close-panel-btn" aria-label="Close panel">✕</button>
+        <button class="btn-close" id="close-panel-btn" aria-label="Close panel">
+          <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
       </div>
 
       <!-- ── STOP TAB ── -->
@@ -95,13 +171,16 @@
 
         <!-- Error state -->
         <div class="panel-error hidden" id="panel-error" role="alert">
-          <p>⚠️ <span id="panel-error-msg">Could not load departures.</span></p>
+          <p>
+            <svg class="icon panel-inline-icon" aria-hidden="true"><use href="#i-alert"/></svg>
+            <span id="panel-error-msg">Could not load departures.</span>
+          </p>
           <button class="btn-retry" id="panel-retry-btn">Try again</button>
         </div>
 
         <!-- Prompt shown before a stop is selected (desktop only) -->
         <div class="panel-prompt" id="panel-prompt">
-          <span class="panel-prompt-icon" aria-hidden="true">📍</span>
+          <svg class="icon panel-prompt-icon" aria-hidden="true"><use href="#i-pin"/></svg>
           <p>Click any bus stop on the map to see live departures.</p>
         </div>
 
@@ -109,7 +188,10 @@
         <div class="departures-container hidden" id="departures-container">
           <div class="departures-meta">
             <span id="departures-count"></span>
-            <button class="btn-text" id="refresh-stop-btn" aria-label="Refresh departures">↻ Refresh</button>
+            <button class="btn-text" id="refresh-stop-btn" aria-label="Refresh departures">
+              <svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>
+              <span>Refresh</span>
+            </button>
           </div>
           <div class="departures-notice hidden" id="departures-notice" role="status" aria-live="polite"></div>
           <table class="departures-table" aria-label="Upcoming departures">
@@ -142,7 +224,7 @@
 
         <!-- Prompt shown before a bus is selected -->
         <div class="panel-prompt" id="bus-panel-prompt">
-          <span class="panel-prompt-icon" aria-hidden="true">🚌</span>
+          <svg class="icon panel-prompt-icon" aria-hidden="true"><use href="#i-bus"/></svg>
           <p>Click any bus on the map to see its live details.</p>
         </div>
 
