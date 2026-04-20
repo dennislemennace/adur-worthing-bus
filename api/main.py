@@ -2,8 +2,8 @@
 api/main.py — Adur & Worthing Bus Tracker Backend v2.0
 =======================================================
 
-Timetable data is loaded from data/timetable.json which is built
-weekly by GitHub Actions (scripts/build_timetable.py).
+Timetable data is loaded from data/timetable.sqlite which is built
+weekly by GitHub Actions and fetched at Render build time.
 
 Only live vehicle positions are fetched from BODS at runtime —
 no large downloads, no timeouts.
@@ -13,7 +13,6 @@ Environment variables:
   ALLOWED_ORIGIN  — your GitHub Pages URL
 """
 
-import json
 import math
 import os
 import time
@@ -27,6 +26,8 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+
+from api.timetable_db import Timetable
 
 # ── Logging ──────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO,
@@ -43,8 +44,8 @@ BBOX_MIN_LON, BBOX_MAX_LON = -0.42,  -0.10
 BBOX_STR = f"{BBOX_MIN_LON},{BBOX_MIN_LAT},{BBOX_MAX_LON},{BBOX_MAX_LAT}"
 
 WEST_SUSSEX_ATCO_PREFIX = "4400"
-TIMETABLE_CACHE_TTL     = 3600   # Re-read file from disk every hour
-TIMETABLE_PATH = Path(__file__).parent.parent / "data" / "timetable.json"
+TIMETABLE_CACHE_TTL     = 3600   # Reload the reference dicts every hour
+TIMETABLE_PATH = Path(__file__).parent.parent / "data" / "timetable.sqlite"
 
 # GTFS stop_times are in local UK time; Render runs in UTC. Using an
 # explicit zone makes the departure filter correct across BST/GMT.
@@ -89,8 +90,7 @@ def cache_set(key: str, data, ttl: int) -> None:
     _cache[key] = (data, time.time() + ttl)
 
 # ── Timetable store ───────────────────────────────────────────
-_timetable:    Optional[dict] = None
-_timetable_at: float          = 0.0
+_timetable: Optional[Timetable] = None
 
 # ── App ───────────────────────────────────────────────────────
 app = FastAPI(title="Adur & Worthing Bus API", version="2.0.0")
@@ -104,17 +104,16 @@ app.add_middleware(
 # ── Health ────────────────────────────────────────────────────
 @app.api_route("/", methods=["GET", "HEAD"])
 async def root():
-    t = _timetable or {}
+    t = _timetable
     return {
         "status":              "ok",
         "bods_key_configured": bool(BODS_API_KEY),
-        "timetable_loaded":    _timetable is not None,
+        "timetable_loaded":    t is not None and t.ok(),
         "timetable_file":      str(TIMETABLE_PATH),
         "timetable_exists":    TIMETABLE_PATH.exists(),
-        "stops_in_timetable":  len(t.get("stops",      {})),
-        "stop_times_indexed":  len(t.get("stop_times", {})),
-        "routes_loaded":       len(t.get("routes",     {})),
-        "trips_loaded":        len(t.get("trips",      {})),
+        "stops_in_timetable":  len(t.stops)  if t else 0,
+        "routes_loaded":       len(t.routes) if t else 0,
+        "trips_loaded":        len(t.trips)  if t else 0,
     }
 
 # ── Debug endpoint (remove once departures are confirmed working)
@@ -137,20 +136,20 @@ async def debug_stop(stopId: str = Query(...)):
         "now_secs":                  now_secs,
         "today_str":                 today_str,
         "day_of_week":               dow,
-        "sample_timetable_stop_ids": list(tt.get("stop_times", {}).keys())[:10],
+        "sample_timetable_stop_ids": tt.sample_stop_ids_with_times(10),
         "variants_detail":           [],
     }
 
     for variant in variants:
-        raw_times = tt.get("stop_times", {}).get(variant, [])
+        raw_times = tt.stop_times_for(variant)
         samples   = []
         for (dep_secs, trip_id) in raw_times[:50]:
-            trip      = tt["trips"].get(trip_id, {})
-            route     = tt["routes"].get(trip.get("route_id", ""), {})
+            trip      = tt.trips.get(trip_id, {})
+            route     = tt.routes.get(trip.get("route_id", ""), {})
             sid       = trip.get("service_id", "")
-            cal       = tt["calendar"].get(sid, {})
+            cal       = tt.calendar.get(sid, {})
             runs      = _runs_today(sid, today, today_str, dow,
-                                    tt["calendar"], tt["calendar_dates"])
+                                    tt.calendar, tt.calendar_dates)
             in_window = now_secs <= dep_secs <= now_secs + 7200
             reason    = None
             if not in_window:
@@ -354,7 +353,7 @@ async def debug_siri_sample():
                    and a.find("s:MonitoredVehicleJourney/s:MonitoredCall", ns) is not None)
 
     tt = await _get_timetable()
-    trip_ids = set(tt.get("trips", {}).keys())
+    trip_ids = set(tt.trips.keys())
     journey_refs = []
     for a in all_acts:
         j = a.find("s:MonitoredVehicleJourney", ns)
@@ -981,7 +980,7 @@ def _delay_to_status(delay_secs: int) -> str:
 
 
 # ── Trip matcher & enrichment ─────────────────────────────────
-def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
+def _enrich_vehicles_with_trip_match(vehicles: list, tt: Timetable) -> None:
     """
     For each live vehicle, attempt to find the scheduled GTFS trip it
     is currently running. When a match is found, attach `trip_id` and
@@ -995,7 +994,7 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
     is closest to the current time. This works even when operators don't
     publish MonitoredCall/OnwardCall blocks.
     """
-    if not vehicles or not tt.get("trip_stops"):
+    if not vehicles or not tt.ok():
         return
 
     now_local = datetime.now(UK_TZ)
@@ -1005,13 +1004,11 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
     today     = now_local.date()
     dow       = today.weekday()
     today_str = today.strftime("%Y%m%d")
-    calendar       = tt.get("calendar", {})
-    calendar_dates = tt.get("calendar_dates", {})
-    trips          = tt.get("trips", {})
-    routes         = tt.get("routes", {})
-    stops          = tt.get("stops", {})
-    stop_times     = tt.get("stop_times", {})
-    svc_endpoints  = tt.get("svc_trip_endpoints", {})
+    calendar       = tt.calendar
+    calendar_dates = tt.calendar_dates
+    trips          = tt.trips
+    routes         = tt.routes
+    stops          = tt.stops
 
     matched_n = 0
     for v in vehicles:
@@ -1033,7 +1030,7 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
                                + aimed_local.minute * 60
                                + aimed_local.second)
                 match = _match_by_stop(
-                    svc, next_stop, aimed_secs, stop_times, trips, routes,
+                    svc, next_stop, aimed_secs, tt,
                     today, today_str, dow, calendar, calendar_dates, 120)
                 if match:
                     v["trip_id"]       = match
@@ -1055,8 +1052,9 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
         best_dir_delta = None
 
         for svc_key in svc_set:
-            candidates = svc_endpoints.get(svc_key, [])
-            for trip_id, first_stop, last_stop, first_secs in candidates:
+            if not svc_key:
+                continue
+            for trip_id, first_stop, last_stop, first_secs in tt.service_endpoints(svc_key):
                 trip = trips.get(trip_id, {})
                 if not _runs_today(trip.get("service_id", ""), today,
                                    today_str, dow, calendar, calendar_dates):
@@ -1099,17 +1097,17 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: dict) -> None:
                  matched_n, len(vehicles))
 
 
-def _match_by_stop(svc, stop_id, aimed_secs, stop_times, trips, routes,
+def _match_by_stop(svc, stop_id, aimed_secs, tt: Timetable,
                    today, today_str, dow, calendar, calendar_dates,
                    max_delta):
     """Try to match a vehicle to a trip via a stop_id and aimed time."""
     svc_set = _svc_variants(svc)
-    entries = stop_times.get(stop_id, [])
+    entries = tt.stop_times_for(stop_id)
     best_trip  = None
     best_delta = None
     for dep_secs, trip_id in entries:
-        trip  = trips.get(trip_id, {})
-        route = routes.get(trip.get("route_id", ""), {})
+        trip  = tt.trips.get(trip_id, {})
+        route = tt.routes.get(trip.get("route_id", ""), {})
         short_name = route.get("short_name", "")
         if not (_svc_variants(short_name) & svc_set):
             continue
@@ -1150,7 +1148,7 @@ def _haversine_sq(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 _UPCOMING_COUNT = 5
 
 
-def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
+def _upcoming_stops_from_trip(vehicle: dict, tt: Timetable, trip_id) -> list:
     """
     Return the list of upcoming scheduled stops for a vehicle whose
     trip has been matched.
@@ -1167,7 +1165,7 @@ def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
     """
     if not trip_id:
         return []
-    trip_stops = tt.get("trip_stops", {}).get(trip_id) or []
+    trip_stops = tt.trip_stops_for(trip_id)
     if not trip_stops:
         return []
 
@@ -1175,7 +1173,7 @@ def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
     next_stop = calls[0].get("stop_id") if calls else None
 
     start_idx = 0
-    stops_meta = tt.get("stops", {})
+    stops_meta = tt.stops
 
     if next_stop:
         # Strategy: MonitoredCall — use reported next stop
@@ -1274,7 +1272,7 @@ def _upcoming_stops_from_trip(vehicle: dict, tt: dict, trip_id) -> list:
     return out
 
 
-def _upcoming_stops_from_calls(vehicle: dict, tt: dict) -> list:
+def _upcoming_stops_from_calls(vehicle: dict, tt: Timetable) -> list:
     """
     Fallback when no GTFS trip was matched: build the upcoming-stops
     list directly from the vehicle's SIRI-VM MonitoredCall + OnwardCall
@@ -1283,7 +1281,7 @@ def _upcoming_stops_from_calls(vehicle: dict, tt: dict) -> list:
     calls = vehicle.get("calls") or []
     if not calls:
         return []
-    stops_meta = tt.get("stops", {})
+    stops_meta = tt.stops
     out = []
     for c in calls[:12]:
         sid = c.get("stop_id")
@@ -1300,114 +1298,19 @@ def _upcoming_stops_from_calls(vehicle: dict, tt: dict) -> list:
     return out
 
 # ── Timetable loader ──────────────────────────────────────────
-async def _get_timetable() -> dict:
-    """
-    Load timetable from data/timetable.json (built by GitHub Actions).
-    Cached in memory for 1 hour, then re-read from disk in case
-    the file was updated by a new Action run.
-    """
-    global _timetable, _timetable_at
-
-    if _timetable and (time.time() - _timetable_at) < TIMETABLE_CACHE_TTL:
-        return _timetable
-
-    log.info("Loading timetable from %s…", TIMETABLE_PATH)
-
-    try:
-        with open(TIMETABLE_PATH, encoding="utf-8") as f:
-            raw = json.load(f)
-
-        # stop_times are stored as [[dep_secs, trip_id], ...] in JSON
-        # Convert back to list of tuples for internal use
-        raw["stop_times"] = {
-            k: [(int(entry[0]), entry[1]) for entry in v]
-            for k, v in raw.get("stop_times", {}).items()
-        }
-
-        _build_trip_indices(raw)
-
-        _timetable    = raw
-        _timetable_at = time.time()
-
-        log.info(
-            "Timetable loaded: %d stops, %d stop_time entries, "
-            "%d routes, %d trips, %d route→trips, %d trip→stops",
-            len(_timetable.get("stops",       {})),
-            len(_timetable.get("stop_times",  {})),
-            len(_timetable.get("routes",      {})),
-            len(_timetable.get("trips",       {})),
-            len(_timetable.get("route_trips", {})),
-            len(_timetable.get("trip_stops",  {})),
-        )
-
-    except FileNotFoundError:
-        log.error(
-            "data/timetable.json not found. "
-            "Run the GitHub Action or: "
-            "BODS_API_KEY=your_key python scripts/build_timetable.py"
-        )
-        _timetable = {
-            "stops": {}, "routes": {}, "trips": {},
-            "stop_times": {}, "calendar": {}, "calendar_dates": {},
-        }
-        _timetable_at = time.time()
-
-    except json.JSONDecodeError as exc:
-        log.error("Corrupt timetable.json: %s", exc)
-        _timetable = {
-            "stops": {}, "routes": {}, "trips": {},
-            "stop_times": {}, "calendar": {}, "calendar_dates": {},
-        }
-        _timetable_at = time.time()
-
+async def _get_timetable() -> Timetable:
+    """Return the process-wide Timetable, refreshing from disk hourly."""
+    global _timetable
+    if _timetable is None:
+        log.info("Opening timetable DB %s", TIMETABLE_PATH)
+        _timetable = Timetable(TIMETABLE_PATH)
+    elif (time.time() - _timetable.loaded_at) >= TIMETABLE_CACHE_TTL:
+        log.info("Reloading timetable reference tables")
+        _timetable.reload()
     return _timetable
 
-# ── Trip index builder ────────────────────────────────────────
-def _build_trip_indices(tt: dict) -> None:
-    """
-    Build two in-memory indices used by the trip matcher and the
-    upcoming-stops endpoint:
-
-      trip_stops  : trip_id → [(dep_secs, stop_id), ...] ordered by time
-      route_trips : route_id → [trip_id, ...]
-
-    Runs once per timetable reload (cost ≈ 0.2 s on the current file).
-    """
-    trip_stops: dict = {}
-    for stop_id, entries in tt.get("stop_times", {}).items():
-        for dep_secs, trip_id in entries:
-            trip_stops.setdefault(trip_id, []).append((int(dep_secs), stop_id))
-    for entries in trip_stops.values():
-        entries.sort()
-    tt["trip_stops"] = trip_stops
-
-    route_trips: dict = {}
-    for trip_id, trip in tt.get("trips", {}).items():
-        rid = trip.get("route_id")
-        if rid:
-            route_trips.setdefault(rid, []).append(trip_id)
-    tt["route_trips"] = route_trips
-
-    svc_trip_endpoints: dict = {}
-    routes = tt.get("routes", {})
-    trips = tt.get("trips", {})
-    for trip_id, stops in trip_stops.items():
-        if not stops:
-            continue
-        trip = trips.get(trip_id, {})
-        route = routes.get(trip.get("route_id", ""), {})
-        svc = route.get("short_name", "")
-        if not svc:
-            continue
-        first_stop = stops[0][1]
-        first_secs = stops[0][0]
-        last_stop  = stops[-1][1]
-        svc_trip_endpoints.setdefault(svc, []).append(
-            (trip_id, first_stop, last_stop, first_secs))
-    tt["svc_trip_endpoints"] = svc_trip_endpoints
-
 # ── Departure calculation ─────────────────────────────────────
-def _departures_for_stop(tt: dict, stop_id: str) -> dict:
+def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
     now_local = datetime.now(UK_TZ)
     today     = now_local.date()
     dow       = today.weekday()
@@ -1421,13 +1324,13 @@ def _departures_for_stop(tt: dict, stop_id: str) -> dict:
     matched   = stop_id
     raw_times = []
     for v in variants:
-        times = tt.get("stop_times", {}).get(v, [])
+        times = tt.stop_times_for(v)
         if times:
             matched   = v
             raw_times = times
             break
 
-    stop_name = tt.get("stops", {}).get(matched, {}).get("name", stop_id)
+    stop_name = tt.stops.get(matched, {}).get("name", stop_id)
 
     if not raw_times:
         return {
@@ -1445,11 +1348,11 @@ def _departures_for_stop(tt: dict, stop_id: str) -> dict:
     for (dep_secs, trip_id) in raw_times:
         if dep_secs < now_secs or dep_secs > now_secs + lookahead:
             continue
-        trip  = tt["trips"].get(trip_id, {})
-        route = tt["routes"].get(trip.get("route_id", ""), {})
+        trip  = tt.trips.get(trip_id, {})
+        route = tt.routes.get(trip.get("route_id", ""), {})
         sid   = trip.get("service_id", "")
         if not _runs_today(sid, today, today_str, dow,
-                           tt["calendar"], tt["calendar_dates"]):
+                           tt.calendar, tt.calendar_dates):
             continue
         dep_h  = (dep_secs // 3600) % 24
         dep_m  = (dep_secs % 3600) // 60
@@ -1515,7 +1418,7 @@ def _svc_variants(svc: str) -> set:
     return {svc, stripped_night, stripped_zero, stripped_both}
 
 
-def _resolve_stop_id(tt: dict,
+def _resolve_stop_id(tt: Timetable,
                       stop_id: str,
                       lat: Optional[float],
                       lon: Optional[float]) -> str:
@@ -1529,24 +1432,20 @@ def _resolve_stop_id(tt: dict,
     proper NaPTAN ATCO code — e.g. B&H routes like 37/37B whose stops
     appear in OSM with numeric IDs rather than 1490* codes.
     """
-    stop_times = tt.get("stop_times", {})
-
-    # Standard variant lookup
     for v in _normalise_atco(stop_id):
-        if v in stop_times:
+        if tt.has_stop_times(v):
             return v
 
-    # Geographic proximity fallback (requires lat/lon in timetable stops)
     if lat is not None and lon is not None:
-        stops = tt.get("stops", {})
         best_dist_sq: Optional[float] = None
         best_id: Optional[str] = None
-        for sid, sdata in stops.items():
+        stops_with_times = tt.stops_with_times
+        for sid, sdata in tt.stops.items():
+            if sid not in stops_with_times:
+                continue
             slat = sdata.get("lat") or 0.0
             slon = sdata.get("lon") or 0.0
             if slat == 0.0 or slon == 0.0:
-                continue
-            if sid not in stop_times:
                 continue
             d = _haversine_sq(lat, lon, slat, slon)
             if best_dist_sq is None or d < best_dist_sq:

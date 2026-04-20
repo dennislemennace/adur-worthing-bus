@@ -1,3 +1,10 @@
 __pycache__/
 *.pyc
 .env
+
+# Timetable data is published to a rolling GitHub Release and fetched
+# at Render build time; never commit the blobs themselves.
+data/timetable.json
+data/timetable.sqlite
+data/timetable.sqlite-wal
+data/timetable.sqlite-shm
