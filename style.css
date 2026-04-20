@@ -1248,26 +1248,39 @@ body.dark-mode .bus-info-lost {
  * PHASE 0 UPGRADES — visual polish (Civic Coastal direction)
  * ================================================================ */
 
-/* ---- Header: enlarge + ridgeline motif ---- */
+/* ---- Header: enlarge + wave-shaped bottom edge ---- */
 :root { --header-height: 72px; }
 
-.site-header { position: relative; overflow: hidden; }
+.site-header {
+  position: relative;
+  overflow: visible;   /* let the wave hang below the header rectangle */
+  border-bottom: none; /* hard edge replaced by the wave */
+  box-shadow: none;    /* drop-shadow now follows the wave contour */
+}
+body.dark-mode .site-header {
+  border-bottom: none;
+  box-shadow: none;
+}
 
-.header-ridgeline {
+.header-wave {
   position: absolute;
+  top: 100%;
   left: 0;
   right: 0;
-  bottom: 0;
   width: 100%;
-  height: 60px;
+  height: 38px;
+  display: block;
   pointer-events: none;
-  color: #ffffff;
-  z-index: 0;
+  z-index: 2;
+  filter: drop-shadow(0 4px 10px rgba(10, 18, 32, 0.14));
 }
-body.dark-mode .header-ridgeline {
-  color: var(--color-accent);
-  opacity: 0.6;
+body.dark-mode .header-wave {
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.55));
 }
+
+.header-wave-back  { fill: var(--color-primary-dark); }
+.header-wave-front { fill: var(--color-primary); }
+body.dark-mode .header-wave-front { fill: var(--color-surface); }
 
 .header-inner { position: relative; z-index: 1; gap: var(--space-md); }
 
