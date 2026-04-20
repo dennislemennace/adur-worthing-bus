@@ -5,6 +5,9 @@ on:
     - cron: "0 3 * * 0"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,19 +27,15 @@ jobs:
           python -c "import httpx, shapely, pyproj; print('httpx', httpx.__version__, 'shapely', shapely.__version__, 'pyproj', pyproj.__version__, 'OK')"
 
       - name: Compile check
-        run: python -m py_compile scripts/build_timetable.py
-
-      - name: Verify script imports
         run: |
-          python -c "
-          import sys
-          sys.path.insert(0, '.')
-          from scripts.build_timetable import main, parse_gtfs
-          print('Import OK')
-          "
+          python -m py_compile scripts/build_timetable.py
+          python -m py_compile scripts/json_to_sqlite.py
 
-      - name: Build timetable
+      - name: Build timetable JSON
         run: python -u scripts/build_timetable.py
+
+      - name: Convert to SQLite
+        run: python -u scripts/json_to_sqlite.py
 
       - name: Build zone boundaries
         run: python -u scripts/build_zones.py
@@ -45,27 +44,40 @@ jobs:
         run: |
           ls -lh data/
           python -c "
-          import json, sys
-          with open('data/timetable.json') as f:
-              d = json.load(f)
-          stops = len(d.get('stops', {}))
-          routes = len(d.get('routes', {}))
-          trips = len(d.get('trips', {}))
-          stop_times = len(d.get('stop_times', {}))
-          print(f'stops: {stops}')
-          print(f'routes: {routes}')
-          print(f'trips: {trips}')
-          print(f'stop_times: {stop_times}')
-          if stop_times == 0:
-              print('WARNING: timetable is empty — no stop_times found')
-              sys.exit(1)
+          import sqlite3
+          con = sqlite3.connect('data/timetable.sqlite')
+          rows = {t: con.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ['stops','routes','trips','stop_times','calendar','calendar_dates']}
+          for t, n in rows.items():
+              print(f'{t}: {n}')
+          if rows['stop_times'] == 0:
+              raise SystemExit('empty timetable — aborting')
           "
 
-      - name: Commit timetable if changed
+      - name: Publish timetable to rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="timetable-latest"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" data/timetable.sqlite \
+            --title "Timetable $(date -u +%Y-%m-%d)" \
+            --notes "Built $(date -u +%Y-%m-%dT%H:%M:%SZ) by $GITHUB_WORKFLOW"
+
+      - name: Commit zone boundaries if changed
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase --autostash origin main
-          git add data/timetable.json data/zones/
-          git diff --staged --quiet || git commit -m "Update timetable data [skip ci]"
+          git add data/zones/
+          git diff --staged --quiet || git commit -m "Update zone boundaries [skip ci]"
           git push
+
+      - name: Trigger Render redeploy
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "RENDER_DEPLOY_HOOK secret not set — skipping redeploy."
+            exit 0
+          fi
+          curl -fsSL -X POST "$HOOK"

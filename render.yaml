@@ -1,7 +1,8 @@
 # render.yaml — Deployment config for Render.com free tier
 #
-# Render gives us a persistent server, so the in-memory cache in
-# api/main.py works correctly between requests.
+# Timetable data lives in the "timetable-latest" GitHub Release (built
+# weekly by .github/workflows/update-timetable.yml) and is fetched at
+# build time so the git repo stays small.
 #
 # SETUP STEPS:
 #   1. Create a free account at https://render.com
@@ -13,13 +14,21 @@
 #      Add:
 #        BODS_API_KEY   = <your BODS API key>
 #        ALLOWED_ORIGIN = https://yourusername.github.io   (your GitHub Pages URL)
+#   6. Copy the deploy hook URL from Settings → Deploy Hook and add it
+#      to the GitHub repo as secret RENDER_DEPLOY_HOOK so the weekly
+#      workflow can trigger a redeploy after publishing fresh data.
 
 services:
   - type: web
     name: adur-worthing-bus-api
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      pip install -r requirements.txt
+      mkdir -p data
+      curl -fsSL -o data/timetable.sqlite \
+        "https://github.com/dennislemennace/adur-worthing-bus/releases/download/timetable-latest/timetable.sqlite"
+      python -c "import sqlite3; c=sqlite3.connect('data/timetable.sqlite'); n=c.execute('SELECT COUNT(*) FROM stop_times').fetchone()[0]; print(f'stop_times rows: {n}'); assert n > 0"
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /
     envVars:
