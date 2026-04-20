@@ -1,8 +1,10 @@
 # render.yaml — Deployment config for Render.com free tier
 #
 # Timetable data lives in the "timetable-latest" GitHub Release (built
-# weekly by .github/workflows/update-timetable.yml) and is fetched at
-# build time so the git repo stays small.
+# weekly by .github/workflows/update-timetable.yml) and is fetched on
+# app startup by api/timetable_db.py if data/timetable.sqlite is missing.
+# This keeps the git repo small and is robust to Render's build-artifact
+# packaging (which can exclude files matched by .gitignore).
 #
 # SETUP STEPS:
 #   1. Create a free account at https://render.com
@@ -23,12 +25,7 @@ services:
     name: adur-worthing-bus-api
     runtime: python
     plan: free
-    buildCommand: |
-      pip install -r requirements.txt
-      mkdir -p data
-      curl -fsSL -o data/timetable.sqlite \
-        "https://github.com/dennislemennace/adur-worthing-bus/releases/download/timetable-latest/timetable.sqlite"
-      python -c "import sqlite3; c=sqlite3.connect('data/timetable.sqlite'); n=c.execute('SELECT COUNT(*) FROM stop_times').fetchone()[0]; print(f'stop_times rows: {n}'); assert n > 0"
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /
     envVars:

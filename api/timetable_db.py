@@ -11,13 +11,20 @@ This keeps Render Free-tier RSS well under 512 MB.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import threading
 import time
+import urllib.request
 from pathlib import Path
 from typing import Iterator, Optional
 
 log = logging.getLogger("bus_api.timetable")
+
+TIMETABLE_URL = os.environ.get(
+    "TIMETABLE_URL",
+    "https://github.com/dennislemennace/adur-worthing-bus/releases/download/timetable-latest/timetable.sqlite",
+)
 
 
 class Timetable:
@@ -40,7 +47,24 @@ class Timetable:
         self.loaded_at: float = 0.0
         self._open_and_preload()
 
+    def _download_if_missing(self) -> None:
+        if self.db_path.exists():
+            return
+        log.info("Timetable DB missing; downloading from %s", TIMETABLE_URL)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.db_path.with_suffix(self.db_path.suffix + ".tmp")
+        try:
+            urllib.request.urlretrieve(TIMETABLE_URL, tmp)
+            tmp.replace(self.db_path)
+            log.info("Timetable DB downloaded: %d bytes",
+                     self.db_path.stat().st_size)
+        except Exception as exc:
+            log.error("Timetable download failed: %s", exc)
+            if tmp.exists():
+                tmp.unlink()
+
     def _open_and_preload(self) -> None:
+        self._download_if_missing()
         if not self.db_path.exists():
             log.error("Timetable DB missing: %s", self.db_path)
             self._con = None
