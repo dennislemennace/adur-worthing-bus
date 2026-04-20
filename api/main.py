@@ -179,57 +179,37 @@ async def debug_stop(stopId: str = Query(...)):
 # ── /api/stops ────────────────────────────────────────────────
 @app.get("/api/stops")
 async def get_stops():
-    """Bus stops in Adur & Worthing bounding box. Cached 24 h."""
+    """Bus stops with timetable data, filtered to the Adur & Worthing bbox.
+
+    Sourced from the local GTFS SQLite — no external dependency. Only
+    stops with at least one scheduled departure are returned, since
+    those are the ones the app can serve /api/departures for.
+    """
     cached = cache_get("stops")
     if cached:
         return cached
-    try:
-        stops = await _fetch_overpass_stops()
-    except Exception as exc:
-        log.warning("Overpass fetch failed: %s", exc)
-        return {"stops": [], "count": 0}
-    result = {"stops": stops, "count": len(stops)}
-    if stops:
-        cache_set("stops", result, 86_400)
-    log.info("Serving %d stops from Overpass", len(stops))
-    return result
-
-
-async def _fetch_overpass_stops() -> list:
-    query = f"""
-    [out:json][timeout:30];
-    node["highway"="bus_stop"]
-      ({BBOX_MIN_LAT},{BBOX_MIN_LON},{BBOX_MAX_LAT},{BBOX_MAX_LON});
-    out body;
-    """
-    async with httpx.AsyncClient(timeout=40) as client:
-        resp = await client.post(
-            "https://overpass-api.de/api/interpreter",
-            data={"data": query},
-        )
-        resp.raise_for_status()
-        raw = resp.json()
-
+    tt = await _get_timetable()
     stops = []
-    for el in raw.get("elements", []):
-        if el.get("type") != "node":
-            continue
-        lat = el.get("lat")
-        lon = el.get("lon")
+    for stop_id, s in tt.stops.items():
+        lat, lon = s.get("lat"), s.get("lon")
         if lat is None or lon is None:
             continue
-        tags = el.get("tags", {})
-        atco = (tags.get("naptan:AtcoCode")
-                or tags.get("ref")
-                or str(el["id"]))
-        name = tags.get("name") or tags.get("naptan:CommonName") or "Bus Stop"
+        if not (BBOX_MIN_LAT <= lat <= BBOX_MAX_LAT
+                and BBOX_MIN_LON <= lon <= BBOX_MAX_LON):
+            continue
+        if not tt.has_stop_times(stop_id):
+            continue
         stops.append({
-            "atco_code": atco,
-            "name":      name,
+            "atco_code": stop_id,
+            "name":      s.get("name") or "Bus Stop",
             "latitude":  lat,
             "longitude": lon,
         })
-    return stops
+    result = {"stops": stops, "count": len(stops)}
+    if stops:
+        cache_set("stops", result, 86_400)
+    log.info("Serving %d stops from local timetable", len(stops))
+    return result
 
 # ── Debug: raw SIRI-VM dump with no stale filter
 @app.get("/api/debug/vehicles-raw")
