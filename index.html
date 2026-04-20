@@ -71,10 +71,17 @@
         <path d="M22 8.82a15 15 0 0 0-11.288-3.764"/>
         <path d="m2 2 20 20"/>
       </symbol>
-      <!-- Decorative South Downs ridgeline for the header -->
+      <!-- Decorative South Downs ridgeline + coastal wave for the header -->
       <symbol id="i-ridgeline" viewBox="0 0 800 60" preserveAspectRatio="none">
-        <path d="M0 48 L60 30 L110 40 L170 18 L230 32 L290 22 L350 36 L410 14 L470 30 L530 20 L590 34 L650 22 L710 38 L770 26 L800 32 L800 60 L0 60 Z" fill="currentColor" opacity="0.16"/>
-        <path d="M0 48 L60 30 L110 40 L170 18 L230 32 L290 22 L350 36 L410 14 L470 30 L530 20 L590 34 L650 22 L710 38 L770 26 L800 32" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.45"/>
+        <!-- Layer A: distant downs (soft, low opacity) -->
+        <path d="M 0 30 C 50 22, 100 28, 160 26 C 220 24, 260 32, 320 28 C 380 24, 430 30, 500 25 C 560 21, 620 31, 680 27 C 740 24, 780 30, 800 28 L 800 60 L 0 60 Z"
+              fill="currentColor" opacity="0.12"/>
+        <!-- Layer B: near downs (foothills, mid opacity) -->
+        <path d="M 0 44 C 60 36, 140 42, 220 38 C 300 34, 360 44, 440 40 C 520 36, 600 46, 680 42 C 740 38, 780 44, 800 41 L 800 60 L 0 60 Z"
+              fill="currentColor" opacity="0.22"/>
+        <!-- Layer C: coastal wave crest with one breaking curl around x≈220 -->
+        <path d="M 0 52 Q 80 48, 160 52 C 200 54, 220 46, 260 50 S 340 56, 420 52 S 540 48, 600 52 S 700 56, 800 51"
+              fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.55"/>
       </symbol>
     </defs>
   </svg>
