@@ -540,7 +540,7 @@ body.dark-mode .btn-text {
 .departures-table th:nth-child(1),
 .departures-table td:nth-child(1) { width: 54px; }   /* Service badge */
 .departures-table th:nth-child(3),
-.departures-table td:nth-child(3) { width: 58px; }   /* Due time */
+.departures-table td:nth-child(3) { width: 82px; }   /* Due time */
 .departures-table th:nth-child(4),
 .departures-table td:nth-child(4) { width: 86px; }   /* Status chip */
 
@@ -1268,15 +1268,19 @@ body.dark-mode .site-header {
   left: 0;
   right: 0;
   width: 100%;
-  height: 38px;
+  height: 46px;
   display: block;
   pointer-events: none;
   z-index: 2;
-  filter: drop-shadow(0 4px 10px rgba(10, 18, 32, 0.14));
+  filter: drop-shadow(0 6px 12px rgba(10, 18, 32, 0.16));
 }
 body.dark-mode .header-wave {
-  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.55));
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.55));
 }
+
+/* Lift the side panel above the header's wave so the Stop/Bus tabs
+   aren't obscured by the wave hanging down from the header. */
+.departure-panel { z-index: 1001; }
 
 .header-wave-back  { fill: var(--color-primary-dark); }
 .header-wave-front { fill: var(--color-primary); }
@@ -1320,10 +1324,28 @@ body.dark-mode .header-icon {
 
 @media (max-width: 700px) {
   :root { --header-height: 64px; }
-  .header-title { font-size: 1.35rem; }
-  .header-subtitle { font-size: 0.62rem; }
-  .header-icon { width: 34px; height: 34px; }
+  .header-inner { gap: var(--space-sm); padding: 0 var(--space-md); }
+  .header-brand { gap: 10px; min-width: 0; flex: 1; }
+  .header-brand > div { min-width: 0; overflow: hidden; }
+  .header-title {
+    font-size: 1.15rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .header-subtitle {
+    font-size: 0.58rem;
+    margin-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .header-icon { width: 34px; height: 34px; flex-shrink: 0; }
   .header-icon .icon { width: 19px; height: 19px; }
+  /* Timestamp is non-essential on narrow screens; hide to free space
+     for the brand title so it fits on a single line. */
+  .last-updated { display: none; }
+  .header-controls { flex-shrink: 0; gap: var(--space-sm); }
 }
 
 /* ---- Header controls: icon buttons hold svgs ---- */
