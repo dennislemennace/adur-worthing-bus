@@ -1,0 +1,90 @@
+{
+  "proposals": [
+    {
+      "id": "coastal-sprinter",
+      "name": "Coastal Sprinter X1",
+      "summary": "Limited-stop express between Worthing town centre and Brighton along the A259, every 30 minutes daytime.",
+      "color": "#1e88e5",
+      "polyline": [
+        [50.8108, -0.3725],
+        [50.8198, -0.3711],
+        [50.8266, -0.3470],
+        [50.8302, -0.3105],
+        [50.8323, -0.2726],
+        [50.8285, -0.2343],
+        [50.8265, -0.1945],
+        [50.8235, -0.1530],
+        [50.8225, -0.1390]
+      ],
+      "stops": [
+        {"name": "Worthing Pier",       "lat": 50.8108, "lon": -0.3725},
+        {"name": "Worthing Stn",        "lat": 50.8198, "lon": -0.3711},
+        {"name": "Lancing Manor",       "lat": 50.8266, "lon": -0.3470},
+        {"name": "Lancing Stn",         "lat": 50.8302, "lon": -0.3105},
+        {"name": "Shoreham-by-Sea",     "lat": 50.8323, "lon": -0.2726},
+        {"name": "Southwick Sq",        "lat": 50.8285, "lon": -0.2343},
+        {"name": "Portslade",           "lat": 50.8265, "lon": -0.1945},
+        {"name": "Hove Town Hall",      "lat": 50.8235, "lon": -0.1530},
+        {"name": "Brighton Stn",        "lat": 50.8225, "lon": -0.1390}
+      ],
+      "description": "The 700 Coastliner is the only direct east-west link, and it stops everywhere — a Brighton commute can take over an hour. The X1 would skip residential side stops to deliver a 35-minute Worthing → Brighton run, complementing (not replacing) the 700. Suggested operator: Stagecoach South or Brighton & Hove jointly."
+    },
+    {
+      "id": "downs-loop",
+      "name": "South Downs Loop 99",
+      "summary": "Hourly circular linking Worthing, Findon, Steyning, Bramber, Upper Beeding and Lancing — restoring lost inland connectivity.",
+      "color": "#43a047",
+      "polyline": [
+        [50.8198, -0.3711],
+        [50.8412, -0.3955],
+        [50.8615, -0.4108],
+        [50.8723, -0.4002],
+        [50.8842, -0.3320],
+        [50.8801, -0.3122],
+        [50.8623, -0.3050],
+        [50.8410, -0.3015],
+        [50.8302, -0.3105],
+        [50.8198, -0.3711]
+      ],
+      "stops": [
+        {"name": "Worthing Stn",      "lat": 50.8198, "lon": -0.3711},
+        {"name": "Offington",         "lat": 50.8412, "lon": -0.3955},
+        {"name": "Findon Village",    "lat": 50.8615, "lon": -0.4108},
+        {"name": "Washington",        "lat": 50.8723, "lon": -0.4002},
+        {"name": "Steyning High St",  "lat": 50.8842, "lon": -0.3320},
+        {"name": "Bramber",           "lat": 50.8801, "lon": -0.3122},
+        {"name": "Upper Beeding",     "lat": 50.8623, "lon": -0.3050},
+        {"name": "Coombes",           "lat": 50.8410, "lon": -0.3015},
+        {"name": "Lancing Stn",       "lat": 50.8302, "lon": -0.3105},
+        {"name": "Worthing Stn",      "lat": 50.8198, "lon": -0.3711}
+      ],
+      "description": "Findon's hourly bus is the 1A, which loops via West Worthing rather than serving the Steyning corridor. The Loop 99 would be a true circular running both directions, giving inland villages a single route into Worthing or Lancing without changing buses. Best paired with rail timetables at Lancing and Worthing stations."
+    },
+    {
+      "id": "hospital-shuttle",
+      "name": "Hospital Shuttle H1",
+      "summary": "Frequent (every 15 min) shuttle from Worthing Hospital via the town centre to Lancing Beach, replacing the truncated 700-A.",
+      "color": "#e53935",
+      "polyline": [
+        [50.8285, -0.3920],
+        [50.8260, -0.3815],
+        [50.8210, -0.3760],
+        [50.8170, -0.3725],
+        [50.8108, -0.3725],
+        [50.8158, -0.3500],
+        [50.8225, -0.3275],
+        [50.8260, -0.3060]
+      ],
+      "stops": [
+        {"name": "Worthing Hospital",  "lat": 50.8285, "lon": -0.3920},
+        {"name": "Goring Rd",          "lat": 50.8260, "lon": -0.3815},
+        {"name": "Marine Pde W",       "lat": 50.8210, "lon": -0.3760},
+        {"name": "Worthing Pier",      "lat": 50.8108, "lon": -0.3725},
+        {"name": "Brooklands",         "lat": 50.8158, "lon": -0.3500},
+        {"name": "Sompting Crossing",  "lat": 50.8225, "lon": -0.3275},
+        {"name": "Lancing Beach",      "lat": 50.8260, "lon": -0.3060}
+      ],
+      "description": "Hospital workers and visitors currently rely on infrequent connections through the town centre. A dedicated 15-minute shuttle would also serve the high-density seafront residential strip, where car ownership is below average and bus reliability is critical."
+    }
+  ]
+}

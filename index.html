@@ -71,6 +71,16 @@
         <path d="M22 8.82a15 15 0 0 0-11.288-3.764"/>
         <path d="m2 2 20 20"/>
       </symbol>
+      <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M12 16v-4"/>
+        <path d="M12 8h.01"/>
+      </symbol>
+      <symbol id="i-lightbulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/>
+        <path d="M9 18h6"/>
+        <path d="M10 22h4"/>
+      </symbol>
     </defs>
   </svg>
 
@@ -87,6 +97,13 @@
         </div>
       </div>
       <div class="header-controls">
+        <!-- View mode toggle: live tracker vs network/proposals view -->
+        <div class="view-mode-toggle" role="tablist" aria-label="View mode">
+          <button class="view-mode-btn active" data-mode="live" role="tab"
+                  aria-selected="true" id="view-mode-live">Live</button>
+          <button class="view-mode-btn" data-mode="improvements" role="tab"
+                  aria-selected="false" id="view-mode-improvements">Improvements</button>
+        </div>
         <!-- Last-updated timestamp for live data -->
         <span class="last-updated" id="last-updated-label">Connecting…</span>
         <!-- Dark mode toggle -->
@@ -117,6 +134,10 @@
     <section class="map-section" aria-label="Live bus map">
       <div id="map"></div>
 
+      <!-- Map overlay controls (visible only in Improvements mode).
+           Populated by app.js — currently holds the "Show proposals" toggle. -->
+      <div class="map-overlay-controls" id="map-overlay-controls" aria-label="Map overlays"></div>
+
       <!-- Loading overlay shown while initial data loads -->
       <div class="map-loading" id="map-loading" aria-live="polite">
         <svg class="map-loading-icon" aria-hidden="true" viewBox="0 0 64 40" fill="none">
@@ -136,6 +157,9 @@
 
     <!-- ── Right: Departure / Bus Info Panel ── -->
     <aside class="departure-panel" id="departure-panel" aria-label="Information panel">
+
+      <!-- === LIVE MODE PANELS (Stop / Bus) === -->
+      <div class="panel-mode" data-mode="live">
 
       <!-- Tab strip + close button -->
       <div class="panel-tabs-bar">
@@ -238,11 +262,77 @@
 
       </div>
 
-      <!--
-        FUTURE EXTENSION POINT:
-        Add a "Service Alerts" section here by appending an element
-        and fetching from /api/alerts?stopId=... on the backend.
-      -->
+      </div><!-- /panel-mode[data-mode="live"] -->
+
+      <!-- === IMPROVEMENTS MODE PANELS (About / Proposals) === -->
+      <div class="panel-mode hidden" data-mode="improvements">
+
+        <!-- Tab strip + close button -->
+        <div class="panel-tabs-bar">
+          <div class="panel-tabs" role="tablist" aria-label="Improvements view panels">
+            <button class="panel-tab active" data-improvements-tab="about" role="tab"
+                    aria-selected="true" id="tab-about" aria-controls="tab-content-about">
+              <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-info"/></svg>
+              <span class="panel-tab-label">About</span>
+            </button>
+            <button class="panel-tab" data-improvements-tab="proposals" role="tab"
+                    aria-selected="false" id="tab-proposals" aria-controls="tab-content-proposals">
+              <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-lightbulb"/></svg>
+              <span class="panel-tab-label">Proposals</span>
+            </button>
+          </div>
+          <button class="btn-close" id="close-panel-btn-improvements" aria-label="Close panel">
+            <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
+          </button>
+        </div>
+
+        <!-- ── ABOUT TAB ── -->
+        <div class="panel-tab-content" id="tab-content-about" role="tabpanel" aria-labelledby="tab-about">
+          <div class="improvements-intro">
+            <h2 class="improvements-title">Better buses for Adur &amp; Worthing</h2>
+            <p>
+              The current network leaves parts of the area poorly served,
+              with long waits, awkward interchanges, and gaps between the
+              coastal corridor and inland neighbourhoods.
+            </p>
+            <p>
+              This view sketches what a reimagined network could look like.
+              The map shows every existing service as a coloured line — toggle
+              routes below to compare coverage — and the <strong>Proposals</strong>
+              tab contains ideas for new or revised services.
+            </p>
+          </div>
+
+          <!-- Route filter list populated by task 5 -->
+          <div class="route-filters" id="route-filters">
+            <div class="route-filters-header">
+              <h3 class="route-filters-title">Existing services</h3>
+              <div class="route-filters-actions">
+                <button class="btn-text" id="routes-all-btn">Show all</button>
+                <button class="btn-text" id="routes-none-btn">Hide all</button>
+              </div>
+            </div>
+            <div class="route-filter-chips" id="route-filter-chips" aria-live="polite">
+              <p class="route-filters-empty">Loading route list…</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── PROPOSALS TAB ── -->
+        <div class="panel-tab-content hidden" id="tab-content-proposals" role="tabpanel" aria-labelledby="tab-proposals">
+          <div class="proposals-intro">
+            <p>
+              Pick a proposal to highlight it on the map. Use the
+              <strong>Show proposals</strong> toggle on the map to layer
+              all proposals over the existing network for comparison.
+            </p>
+          </div>
+          <div class="proposals-list" id="proposals-list" aria-live="polite">
+            <p class="proposals-empty">Loading proposals…</p>
+          </div>
+        </div>
+
+      </div><!-- /panel-mode[data-mode="improvements"] -->
 
     </aside>
 

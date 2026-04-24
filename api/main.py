@@ -211,6 +211,29 @@ async def get_stops():
     log.info("Serving %d stops from local timetable", len(stops))
     return result
 
+# ── /api/route-lines ──────────────────────────────────────────
+@app.get("/api/route-lines")
+async def get_route_lines():
+    """Indicative route polylines for the Improvements view.
+
+    For each route short_name, returns the longest trip variant per
+    direction as an ordered list of [lat, lon] coordinates. Lines are
+    drawn stop-to-stop (no GTFS shapes yet) and filtered to routes
+    that touch the Adur & Worthing bbox.
+
+    Cached 1 hour — the timetable only refreshes weekly.
+    """
+    cached = cache_get("route_lines")
+    if cached:
+        return cached
+    tt = await _get_timetable()
+    bbox = (BBOX_MIN_LAT, BBOX_MAX_LAT, BBOX_MIN_LON, BBOX_MAX_LON)
+    routes = tt.representative_polylines(bbox=bbox)
+    result = {"routes": routes, "count": len(routes)}
+    cache_set("route_lines", result, 3600)
+    log.info("Serving %d route polylines from timetable", len(routes))
+    return result
+
 # ── Debug: raw SIRI-VM dump with no stale filter
 @app.get("/api/debug/vehicles-raw")
 async def debug_vehicles_raw(q: str = Query("")):

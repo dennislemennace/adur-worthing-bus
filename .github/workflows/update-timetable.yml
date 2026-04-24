@@ -23,8 +23,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install httpx shapely pyproj
-          python -c "import httpx, shapely, pyproj; print('httpx', httpx.__version__, 'shapely', shapely.__version__, 'pyproj', pyproj.__version__, 'OK')"
+          pip install httpx
+          python -c "import httpx; print('httpx', httpx.__version__, 'OK')"
 
       - name: Compile check
         run: |
@@ -36,9 +36,6 @@ jobs:
 
       - name: Convert to SQLite
         run: python -u scripts/json_to_sqlite.py
-
-      - name: Build zone boundaries
-        run: python -u scripts/build_zones.py
 
       - name: Check output
         run: |
@@ -62,15 +59,6 @@ jobs:
           gh release create "$TAG" data/timetable.sqlite \
             --title "Timetable $(date -u +%Y-%m-%d)" \
             --notes "Built $(date -u +%Y-%m-%dT%H:%M:%SZ) by $GITHUB_WORKFLOW"
-
-      - name: Commit zone boundaries if changed
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase --autostash origin main
-          git add data/zones/
-          git diff --staged --quiet || git commit -m "Update zone boundaries [skip ci]"
-          git push
 
       - name: Trigger Render redeploy
         env:

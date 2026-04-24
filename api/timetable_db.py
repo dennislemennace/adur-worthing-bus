@@ -239,3 +239,89 @@ class Timetable:
     def sample_stop_ids_with_times(self, n: int = 10) -> list:
         it = iter(self.stops_with_times)
         return [next(it) for _ in range(min(n, len(self.stops_with_times)))]
+
+    def representative_polylines(
+        self,
+        bbox: Optional[tuple] = None,
+    ) -> list:
+        """Return up to two indicative polylines per route short_name.
+
+        Strategy: for each route, pick the trip with the most stops as the
+        primary polyline; then pick the longest trip whose first stop is
+        geographically close to the primary's last stop as the reverse-
+        direction polyline. This collapses dozens of short-turn / partial
+        variants into one or two clean lines per route.
+
+        Polylines are stop-to-stop straight lines (no GTFS shapes yet).
+
+        bbox: optional (min_lat, max_lat, min_lon, max_lon) — routes with
+        no polyline point inside this bbox are dropped.
+        """
+        if self._con is None:
+            return []
+
+        stop_counts = dict(self._con.execute(
+            "SELECT tid, COUNT(*) FROM stop_times GROUP BY tid"
+        ))
+
+        stop_coords = {
+            sid: (lat, lon)
+            for sid, lat, lon in self._con.execute(
+                "SELECT sid, lat, lon FROM stops"
+            )
+        }
+
+        trips_by_route: dict = {}
+        for short_name, tid, first_sid, last_sid in self._con.execute(
+            "SELECT short_name, tid, first_sid, last_sid FROM trip_endpoints"
+        ):
+            trips_by_route.setdefault(short_name, []).append(
+                (tid, first_sid, last_sid)
+            )
+
+        # ~1 km cutoff in squared degrees (rough at this latitude — fine
+        # for grouping terminus stops that share a stand)
+        TERMINUS_NEAR_SQ = 0.0001
+
+        out = []
+        for short_name, trips in trips_by_route.items():
+            trips.sort(key=lambda t: stop_counts.get(t[0], 0), reverse=True)
+            primary_tid, primary_first, primary_last = trips[0]
+            primary_last_coord = stop_coords.get(primary_last)
+
+            chosen_tids = [primary_tid]
+            if primary_last_coord is not None:
+                for tid, first_sid, _last_sid in trips[1:]:
+                    if first_sid == primary_first:
+                        continue
+                    fc = stop_coords.get(first_sid)
+                    if fc is None:
+                        continue
+                    dlat = fc[0] - primary_last_coord[0]
+                    dlon = fc[1] - primary_last_coord[1]
+                    if dlat * dlat + dlon * dlon <= TERMINUS_NEAR_SQ:
+                        chosen_tids.append(tid)
+                        break  # already sorted by stop count desc
+
+            polylines = []
+            for tid in chosen_tids:
+                pts = self._con.execute(
+                    "SELECT s.lat, s.lon FROM stop_times st "
+                    "JOIN stops s ON s.sid = st.sid "
+                    "WHERE st.tid=? ORDER BY st.seq", (tid,)
+                ).fetchall()
+                if len(pts) < 2:
+                    continue
+                if bbox is not None:
+                    min_lat, max_lat, min_lon, max_lon = bbox
+                    if not any(
+                        min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
+                        for lat, lon in pts
+                    ):
+                        continue
+                polylines.append([[lat, lon] for lat, lon in pts])
+
+            if polylines:
+                out.append({"service": short_name, "polylines": polylines})
+
+        return sorted(out, key=lambda x: x["service"])
