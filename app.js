@@ -76,8 +76,16 @@ const state = {
   busInfoTickTimer:        null,   // setInterval handle for "X ago" text
   busDetails:              null,   // /api/vehicle response for selected bus
   busDetailsLoading:       false,  // true while waiting on /api/vehicle
-  zoneLayers:              {},     // zoneId → L.geoJSON layer on the map
-  zoneManifest:            null,   // loaded once from data/zones/index.json
+
+  // ── Improvements view (network/proposals mode) ──
+  viewMode:                "live", // "live" | "improvements"
+  routeLines:              null,   // /api/route-lines response, fetched lazily
+  routeLineLayers:         {},     // service short_name → array of L.polyline
+  visibleRoutes:           null,   // Set of service short_names; null = all visible
+  proposals:               null,   // data/proposals.json
+  proposalLayers:          {},     // proposal id → array of L.polyline
+  showProposals:           false,  // map overlay toggle in Improvements mode
+  selectedProposalId:      null,
 };
 
 // ============================================================
@@ -115,6 +123,22 @@ const dom = {
   panelBusId:         document.getElementById("panel-bus-id"),
   busPanelPrompt:     document.getElementById("bus-panel-prompt"),
   busInfoContainer:   document.getElementById("bus-info-container"),
+
+  // ── View mode toggle ──
+  viewModeLive:          document.getElementById("view-mode-live"),
+  viewModeImprovements:  document.getElementById("view-mode-improvements"),
+
+  // ── Improvements view ──
+  closePanelBtnImprovements: document.getElementById("close-panel-btn-improvements"),
+  tabAbout:               document.getElementById("tab-about"),
+  tabProposals:           document.getElementById("tab-proposals"),
+  tabContentAbout:        document.getElementById("tab-content-about"),
+  tabContentProposals:    document.getElementById("tab-content-proposals"),
+  routeFilterChips:       document.getElementById("route-filter-chips"),
+  routesAllBtn:           document.getElementById("routes-all-btn"),
+  routesNoneBtn:          document.getElementById("routes-none-btn"),
+  proposalsList:          document.getElementById("proposals-list"),
+  mapOverlayControls:     document.getElementById("map-overlay-controls"),
 };
 
 // ============================================================
@@ -133,9 +157,6 @@ async function init() {
 
   initMap();
   bindUIEvents();
-
-  // Fire-and-forget — zones are decorative, don't block startup
-  loadZoneManifest();
 
   // Load stops first (cached 24 h on backend, so fast after first call)
   await loadStops();
@@ -470,6 +491,9 @@ function updateBusMarkerInPlace(marker, label, bearing) {
  * in Leaflet popup HTML.
  */
 window.openDepartures = async function(atcoCode, stopName) {
+  // Stops are inert in Improvements mode (network-view rather than live).
+  if (state.viewMode === "improvements") return;
+
   // Close any open Leaflet popup to avoid clutter
   state.map.closePopup();
 
@@ -711,9 +735,6 @@ function setActiveTab(tab) {
  * Switches to the Bus tab and renders the latest known data.
  */
 function openBusInfo(vehicle) {
-  clearZones();
-  showZonesForOperator(vehicle.operator_ref);
-
   state.selectedVehicleRef      = vehicle.vehicle_ref;
   state.selectedVehicle         = vehicle;
   state.selectedVehicleLastSeen = new Date();
@@ -1016,56 +1037,7 @@ function toggleDarkMode() {
   state.tileLayer.bringToBack();
 }
 
-// ============================================================
-// TICKET ZONE OVERLAYS
-// ============================================================
-
-async function loadZoneManifest() {
-  try {
-    const res = await fetch("data/zones/index.json");
-    if (!res.ok) return;
-    const data = await res.json();
-    state.zoneManifest = data.zones || [];
-  } catch {
-    // Zones are optional — silently skip if unavailable
-  }
-}
-
-async function showZonesForOperator(operatorRef) {
-  if (!state.zoneManifest) return;
-  const matching = state.zoneManifest.filter(z => z.operator_ref === operatorRef);
-  for (const zone of matching) {
-    if (state.zoneLayers[zone.id]) continue;
-    try {
-      const res = await fetch(zone.path);
-      if (!res.ok) continue;
-      const geo = await res.json();
-      state.zoneLayers[zone.id] = L.geoJSON(geo, {
-        style: {
-          fillColor:   zone.color,
-          fillOpacity: 0.14,
-          color:       zone.color,
-          weight:      1.5,
-          opacity:     0.6,
-        },
-        interactive: false,
-      }).addTo(state.map);
-    } catch {
-      // Silent — zone overlay is decorative
-    }
-  }
-}
-
-function clearZones() {
-  for (const layer of Object.values(state.zoneLayers)) {
-    state.map.removeLayer(layer);
-  }
-  state.zoneLayers = {};
-}
-
 function closePanel() {
-  clearZones();
-
   // Clear stop selection
   state.selectedStop = null;
   showPanelState("prompt");
@@ -1142,6 +1114,409 @@ function bindUIEvents() {
   dom.panelRetryBtn.addEventListener("click", () => {
     if (state.selectedStop) fetchDepartures(state.selectedStop.atcoCode);
   });
+
+  // View mode toggle (Live ↔ Improvements)
+  dom.viewModeLive.addEventListener("click", () => setViewMode("live"));
+  dom.viewModeImprovements.addEventListener("click", () => setViewMode("improvements"));
+
+  // Improvements panel: tab switching + close
+  dom.tabAbout.addEventListener("click",     () => setImprovementsTab("about"));
+  dom.tabProposals.addEventListener("click", () => setImprovementsTab("proposals"));
+  dom.closePanelBtnImprovements.addEventListener("click", closePanel);
+
+  // Route filter bulk actions
+  dom.routesAllBtn.addEventListener("click",  () => setAllRoutesVisible(true));
+  dom.routesNoneBtn.addEventListener("click", () => setAllRoutesVisible(false));
+}
+
+/** Switch between the About and Proposals tabs in Improvements mode. */
+function setImprovementsTab(tab) {
+  const aboutActive = (tab === "about");
+  dom.tabAbout.classList.toggle("active", aboutActive);
+  dom.tabAbout.setAttribute("aria-selected", aboutActive ? "true" : "false");
+  dom.tabProposals.classList.toggle("active", !aboutActive);
+  dom.tabProposals.setAttribute("aria-selected", !aboutActive ? "true" : "false");
+  dom.tabContentAbout.classList.toggle("hidden", !aboutActive);
+  dom.tabContentProposals.classList.toggle("hidden", aboutActive);
+}
+
+// ============================================================
+// VIEW MODE (Live ↔ Improvements)
+// ============================================================
+
+/**
+ * Switch between the live tracker and the Improvements (network + proposals)
+ * view. In Improvements mode the live vehicle refresh pauses, vehicle
+ * markers are hidden, route-line polylines are drawn, and the side panel
+ * swaps from Stop/Bus tabs to About/Proposals tabs. Stop markers stay
+ * visible but don't react to clicks.
+ */
+function setViewMode(mode) {
+  if (mode !== "live" && mode !== "improvements") return;
+  if (state.viewMode === mode) return;
+  state.viewMode = mode;
+
+  // Toggle button visual + aria state
+  const live = (mode === "live");
+  dom.viewModeLive.classList.toggle("active", live);
+  dom.viewModeLive.setAttribute("aria-selected", live ? "true" : "false");
+  dom.viewModeImprovements.classList.toggle("active", !live);
+  dom.viewModeImprovements.setAttribute("aria-selected", !live ? "true" : "false");
+
+  // Body class for CSS-level swaps
+  document.body.classList.toggle("improvements-mode", !live);
+
+  // Side-effects wired in later tasks (vehicle refresh, polylines, panel).
+  applyViewMode();
+}
+
+async function applyViewMode() {
+  if (state.viewMode === "improvements") {
+    // Pause the live refresh — Improvements mode is a static network view.
+    if (state.isRefreshing) stopVehicleRefresh();
+    hideVehicleMarkers();
+    state.map.closePopup();
+    closePanel();
+    ensureMapOverlayControls();
+    try {
+      await Promise.all([loadRouteLines(), loadProposals()]);
+      showRouteLines();
+      if (state.showProposals) showAllProposals();
+      if (state.selectedProposalId) showProposal(state.selectedProposalId);
+    } catch (err) {
+      console.warn("Improvements data fetch failed:", err);
+      showToast("Could not load Improvements data. Try again later.");
+    }
+  } else {
+    hideRouteLines();
+    hideAllProposals();
+    showVehicleMarkers();
+    if (!state.isRefreshing) startVehicleRefresh();
+  }
+}
+
+// ============================================================
+// ROUTE LINES (Improvements view)
+// ============================================================
+
+/**
+ * Fetch /api/route-lines once and pre-build Leaflet polylines for every
+ * route. Subsequent mode toggles just add/remove the cached layers.
+ */
+async function loadRouteLines() {
+  if (state.routeLines) return;
+  const data = await apiFetch("/api/route-lines");
+  if (!data || !Array.isArray(data.routes)) {
+    state.routeLines = [];
+    return;
+  }
+  state.routeLines = data.routes;
+  state.visibleRoutes = new Set(data.routes.map(r => r.service));
+
+  for (const r of data.routes) {
+    const colour = getLineColour(r.service);
+    state.routeLineLayers[r.service] = r.polylines.map(coords =>
+      L.polyline(coords, {
+        color:        colour,
+        weight:       4,
+        opacity:      0.85,
+        smoothFactor: 1.5,
+        interactive:  false,
+      })
+    );
+  }
+
+  renderRouteFilterChips();
+}
+
+/**
+ * Render a clickable chip for each route into the About tab. The chip's
+ * background is the route's livery colour; clicking toggles its
+ * polylines on/off via setRouteVisible(). Sorted natural-numeric so
+ * "5" comes before "10" comes before "106".
+ */
+function renderRouteFilterChips() {
+  if (!state.routeLines || !dom.routeFilterChips) return;
+  const services = state.routeLines
+    .map(r => r.service)
+    .slice()
+    .sort(compareServiceNames);
+
+  if (services.length === 0) {
+    dom.routeFilterChips.innerHTML =
+      `<p class="route-filters-empty">No routes found.</p>`;
+    return;
+  }
+
+  dom.routeFilterChips.innerHTML = services.map(service => {
+    const bg      = getLineColour(service);
+    const fg      = pickTextOn(bg) === "dark" ? "#1a1a1a" : "#ffffff";
+    const visible = state.visibleRoutes.has(service);
+    return `
+      <button type="button"
+              class="route-chip"
+              data-service="${escapeAttr(service)}"
+              aria-pressed="${visible ? "true" : "false"}"
+              style="--chip-bg:${bg};--chip-fg:${fg}">
+        ${escapeHtml(service)}
+      </button>`;
+  }).join("");
+
+  dom.routeFilterChips.querySelectorAll(".route-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const service = btn.dataset.service;
+      const nowVisible = btn.getAttribute("aria-pressed") !== "true";
+      btn.setAttribute("aria-pressed", nowVisible ? "true" : "false");
+      setRouteVisible(service, nowVisible);
+    });
+  });
+}
+
+/** Set every chip + every route to a given visibility. */
+function setAllRoutesVisible(visible) {
+  if (!state.routeLines) return;
+  for (const r of state.routeLines) {
+    setRouteVisible(r.service, visible);
+  }
+  if (dom.routeFilterChips) {
+    dom.routeFilterChips.querySelectorAll(".route-chip").forEach(btn => {
+      btn.setAttribute("aria-pressed", visible ? "true" : "false");
+    });
+  }
+}
+
+/** "5" < "10" < "106"; falls back to lex for non-numeric prefixes (N1, B25). */
+function compareServiceNames(a, b) {
+  const ma = String(a).match(/^(\d+)(.*)$/);
+  const mb = String(b).match(/^(\d+)(.*)$/);
+  if (ma && mb) {
+    const na = parseInt(ma[1], 10), nb = parseInt(mb[1], 10);
+    if (na !== nb) return na - nb;
+    return ma[2].localeCompare(mb[2]);
+  }
+  if (ma) return -1;
+  if (mb) return 1;
+  return String(a).localeCompare(String(b));
+}
+
+function showRouteLines() {
+  if (!state.visibleRoutes) return;
+  for (const [service, layers] of Object.entries(state.routeLineLayers)) {
+    if (!state.visibleRoutes.has(service)) continue;
+    for (const layer of layers) {
+      if (!state.map.hasLayer(layer)) layer.addTo(state.map);
+    }
+  }
+}
+
+function hideRouteLines() {
+  for (const layers of Object.values(state.routeLineLayers)) {
+    for (const layer of layers) {
+      if (state.map.hasLayer(layer)) state.map.removeLayer(layer);
+    }
+  }
+}
+
+/**
+ * Toggle a single route's polylines on/off. Used by the route filter chips.
+ */
+function setRouteVisible(service, visible) {
+  if (!state.visibleRoutes) return;
+  if (visible) state.visibleRoutes.add(service);
+  else         state.visibleRoutes.delete(service);
+
+  const layers = state.routeLineLayers[service] || [];
+  for (const layer of layers) {
+    if (visible && !state.map.hasLayer(layer))      layer.addTo(state.map);
+    else if (!visible && state.map.hasLayer(layer)) state.map.removeLayer(layer);
+  }
+}
+
+// ============================================================
+// PROPOSALS (Improvements view)
+// ============================================================
+
+/**
+ * Load data/proposals.json (hand-authored — see file for schema) and
+ * pre-build the polyline + endpoint-marker layers for each proposal.
+ * Idempotent: subsequent calls are no-ops.
+ */
+async function loadProposals() {
+  if (state.proposals) return;
+  let data;
+  try {
+    const res = await fetch("data/proposals.json");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+  } catch (err) {
+    console.warn("Proposals load failed:", err);
+    state.proposals = [];
+    renderProposalsList();
+    return;
+  }
+  state.proposals = Array.isArray(data.proposals) ? data.proposals : [];
+
+  for (const p of state.proposals) {
+    const colour = p.color || "#444";
+    const layers = [];
+
+    // Main route line — dashed to distinguish from existing services
+    if (Array.isArray(p.polyline) && p.polyline.length >= 2) {
+      layers.push(L.polyline(p.polyline, {
+        color:       colour,
+        weight:      5,
+        opacity:     0.92,
+        dashArray:   "8 6",
+        smoothFactor: 1.2,
+        interactive: false,
+      }));
+    }
+
+    // Endpoint / stop dots — small open circles at each proposed stop
+    if (Array.isArray(p.stops)) {
+      for (const s of p.stops) {
+        if (typeof s.lat !== "number" || typeof s.lon !== "number") continue;
+        layers.push(L.circleMarker([s.lat, s.lon], {
+          radius:      5,
+          color:       colour,
+          weight:      2,
+          fillColor:   "#fff",
+          fillOpacity: 1,
+          interactive: false,
+        }));
+      }
+    }
+
+    state.proposalLayers[p.id] = layers;
+  }
+
+  renderProposalsList();
+}
+
+function renderProposalsList() {
+  if (!dom.proposalsList) return;
+  const proposals = state.proposals || [];
+  if (proposals.length === 0) {
+    dom.proposalsList.innerHTML =
+      `<p class="proposals-empty">No proposals yet. Add ideas to <code>data/proposals.json</code>.</p>`;
+    return;
+  }
+  dom.proposalsList.innerHTML = proposals.map(p => {
+    const sel = (p.id === state.selectedProposalId);
+    const detail = sel
+      ? `<div class="proposal-detail">${escapeHtml(p.description || "")}</div>`
+      : "";
+    return `
+      <button type="button"
+              class="proposal-card ${sel ? "selected" : ""}"
+              data-proposal-id="${escapeAttr(p.id)}"
+              style="border-left-color:${escapeAttr(p.color || "#444")}">
+        <span class="proposal-card-name">${escapeHtml(p.name || p.id)}</span>
+        <span class="proposal-card-summary">${escapeHtml(p.summary || "")}</span>
+        ${detail}
+      </button>`;
+  }).join("");
+
+  dom.proposalsList.querySelectorAll(".proposal-card").forEach(card => {
+    card.addEventListener("click", () => {
+      const id = card.dataset.proposalId;
+      selectProposal(id === state.selectedProposalId ? null : id);
+    });
+  });
+}
+
+/**
+ * Highlight one proposal: ensure its layer is visible, dim the others
+ * if Show-all is off, scroll-into-view in the panel, and re-render the
+ * list so the description block expands inline.
+ */
+function selectProposal(id) {
+  state.selectedProposalId = id;
+
+  if (id) {
+    showProposal(id);
+    // Pan / zoom to fit the selected proposal's polyline
+    const p = (state.proposals || []).find(x => x.id === id);
+    if (p && Array.isArray(p.polyline) && p.polyline.length) {
+      state.map.fitBounds(L.latLngBounds(p.polyline), {
+        padding: [40, 40], maxZoom: 14,
+      });
+    }
+  } else if (!state.showProposals) {
+    hideAllProposals();
+  }
+
+  renderProposalsList();
+}
+
+function showProposal(id) {
+  const layers = state.proposalLayers[id] || [];
+  for (const layer of layers) {
+    if (!state.map.hasLayer(layer)) layer.addTo(state.map);
+  }
+}
+
+function hideProposal(id) {
+  const layers = state.proposalLayers[id] || [];
+  for (const layer of layers) {
+    if (state.map.hasLayer(layer)) state.map.removeLayer(layer);
+  }
+}
+
+function showAllProposals() {
+  for (const id of Object.keys(state.proposalLayers)) showProposal(id);
+}
+
+function hideAllProposals() {
+  for (const id of Object.keys(state.proposalLayers)) hideProposal(id);
+  // Restore the selected proposal if there is one (selection trumps the toggle)
+  if (state.selectedProposalId) showProposal(state.selectedProposalId);
+}
+
+function setShowProposals(on) {
+  state.showProposals = !!on;
+  if (state.showProposals) showAllProposals();
+  else                     hideAllProposals();
+  if (dom.mapOverlayControls) {
+    const btn = dom.mapOverlayControls.querySelector("[data-overlay='proposals']");
+    if (btn) btn.setAttribute("aria-pressed", state.showProposals ? "true" : "false");
+  }
+}
+
+/**
+ * Render the "Show proposals" map-overlay button. Idempotent — only
+ * builds the DOM once.
+ */
+function ensureMapOverlayControls() {
+  if (!dom.mapOverlayControls) return;
+  if (dom.mapOverlayControls.dataset.built === "1") return;
+  dom.mapOverlayControls.innerHTML = `
+    <button type="button"
+            class="map-overlay-btn"
+            data-overlay="proposals"
+            aria-pressed="${state.showProposals ? "true" : "false"}">
+      <svg class="icon" aria-hidden="true" style="width:14px;height:14px"><use href="#i-lightbulb"/></svg>
+      <span>Show proposals</span>
+    </button>`;
+  dom.mapOverlayControls.dataset.built = "1";
+  dom.mapOverlayControls.querySelector("[data-overlay='proposals']")
+    .addEventListener("click", () => setShowProposals(!state.showProposals));
+}
+
+// ============================================================
+// VEHICLE MARKER VISIBILITY (toggled by view mode)
+// ============================================================
+
+function hideVehicleMarkers() {
+  for (const marker of Object.values(state.busMarkers)) {
+    if (state.map.hasLayer(marker)) state.map.removeLayer(marker);
+  }
+}
+
+function showVehicleMarkers() {
+  for (const marker of Object.values(state.busMarkers)) {
+    if (!state.map.hasLayer(marker)) marker.addTo(state.map);
+  }
 }
 
 // ============================================================
@@ -1363,6 +1738,24 @@ function getRouteColour(service, operatorRef) {
   if (!service) return getOperatorColour(operatorRef);
   const key = String(service).trim().toUpperCase();
   return ROUTE_COLOURS[key] || getOperatorColour(operatorRef);
+}
+
+/**
+ * Colour for a route line/chip in the Improvements view, where the
+ * backend doesn't (yet) supply operator info. Branded routes use their
+ * livery; everything else falls back to a deterministic HSL hash so each
+ * route gets a distinct hue rather than all sharing the operator default.
+ */
+function getLineColour(service) {
+  if (!service) return "#888";
+  const key = String(service).trim().toUpperCase();
+  if (ROUTE_COLOURS[key]) return ROUTE_COLOURS[key];
+  let h = 0;
+  for (let i = 0; i < key.length; i++) {
+    h = ((h << 5) - h + key.charCodeAt(i)) | 0;
+  }
+  const hue = ((h % 360) + 360) % 360;
+  return `hsl(${hue}, 55%, 42%)`;
 }
 
 // Return 'light' or 'dark' text depending on background luminance (WCAG-ish).

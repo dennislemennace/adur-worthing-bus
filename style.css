@@ -206,6 +206,56 @@ body.dark-mode .last-updated {
   color: var(--color-text-muted);
 }
 
+/* Segmented control: Live | Improvements view-mode toggle */
+.view-mode-toggle {
+  display: inline-flex;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: var(--radius-md);
+  padding: 2px;
+  gap: 0;
+}
+
+.view-mode-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.78);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 5px 12px;
+  border-radius: calc(var(--radius-md) - 3px);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+  white-space: nowrap;
+}
+
+.view-mode-btn:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.10);
+}
+
+.view-mode-btn.active {
+  background: #fff;
+  color: var(--color-primary, #0d3b66);
+}
+
+body.dark-mode .view-mode-toggle {
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+}
+
+body.dark-mode .view-mode-btn {
+  color: var(--color-text-muted);
+}
+
+body.dark-mode .view-mode-btn.active {
+  background: var(--color-text);
+  color: var(--color-surface);
+}
+
 .btn-icon {
   background: rgba(255,255,255,0.15);
   border: 1px solid rgba(255,255,255,0.25);
@@ -1346,6 +1396,10 @@ body.dark-mode .header-icon {
      for the brand title so it fits on a single line. */
   .last-updated { display: none; }
   .header-controls { flex-shrink: 0; gap: var(--space-sm); }
+  .view-mode-btn { padding: 4px 8px; font-size: 0.7rem; }
+  /* Abbreviate "Improvements" → "Plan" on small screens */
+  #view-mode-improvements { font-size: 0; }
+  #view-mode-improvements::after { content: "Plan"; font-size: 0.7rem; }
 }
 
 /* ---- Header controls: icon buttons hold svgs ---- */
@@ -1543,4 +1597,241 @@ body.dark-mode #map::after {
   z-index: 400;
 }
 #map { position: relative; isolation: isolate; }
+
+/* ============================================================
+   IMPROVEMENTS VIEW (Live ↔ Improvements mode swap)
+   ============================================================ */
+
+/* Each .panel-mode wraps one mode's tabs + content, fills the panel */
+.panel-mode {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel-mode.hidden { display: none; }
+
+/* Mode visibility driven by body class so initial render is consistent */
+body:not(.improvements-mode) .panel-mode[data-mode="improvements"] { display: none; }
+body.improvements-mode      .panel-mode[data-mode="live"]         { display: none; }
+
+/* In Improvements mode stops stay visible but inert (no clicks, no popup).
+   Vehicle markers are removed from the map entirely by JS. */
+body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
+  pointer-events: none !important;
+  opacity: 0.55;
+}
+
+/* ── About tab ── */
+.improvements-intro {
+  padding: var(--space-md) var(--space-md) var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.improvements-title {
+  font-family: var(--font-brand, var(--font-family));
+  font-size: var(--font-size-lg);
+  font-weight: 800;
+  color: var(--color-text);
+  margin: 0 0 8px;
+  line-height: 1.15;
+}
+
+.improvements-intro p {
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  margin: 0 0 8px;
+}
+
+.improvements-intro p:last-child { margin-bottom: 0; }
+
+/* ── Route filter list ── */
+.route-filters {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--space-md);
+  gap: 10px;
+  overflow: hidden;
+}
+
+.route-filters-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.route-filters-title {
+  font-family: var(--font-brand, var(--font-family));
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.route-filters-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.route-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow-y: auto;
+  padding-right: 4px;
+  align-content: flex-start;
+}
+
+.route-filters-empty,
+.proposals-empty {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* Each route chip — shows route number on its livery colour */
+.route-chip {
+  --chip-bg: var(--color-surface-2);
+  --chip-fg: var(--color-text);
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: opacity var(--transition), transform var(--transition);
+  line-height: 1.1;
+}
+
+.route-chip[aria-pressed="false"] {
+  opacity: 0.32;
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+}
+
+.route-chip:hover { transform: translateY(-1px); }
+.route-chip:active { transform: translateY(0); }
+
+/* ── Proposals tab ── */
+.proposals-intro {
+  padding: var(--space-md) var(--space-md) 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.proposals-intro p {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.proposals-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.proposal-card {
+  appearance: none;
+  text-align: left;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: inherit;
+  color: inherit;
+  transition: background var(--transition), transform var(--transition);
+}
+
+.proposal-card:hover { background: var(--color-surface); transform: translateY(-1px); }
+
+.proposal-card.selected {
+  background: var(--color-surface);
+  box-shadow: 0 0 0 2px var(--color-accent, var(--color-primary)) inset;
+}
+
+.proposal-card-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--color-text);
+}
+
+.proposal-card-summary {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.proposal-detail {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--color-border);
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+/* ── Map overlay control: "Show proposals" toggle ── */
+.map-overlay-controls {
+  position: absolute;
+  top: var(--space-md);
+  left: var(--space-md);
+  z-index: 500;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none; /* container ignores; children re-enable */
+}
+
+body.improvements-mode .map-overlay-controls { display: flex; }
+
+.map-overlay-btn {
+  pointer-events: auto;
+  appearance: none;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md, 0 1px 4px rgba(0,0,0,0.15));
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.map-overlay-btn:hover { background: var(--color-surface-2); }
+
+.map-overlay-btn[aria-pressed="true"] {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.map-overlay-btn[aria-pressed="true"]:hover {
+  background: var(--color-primary-dark, var(--color-primary));
+}
 
