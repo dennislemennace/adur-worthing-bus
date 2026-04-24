@@ -86,6 +86,14 @@ const state = {
   proposalLayers:          {},     // proposal id → array of L.polyline
   showProposals:           false,  // map overlay toggle in Improvements mode
   selectedProposalId:      null,
+
+  // ── Proposal editor ──
+  editor:              null,      // active draft object; null = editor closed
+  editorMode:          "move",    // "move" | "addStop" | "addWaypoint"
+  editorLayers:        null,      // L.featureGroup holding draft polyline + markers
+  editorDrafts:        [],        // cached copy of localStorage["proposalDrafts"]
+  editorAutosaveTimer: null,      // setTimeout handle for debounced save
+  editorStopsIndex:    null,      // atco → {name, lat, lon} for quick lookup
 };
 
 // ============================================================
@@ -139,6 +147,13 @@ const dom = {
   routesNoneBtn:          document.getElementById("routes-none-btn"),
   proposalsList:          document.getElementById("proposals-list"),
   mapOverlayControls:     document.getElementById("map-overlay-controls"),
+
+  // ── Proposal editor ──
+  proposalsView:          document.getElementById("proposals-view"),
+  newProposalBtn:         document.getElementById("new-proposal-btn"),
+  draftsSection:          document.getElementById("drafts-section"),
+  draftsList:             document.getElementById("drafts-list"),
+  proposalEditor:         document.getElementById("proposal-editor"),
 };
 
 // ============================================================
@@ -157,6 +172,10 @@ async function init() {
 
   initMap();
   bindUIEvents();
+
+  // Restore any proposal drafts saved in localStorage from a previous session.
+  state.editorDrafts = loadDraftsFromStorage();
+  renderDraftsSection();
 
   // Load stops first (cached 24 h on backend, so fast after first call)
   await loadStops();
@@ -491,6 +510,23 @@ function updateBusMarkerInPlace(marker, label, bearing) {
  * in Leaflet popup HTML.
  */
 window.openDepartures = async function(atcoCode, stopName) {
+  // Editor is in "add stop" mode AND the editor UI is on-screen — clicking
+  // a stop adds it to the draft. We gate on the Proposals tab being the
+  // active one so a stop click from the About tab doesn't silently mutate
+  // the draft behind the user's back.
+  const editorVisible =
+    state.editor &&
+    dom.tabContentProposals &&
+    !dom.tabContentProposals.classList.contains("hidden");
+  if (editorVisible && state.editorMode === "addStop") {
+    const pos = state.stopData[atcoCode];
+    if (pos) {
+      addStopToDraft({ atco: atcoCode, name: stopName, lat: pos.lat, lon: pos.lon });
+    }
+    state.map.closePopup();
+    return;
+  }
+
   // Stops are inert in Improvements mode (network-view rather than live).
   if (state.viewMode === "improvements") return;
 
@@ -1038,6 +1074,9 @@ function toggleDarkMode() {
 }
 
 function closePanel() {
+  // If the proposal editor is open, close it first (persists the draft).
+  if (state.editor) closeEditor();
+
   // Clear stop selection
   state.selectedStop = null;
   showPanelState("prompt");
@@ -1127,6 +1166,36 @@ function bindUIEvents() {
   // Route filter bulk actions
   dom.routesAllBtn.addEventListener("click",  () => setAllRoutesVisible(true));
   dom.routesNoneBtn.addEventListener("click", () => setAllRoutesVisible(false));
+
+  // Proposal editor: "+ New proposal"
+  if (dom.newProposalBtn) {
+    dom.newProposalBtn.addEventListener("click", () => openEditor());
+  }
+
+  // Freeform waypoint add: click on empty map area (not a marker) in addWaypoint mode.
+  // Gated on the editor UI being on-screen so off-tab clicks don't mutate the
+  // draft silently. Draft circleMarkers set bubblingMouseEvents:false so
+  // clicks on them won't fall through here as duplicate waypoints.
+  state.map.on("click", (e) => {
+    if (!state.editor || state.editorMode !== "addWaypoint") return;
+    if (dom.tabContentProposals &&
+        dom.tabContentProposals.classList.contains("hidden")) return;
+    const t = e.originalEvent && e.originalEvent.target;
+    if (t && t.closest &&
+        t.closest(".leaflet-marker-icon, .leaflet-marker-pane, .leaflet-popup, .leaflet-popup-pane, .bus-marker-wrapper")) {
+      return;
+    }
+    addWaypointToDraft([e.latlng.lat, e.latlng.lng]);
+  });
+
+  // Flush pending draft autosaves on tab hide / page unload so a reload
+  // or mobile background suspend right after an edit doesn't lose it.
+  // pagehide covers bfcache + full unload; visibilitychange catches tab
+  // switches and mobile suspends where pagehide may not fire.
+  window.addEventListener("pagehide", flushEditorAutosave);
+  window.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushEditorAutosave();
+  });
 }
 
 /** Switch between the About and Proposals tabs in Improvements mode. */
@@ -1188,6 +1257,8 @@ async function applyViewMode() {
       showToast("Could not load Improvements data. Try again later.");
     }
   } else {
+    // If the editor is open, tear it down — it only makes sense in Improvements mode.
+    if (state.editor) closeEditor({ skipSave: false });
     hideRouteLines();
     hideAllProposals();
     showVehicleMarkers();
@@ -1222,6 +1293,7 @@ async function loadRouteLines() {
         opacity:      0.85,
         smoothFactor: 1.5,
         interactive:  false,
+        className:    "proposal-existing-line",
       })
     );
   }
@@ -1369,6 +1441,7 @@ async function loadProposals() {
         dashArray:   "8 6",
         smoothFactor: 1.2,
         interactive: false,
+        className:   "proposal-existing-line",
       }));
     }
 
@@ -1517,6 +1590,689 @@ function showVehicleMarkers() {
   for (const marker of Object.values(state.busMarkers)) {
     if (!state.map.hasLayer(marker)) marker.addTo(state.map);
   }
+}
+
+// ============================================================
+// PROPOSAL EDITOR
+// ============================================================
+//
+// In-browser editor for sketching a new route proposal. Drafts live in
+// localStorage under "proposalDrafts". Finished drafts can be copied to
+// clipboard, downloaded, or sent to GitHub as a pre-filled issue so the
+// proposal can be PR'd into data/proposals.json.
+//
+// Data model (in-memory + persisted):
+//   {
+//     draftId, name, summary, description, color,
+//     points: [ { type: "stop"|"waypoint", lat, lon, name?, atco? } ],
+//     updatedAt: ISO string
+//   }
+
+const EDITOR_STORAGE_KEY = "proposalDrafts";
+const EDITOR_AUTOSAVE_MS = 400;
+const EDITOR_REPO = "dennislemennace/adur-worthing-bus";
+
+function newDraftId() {
+  return "d_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+}
+
+function emptyDraft() {
+  return {
+    draftId: newDraftId(),
+    name: "",
+    summary: "",
+    description: "",
+    color: "#1e88e5",
+    points: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function loadDraftsFromStorage() {
+  try {
+    const raw = localStorage.getItem(EDITOR_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(d => d && typeof d === "object" && Array.isArray(d.points));
+  } catch {
+    return [];
+  }
+}
+
+function persistDrafts() {
+  try {
+    localStorage.setItem(EDITOR_STORAGE_KEY, JSON.stringify(state.editorDrafts));
+  } catch (err) {
+    console.warn("Could not persist proposal drafts:", err);
+  }
+}
+
+/**
+ * Commit the currently-open draft into state.editorDrafts + localStorage
+ * immediately. Used by scheduleAutosave's timer and by flushEditorAutosave
+ * (page unload, tab hide, closeEditor) to avoid losing the last edits.
+ */
+function commitEditorDraft() {
+  if (!state.editor) return;
+  state.editor.updatedAt = new Date().toISOString();
+  const i = state.editorDrafts.findIndex(d => d.draftId === state.editor.draftId);
+  const snapshot = JSON.parse(JSON.stringify(state.editor));
+  if (i === -1) state.editorDrafts.push(snapshot);
+  else          state.editorDrafts[i] = snapshot;
+  persistDrafts();
+}
+
+/** Debounced save of the currently-open draft into state.editorDrafts + localStorage. */
+function scheduleAutosave() {
+  if (!state.editor) return;
+  clearTimeout(state.editorAutosaveTimer);
+  state.editorAutosaveTimer = setTimeout(() => {
+    state.editorAutosaveTimer = null;
+    if (!state.editor) return;
+    commitEditorDraft();
+    renderDraftsSection();
+  }, EDITOR_AUTOSAVE_MS);
+}
+
+/**
+ * If a debounced save is pending, flush it now. Called on page unload,
+ * tab hide, and before closeEditor — so a reload / mobile-suspend right
+ * after an edit doesn't lose the last keystroke.
+ */
+function flushEditorAutosave() {
+  if (!state.editorAutosaveTimer) return;
+  clearTimeout(state.editorAutosaveTimer);
+  state.editorAutosaveTimer = null;
+  if (state.editor) commitEditorDraft();
+}
+
+function deleteDraft(draftId) {
+  state.editorDrafts = state.editorDrafts.filter(d => d.draftId !== draftId);
+  persistDrafts();
+  renderDraftsSection();
+}
+
+/** Render the "Your drafts" subsection (above the published proposals list). */
+function renderDraftsSection() {
+  if (!dom.draftsSection || !dom.draftsList) return;
+  const drafts = state.editorDrafts.slice().sort(
+    (a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))
+  );
+  if (drafts.length === 0) {
+    dom.draftsSection.classList.add("hidden");
+    dom.draftsList.innerHTML = "";
+    return;
+  }
+  dom.draftsSection.classList.remove("hidden");
+  dom.draftsList.innerHTML = drafts.map(d => {
+    const name = d.name || "(unnamed draft)";
+    const stopsCount = d.points.filter(p => p.type === "stop").length;
+    const ptsCount   = d.points.length;
+    return `
+      <div class="draft-card" role="button" tabindex="0" data-draft-id="${escapeAttr(d.draftId)}"
+           style="border-left-color:${escapeAttr(d.color || "#444")}">
+        <div class="draft-card-main">
+          <span class="draft-card-name">${escapeHtml(name)}</span>
+          <span class="draft-card-meta">${stopsCount} stop${stopsCount === 1 ? "" : "s"} · ${ptsCount} point${ptsCount === 1 ? "" : "s"}</span>
+        </div>
+        <button class="draft-card-delete" data-delete-id="${escapeAttr(d.draftId)}"
+                aria-label="Delete draft ${escapeAttr(name)}">
+          <svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>
+        </button>
+      </div>`;
+  }).join("");
+
+  dom.draftsList.querySelectorAll(".draft-card").forEach(card => {
+    card.addEventListener("click", (e) => {
+      if (e.target.closest(".draft-card-delete")) return;
+      const id = card.dataset.draftId;
+      const draft = state.editorDrafts.find(d => d.draftId === id);
+      if (draft) openEditor(draft);
+    });
+  });
+  dom.draftsList.querySelectorAll(".draft-card-delete").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.deleteId;
+      if (!id) return;
+      if (confirm("Delete this draft? This cannot be undone.")) deleteDraft(id);
+    });
+  });
+}
+
+/** Open the editor with an existing draft, or a fresh empty one. */
+function openEditor(draft) {
+  // Deep-copy so edits to state.editor don't mutate the cached list entry
+  // until scheduleAutosave() snapshots.
+  state.editor = draft
+    ? JSON.parse(JSON.stringify(draft))
+    : emptyDraft();
+  state.editorMode = "move";
+
+  if (!state.editorLayers) {
+    state.editorLayers = L.featureGroup().addTo(state.map);
+  }
+
+  document.body.classList.add("editor-mode");
+  applyEditorModeBodyClass();
+
+  // Swap the Proposals tab from list view → editor view
+  if (dom.proposalsView)   dom.proposalsView.classList.add("hidden");
+  if (dom.proposalEditor)  dom.proposalEditor.classList.remove("hidden");
+
+  // Ensure we're on the Proposals tab
+  setImprovementsTab("proposals");
+
+  renderEditor();
+  redrawEditorLayers();
+  fitEditorLayers();
+}
+
+function closeEditor(opts = {}) {
+  const { skipSave = false } = opts;
+
+  // Always cancel a pending debounced save; then decide whether to persist.
+  clearTimeout(state.editorAutosaveTimer);
+  state.editorAutosaveTimer = null;
+
+  if (state.editor && !skipSave) {
+    const hasContent = state.editor.name || state.editor.points.length > 0;
+    if (hasContent) {
+      commitEditorDraft();
+    } else {
+      // Empty draft — don't litter storage
+      const i = state.editorDrafts.findIndex(d => d.draftId === state.editor.draftId);
+      if (i !== -1) {
+        state.editorDrafts.splice(i, 1);
+        persistDrafts();
+      }
+    }
+  }
+
+  state.editor = null;
+  state.editorMode = "move";
+
+  if (state.editorLayers) {
+    state.editorLayers.clearLayers();
+  }
+
+  document.body.classList.remove("editor-mode");
+  applyEditorModeBodyClass();
+
+  if (dom.proposalsView)  dom.proposalsView.classList.remove("hidden");
+  if (dom.proposalEditor) dom.proposalEditor.classList.add("hidden");
+
+  renderDraftsSection();
+}
+
+function setEditorMode(mode) {
+  if (!state.editor) return;
+  state.editorMode = (mode === "addStop" || mode === "addWaypoint") ? mode : "move";
+  applyEditorModeBodyClass();
+  // Re-render just the mode-button active state + re-wire dragging
+  syncEditorModeButtons();
+  redrawEditorLayers();
+}
+
+function applyEditorModeBodyClass() {
+  document.body.classList.toggle("editor-mode-add-stop",     state.editorMode === "addStop" && !!state.editor);
+  document.body.classList.toggle("editor-mode-add-waypoint", state.editorMode === "addWaypoint" && !!state.editor);
+}
+
+function syncEditorModeButtons() {
+  const container = dom.proposalEditor;
+  if (!container) return;
+  container.querySelectorAll(".editor-mode-btn").forEach(btn => {
+    const m = btn.dataset.mode;
+    btn.classList.toggle("active", m === state.editorMode);
+  });
+  const hint = container.querySelector(".editor-mode-hint");
+  if (hint) hint.textContent = modeHint(state.editorMode);
+}
+
+function modeHint(mode) {
+  switch (mode) {
+    case "addStop":     return "Click any bus stop on the map to add it to the route.";
+    case "addWaypoint": return "Click anywhere on the map to add a freeform waypoint.";
+    default:            return "Drag any dot to move it. Shift-click a dot to remove it.";
+  }
+}
+
+/** Render the whole editor form into #proposal-editor. */
+function renderEditor() {
+  if (!state.editor || !dom.proposalEditor) return;
+  const d = state.editor;
+
+  const canExport = d.points.length >= 2;
+
+  dom.proposalEditor.innerHTML = `
+    <div class="editor-header">
+      <button class="editor-back-btn" id="ed-back-btn" type="button" aria-label="Back to proposals">
+        <svg class="icon" aria-hidden="true"><use href="#i-arrow-left"/></svg>
+        <span>Back</span>
+      </button>
+      <span class="editor-header-title">${escapeHtml(d.name || "New proposal")}</span>
+      <button class="editor-delete-btn" id="ed-delete-btn" type="button" aria-label="Delete this draft">
+        <svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>
+        <span>Delete</span>
+      </button>
+    </div>
+
+    <div class="editor-scroll">
+      <div class="editor-field">
+        <label for="ed-name">Name</label>
+        <input id="ed-name" type="text" maxlength="80" placeholder="e.g. Coastal Sprinter X1"
+               value="${escapeAttr(d.name)}">
+      </div>
+
+      <div class="editor-field">
+        <label for="ed-summary">Summary</label>
+        <input id="ed-summary" type="text" maxlength="160"
+               placeholder="One-line pitch shown in the proposals list"
+               value="${escapeAttr(d.summary)}">
+      </div>
+
+      <div class="editor-field">
+        <label for="ed-description">Description</label>
+        <textarea id="ed-description" maxlength="1000"
+                  placeholder="What does this service do, and why is it needed?">${escapeHtml(d.description)}</textarea>
+      </div>
+
+      <div class="editor-field">
+        <label>Colour</label>
+        <div class="editor-color-row">
+          <input id="ed-color" type="color" value="${escapeAttr(d.color || "#1e88e5")}">
+          <span class="editor-color-row-caption">Line colour on the map</span>
+        </div>
+      </div>
+
+      <div class="editor-field">
+        <span class="editor-modes-label">Route builder</span>
+        <div class="editor-mode-buttons" role="radiogroup" aria-label="Route edit mode">
+          <button class="editor-mode-btn" data-mode="move" type="button" role="radio">
+            <svg class="icon" aria-hidden="true"><use href="#i-move"/></svg>
+            <span>Move / delete</span>
+          </button>
+          <button class="editor-mode-btn" data-mode="addStop" type="button" role="radio">
+            <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>
+            <span>Add stop</span>
+          </button>
+          <button class="editor-mode-btn" data-mode="addWaypoint" type="button" role="radio">
+            <svg class="icon" aria-hidden="true"><use href="#i-circle-dot"/></svg>
+            <span>Add waypoint</span>
+          </button>
+        </div>
+        <p class="editor-mode-hint">${escapeHtml(modeHint(state.editorMode))}</p>
+      </div>
+
+      <div class="editor-field">
+        <div class="editor-points-label">
+          <span>Points</span>
+          <span class="editor-points-count" id="ed-points-count"></span>
+        </div>
+        <div class="editor-point-list" id="ed-point-list"></div>
+      </div>
+    </div>
+
+    <div class="editor-actions">
+      <button class="editor-action-btn" id="ed-copy-btn" type="button" ${canExport ? "" : "disabled"}>
+        <svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>
+        <span>Copy JSON</span>
+      </button>
+      <button class="editor-action-btn" id="ed-download-btn" type="button" ${canExport ? "" : "disabled"}>
+        <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>
+        <span>Download</span>
+      </button>
+      <button class="editor-action-btn primary" id="ed-github-btn" type="button" ${canExport ? "" : "disabled"}>
+        <svg class="icon" aria-hidden="true"><use href="#i-github"/></svg>
+        <span>Contribute</span>
+      </button>
+      <span class="editor-status" id="ed-status"></span>
+    </div>
+  `;
+
+  // Header actions
+  dom.proposalEditor.querySelector("#ed-back-btn")
+    .addEventListener("click", () => closeEditor());
+  dom.proposalEditor.querySelector("#ed-delete-btn")
+    .addEventListener("click", () => {
+      if (!confirm("Delete this draft? This cannot be undone.")) return;
+      const id = state.editor.draftId;
+      // Skip the save-on-close — we want the draft gone.
+      closeEditor({ skipSave: true });
+      deleteDraft(id);
+    });
+
+  // Field listeners (live update + autosave)
+  const nameInput = dom.proposalEditor.querySelector("#ed-name");
+  nameInput.addEventListener("input", (e) => {
+    state.editor.name = e.target.value;
+    const titleEl = dom.proposalEditor.querySelector(".editor-header-title");
+    if (titleEl) titleEl.textContent = state.editor.name || "New proposal";
+    scheduleAutosave();
+  });
+  dom.proposalEditor.querySelector("#ed-summary").addEventListener("input", (e) => {
+    state.editor.summary = e.target.value;
+    scheduleAutosave();
+  });
+  dom.proposalEditor.querySelector("#ed-description").addEventListener("input", (e) => {
+    state.editor.description = e.target.value;
+    scheduleAutosave();
+  });
+  dom.proposalEditor.querySelector("#ed-color").addEventListener("input", (e) => {
+    state.editor.color = e.target.value;
+    redrawEditorLayers();
+    scheduleAutosave();
+  });
+
+  // Mode buttons
+  dom.proposalEditor.querySelectorAll(".editor-mode-btn").forEach(btn => {
+    btn.addEventListener("click", () => setEditorMode(btn.dataset.mode));
+  });
+
+  // Export actions
+  dom.proposalEditor.querySelector("#ed-copy-btn").addEventListener("click", copyDraftJson);
+  dom.proposalEditor.querySelector("#ed-download-btn").addEventListener("click", downloadDraftJson);
+  dom.proposalEditor.querySelector("#ed-github-btn").addEventListener("click", openGitHubIssue);
+
+  syncEditorModeButtons();
+  renderPointList();
+}
+
+function renderPointList() {
+  if (!state.editor || !dom.proposalEditor) return;
+  const listEl = dom.proposalEditor.querySelector("#ed-point-list");
+  const countEl = dom.proposalEditor.querySelector("#ed-points-count");
+  if (!listEl || !countEl) return;
+
+  const pts = state.editor.points;
+  const stopsCount = pts.filter(p => p.type === "stop").length;
+  countEl.textContent = `${pts.length} total · ${stopsCount} stop${stopsCount === 1 ? "" : "s"}`;
+
+  if (pts.length === 0) {
+    listEl.innerHTML = `<p class="editor-point-list-empty">No points yet. Switch to <em>Add stop</em> or <em>Add waypoint</em> and click the map.</p>`;
+    return;
+  }
+
+  listEl.innerHTML = pts.map((p, i) => {
+    const label = p.type === "stop"
+      ? (p.name || p.atco || "Unnamed stop")
+      : `Waypoint`;
+    const iconId = p.type === "stop" ? "i-pin" : "i-circle-dot";
+    return `
+      <div class="editor-point-row" data-type="${escapeAttr(p.type)}" data-index="${i}">
+        <span class="editor-point-row-index">${i + 1}</span>
+        <svg class="icon" aria-hidden="true"><use href="#${iconId}"/></svg>
+        <span class="editor-point-row-label">${escapeHtml(label)}</span>
+        <button class="editor-point-row-remove" data-remove-index="${i}" aria-label="Remove point ${i + 1}">×</button>
+      </div>`;
+  }).join("");
+
+  listEl.querySelectorAll(".editor-point-row-remove").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.removeIndex, 10);
+      if (!Number.isNaN(idx)) removePoint(idx);
+    });
+  });
+
+  // Update action-button enabled state whenever point count changes
+  const canExport = pts.length >= 2;
+  ["#ed-copy-btn", "#ed-download-btn", "#ed-github-btn"].forEach(sel => {
+    const btn = dom.proposalEditor.querySelector(sel);
+    if (btn) btn.disabled = !canExport;
+  });
+}
+
+function addStopToDraft(stop) {
+  if (!state.editor) return;
+  state.editor.points.push({
+    type: "stop",
+    lat: stop.lat,
+    lon: stop.lon,
+    name: stop.name || "",
+    atco: stop.atco || "",
+  });
+  redrawEditorLayers();
+  renderPointList();
+  scheduleAutosave();
+}
+
+function addWaypointToDraft(latlon) {
+  if (!state.editor) return;
+  const [lat, lon] = latlon;
+  state.editor.points.push({ type: "waypoint", lat, lon });
+  redrawEditorLayers();
+  renderPointList();
+  scheduleAutosave();
+}
+
+function removePoint(index) {
+  if (!state.editor) return;
+  if (index < 0 || index >= state.editor.points.length) return;
+  state.editor.points.splice(index, 1);
+  redrawEditorLayers();
+  renderPointList();
+  scheduleAutosave();
+}
+
+function movePoint(index, lat, lon) {
+  if (!state.editor) return;
+  const p = state.editor.points[index];
+  if (!p) return;
+  p.lat = lat;
+  p.lon = lon;
+  // Leave the on-screen marker position to Leaflet's drag; just update the polyline.
+  const line = state.editorLayers && state.editorLayers._editorPolyline;
+  if (line) line.setLatLngs(state.editor.points.map(q => [q.lat, q.lon]));
+  scheduleAutosave();
+}
+
+/**
+ * Tear down and rebuild the draft's layers from scratch. Simpler than
+ * diffing and fast enough at the tens-of-points scale we expect.
+ */
+function redrawEditorLayers() {
+  if (!state.editorLayers) return;
+  state.editorLayers.clearLayers();
+  state.editorLayers._editorPolyline = null;
+  if (!state.editor) return;
+
+  const pts = state.editor.points;
+  const latlngs = pts.map(p => [p.lat, p.lon]);
+  const colour = state.editor.color || "#1e88e5";
+
+  if (latlngs.length >= 2) {
+    const line = L.polyline(latlngs, {
+      color: colour,
+      weight: 5,
+      opacity: 0.95,
+      dashArray: "8 6",
+      smoothFactor: 1.2,
+      interactive: false,
+    });
+    line.addTo(state.editorLayers);
+    state.editorLayers._editorPolyline = line;
+  }
+
+  // Markers for every point. Draggable in "move" mode.
+  pts.forEach((p, i) => {
+    const isStop = p.type === "stop";
+    const marker = L.circleMarker([p.lat, p.lon], {
+      radius: isStop ? 7 : 5,
+      color: colour,
+      weight: 2,
+      fillColor: isStop ? "#fff" : colour,
+      fillOpacity: 1,
+      // Don't let clicks on an existing draft point fall through to the
+      // map's click handler — otherwise addWaypoint mode would drop a
+      // duplicate point on top of this one.
+      bubblingMouseEvents: false,
+    });
+
+    // circleMarker has no native dragging — fall back to a regular marker for stops/waypoints
+    // when move mode is active. Use a divIcon so we don't pull in default Leaflet sprites.
+    if (state.editorMode === "move") {
+      const drag = L.marker([p.lat, p.lon], {
+        draggable: true,
+        icon: L.divIcon({
+          className: "editor-draggable-point",
+          html: `<span style="
+              display:block;width:${isStop ? 14 : 10}px;height:${isStop ? 14 : 10}px;
+              border-radius:50%;
+              border:2px solid ${colour};
+              background:${isStop ? "#fff" : colour};
+              box-shadow:0 0 0 2px rgba(255,255,255,0.7);
+            "></span>`,
+          iconSize: [isStop ? 14 : 10, isStop ? 14 : 10],
+          iconAnchor: [isStop ? 7 : 5, isStop ? 7 : 5],
+        }),
+      });
+      drag.on("drag", (e) => {
+        const ll = e.target.getLatLng();
+        movePoint(i, ll.lat, ll.lng);
+      });
+      drag.on("dragend", () => {
+        redrawEditorLayers();
+      });
+      drag.on("click", (e) => {
+        if (e.originalEvent && e.originalEvent.shiftKey) {
+          removePoint(i);
+        }
+      });
+      drag.addTo(state.editorLayers);
+    } else {
+      marker.addTo(state.editorLayers);
+    }
+  });
+}
+
+function fitEditorLayers() {
+  if (!state.editor || !state.editorLayers) return;
+  const pts = state.editor.points;
+  if (pts.length < 2) return;
+  try {
+    const bounds = L.latLngBounds(pts.map(p => [p.lat, p.lon]));
+    state.map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+  } catch { /* ignore */ }
+}
+
+// ── Export actions ──────────────────────────────────────────
+
+/** In-memory draft → the export schema used by data/proposals.json. */
+function draftToProposalJson(draft) {
+  const id = slugify(draft.name || draft.draftId);
+  const stops = draft.points
+    .filter(p => p.type === "stop")
+    .map(p => ({ name: p.name || "", lat: round5(p.lat), lon: round5(p.lon) }));
+  const polyline = draft.points.map(p => [round5(p.lat), round5(p.lon)]);
+  return {
+    id,
+    name: draft.name || "",
+    summary: draft.summary || "",
+    color: draft.color || "#1e88e5",
+    polyline,
+    stops,
+    description: draft.description || "",
+  };
+}
+
+function slugify(s) {
+  return String(s || "proposal")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "proposal";
+}
+
+function round5(n) {
+  return Math.round(n * 1e5) / 1e5;
+}
+
+function setEditorStatus(msg) {
+  const el = dom.proposalEditor && dom.proposalEditor.querySelector("#ed-status");
+  if (!el) return;
+  el.textContent = msg;
+  clearTimeout(setEditorStatus._t);
+  setEditorStatus._t = setTimeout(() => { el.textContent = ""; }, 2500);
+}
+
+async function copyDraftJson() {
+  if (!state.editor) return;
+  const json = JSON.stringify(draftToProposalJson(state.editor), null, 2);
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(json);
+      setEditorStatus("Copied!");
+      return;
+    }
+  } catch (err) {
+    console.warn("Clipboard write failed, falling back:", err);
+  }
+  // Fallback: textarea select + execCommand
+  const ta = document.createElement("textarea");
+  ta.value = json;
+  ta.style.position = "fixed";
+  ta.style.opacity  = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand("copy"); setEditorStatus("Copied!"); }
+  catch { setEditorStatus("Copy failed — select and copy manually."); }
+  document.body.removeChild(ta);
+}
+
+function downloadDraftJson() {
+  if (!state.editor) return;
+  const obj = draftToProposalJson(state.editor);
+  const json = JSON.stringify(obj, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `proposal-${obj.id || "draft"}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  setEditorStatus("Downloaded.");
+}
+
+function openGitHubIssue() {
+  if (!state.editor) return;
+  const obj = draftToProposalJson(state.editor);
+  const title = `Proposal: ${obj.name || obj.id}`;
+  const fullBody =
+    `Submitted from the in-app proposal editor. ` +
+    `Please paste the JSON below into \`data/proposals.json\` and open a PR.\n\n` +
+    "```json\n" +
+    JSON.stringify(obj, null, 2) +
+    "\n```\n";
+  const fullUrl = `https://github.com/${EDITOR_REPO}/issues/new` +
+    `?title=${encodeURIComponent(title)}` +
+    `&body=${encodeURIComponent(fullBody)}`;
+
+  // GitHub silently truncates pre-filled issue URLs around 8 KB. For large
+  // proposals, copy the JSON to the clipboard and open a stub body asking
+  // the author to paste it in.
+  if (fullUrl.length <= 7000) {
+    window.open(fullUrl, "_blank", "noopener");
+    setEditorStatus("Opening GitHub…");
+    return;
+  }
+
+  copyDraftJson(); // fire-and-forget — clipboard on most browsers
+  const stubBody =
+    `Submitted from the in-app proposal editor. The proposal JSON was too ` +
+    `large to pre-fill here — it's on your clipboard. **Please paste the ` +
+    `JSON into a fenced \`\`\`json block below**, then either paste the ` +
+    `same JSON into \`data/proposals.json\` and open a PR, or leave it in ` +
+    `this issue for someone else to pick up.\n\n` +
+    "```json\n(paste here)\n```\n";
+  const stubUrl = `https://github.com/${EDITOR_REPO}/issues/new` +
+    `?title=${encodeURIComponent(title)}` +
+    `&body=${encodeURIComponent(stubBody)}`;
+  window.open(stubUrl, "_blank", "noopener");
+  setEditorStatus("JSON copied; paste it into the issue.");
 }
 
 // ============================================================
