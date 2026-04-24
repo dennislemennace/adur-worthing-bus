@@ -1835,3 +1835,387 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   background: var(--color-primary-dark, var(--color-primary));
 }
 
+/* ============================================================
+   PROPOSAL EDITOR
+   ============================================================ */
+
+/* "+ New proposal" button above the proposals list */
+.new-proposal-btn {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  appearance: none;
+  background: var(--color-primary);
+  color: #fff;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background var(--transition), transform var(--transition);
+}
+.new-proposal-btn:hover { transform: translateY(-1px); background: var(--color-primary-dark, var(--color-primary)); }
+.new-proposal-btn .icon { width: 14px; height: 14px; }
+
+/* Drafts section in the Proposals tab */
+.drafts-section {
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+.drafts-section.hidden { display: none; }
+.drafts-title {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+.drafts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.draft-card {
+  appearance: none;
+  text-align: left;
+  background: var(--color-surface-2);
+  border: 1px dashed var(--color-border);
+  border-left: 4px dashed var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-family: inherit;
+  color: inherit;
+  transition: background var(--transition);
+}
+.draft-card:hover { background: var(--color-surface); }
+.draft-card-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.draft-card-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.draft-card-meta {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+.draft-card-delete {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm, 4px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.draft-card-delete:hover { color: #c0392b; background: rgba(192,57,43,0.08); }
+.draft-card-delete .icon { width: 14px; height: 14px; }
+
+/* Editor view — same panel, different content */
+.proposal-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.proposal-editor.hidden { display: none; }
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+}
+.editor-header-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-back-btn, .editor-delete-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 4px 8px;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background var(--transition);
+}
+.editor-back-btn:hover { background: var(--color-surface); }
+.editor-delete-btn:hover { background: rgba(192,57,43,0.08); color: #c0392b; border-color: #c0392b; }
+.editor-back-btn .icon, .editor-delete-btn .icon { width: 13px; height: 13px; }
+
+.editor-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.editor-field > label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+.editor-field input[type="text"],
+.editor-field textarea {
+  appearance: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  color: var(--color-text);
+  width: 100%;
+}
+.editor-field textarea { min-height: 70px; resize: vertical; line-height: 1.4; }
+.editor-field input:focus,
+.editor-field textarea:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -1px;
+  border-color: var(--color-primary);
+}
+
+.editor-color-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.editor-color-row input[type="color"] {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: none;
+  cursor: pointer;
+}
+.editor-color-row-caption {
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+/* Mode buttons: Add stop / Add waypoint / Move / delete */
+.editor-modes-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  margin-bottom: 2px;
+}
+.editor-mode-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.editor-mode-btn {
+  appearance: none;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 8px 4px;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: background var(--transition), border-color var(--transition);
+}
+.editor-mode-btn .icon { width: 16px; height: 16px; }
+.editor-mode-btn:hover { background: var(--color-surface); }
+.editor-mode-btn.active {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+.editor-mode-hint {
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+  margin-top: -4px;
+}
+
+/* Ordered point list */
+.editor-points-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.editor-points-count {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.72rem;
+}
+.editor-point-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  background: var(--color-surface);
+}
+.editor-point-list-empty {
+  margin: 0;
+  padding: 14px;
+  text-align: center;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+.editor-point-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.82rem;
+  color: var(--color-text);
+}
+.editor-point-row:hover { background: var(--color-surface-2); }
+.editor-point-row .icon { width: 13px; height: 13px; flex-shrink: 0; }
+.editor-point-row-index {
+  width: 22px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+}
+.editor-point-row-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-point-row[data-type="waypoint"] .editor-point-row-label { color: var(--color-text-muted); font-style: italic; }
+.editor-point-row-remove {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  font-size: 1rem;
+  border-radius: var(--radius-sm, 4px);
+}
+.editor-point-row-remove:hover { color: #c0392b; background: rgba(192,57,43,0.08); }
+
+/* Footer action row */
+.editor-actions {
+  padding: 10px var(--space-md);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  background: var(--color-surface-2);
+}
+.editor-action-btn {
+  appearance: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background var(--transition), border-color var(--transition);
+}
+.editor-action-btn .icon { width: 13px; height: 13px; }
+.editor-action-btn:hover { background: var(--color-surface-2); }
+.editor-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.editor-action-btn.primary {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+.editor-action-btn.primary:hover { background: var(--color-primary-dark, var(--color-primary)); }
+
+.editor-status {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  align-self: center;
+}
+
+/* While editor is active: dim existing proposal lines, ensure stops
+   are interactive again, hint with a crosshair cursor when adding stops. */
+body.editor-mode .leaflet-marker-icon.stop-marker-icon {
+  pointer-events: auto !important;
+  opacity: 1 !important;
+}
+body.editor-mode.editor-mode-add-stop .leaflet-marker-icon.stop-marker-icon {
+  cursor: crosshair !important;
+}
+body.editor-mode.editor-mode-add-waypoint #map {
+  cursor: crosshair;
+}
+body.editor-mode .proposal-existing-line {
+  opacity: 0.25 !important;
+}
+
+/* Suppress stop popups while in "Add stop" mode — otherwise Leaflet's
+   bindPopup toggle opens one on click in addition to our interception,
+   and the popup contains a "Live departures" button that would re-add
+   the same stop to the draft. */
+body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
+  display: none !important;
+}
+
