@@ -1610,6 +1610,53 @@ body.dark-mode #map::after {
   min-height: 0;
 }
 
+/* Segmented Day/Night toggle, sits above the About/Proposals tab strip */
+.service-mode-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 8px var(--space-md);
+  background: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.service-mode-btn {
+  flex: 1;
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 5px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.service-mode-btn .icon { width: 14px; height: 14px; }
+
+.service-mode-btn:hover {
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.service-mode-btn.active {
+  background: var(--color-accent, var(--color-primary));
+  color: #fff;
+  border-color: var(--color-accent, var(--color-primary));
+}
+
+body.dark-mode .service-mode-btn.active {
+  color: var(--color-bg);
+}
+
 .panel-mode.hidden { display: none; }
 
 /* Mode visibility driven by body class so initial render is consistent */

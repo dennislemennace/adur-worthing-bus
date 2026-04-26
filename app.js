@@ -79,6 +79,7 @@ const state = {
 
   // ── Improvements view (network/proposals mode) ──
   viewMode:                "live", // "live" | "improvements"
+  serviceMode:             "day",  // "day" | "night" — splits chips, route lines, proposals
   routeLines:              null,   // /api/route-lines response, fetched lazily
   routeLineLayers:         {},     // service short_name → array of L.polyline
   visibleRoutes:           null,   // Set of service short_names; null = all visible
@@ -138,6 +139,8 @@ const dom = {
 
   // ── Improvements view ──
   closePanelBtnImprovements: document.getElementById("close-panel-btn-improvements"),
+  serviceModeDay:         document.getElementById("service-mode-day"),
+  serviceModeNight:       document.getElementById("service-mode-night"),
   tabAbout:               document.getElementById("tab-about"),
   tabProposals:           document.getElementById("tab-proposals"),
   tabContentAbout:        document.getElementById("tab-content-about"),
@@ -1158,6 +1161,14 @@ function bindUIEvents() {
   dom.viewModeLive.addEventListener("click", () => setViewMode("live"));
   dom.viewModeImprovements.addEventListener("click", () => setViewMode("improvements"));
 
+  // Improvements panel: Day/Night service mode toggle
+  if (dom.serviceModeDay) {
+    dom.serviceModeDay.addEventListener("click",   () => setServiceMode("day"));
+  }
+  if (dom.serviceModeNight) {
+    dom.serviceModeNight.addEventListener("click", () => setServiceMode("night"));
+  }
+
   // Improvements panel: tab switching + close
   dom.tabAbout.addEventListener("click",     () => setImprovementsTab("about"));
   dom.tabProposals.addEventListener("click", () => setImprovementsTab("proposals"));
@@ -1196,6 +1207,43 @@ function bindUIEvents() {
   window.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flushEditorAutosave();
   });
+}
+
+/** Switch between Day and Night service period in Improvements mode.
+ *  Reconciles route-line layers, re-renders chips and the proposals list,
+ *  and clears any selection that no longer belongs in the new mode. */
+function setServiceMode(mode) {
+  if (mode !== "day" && mode !== "night") return;
+  if (state.serviceMode === mode) return;
+  state.serviceMode = mode;
+
+  const day = (mode === "day");
+  if (dom.serviceModeDay) {
+    dom.serviceModeDay.classList.toggle("active", day);
+    dom.serviceModeDay.setAttribute("aria-selected", day ? "true" : "false");
+  }
+  if (dom.serviceModeNight) {
+    dom.serviceModeNight.classList.toggle("active", !day);
+    dom.serviceModeNight.setAttribute("aria-selected", !day ? "true" : "false");
+  }
+
+  // If a proposal from the other mode was selected, drop the selection
+  // before its layer gets hidden — otherwise hideAllProposals would
+  // immediately re-show it.
+  if (state.selectedProposalId) {
+    const sp = (state.proposals || []).find(x => x.id === state.selectedProposalId);
+    if (sp && isProposalNight(sp) !== !day) {
+      state.selectedProposalId = null;
+    }
+  }
+
+  showRouteLines();           // reconciles in/out of new mode
+  renderRouteFilterChips();
+  renderProposalsList();
+
+  // Refresh proposal overlay to match new mode (also handles selection)
+  if (state.showProposals) showAllProposals();
+  else                     hideAllProposals();
 }
 
 /** Switch between the About and Proposals tabs in Improvements mode. */
@@ -1302,52 +1350,67 @@ async function loadRouteLines() {
 }
 
 /**
- * Render a clickable chip for each route into the About tab. The chip's
- * background is the route's livery colour; clicking toggles its
- * polylines on/off via setRouteVisible(). Sorted natural-numeric so
- * "5" comes before "10" comes before "106".
+ * Render a clickable chip for each route GROUP into the About tab,
+ * filtered to the current Day/Night service mode. Variants of the same
+ * route (1/1A/1X) collapse to one chip that toggles them all together.
+ * The chip's background is the base route's livery colour; sorted
+ * natural-numeric so "5" comes before "10" comes before "106".
  */
 function renderRouteFilterChips() {
   if (!state.routeLines || !dom.routeFilterChips) return;
-  const services = state.routeLines
-    .map(r => r.service)
-    .slice()
-    .sort(compareServiceNames);
+  const isNight = state.serviceMode === "night";
 
-  if (services.length === 0) {
-    dom.routeFilterChips.innerHTML =
-      `<p class="route-filters-empty">No routes found.</p>`;
+  // Group services by base name, filtered to the current mode.
+  const groups = new Map(); // base -> [variants]
+  for (const r of state.routeLines) {
+    const svc = r.service;
+    if (isNightService(svc) !== isNight) continue;
+    const base = routeBaseName(svc);
+    if (!groups.has(base)) groups.set(base, []);
+    groups.get(base).push(svc);
+  }
+
+  if (groups.size === 0) {
+    dom.routeFilterChips.innerHTML = isNight
+      ? `<p class="route-filters-empty">No night services run in this area.</p>`
+      : `<p class="route-filters-empty">No routes found.</p>`;
     return;
   }
 
-  dom.routeFilterChips.innerHTML = services.map(service => {
-    const bg      = getLineColour(service);
-    const fg      = pickTextOn(bg) === "dark" ? "#1a1a1a" : "#ffffff";
-    const visible = state.visibleRoutes.has(service);
+  const bases = [...groups.keys()].sort(compareServiceNames);
+
+  dom.routeFilterChips.innerHTML = bases.map(base => {
+    const variants = groups.get(base).slice().sort(compareServiceNames);
+    const label    = variants.join("/");
+    const bg       = getLineColour(base);
+    const fg       = pickTextOn(bg) === "dark" ? "#1a1a1a" : "#ffffff";
+    const allOn    = variants.every(v => state.visibleRoutes.has(v));
     return `
       <button type="button"
               class="route-chip"
-              data-service="${escapeAttr(service)}"
-              aria-pressed="${visible ? "true" : "false"}"
+              data-variants="${escapeAttr(variants.join(","))}"
+              aria-pressed="${allOn ? "true" : "false"}"
               style="--chip-bg:${bg};--chip-fg:${fg}">
-        ${escapeHtml(service)}
+        ${escapeHtml(label)}
       </button>`;
   }).join("");
 
   dom.routeFilterChips.querySelectorAll(".route-chip").forEach(btn => {
     btn.addEventListener("click", () => {
-      const service = btn.dataset.service;
+      const variants   = (btn.dataset.variants || "").split(",").filter(Boolean);
       const nowVisible = btn.getAttribute("aria-pressed") !== "true";
       btn.setAttribute("aria-pressed", nowVisible ? "true" : "false");
-      setRouteVisible(service, nowVisible);
+      for (const svc of variants) setRouteVisible(svc, nowVisible);
     });
   });
 }
 
-/** Set every chip + every route to a given visibility. */
+/** Show or hide every route in the current service mode. */
 function setAllRoutesVisible(visible) {
   if (!state.routeLines) return;
+  const isNight = state.serviceMode === "night";
   for (const r of state.routeLines) {
+    if (isNightService(r.service) !== isNight) continue;
     setRouteVisible(r.service, visible);
   }
   if (dom.routeFilterChips) {
@@ -1357,26 +1420,50 @@ function setAllRoutesVisible(visible) {
   }
 }
 
-/** "5" < "10" < "106"; falls back to lex for non-numeric prefixes (N1, B25). */
+/** True for services whose short_name is N + digits ("N1", "N700"). */
+function isNightService(svc) {
+  return /^N\d/i.test(String(svc || ""));
+}
+
+/** Strip a trailing letter variant from a numeric route to find its base.
+ *  "1" → "1", "1A" → "1", "1X" → "1", "19A" → "19", "N1" → "N1",
+ *  "N700" → "N700". Fully alpha codes (OXF, LGW) keep their full name. */
+function routeBaseName(svc) {
+  const m = String(svc || "").match(/^([A-Za-z]*\d+)/);
+  return m ? m[1] : String(svc || "");
+}
+
+/** Natural sort: optional letter prefix + numeric segment + suffix.
+ *  "1" < "1X" < "5" < "10"; "N1" < "N5" < "N21" < "N700"; falls back
+ *  to lex for purely-alpha codes ("OXF", "LGW"). */
 function compareServiceNames(a, b) {
-  const ma = String(a).match(/^(\d+)(.*)$/);
-  const mb = String(b).match(/^(\d+)(.*)$/);
-  if (ma && mb) {
-    const na = parseInt(ma[1], 10), nb = parseInt(mb[1], 10);
+  const ra = /^([A-Za-z]*)(\d+)(.*)$/.exec(String(a));
+  const rb = /^([A-Za-z]*)(\d+)(.*)$/.exec(String(b));
+  if (ra && rb) {
+    const pa = ra[1].toUpperCase(), pb = rb[1].toUpperCase();
+    if (pa !== pb) return pa.localeCompare(pb);
+    const na = parseInt(ra[2], 10), nb = parseInt(rb[2], 10);
     if (na !== nb) return na - nb;
-    return ma[2].localeCompare(mb[2]);
+    return ra[3].localeCompare(rb[3]);
   }
-  if (ma) return -1;
-  if (mb) return 1;
+  if (ra) return -1;
+  if (rb) return 1;
   return String(a).localeCompare(String(b));
 }
 
+/** Reconcile every route layer against the current visible set + service
+ *  mode. Adds layers that should be on the map, removes any that
+ *  shouldn't be. Used both when entering Improvements and when flipping
+ *  Day↔Night. */
 function showRouteLines() {
   if (!state.visibleRoutes) return;
+  const isNight = state.serviceMode === "night";
   for (const [service, layers] of Object.entries(state.routeLineLayers)) {
-    if (!state.visibleRoutes.has(service)) continue;
+    const matchesMode = isNightService(service) === isNight;
+    const shouldShow  = matchesMode && state.visibleRoutes.has(service);
     for (const layer of layers) {
-      if (!state.map.hasLayer(layer)) layer.addTo(state.map);
+      if (shouldShow && !state.map.hasLayer(layer))      layer.addTo(state.map);
+      else if (!shouldShow && state.map.hasLayer(layer)) state.map.removeLayer(layer);
     }
   }
 }
@@ -1391,16 +1478,21 @@ function hideRouteLines() {
 
 /**
  * Toggle a single route's polylines on/off. Used by the route filter chips.
+ * Only adds the layer to the map if the route also matches the current
+ * Day/Night service mode.
  */
 function setRouteVisible(service, visible) {
   if (!state.visibleRoutes) return;
   if (visible) state.visibleRoutes.add(service);
   else         state.visibleRoutes.delete(service);
 
+  const matchesMode = isNightService(service) === (state.serviceMode === "night");
+  const showOnMap   = visible && matchesMode;
+
   const layers = state.routeLineLayers[service] || [];
   for (const layer of layers) {
-    if (visible && !state.map.hasLayer(layer))      layer.addTo(state.map);
-    else if (!visible && state.map.hasLayer(layer)) state.map.removeLayer(layer);
+    if (showOnMap && !state.map.hasLayer(layer))      layer.addTo(state.map);
+    else if (!showOnMap && state.map.hasLayer(layer)) state.map.removeLayer(layer);
   }
 }
 
@@ -1466,12 +1558,21 @@ async function loadProposals() {
   renderProposalsList();
 }
 
+/** True when a proposal is flagged as a night service. */
+function isProposalNight(p) {
+  return !!(p && p.is_night);
+}
+
 function renderProposalsList() {
   if (!dom.proposalsList) return;
-  const proposals = state.proposals || [];
+  const isNight = state.serviceMode === "night";
+  const proposals = (state.proposals || []).filter(
+    p => isProposalNight(p) === isNight
+  );
   if (proposals.length === 0) {
-    dom.proposalsList.innerHTML =
-      `<p class="proposals-empty">No proposals yet. Add ideas to <code>data/proposals.json</code>.</p>`;
+    dom.proposalsList.innerHTML = isNight
+      ? `<p class="proposals-empty">No night-service proposals yet.</p>`
+      : `<p class="proposals-empty">No proposals yet. Add ideas to <code>data/proposals.json</code>.</p>`;
     return;
   }
   dom.proposalsList.innerHTML = proposals.map(p => {
@@ -1537,13 +1638,25 @@ function hideProposal(id) {
 }
 
 function showAllProposals() {
-  for (const id of Object.keys(state.proposalLayers)) showProposal(id);
+  // Only show proposals matching the current Day/Night service mode;
+  // hide any from the other mode that may already be on the map.
+  const isNight = state.serviceMode === "night";
+  for (const p of state.proposals || []) {
+    if (isProposalNight(p) === isNight) showProposal(p.id);
+    else                                hideProposal(p.id);
+  }
 }
 
 function hideAllProposals() {
   for (const id of Object.keys(state.proposalLayers)) hideProposal(id);
-  // Restore the selected proposal if there is one (selection trumps the toggle)
-  if (state.selectedProposalId) showProposal(state.selectedProposalId);
+  // Restore the selected proposal if there is one and it matches mode
+  // (selection trumps the toggle).
+  if (state.selectedProposalId) {
+    const sp = (state.proposals || []).find(x => x.id === state.selectedProposalId);
+    if (sp && isProposalNight(sp) === (state.serviceMode === "night")) {
+      showProposal(state.selectedProposalId);
+    }
+  }
 }
 
 function setShowProposals(on) {

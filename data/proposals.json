@@ -5,6 +5,7 @@
       "name": "Coastal Sprinter X1",
       "summary": "Limited-stop express between Worthing town centre and Brighton along the A259, every 30 minutes daytime.",
       "color": "#1e88e5",
+      "is_night": false,
       "polyline": [
         [50.8108, -0.3725],
         [50.8198, -0.3711],
@@ -34,6 +35,7 @@
       "name": "South Downs Loop 99",
       "summary": "Hourly circular linking Worthing, Findon, Steyning, Bramber, Upper Beeding and Lancing — restoring lost inland connectivity.",
       "color": "#43a047",
+      "is_night": false,
       "polyline": [
         [50.8198, -0.3711],
         [50.8412, -0.3955],
@@ -65,6 +67,7 @@
       "name": "Hospital Shuttle H1",
       "summary": "Frequent (every 15 min) shuttle from Worthing Hospital via the town centre to Lancing Beach, replacing the truncated 700-A.",
       "color": "#e53935",
+      "is_night": false,
       "polyline": [
         [50.8285, -0.3920],
         [50.8260, -0.3815],
@@ -85,6 +88,38 @@
         {"name": "Lancing Beach",      "lat": 50.8260, "lon": -0.3060}
       ],
       "description": "Hospital workers and visitors currently rely on infrequent connections through the town centre. A dedicated 15-minute shuttle would also serve the high-density seafront residential strip, where car ownership is below average and bus reliability is critical."
+    },
+    {
+      "id": "coastliner-700x",
+      "name": "Coastliner Express 700X",
+      "summary": "Express overlay on the 700 corridor — every stop within Worthing and Brighton, but only major town-centre stops between, halving the end-to-end time.",
+      "color": "#fb8c00",
+      "is_night": false,
+      "polyline": [
+        [50.8285, -0.3920],
+        [50.8252, -0.3838],
+        [50.8195, -0.3895],
+        [50.8198, -0.3711],
+        [50.8108, -0.3725],
+        [50.8302, -0.3105],
+        [50.8323, -0.2726],
+        [50.8235, -0.1530],
+        [50.8260, -0.1395],
+        [50.8225, -0.1390]
+      ],
+      "stops": [
+        {"name": "Worthing Hospital",   "lat": 50.8285, "lon": -0.3920},
+        {"name": "Durrington-on-Sea",   "lat": 50.8252, "lon": -0.3838},
+        {"name": "West Worthing",       "lat": 50.8195, "lon": -0.3895},
+        {"name": "Worthing Stn",        "lat": 50.8198, "lon": -0.3711},
+        {"name": "Worthing Pier",       "lat": 50.8108, "lon": -0.3725},
+        {"name": "Lancing Stn",         "lat": 50.8302, "lon": -0.3105},
+        {"name": "Shoreham-by-Sea",     "lat": 50.8323, "lon": -0.2726},
+        {"name": "Hove Town Hall",      "lat": 50.8235, "lon": -0.1530},
+        {"name": "Churchill Sq",        "lat": 50.8260, "lon": -0.1395},
+        {"name": "Brighton Stn",        "lat": 50.8225, "lon": -0.1390}
+      ],
+      "description": "The 700 stops at every cul-de-sac end along the A259, turning a 25-mile coastal trip into a 90-minute slog. The 700X would mirror the local 700 inside Worthing and Brighton (so suburban riders still get a one-seat ride into town), then run express between the two — calling only at Lancing Stn, Shoreham-by-Sea and Hove Town Hall. Target end-to-end: Worthing Hospital → Brighton Stn in 45 minutes, half the current scheduled time. Best operated jointly by Stagecoach and Brighton & Hove on alternate hours."
     }
   ]
 }
