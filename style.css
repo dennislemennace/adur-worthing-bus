@@ -1657,6 +1657,72 @@ body.dark-mode .service-mode-btn.active {
   color: var(--color-bg);
 }
 
+/* Multi-select Category + Operator strips below the Day/Night toggle */
+.filter-strip-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px var(--space-md) 8px;
+  background: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.filter-strip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+
+.filter-strip-label {
+  flex: 0 0 56px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.filter-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+}
+
+.filter-chip {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.filter-chip:hover {
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.filter-chip.active {
+  background: var(--color-text);
+  color: var(--color-surface);
+  border-color: var(--color-text);
+}
+
+body.dark-mode .filter-chip.active {
+  background: var(--color-accent, var(--color-primary));
+  color: var(--color-bg);
+  border-color: var(--color-accent, var(--color-primary));
+}
+
 .panel-mode.hidden { display: none; }
 
 /* Mode visibility driven by body class so initial render is consistent */

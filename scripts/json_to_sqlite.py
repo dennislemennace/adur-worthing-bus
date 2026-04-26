@@ -34,7 +34,8 @@ CREATE TABLE routes (
     rid        INTEGER PRIMARY KEY,
     route_id   TEXT NOT NULL UNIQUE,
     short_name TEXT NOT NULL,
-    long_name  TEXT NOT NULL
+    long_name  TEXT NOT NULL,
+    noc        TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX idx_routes_short ON routes(short_name);
 
@@ -127,9 +128,15 @@ def main() -> None:
 
     # --- routes ---
     con.executemany(
-        "INSERT INTO routes VALUES (?,?,?,?)",
+        "INSERT INTO routes VALUES (?,?,?,?,?)",
         (
-            (route_rid[rid], rid, r.get("short_name", ""), r.get("long_name", ""))
+            (
+                route_rid[rid],
+                rid,
+                r.get("short_name", ""),
+                r.get("long_name", ""),
+                r.get("noc", ""),
+            )
             for rid, r in tt["routes"].items()
         ),
     )

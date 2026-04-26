@@ -315,6 +315,20 @@
           </button>
         </div>
 
+        <!-- Category + operator multi-select filter strips. Both default
+             to all-on; clicking a chip toggles its bucket. Populated by
+             app.js once /api/route-lines has loaded. -->
+        <div class="filter-strip-group" aria-label="Service filters">
+          <div class="filter-strip-row">
+            <span class="filter-strip-label">Type</span>
+            <div class="filter-strip" id="service-category-toggle"></div>
+          </div>
+          <div class="filter-strip-row">
+            <span class="filter-strip-label">Operator</span>
+            <div class="filter-strip" id="service-operator-toggle"></div>
+          </div>
+        </div>
+
         <!-- Tab strip + close button -->
         <div class="panel-tabs-bar">
           <div class="panel-tabs" role="tablist" aria-label="Improvements view panels">

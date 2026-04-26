@@ -243,12 +243,32 @@ class Timetable:
     # Coach / school / unwanted services that pollute the route filter
     # in the Improvements view. Matched against GTFS `route_short_name`
     # exactly (case-sensitive).
-    _EXCLUDED_SERVICES = frozenset({"025", "B25", "VC3"})
+    _EXCLUDED_SERVICES = frozenset({
+        "025", "B25", "VC3",  # National Express + odd one-offs
+        "59", "59A", "100",   # not relevant to Adur & Worthing
+    })
 
     # Padding (in degrees, ~2 km at this latitude) added to the bbox when
     # clipping polylines, so lines don't terminate abruptly at the edge of
     # the visible area.
     _CLIP_PADDING_DEG = 0.02
+
+    # Hand-curated list of routes that primarily serve the Adur & Worthing
+    # area, regardless of how far they extend in either direction. The
+    # frontend uses this for the "Focused" service-type filter chip.
+    _FOCUSED_SHORT_NAMES = frozenset({
+        "2", "2B", "9", "16", "19", "19A", "46", "69", "106",
+        "700", "701", "740", "743",
+    })
+
+    # National Operator Codes (NOCs) collapse into a small set of UI
+    # buckets so the operator filter strip stays readable. Any NOC not
+    # listed here falls into "OTHER".
+    _OPERATOR_BUCKETS = {
+        "BHBC": "BHBC",
+        "SCSO": "SCSO", "SCSC": "SCSO",
+        "COMT": "COMT", "CMPA": "COMT",
+    }
 
     def representative_polylines(
         self,
@@ -284,15 +304,37 @@ class Timetable:
             )
         }
 
+        # Pre-compute the set of trips that actually touch the bbox, so
+        # route 46 (which has both a Southwick variant and a Bognor-area
+        # variant under the same short_name) only considers the trip
+        # variants that belong in our map.
+        bbox_trip_ids: Optional[set] = None
+        if bbox is not None:
+            min_lat, max_lat, min_lon, max_lon = bbox
+            bbox_trip_ids = {
+                row[0] for row in self._con.execute(
+                    "SELECT DISTINCT st.tid FROM stop_times st "
+                    "JOIN stops s ON s.sid = st.sid "
+                    "WHERE s.lat BETWEEN ? AND ? AND s.lon BETWEEN ? AND ?",
+                    (min_lat, max_lat, min_lon, max_lon),
+                )
+            }
+
         trips_by_route: dict = {}
         for short_name, tid, first_sid, last_sid in self._con.execute(
             "SELECT short_name, tid, first_sid, last_sid FROM trip_endpoints"
         ):
             if short_name in self._EXCLUDED_SERVICES:
                 continue
+            if bbox_trip_ids is not None and tid not in bbox_trip_ids:
+                continue
             trips_by_route.setdefault(short_name, []).append(
                 (tid, first_sid, last_sid)
             )
+
+        # short_name -> NOC. Built once; defensive about the `noc` column
+        # not existing in older SQLite builds (returns "" in that case).
+        noc_by_short = self._noc_by_short_name()
 
         # ~1 km cutoff in squared degrees (rough at this latitude — fine
         # for grouping terminus stops that share a stand)
@@ -334,9 +376,58 @@ class Timetable:
                 polylines.append([[lat, lon] for lat, lon in pts])
 
             if polylines:
-                out.append({"service": short_name, "polylines": polylines})
+                noc = noc_by_short.get(short_name, "")
+                out.append({
+                    "service":   short_name,
+                    "polylines": polylines,
+                    "category":  self._categorise(short_name),
+                    "operator":  self._operator_bucket(noc),
+                })
 
         return sorted(out, key=lambda x: x["service"])
+
+    @classmethod
+    def _categorise(cls, short_name: str) -> str:
+        """Bucket a route into 'focused', 'express', or 'other'.
+
+        Night variants (N + digits) inherit the day route's category, so
+        N700 lands in 'focused' alongside 700.
+        """
+        s = str(short_name or "")
+        # Strip leading "N" if followed by digits — N700 → 700, N1 → 1.
+        stripped = s[1:] if (len(s) > 1 and s[0].upper() == "N" and s[1].isdigit()) else s
+        if stripped in cls._FOCUSED_SHORT_NAMES:
+            return "focused"
+        if s and s[-1].upper() == "X":
+            return "express"
+        return "other"
+
+    @classmethod
+    def _operator_bucket(cls, noc: str) -> str:
+        if not noc:
+            return ""
+        return cls._OPERATOR_BUCKETS.get(noc, "OTHER")
+
+    def _noc_by_short_name(self) -> dict:
+        """Build a {short_name: noc} map. Tolerates older SQLite files
+        without the `noc` column (returns an empty dict in that case).
+        """
+        if self._con is None:
+            return {}
+        try:
+            cols = {row[1] for row in self._con.execute("PRAGMA table_info(routes)")}
+        except sqlite3.Error:
+            return {}
+        if "noc" not in cols:
+            return {}
+        out: dict = {}
+        for short, noc in self._con.execute(
+            "SELECT short_name, noc FROM routes WHERE COALESCE(noc, '') <> ''"
+        ):
+            # If multiple route_ids share a short_name with different
+            # operators, the last one wins — typically they all match.
+            out[short] = noc
+        return out
 
     @classmethod
     def _clip_to_bbox(cls, pts: list, bbox: tuple) -> list:
