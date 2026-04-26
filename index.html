@@ -300,6 +300,21 @@
       <!-- === IMPROVEMENTS MODE PANELS (About / Proposals) === -->
       <div class="panel-mode" data-mode="improvements">
 
+        <!-- Day / Night service mode toggle. Drives both the route filter
+             chips (About) and the proposals list (Proposals). -->
+        <div class="service-mode-toggle" role="tablist" aria-label="Service period">
+          <button class="service-mode-btn active" data-service-mode="day"
+                  role="tab" aria-selected="true" id="service-mode-day">
+            <svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg>
+            <span>Day</span>
+          </button>
+          <button class="service-mode-btn" data-service-mode="night"
+                  role="tab" aria-selected="false" id="service-mode-night">
+            <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg>
+            <span>Night</span>
+          </button>
+        </div>
+
         <!-- Tab strip + close button -->
         <div class="panel-tabs-bar">
           <div class="panel-tabs" role="tablist" aria-label="Improvements view panels">

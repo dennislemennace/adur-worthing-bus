@@ -240,6 +240,16 @@ class Timetable:
         it = iter(self.stops_with_times)
         return [next(it) for _ in range(min(n, len(self.stops_with_times)))]
 
+    # Coach / school / unwanted services that pollute the route filter
+    # in the Improvements view. Matched against GTFS `route_short_name`
+    # exactly (case-sensitive).
+    _EXCLUDED_SERVICES = frozenset({"025", "B25", "VC3"})
+
+    # Padding (in degrees, ~2 km at this latitude) added to the bbox when
+    # clipping polylines, so lines don't terminate abruptly at the edge of
+    # the visible area.
+    _CLIP_PADDING_DEG = 0.02
+
     def representative_polylines(
         self,
         bbox: Optional[tuple] = None,
@@ -254,8 +264,11 @@ class Timetable:
 
         Polylines are stop-to-stop straight lines (no GTFS shapes yet).
 
-        bbox: optional (min_lat, max_lat, min_lon, max_lon) — routes with
-        no polyline point inside this bbox are dropped.
+        bbox: optional (min_lat, max_lat, min_lon, max_lon) — each polyline
+        is clipped to the longest contiguous run of points falling inside
+        a slightly padded bbox, so through-routes (700, etc.) only show
+        their Adur & Worthing arc instead of stretching to Brighton or
+        Portsmouth.
         """
         if self._con is None:
             return []
@@ -275,6 +288,8 @@ class Timetable:
         for short_name, tid, first_sid, last_sid in self._con.execute(
             "SELECT short_name, tid, first_sid, last_sid FROM trip_endpoints"
         ):
+            if short_name in self._EXCLUDED_SERVICES:
+                continue
             trips_by_route.setdefault(short_name, []).append(
                 (tid, first_sid, last_sid)
             )
@@ -313,11 +328,8 @@ class Timetable:
                 if len(pts) < 2:
                     continue
                 if bbox is not None:
-                    min_lat, max_lat, min_lon, max_lon = bbox
-                    if not any(
-                        min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
-                        for lat, lon in pts
-                    ):
+                    pts = self._clip_to_bbox(pts, bbox)
+                    if len(pts) < 2:
                         continue
                 polylines.append([[lat, lon] for lat, lon in pts])
 
@@ -325,3 +337,28 @@ class Timetable:
                 out.append({"service": short_name, "polylines": polylines})
 
         return sorted(out, key=lambda x: x["service"])
+
+    @classmethod
+    def _clip_to_bbox(cls, pts: list, bbox: tuple) -> list:
+        """Return the longest contiguous run of points falling inside the
+        padded bbox. Through-routes that briefly leave and re-enter the
+        area collapse to their longest in-area arc instead of producing
+        a polyline that jumps over the gap.
+        """
+        min_lat, max_lat, min_lon, max_lon = bbox
+        pad = cls._CLIP_PADDING_DEG
+        min_lat -= pad; max_lat += pad
+        min_lon -= pad; max_lon += pad
+
+        best: list = []
+        cur: list = []
+        for lat, lon in pts:
+            if min_lat <= lat <= max_lat and min_lon <= lon <= max_lon:
+                cur.append((lat, lon))
+            else:
+                if len(cur) > len(best):
+                    best = cur
+                cur = []
+        if len(cur) > len(best):
+            best = cur
+        return best
