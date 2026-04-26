@@ -93,7 +93,7 @@
       "id": "coastliner-700x",
       "name": "Coastliner Express 700X",
       "summary": "Express overlay on the 700 corridor — every stop within Worthing and Brighton, but only major town-centre stops between, halving the end-to-end time.",
-      "color": "#fb8c00",
+      "color": "#005EB8",
       "is_night": false,
       "polyline": [
         [50.8285, -0.3920],

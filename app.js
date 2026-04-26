@@ -80,8 +80,12 @@ const state = {
   // ── Improvements view (network/proposals mode) ──
   viewMode:                "live", // "live" | "improvements"
   serviceMode:             "day",  // "day" | "night" — splits chips, route lines, proposals
+  visibleCategories:       null,   // Set<"focused"|"express"|"other">; populated on first load
+  visibleOperators:        null,   // Set of operator buckets ("BHBC","SCSO","COMT","OTHER",""); ""=unknown
   routeLines:              null,   // /api/route-lines response, fetched lazily
   routeLineLayers:         {},     // service short_name → array of L.polyline
+  routeCategoryByService:  {},     // service → "focused"|"express"|"other"
+  routeOperatorByService:  {},     // service → operator NOC (e.g. "COMT", "")
   visibleRoutes:           null,   // Set of service short_names; null = all visible
   proposals:               null,   // data/proposals.json
   proposalLayers:          {},     // proposal id → array of L.polyline
@@ -141,6 +145,8 @@ const dom = {
   closePanelBtnImprovements: document.getElementById("close-panel-btn-improvements"),
   serviceModeDay:         document.getElementById("service-mode-day"),
   serviceModeNight:       document.getElementById("service-mode-night"),
+  serviceCategoryToggle:  document.getElementById("service-category-toggle"),
+  serviceOperatorToggle:  document.getElementById("service-operator-toggle"),
   tabAbout:               document.getElementById("tab-about"),
   tabProposals:           document.getElementById("tab-proposals"),
   tabContentAbout:        document.getElementById("tab-content-about"),
@@ -1209,6 +1215,79 @@ function bindUIEvents() {
   });
 }
 
+// ── Category & operator filter strips ────────────────────────
+//
+// These two strips are multi-select: any combination of categories and
+// operators can be on at once. The default is "everything visible";
+// chips toggle their bucket in the visible Set and reconcile route
+// lines + chips.
+
+const CATEGORY_OPTIONS = [
+  { key: "focused", label: "Focused" },
+  { key: "express", label: "Express" },
+  { key: "other",   label: "Other"   },
+];
+
+const OPERATOR_OPTIONS = [
+  { key: "BHBC",  label: "B&H"        },
+  { key: "SCSO",  label: "Stagecoach" },
+  { key: "COMT",  label: "Compass"    },
+  { key: "OTHER", label: "Other"      },
+];
+
+function renderFilterStrip(container, options, visibleSet, onToggle) {
+  if (!container) return;
+  container.innerHTML = options.map(opt => {
+    const on = visibleSet ? visibleSet.has(opt.key) : true;
+    return `
+      <button type="button"
+              class="filter-chip ${on ? "active" : ""}"
+              data-filter-key="${escapeAttr(opt.key)}"
+              aria-pressed="${on ? "true" : "false"}">
+        ${escapeHtml(opt.label)}
+      </button>`;
+  }).join("");
+  container.querySelectorAll(".filter-chip").forEach(btn => {
+    btn.addEventListener("click", () => onToggle(btn.dataset.filterKey));
+  });
+}
+
+function syncCategoryToggle() {
+  renderFilterStrip(
+    dom.serviceCategoryToggle,
+    CATEGORY_OPTIONS,
+    state.visibleCategories,
+    toggleCategoryFilter,
+  );
+}
+
+function syncOperatorToggle() {
+  renderFilterStrip(
+    dom.serviceOperatorToggle,
+    OPERATOR_OPTIONS,
+    state.visibleOperators,
+    toggleOperatorFilter,
+  );
+}
+
+function toggleCategoryFilter(key) {
+  if (!state.visibleCategories) return;
+  if (state.visibleCategories.has(key)) state.visibleCategories.delete(key);
+  else                                  state.visibleCategories.add(key);
+  syncCategoryToggle();
+  showRouteLines();
+  renderRouteFilterChips();
+}
+
+function toggleOperatorFilter(key) {
+  if (!state.visibleOperators) return;
+  if (state.visibleOperators.has(key)) state.visibleOperators.delete(key);
+  else                                 state.visibleOperators.add(key);
+  syncOperatorToggle();
+  showRouteLines();
+  renderRouteFilterChips();
+}
+
 /** Switch between Day and Night service period in Improvements mode.
  *  Reconciles route-line layers, re-renders chips and the proposals list,
  *  and clears any selection that no longer belongs in the new mode. */
@@ -1332,8 +1411,22 @@ async function loadRouteLines() {
   state.routeLines = data.routes;
   state.visibleRoutes = new Set(data.routes.map(r => r.service));
 
+  // Capture category + operator alongside the layers so the filter
+  // gates can read them in O(1) without scanning state.routeLines.
   for (const r of data.routes) {
-    const colour = getLineColour(r.service);
+    state.routeCategoryByService[r.service] = r.category || "other";
+    state.routeOperatorByService[r.service] = r.operator || "";
+  }
+  // Default: every category and every operator we saw is visible.
+  state.visibleCategories = new Set(
+    Object.values(state.routeCategoryByService)
+  );
+  state.visibleOperators = new Set(
+    Object.values(state.routeOperatorByService)
+  );
+
+  for (const r of data.routes) {
+    const colour = getLineColour(r.service, r.operator);
     state.routeLineLayers[r.service] = r.polylines.map(coords =>
       L.polyline(coords, {
         color:        colour,
@@ -1346,6 +1439,8 @@ async function loadRouteLines() {
     );
   }
 
+  syncCategoryToggle();
+  syncOperatorToggle();
   renderRouteFilterChips();
 }
 
@@ -1360,11 +1455,15 @@ function renderRouteFilterChips() {
   if (!state.routeLines || !dom.routeFilterChips) return;
   const isNight = state.serviceMode === "night";
 
-  // Group services by base name, filtered to the current mode.
+  // Group services by base name, filtered to the current mode + the
+  // active category and operator filters. Variants of one base must all
+  // share a category/operator (they always do in practice), so it's
+  // enough to test the first variant.
   const groups = new Map(); // base -> [variants]
   for (const r of state.routeLines) {
     const svc = r.service;
     if (isNightService(svc) !== isNight) continue;
+    if (!isServicePassingFilters(svc)) continue;
     const base = routeBaseName(svc);
     if (!groups.has(base)) groups.set(base, []);
     groups.get(base).push(svc);
@@ -1372,8 +1471,8 @@ function renderRouteFilterChips() {
 
   if (groups.size === 0) {
     dom.routeFilterChips.innerHTML = isNight
-      ? `<p class="route-filters-empty">No night services run in this area.</p>`
-      : `<p class="route-filters-empty">No routes found.</p>`;
+      ? `<p class="route-filters-empty">No matching night services.</p>`
+      : `<p class="route-filters-empty">No matching routes — try toggling a category or operator back on.</p>`;
     return;
   }
 
@@ -1382,7 +1481,8 @@ function renderRouteFilterChips() {
   dom.routeFilterChips.innerHTML = bases.map(base => {
     const variants = groups.get(base).slice().sort(compareServiceNames);
     const label    = variants.join("/");
-    const bg       = getLineColour(base);
+    const operator = state.routeOperatorByService[variants[0]] || "";
+    const bg       = getLineColour(base, operator);
     const fg       = pickTextOn(bg) === "dark" ? "#1a1a1a" : "#ffffff";
     const allOn    = variants.every(v => state.visibleRoutes.has(v));
     return `
@@ -1425,6 +1525,21 @@ function isNightService(svc) {
   return /^N\d/i.test(String(svc || ""));
 }
 
+/** True iff the service passes the active category + operator filters
+ *  (independent of the day/night mode and the per-service visibility
+ *  toggle). Used both when rendering chips and when reconciling layers. */
+function isServicePassingFilters(svc) {
+  if (state.visibleCategories) {
+    const cat = state.routeCategoryByService[svc] || "other";
+    if (!state.visibleCategories.has(cat)) return false;
+  }
+  if (state.visibleOperators) {
+    const op = state.routeOperatorByService[svc] || "";
+    if (!state.visibleOperators.has(op)) return false;
+  }
+  return true;
+}
+
 /** Strip a trailing letter variant from a numeric route to find its base.
  *  "1" → "1", "1A" → "1", "1X" → "1", "19A" → "19", "N1" → "N1",
  *  "N700" → "N700". Fully alpha codes (OXF, LGW) keep their full name. */
@@ -1460,7 +1575,9 @@ function showRouteLines() {
   const isNight = state.serviceMode === "night";
   for (const [service, layers] of Object.entries(state.routeLineLayers)) {
     const matchesMode = isNightService(service) === isNight;
-    const shouldShow  = matchesMode && state.visibleRoutes.has(service);
+    const shouldShow  = matchesMode
+                        && state.visibleRoutes.has(service)
+                        && isServicePassingFilters(service);
     for (const layer of layers) {
       if (shouldShow && !state.map.hasLayer(layer))      layer.addTo(state.map);
       else if (!shouldShow && state.map.hasLayer(layer)) state.map.removeLayer(layer);
@@ -1487,7 +1604,7 @@ function setRouteVisible(service, visible) {
   else         state.visibleRoutes.delete(service);
 
   const matchesMode = isNightService(service) === (state.serviceMode === "night");
-  const showOnMap   = visible && matchesMode;
+  const showOnMap   = visible && matchesMode && isServicePassingFilters(service);
 
   const layers = state.routeLineLayers[service] || [];
   for (const layer of layers) {
@@ -2509,10 +2626,10 @@ function getOperatorColour(operatorRef) {
 // (e.g. marketing page, fleet photography).
 // ============================================================
 const ROUTE_COLOURS = {
-  // Stagecoach South — Coastliner 700 / 700X (verified brand teal)
-  "700":  "#00796B",
-  "700X": "#00796B",
-  "N700": "#00796B",
+  // Stagecoach South — Coastliner 700 / 700X (Coastliner branded blue)
+  "700":  "#005EB8",
+  "700X": "#005EB8",
+  "N700": "#005EB8",
 
   // Brighton & Hove Buses — per the official route-colour guide.
   // Note: routes 37, 37B, 52, 47 intentionally omitted.
@@ -2615,10 +2732,14 @@ function getRouteColour(service, operatorRef) {
  * livery; everything else falls back to a deterministic HSL hash so each
  * route gets a distinct hue rather than all sharing the operator default.
  */
-function getLineColour(service) {
+function getLineColour(service, operator) {
   if (!service) return "#888";
   const key = String(service).trim().toUpperCase();
   if (ROUTE_COLOURS[key]) return ROUTE_COLOURS[key];
+  // Fall back to the operator's brand colour before the hash. Lets every
+  // Compass route render burgundy, Stagecoach blue, B&H red, etc., without
+  // needing a per-route entry in ROUTE_COLOURS.
+  if (operator && OPERATOR_COLOURS[operator]) return OPERATOR_COLOURS[operator];
   let h = 0;
   for (let i = 0; i < key.length; i++) {
     h = ((h << 5) - h + key.charCodeAt(i)) | 0;

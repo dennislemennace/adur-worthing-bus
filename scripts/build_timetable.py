@@ -59,6 +59,9 @@ EXTRA_ROUTES = {
     "37", "37B", "47", "49",
     # Brighton & Hove night routes
     "N1", "N5", "N7", "N25",
+    # Stagecoach Coastliner — runs all the way to Brighton Old Steine
+    # (1490 prefix); without this the polyline truncates at Mill Road.
+    "700", "N700",
 }
 
 BBOX_MIN_LAT, BBOX_MAX_LAT =  50.78,  50.87
@@ -203,7 +206,25 @@ def parse_gtfs(zip_path: str) -> dict:
             log.error("No West Sussex stops found — aborting")
             return timetable
 
-        # ── Phase 2: routes.txt (need this early to identify EXTRA_ROUTES)
+        # ── Phase 2a: agency.txt (agency_id → NOC)
+        # BODS regional GTFS uses the National Operator Code as the
+        # agency_id (e.g. "OP1234") with the human-readable code in an
+        # `agency_noc` column. Older feeds use the NOC directly as
+        # agency_id and omit `agency_noc`.
+        agency_noc: dict = {}
+        if "agency.txt" in names:
+            log.info("Parsing agency.txt…")
+            with zf.open("agency.txt") as f:
+                reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
+                for row in reader:
+                    aid = row.get("agency_id") or ""
+                    if not aid:
+                        continue
+                    noc = row.get("agency_noc") or row.get("noc") or aid
+                    agency_noc[aid] = noc.strip()
+            log.info("  %d agencies indexed", len(agency_noc))
+
+        # ── Phase 2b: routes.txt (need this early to identify EXTRA_ROUTES)
         log.info("Parsing routes.txt…")
         all_routes = {}
         extra_route_ids = set()
@@ -212,9 +233,11 @@ def parse_gtfs(zip_path: str) -> dict:
             for row in reader:
                 route_id = row.get("route_id", "")
                 short_name = row.get("route_short_name") or ""
+                aid = row.get("agency_id") or ""
                 all_routes[route_id] = {
                     "short_name": short_name,
                     "long_name":  row.get("route_long_name") or "",
+                    "noc":        agency_noc.get(aid, aid),
                 }
                 if short_name in EXTRA_ROUTES:
                     extra_route_ids.add(route_id)
