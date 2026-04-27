@@ -1719,20 +1719,25 @@ body.dark-mode .service-mode-btn.active {
 }
 
 /* Route endpoint tag — pill marker placed at the clipped end of an
-   express or night route, showing where the line continues to off the
-   visible map (e.g. "1X → Brighton", "Bognor ← N700"). The marker
-   itself is the polyline endpoint; the pill is positioned alongside it
-   via translate so it doesn't sit on top of the line. */
+   express or night route, showing where the line continues off the
+   visible map (e.g. "1X → Brighton", "Bognor ← N700"). The icon's
+   bounding box is wider than the pill itself; we flex-align the pill
+   to one edge so the geographical point (set via iconAnchor in JS)
+   sits just outside the pill on the correct side, and the polyline
+   reads as flowing into the tag rather than crossing it. */
 .route-endpoint-tag {
+  display: flex;
+  align-items: center;
   pointer-events: none;
   overflow: visible;
 }
 
+.route-endpoint-tag--right { justify-content: flex-start; }
+.route-endpoint-tag--left  { justify-content: flex-end;   }
+
 .route-endpoint-pill {
   display: inline-block;
   white-space: nowrap;
-  background: var(--tag-bg, #444);
-  color: var(--tag-fg, #fff);
   font-family: var(--font-mono, monospace);
   font-weight: 700;
   font-size: 0.66rem;
@@ -1741,20 +1746,6 @@ body.dark-mode .service-mode-btn.active {
   border-radius: 999px;
   border: 2px solid #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  position: absolute;
-  top: 50%;
-}
-
-/* "to" tags sit to the right of the endpoint, "from" tags to the left,
-   so the line points naturally into the pill rather than crossing it. */
-.route-endpoint-pill[data-direction="to"] {
-  left: 8px;
-  transform: translateY(-50%);
-}
-
-.route-endpoint-pill[data-direction="from"] {
-  right: 8px;
-  transform: translateY(-50%);
 }
 
 body.dark-mode .route-endpoint-pill {
@@ -1896,6 +1887,8 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
 }
 
 .route-filter-chips {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
