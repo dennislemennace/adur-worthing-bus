@@ -1718,6 +1718,49 @@ body.dark-mode .service-mode-btn.active {
   color: var(--color-bg);
 }
 
+/* Route endpoint tag — pill marker placed at the clipped end of an
+   express or night route, showing where the line continues to off the
+   visible map (e.g. "1X → Brighton", "Bognor ← N700"). The marker
+   itself is the polyline endpoint; the pill is positioned alongside it
+   via translate so it doesn't sit on top of the line. */
+.route-endpoint-tag {
+  pointer-events: none;
+  overflow: visible;
+}
+
+.route-endpoint-pill {
+  display: inline-block;
+  white-space: nowrap;
+  background: var(--tag-bg, #444);
+  color: var(--tag-fg, #fff);
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  position: absolute;
+  top: 50%;
+}
+
+/* "to" tags sit to the right of the endpoint, "from" tags to the left,
+   so the line points naturally into the pill rather than crossing it. */
+.route-endpoint-pill[data-direction="to"] {
+  left: 8px;
+  transform: translateY(-50%);
+}
+
+.route-endpoint-pill[data-direction="from"] {
+  right: 8px;
+  transform: translateY(-50%);
+}
+
+body.dark-mode .route-endpoint-pill {
+  border-color: var(--color-bg);
+}
+
 /* Multi-select Category + Operator strips below the Day/Night toggle */
 .filter-strip-group {
   display: flex;

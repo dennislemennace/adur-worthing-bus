@@ -297,12 +297,13 @@ class Timetable:
             "SELECT tid, COUNT(*) FROM stop_times GROUP BY tid"
         ))
 
-        stop_coords = {
-            sid: (lat, lon)
-            for sid, lat, lon in self._con.execute(
-                "SELECT sid, lat, lon FROM stops"
+        stop_info = {
+            sid: (lat, lon, name)
+            for sid, lat, lon, name in self._con.execute(
+                "SELECT sid, lat, lon, name FROM stops"
             )
         }
+        stop_coords = {sid: (lat, lon) for sid, (lat, lon, _name) in stop_info.items()}
 
         # Pre-compute the set of trips that actually touch the bbox, so
         # route 46 (which has both a Southwick variant and a Bognor-area
@@ -346,9 +347,9 @@ class Timetable:
             primary_tid, primary_first, primary_last = trips[0]
             primary_last_coord = stop_coords.get(primary_last)
 
-            chosen_tids = [primary_tid]
+            chosen_trips = [(primary_tid, primary_first, primary_last)]
             if primary_last_coord is not None:
-                for tid, first_sid, _last_sid in trips[1:]:
+                for tid, first_sid, last_sid in trips[1:]:
                     if first_sid == primary_first:
                         continue
                     fc = stop_coords.get(first_sid)
@@ -357,11 +358,12 @@ class Timetable:
                     dlat = fc[0] - primary_last_coord[0]
                     dlon = fc[1] - primary_last_coord[1]
                     if dlat * dlat + dlon * dlon <= TERMINUS_NEAR_SQ:
-                        chosen_tids.append(tid)
+                        chosen_trips.append((tid, first_sid, last_sid))
                         break  # already sorted by stop count desc
 
             polylines = []
-            for tid in chosen_tids:
+            endpoints = []
+            for tid, first_sid, last_sid in chosen_trips:
                 pts = self._con.execute(
                     "SELECT s.lat, s.lon FROM stop_times st "
                     "JOIN stops s ON s.sid = st.sid "
@@ -369,17 +371,25 @@ class Timetable:
                 ).fetchall()
                 if len(pts) < 2:
                     continue
+                lost_before = lost_after = False
                 if bbox is not None:
-                    pts = self._clip_to_bbox(pts, bbox)
+                    pts, lost_before, lost_after = self._clip_to_bbox(pts, bbox)
                     if len(pts) < 2:
                         continue
                 polylines.append([[lat, lon] for lat, lon in pts])
+                endpoints.append({
+                    "from_name": (stop_info[first_sid][2] if lost_before
+                                  and first_sid in stop_info else None),
+                    "to_name":   (stop_info[last_sid][2]  if lost_after
+                                  and last_sid in stop_info  else None),
+                })
 
             if polylines:
                 noc = noc_by_short.get(short_name, "")
                 out.append({
                     "service":   short_name,
                     "polylines": polylines,
+                    "endpoints": endpoints,
                     "category":  self._categorise(short_name),
                     "operator":  self._operator_bucket(noc),
                 })
@@ -430,26 +440,34 @@ class Timetable:
         return out
 
     @classmethod
-    def _clip_to_bbox(cls, pts: list, bbox: tuple) -> list:
-        """Return the longest contiguous run of points falling inside the
-        padded bbox. Through-routes that briefly leave and re-enter the
-        area collapse to their longest in-area arc instead of producing
-        a polyline that jumps over the gap.
+    def _clip_to_bbox(cls, pts: list, bbox: tuple) -> tuple:
+        """Return ``(best_run, lost_before, lost_after)``.
+
+        ``best_run`` is the longest contiguous run of points falling inside
+        the padded bbox; the bools indicate whether the original polyline
+        had points dropped before / after that kept run, so the caller can
+        annotate the truncated end with where the route was heading.
         """
         min_lat, max_lat, min_lon, max_lon = bbox
         pad = cls._CLIP_PADDING_DEG
         min_lat -= pad; max_lat += pad
         min_lon -= pad; max_lon += pad
 
-        best: list = []
-        cur: list = []
-        for lat, lon in pts:
-            if min_lat <= lat <= max_lat and min_lon <= lon <= max_lon:
-                cur.append((lat, lon))
-            else:
-                if len(cur) > len(best):
-                    best = cur
-                cur = []
-        if len(cur) > len(best):
-            best = cur
-        return best
+        runs: list = []   # list of (start_idx, end_idx) inclusive
+        cur_start: Optional[int] = None
+        for i, (lat, lon) in enumerate(pts):
+            inside = min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
+            if inside and cur_start is None:
+                cur_start = i
+            elif not inside and cur_start is not None:
+                runs.append((cur_start, i - 1))
+                cur_start = None
+        if cur_start is not None:
+            runs.append((cur_start, len(pts) - 1))
+
+        if not runs:
+            return [], False, False
+
+        start_idx, end_idx = max(runs, key=lambda r: r[1] - r[0])
+        kept = [(pts[i][0], pts[i][1]) for i in range(start_idx, end_idx + 1)]
+        return kept, start_idx > 0, end_idx < len(pts) - 1

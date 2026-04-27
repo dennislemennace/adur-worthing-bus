@@ -1446,16 +1446,39 @@ async function loadRouteLines() {
 
   for (const r of data.routes) {
     const colour = getLineColour(r.service, r.operator);
-    state.routeLineLayers[r.service] = r.polylines.map(coords =>
-      L.polyline(coords, {
+    const layers = [];
+    // Endpoint tags only make sense for routes that *visibly* run off
+    // the edge — i.e. express variants and night routes that continue
+    // toward Brighton or beyond. Local services stay inside the area.
+    const showEndpointTags = (r.category === "express")
+                              || isNightService(r.service);
+    const fg = (pickTextOn(colour) === "dark") ? "#1a1a1a" : "#ffffff";
+
+    r.polylines.forEach((coords, i) => {
+      layers.push(L.polyline(coords, {
         color:        colour,
         weight:       4,
         opacity:      0.85,
         smoothFactor: 1.5,
         interactive:  false,
         className:    "proposal-existing-line",
-      })
-    );
+      }));
+
+      if (!showEndpointTags || !coords.length) return;
+      const ep = (r.endpoints || [])[i] || {};
+      if (ep.to_name) {
+        layers.push(makeEndpointTag(
+          coords[coords.length - 1], r.service, ep.to_name, "to", colour, fg
+        ));
+      }
+      if (ep.from_name) {
+        layers.push(makeEndpointTag(
+          coords[0], r.service, ep.from_name, "from", colour, fg
+        ));
+      }
+    });
+
+    state.routeLineLayers[r.service] = layers;
   }
 
   syncCategoryToggle();
@@ -1583,6 +1606,28 @@ function compareServiceNames(a, b) {
   if (ra) return -1;
   if (rb) return 1;
   return String(a).localeCompare(String(b));
+}
+
+/** Build a tiny pill marker placed at the truncated end of a route line,
+ *  so the user sees "1X → Brighton" or "Bognor ← N700" where the line
+ *  runs off the edge of the focused area. The marker is non-interactive
+ *  and inherits the route's livery colour. */
+function makeEndpointTag([lat, lon], service, place, direction, bg, fg) {
+  const text = (direction === "to")
+    ? `${service} → ${place}`
+    : `${place} ← ${service}`;
+  return L.marker([lat, lon], {
+    icon: L.divIcon({
+      className: "route-endpoint-tag",
+      html: `<span class="route-endpoint-pill" data-direction="${direction}" `
+          + `style="--tag-bg:${bg};--tag-fg:${fg}">${escapeHtml(text)}</span>`,
+      iconSize:   [1, 1],   // anchor only; the pill is sized by content
+      iconAnchor: [0, 0],
+    }),
+    interactive: false,
+    keyboard:    false,
+    zIndexOffset: 600,
+  });
 }
 
 /** Reconcile every route layer against the current visible set + service
