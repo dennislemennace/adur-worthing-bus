@@ -54,9 +54,9 @@ WEST_SUSSEX_ATCO_PREFIX = "4400"
 # services that connect into or are relevant to Adur & Worthing.
 EXTRA_ROUTES = {
     # Brighton & Hove day routes crossing into the bbox
-    "1", "1A", "1B", "5", "5B", "7", "7A",
+    "1", "1A", "1B", "2", "2A", "2B", "5", "5B", "7", "7A",
     "1X", "3X", "6", "13X", "21", "23X", "25X", "29X",
-    "37", "37B", "47", "49",
+    "37", "37B", "46", "47", "49",
     # Brighton & Hove night routes
     "N1", "N5", "N7", "N25",
     # Stagecoach Coastliner — runs all the way to Brighton Old Steine

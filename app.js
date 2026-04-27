@@ -1082,6 +1082,18 @@ function toggleDarkMode() {
   state.tileLayer.bringToBack();
 }
 
+/** Toggle the mobile collapsed state — keeps the tab strip visible but
+ *  hides everything below it so the map can take the rest of the
+ *  viewport. Updates aria-pressed + aria-label on each collapse button
+ *  so a screen reader follows along. */
+function togglePanelCollapsed() {
+  const collapsed = document.body.classList.toggle("panel-collapsed");
+  document.querySelectorAll(".btn-collapse-panel").forEach(btn => {
+    btn.setAttribute("aria-pressed", collapsed ? "true" : "false");
+    btn.setAttribute("aria-label", collapsed ? "Show panel" : "Hide panel");
+  });
+}
+
 function closePanel() {
   // If the proposal editor is open, close it first (persists the draft).
   if (state.editor) closeEditor();
@@ -1175,6 +1187,13 @@ function bindUIEvents() {
     dom.serviceModeNight.addEventListener("click", () => setServiceMode("night"));
   }
 
+  // Mobile-only "hide panel" button — collapses the side panel down to
+  // just the tab strip so the map gets the full mobile viewport. There's
+  // one in each panel-tabs-bar (live + improvements modes).
+  document.querySelectorAll(".btn-collapse-panel").forEach(btn => {
+    btn.addEventListener("click", togglePanelCollapsed);
+  });
+
   // Improvements panel: tab switching + close
   dom.tabAbout.addEventListener("click",     () => setImprovementsTab("about"));
   dom.tabProposals.addEventListener("click", () => setImprovementsTab("proposals"));
@@ -1223,9 +1242,9 @@ function bindUIEvents() {
 // lines + chips.
 
 const CATEGORY_OPTIONS = [
-  { key: "focused", label: "Focused" },
-  { key: "express", label: "Express" },
-  { key: "other",   label: "Other"   },
+  { key: "focused", label: "Adur & Worthing" },
+  { key: "express", label: "Express"         },
+  { key: "other",   label: "Other"           },
 ];
 
 const OPERATOR_OPTIONS = [

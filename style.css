@@ -423,7 +423,8 @@ body.dark-mode .map-loading {
   font-size: 0.85rem;
 }
 
-.panel-tabs-bar .btn-close {
+.panel-tabs-bar .btn-close,
+.panel-tabs-bar .btn-collapse-panel {
   background: transparent;
   border: none;
   border-left: 1px solid var(--color-border);
@@ -436,11 +437,71 @@ body.dark-mode .map-loading {
   margin: 0;
   color: var(--color-text-muted);
   transition: background var(--transition), color var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.panel-tabs-bar .btn-close:hover {
+.panel-tabs-bar .btn-close:hover,
+.panel-tabs-bar .btn-collapse-panel:hover {
   background: var(--color-surface-2);
   color: var(--color-text);
+}
+
+/* Hide tab button only appears on mobile, where vertical space is at a
+   premium and the user wants to swap the panel for the map. */
+.panel-tabs-bar .btn-collapse-panel {
+  display: none;
+}
+
+.panel-tabs-bar .btn-collapse-panel .icon {
+  width: 16px;
+  height: 16px;
+  transition: transform var(--transition);
+}
+
+@media (max-width: 700px) {
+  .panel-tabs-bar .btn-collapse-panel { display: flex; }
+}
+
+/* Collapsed state: hide everything in the active panel-mode except the
+   tab strip itself, so the strip remains a re-expand affordance. */
+body.panel-collapsed .panel-mode > :not(.panel-tabs-bar) {
+  display: none !important;
+}
+
+/* Flip the chevron when collapsed so it visually invites re-expansion. */
+body.panel-collapsed .btn-collapse-panel .icon {
+  transform: rotate(180deg);
+}
+
+@media (max-width: 700px) {
+  body.panel-collapsed .departure-panel {
+    max-height: none;
+    min-height: 0;
+  }
+
+  /* On mobile the panel max-height is fixed (45vh), so let the active
+     tab's content scroll as a single column rather than carving up the
+     space between the intro / filters / list and squeezing the list to
+     near zero. Inner overflow:auto blocks (proposals-list, filter chips)
+     are flattened so we don't end up with nested scroll regions. */
+  .panel-tab-content { overflow-y: auto; }
+  .proposals-view {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .proposals-list,
+  .route-filter-chips {
+    overflow: visible;
+    flex: 0 0 auto;
+  }
+  .route-filters {
+    overflow: visible;
+    flex: 0 0 auto;
+  }
 }
 
 .panel-tab-content {
