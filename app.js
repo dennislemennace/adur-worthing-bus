@@ -1464,17 +1464,24 @@ async function loadRouteLines() {
         className:    "proposal-existing-line",
       }));
 
-      if (!showEndpointTags || !coords.length) return;
+      if (!showEndpointTags || coords.length < 2) return;
       const ep = (r.endpoints || [])[i] || {};
       if (ep.to_name) {
-        layers.push(makeEndpointTag(
-          coords[coords.length - 1], r.service, ep.to_name, "to", colour, fg
-        ));
+        const last = coords[coords.length - 1];
+        const prev = coords[coords.length - 2];
+        // Pill sits in the direction the line is heading (outward
+        // continuation) — east of the anchor when the line trends east,
+        // west when it trends west. Falls back to right-placement.
+        const placement = (last[1] >= prev[1]) ? "right" : "left";
+        layers.push(makeEndpointTag(last, r.service, ep.to_name, "to", placement, colour, fg));
       }
       if (ep.from_name) {
-        layers.push(makeEndpointTag(
-          coords[0], r.service, ep.from_name, "from", colour, fg
-        ));
+        const first = coords[0];
+        const next  = coords[1];
+        // For from-truncation, the outward direction is from `next`
+        // back through `first` and beyond — flip the comparison.
+        const placement = (first[1] <= next[1]) ? "left" : "right";
+        layers.push(makeEndpointTag(first, r.service, ep.from_name, "from", placement, colour, fg));
       }
     });
 
@@ -1612,17 +1619,25 @@ function compareServiceNames(a, b) {
  *  so the user sees "1X → Brighton" or "Bognor ← N700" where the line
  *  runs off the edge of the focused area. The marker is non-interactive
  *  and inherits the route's livery colour. */
-function makeEndpointTag([lat, lon], service, place, direction, bg, fg) {
-  const text = (direction === "to")
+function makeEndpointTag([lat, lon], service, place, side, placement, bg, fg) {
+  // `side` drives the arrow text (→ for "to", ← for "from").
+  // `placement` is "left" | "right" — which side of the geographical
+  // anchor the pill sits on; chosen by the caller based on the
+  // polyline's outward heading at this end.
+  const text = (side === "to")
     ? `${service} → ${place}`
     : `${place} ← ${service}`;
+  const W = 220, H = 22, GAP = 4;
+  const anchor = (placement === "right")
+    ? [-GAP, H / 2]      // pill to the right of the geographical point
+    : [W + GAP, H / 2];  // pill to the left
   return L.marker([lat, lon], {
     icon: L.divIcon({
-      className: "route-endpoint-tag",
-      html: `<span class="route-endpoint-pill" data-direction="${direction}" `
-          + `style="--tag-bg:${bg};--tag-fg:${fg}">${escapeHtml(text)}</span>`,
-      iconSize:   [1, 1],   // anchor only; the pill is sized by content
-      iconAnchor: [0, 0],
+      className: `route-endpoint-tag route-endpoint-tag--${placement}`,
+      html: `<span class="route-endpoint-pill" `
+          + `style="background:${bg};color:${fg}">${escapeHtml(text)}</span>`,
+      iconSize:   [W, H],
+      iconAnchor: anchor,
     }),
     interactive: false,
     keyboard:    false,
