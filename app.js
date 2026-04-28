@@ -1236,27 +1236,41 @@ function bindUIEvents() {
 
 // ── Category & operator filter strips ────────────────────────
 //
-// These two strips are multi-select: any combination of categories and
-// operators can be on at once. The default is "everything visible";
-// chips toggle their bucket in the visible Set and reconcile route
-// lines + chips.
+// Two multi-select chip strips driven by the same render path. Each
+// strip's `set` accessor returns the current `state.visibleX` Set;
+// clicking a chip flips that key in the Set and re-syncs.
 
-const CATEGORY_OPTIONS = [
-  { key: "focused", label: "Adur & Worthing" },
-  { key: "express", label: "Express"         },
-  { key: "other",   label: "Other"           },
+const FILTER_STRIPS = [
+  {
+    container: () => dom.serviceCategoryToggle,
+    set:       () => state.visibleCategories,
+    options: [
+      { key: "focused", label: "Adur & Worthing" },
+      { key: "express", label: "Express"         },
+      { key: "other",   label: "Other"           },
+    ],
+  },
+  {
+    container: () => dom.serviceOperatorToggle,
+    set:       () => state.visibleOperators,
+    options: [
+      { key: "BHBC",  label: "B&H"        },
+      { key: "SCSO",  label: "Stagecoach" },
+      { key: "COMT",  label: "Compass"    },
+      { key: "OTHER", label: "Other"      },
+    ],
+  },
 ];
 
-const OPERATOR_OPTIONS = [
-  { key: "BHBC",  label: "B&H"        },
-  { key: "SCSO",  label: "Stagecoach" },
-  { key: "COMT",  label: "Compass"    },
-  { key: "OTHER", label: "Other"      },
-];
+function syncFilterStrips() {
+  for (const strip of FILTER_STRIPS) renderFilterStrip(strip);
+}
 
-function renderFilterStrip(container, options, visibleSet, onToggle) {
+function renderFilterStrip(strip) {
+  const container  = strip.container();
+  const visibleSet = strip.set();
   if (!container) return;
-  container.innerHTML = options.map(opt => {
+  container.innerHTML = strip.options.map(opt => {
     const on = visibleSet ? visibleSet.has(opt.key) : true;
     return `
       <button type="button"
@@ -1267,44 +1281,16 @@ function renderFilterStrip(container, options, visibleSet, onToggle) {
       </button>`;
   }).join("");
   container.querySelectorAll(".filter-chip").forEach(btn => {
-    btn.addEventListener("click", () => onToggle(btn.dataset.filterKey));
+    btn.addEventListener("click", () => {
+      if (!visibleSet) return;
+      const key = btn.dataset.filterKey;
+      if (visibleSet.has(key)) visibleSet.delete(key);
+      else                     visibleSet.add(key);
+      syncFilterStrips();
+      showRouteLines();
+      renderRouteFilterChips();
+    });
   });
-}
-
-function syncCategoryToggle() {
-  renderFilterStrip(
-    dom.serviceCategoryToggle,
-    CATEGORY_OPTIONS,
-    state.visibleCategories,
-    toggleCategoryFilter,
-  );
-}
-
-function syncOperatorToggle() {
-  renderFilterStrip(
-    dom.serviceOperatorToggle,
-    OPERATOR_OPTIONS,
-    state.visibleOperators,
-    toggleOperatorFilter,
-  );
-}
-
-function toggleCategoryFilter(key) {
-  if (!state.visibleCategories) return;
-  if (state.visibleCategories.has(key)) state.visibleCategories.delete(key);
-  else                                  state.visibleCategories.add(key);
-  syncCategoryToggle();
-  showRouteLines();
-  renderRouteFilterChips();
-}
-
-function toggleOperatorFilter(key) {
-  if (!state.visibleOperators) return;
-  if (state.visibleOperators.has(key)) state.visibleOperators.delete(key);
-  else                                 state.visibleOperators.add(key);
-  syncOperatorToggle();
-  showRouteLines();
-  renderRouteFilterChips();
 }
 
 /** Switch between Day and Night service period in Improvements mode.
@@ -1428,31 +1414,19 @@ async function loadRouteLines() {
     return;
   }
   state.routeLines = data.routes;
-  state.visibleRoutes = new Set(data.routes.map(r => r.service));
+  state.visibleRoutes = new Set();
 
-  // Capture category + operator alongside the layers so the filter
-  // gates can read them in O(1) without scanning state.routeLines.
   for (const r of data.routes) {
+    state.visibleRoutes.add(r.service);
     state.routeCategoryByService[r.service] = r.category || "other";
     state.routeOperatorByService[r.service] = r.operator || "";
-  }
-  // Default: every category and every operator we saw is visible.
-  state.visibleCategories = new Set(
-    Object.values(state.routeCategoryByService)
-  );
-  state.visibleOperators = new Set(
-    Object.values(state.routeOperatorByService)
-  );
 
-  for (const r of data.routes) {
     const colour = getLineColour(r.service, r.operator);
-    const layers = [];
-    // Endpoint tags only make sense for routes that *visibly* run off
-    // the edge — i.e. express variants and night routes that continue
-    // toward Brighton or beyond. Local services stay inside the area.
-    const showEndpointTags = (r.category === "express")
-                              || isNightService(r.service);
     const fg = (pickTextOn(colour) === "dark") ? "#1a1a1a" : "#ffffff";
+    // Endpoint tags only make sense for routes that visibly run off
+    // the edge — express variants and night routes continuing east.
+    const showEndpointTags = r.category === "express" || isNightService(r.service);
+    const layers = [];
 
     r.polylines.forEach((coords, i) => {
       layers.push(L.polyline(coords, {
@@ -1469,17 +1443,14 @@ async function loadRouteLines() {
       if (ep.to_name) {
         const last = coords[coords.length - 1];
         const prev = coords[coords.length - 2];
-        // Pill sits in the direction the line is heading (outward
-        // continuation) — east of the anchor when the line trends east,
-        // west when it trends west. Falls back to right-placement.
+        // Place the pill in the direction the line is heading so the
+        // polyline reads as flowing into the tag rather than crossing it.
         const placement = (last[1] >= prev[1]) ? "right" : "left";
         layers.push(makeEndpointTag(last, r.service, ep.to_name, "to", placement, colour, fg));
       }
       if (ep.from_name) {
         const first = coords[0];
         const next  = coords[1];
-        // For from-truncation, the outward direction is from `next`
-        // back through `first` and beyond — flip the comparison.
         const placement = (first[1] <= next[1]) ? "left" : "right";
         layers.push(makeEndpointTag(first, r.service, ep.from_name, "from", placement, colour, fg));
       }
@@ -1488,8 +1459,10 @@ async function loadRouteLines() {
     state.routeLineLayers[r.service] = layers;
   }
 
-  syncCategoryToggle();
-  syncOperatorToggle();
+  state.visibleCategories = new Set(Object.values(state.routeCategoryByService));
+  state.visibleOperators  = new Set(Object.values(state.routeOperatorByService));
+
+  syncFilterStrips();
   renderRouteFilterChips();
 }
 
