@@ -261,8 +261,9 @@ body.dark-mode .view-mode-btn.active {
   border: 1px solid rgba(255,255,255,0.25);
   border-radius: var(--radius-md);
   color: rgba(255,255,255,0.9);
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -305,21 +306,27 @@ body.dark-mode .btn-icon:hover {
   height: 100%;
 }
 
+/* Centered dialog card floating over a live, functional map. The map
+   loads its stops/vehicles behind it; the dialog fades out once loaded. */
 .map-loading {
   position: absolute;
-  inset: 0;
-  background: rgba(237, 234, 227, 0.55);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--space-md);
+  padding: var(--space-lg) calc(var(--space-lg) + 6px);
   z-index: 600;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
-  transition: opacity 260ms ease;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  transition: opacity 400ms ease;
 }
 
 .map-loading.hidden {
@@ -328,7 +335,8 @@ body.dark-mode .btn-icon:hover {
 }
 
 body.dark-mode .map-loading {
-  background: rgba(9, 14, 26, 0.6);
+  background: var(--color-surface);
+  border-color: var(--color-border);
   color: var(--color-text-muted);
 }
 
@@ -1357,8 +1365,10 @@ body.dark-mode .site-header {
   position: absolute;
   top: 100%;
   left: 0;
-  right: 0;
-  width: 100%;
+  /* End the wave where the side panel begins so the panel butts flush
+     against a clean, flat header edge instead of a misaligned wavy notch.
+     Reset to full width on mobile (panel stacks below the map). */
+  right: var(--panel-width);
   height: 46px;
   display: block;
   pointer-events: none;
@@ -1379,7 +1389,10 @@ body.dark-mode .header-wave-front { fill: var(--color-surface); }
 
 .header-inner { position: relative; z-index: 1; gap: var(--space-md); }
 
-.header-brand { gap: 14px; }
+/* min-width:0 lets the brand text shrink + ellipsis inside the flex row
+   at every width, not just under the mobile breakpoint. */
+.header-brand { gap: 14px; min-width: 0; }
+.header-brand > div { min-width: 0; }
 
 .header-icon {
   width: 40px;
@@ -1401,41 +1414,43 @@ body.dark-mode .header-icon {
 
 .header-title {
   font-family: var(--font-brand);
-  font-size: 1.9rem;
+  /* Fluid scale: ~1.25rem on tablet up to 1.9rem on wide desktop, so the
+     title never crowds the controls in the 700–1024 range. */
+  font-size: clamp(1.25rem, 0.95rem + 1.4vw, 1.9rem);
   font-weight: 800;
   line-height: 1.05;
   letter-spacing: -0.015em;
   color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .header-subtitle {
-  font-size: 0.72rem;
+  font-size: clamp(0.6rem, 0.52rem + 0.25vw, 0.72rem);
   margin-top: 4px;
   letter-spacing: 0.1em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Tablet: tighten control spacing and drop the non-essential timestamp
+   before it collides with the toggle. */
+@media (max-width: 1024px) {
+  .header-controls { gap: var(--space-sm); }
+}
+@media (max-width: 880px) {
+  .last-updated { display: none; }
 }
 
 @media (max-width: 700px) {
   :root { --header-height: 64px; }
+  /* Panel stacks below the map on mobile, so the wave spans full width. */
+  .header-wave { right: 0; }
   .header-inner { gap: var(--space-sm); padding: 0 var(--space-md); }
-  .header-brand { gap: 10px; min-width: 0; flex: 1; }
-  .header-brand > div { min-width: 0; overflow: hidden; }
-  .header-title {
-    font-size: 1.15rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .header-subtitle {
-    font-size: 0.58rem;
-    margin-top: 3px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  .header-brand { gap: 10px; flex: 1; }
   .header-icon { width: 34px; height: 34px; flex-shrink: 0; }
   .header-icon .icon { width: 19px; height: 19px; }
-  /* Timestamp is non-essential on narrow screens; hide to free space
-     for the brand title so it fits on a single line. */
-  .last-updated { display: none; }
   .header-controls { flex-shrink: 0; gap: var(--space-sm); }
   .view-mode-btn { padding: 4px 8px; font-size: 0.7rem; }
   /* Abbreviate "Improvements" → "Plan" on small screens */
@@ -1498,34 +1513,20 @@ body.dark-mode .header-icon {
 body.dark-mode :focus-visible { outline-color: var(--color-accent); }
 .leaflet-bar a:focus-visible { outline-offset: 0; }
 
-/* ---- Loading overlay: illustrated, translucent (map visible behind) ---- */
+/* ---- Loading dialog: illustrated pier + bus, centered card ---- */
 .map-loading {
   gap: 14px;
   font-size: var(--font-size-sm);
   color: var(--color-text);
-  background: linear-gradient(180deg,
-    rgba(237, 234, 227, 0.55) 0%,
-    rgba(237, 234, 227, 0.42) 100%);
-}
-body.dark-mode .map-loading {
-  background: linear-gradient(180deg,
-    rgba(9, 14, 26, 0.62) 0%,
-    rgba(9, 14, 26, 0.48) 100%);
 }
 .map-loading-icon {
   width: 56px;
   height: 56px;
   color: var(--color-accent);
   opacity: 0.9;
-  animation: loader-rise 220ms ease-out both;
 }
 .map-loading p {
   margin: 0;
-  animation: loader-rise 220ms ease-out 60ms both;
-}
-@keyframes loader-rise {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0);   }
 }
 
 /* ---- Stop markers: ochre dot with ring, branded ---- */
@@ -1540,7 +1541,6 @@ body.dark-mode .map-loading {
     0 2px 4px rgba(10, 18, 32, 0.35);
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.18s;
-  animation: stop-pop 160ms ease-out both;
 }
 .stop-marker-icon:hover {
   transform: scale(1.6);
@@ -1553,10 +1553,6 @@ body.dark-mode .stop-marker-icon {
   box-shadow:
     0 0 0 2px rgba(230, 168, 32, 0.28),
     0 1px 3px rgba(0, 0, 0, 0.6);
-}
-@keyframes stop-pop {
-  from { transform: scale(0.3); opacity: 0; }
-  to   { transform: scale(1);   opacity: 1; }
 }
 /* In the proposal editor's Add-stop mode, hint that markers are click targets. */
 body.editor-mode-add-stop .leaflet-marker-icon.stop-marker-icon {
@@ -1638,9 +1634,6 @@ body.dark-mode .departures-table tr.departure-row:hover td {
 }
 @media (prefers-reduced-motion: reduce) {
   .due-time.due-imminent::before { animation: none; }
-  .map-loading-icon,
-  .map-loading p,
-  .stop-marker-icon,
   .stop-marker-icon.just-added,
   .editor-point-row.just-added { animation: none; }
 }

@@ -367,11 +367,32 @@ async function loadStops() {
     const data = await apiFetch("/api/stops");
     if (!data || !data.stops) throw new Error("Invalid stops response");
 
-    data.stops.forEach(renderStopMarker);
+    // Render in chunks across animation frames so inserting ~1400 markers
+    // doesn't block the main thread (which caused visible jutter); the map
+    // stays responsive and markers populate progressively behind the
+    // loading dialog. Resolves once the last chunk has painted.
+    await renderStopsInChunks(data.stops);
   } catch (err) {
     console.error("Failed to load stops:", err);
     showToast("Could not load bus stops. Check your API configuration.");
   }
+}
+
+function renderStopsInChunks(stops, chunkSize = 150) {
+  return new Promise((resolve) => {
+    let i = 0;
+    function step() {
+      const end = Math.min(i + chunkSize, stops.length);
+      for (; i < end; i++) renderStopMarker(stops[i]);
+      if (i < stops.length) {
+        requestAnimationFrame(step);
+      } else {
+        resolve();
+      }
+    }
+    if (stops.length === 0) { resolve(); return; }
+    requestAnimationFrame(step);
+  });
 }
 
 function renderStopMarker(stop) {

@@ -320,7 +320,8 @@ class Timetable:
                 first_secs,
             )
 
-    def service_frequency(self, short_name: str) -> dict:
+    def service_frequency(self, short_name: str,
+                          allowed_tids: Optional[set] = None) -> dict:
         """Coarse operating-pattern stats for one route short_name.
 
         Powers the Improvements tab's "frequent all-day services only"
@@ -328,9 +329,15 @@ class Timetable:
         day of the week, has at least one journey starting at or after
         18:00, and its median weekday daytime headway is <= 30 min.
 
-        runs_days union: any service_id touched by a trip with this
+        allowed_tids: when given, only trips whose surrogate `tid` is in
+        this set are counted. Callers pass the bbox-relevant trip ids so a
+        same-numbered route elsewhere in the feed (e.g. a frequent "60" in
+        another town) doesn't pollute the local classification. When None,
+        the whole feed is considered.
+
+        runs_days union: any service_id touched by a counted trip with this
         short_name contributes its day-of-week flags. last_start_sec is
-        the max first_secs across all trips. weekday_headway_min uses
+        the max first_secs across counted trips. weekday_headway_min uses
         Tuesday as the "typical weekday" sample, restricted to 08:00–18:00.
         """
         empty = {
@@ -351,6 +358,8 @@ class Timetable:
             "SELECT tid, first_secs FROM trip_endpoints WHERE short_name=?",
             (short_name,),
         ):
+            if allowed_tids is not None and tid not in allowed_tids:
+                continue
             if first_secs is None:
                 continue
             if first_secs > last_start_sec:
@@ -567,7 +576,7 @@ class Timetable:
                     "endpoints": endpoints,
                     "category":  self._categorise(short_name),
                     "operator":  self._operator_bucket(noc),
-                    "frequency": self.service_frequency(short_name),
+                    "frequency": self.service_frequency(short_name, bbox_trip_ids),
                 })
 
         return sorted(out, key=lambda x: x["service"])
