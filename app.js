@@ -1857,8 +1857,8 @@ async function loadProposals() {
   // Resolve a deep-linked proposal id that arrived before this data did.
   // Defer to the end of the function so layers exist when selectProposal runs.
 
-  if (!map.getPane("proposalPane")) {
-    const pane = map.createPane("proposalPane");
+  if (!state.map.getPane("proposalPane")) {
+    const pane = state.map.createPane("proposalPane");
     pane.style.zIndex = 405; // above overlayPane (400)
   }
 
