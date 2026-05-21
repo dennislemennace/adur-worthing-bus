@@ -10,6 +10,7 @@ This keeps Render Free-tier RSS well under 512 MB.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import sqlite3
@@ -25,6 +26,12 @@ TIMETABLE_URL = os.environ.get(
     "TIMETABLE_URL",
     "https://github.com/dennislemennace/adur-worthing-bus/releases/download/timetable-latest/timetable.sqlite",
 )
+
+# Suffix appended to db_path for the locally-computed hash cache. Trusted
+# when its mtime ≥ the DB's mtime; otherwise we rehash. Saves ~200 ms of
+# SHA-256 over 63 MB on every warm cold start.
+_LOCAL_HASH_SUFFIX = ".sha256.local"
+_SIDECAR_TIMEOUT = 5  # seconds — sidecar is ~64 bytes, this is generous.
 
 
 class Timetable:
@@ -47,10 +54,9 @@ class Timetable:
         self.loaded_at: float = 0.0
         self._open_and_preload()
 
-    def _download_if_missing(self) -> None:
-        if self.db_path.exists():
-            return
-        log.info("Timetable DB missing; downloading from %s", TIMETABLE_URL)
+    def _fetch_db(self) -> bool:
+        """Download timetable.sqlite to db_path via a .tmp+replace.
+        Returns True on success."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.db_path.with_suffix(self.db_path.suffix + ".tmp")
         try:
@@ -58,13 +64,94 @@ class Timetable:
             tmp.replace(self.db_path)
             log.info("Timetable DB downloaded: %d bytes",
                      self.db_path.stat().st_size)
+            return True
         except Exception as exc:
             log.error("Timetable download failed: %s", exc)
             if tmp.exists():
-                tmp.unlink()
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
+            return False
+
+    def _cached_local_hash_path(self) -> Path:
+        return self.db_path.with_suffix(self.db_path.suffix + _LOCAL_HASH_SUFFIX)
+
+    def _local_hash(self) -> Optional[str]:
+        """Return the SHA-256 of the on-disk DB. Uses an mtime-keyed cache
+        file alongside the DB to avoid rehashing 63 MB on every cold start."""
+        if not self.db_path.exists():
+            return None
+        cache = self._cached_local_hash_path()
+        try:
+            if (cache.exists()
+                    and cache.stat().st_mtime >= self.db_path.stat().st_mtime):
+                digest = cache.read_text(encoding="utf-8").strip().lower()
+                if len(digest) == 64:
+                    return digest
+        except Exception:
+            pass
+        try:
+            h = hashlib.sha256()
+            with self.db_path.open("rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            digest = h.hexdigest()
+        except Exception as exc:
+            log.warning("Failed to hash %s: %s", self.db_path, exc)
+            return None
+        try:
+            tmp = cache.with_suffix(cache.suffix + ".tmp")
+            tmp.write_text(digest + "\n", encoding="utf-8")
+            tmp.replace(cache)
+        except Exception as exc:
+            log.warning("Failed to cache local hash: %s", exc)
+        return digest
+
+    def _remote_hash(self) -> Optional[str]:
+        """Fetch the .sha256 sidecar from TIMETABLE_URL. Returns None on
+        any network or parse failure — callers should treat that as
+        'no change needed' to avoid bringing the API down on a blip."""
+        sidecar_url = TIMETABLE_URL + ".sha256"
+        try:
+            with urllib.request.urlopen(sidecar_url, timeout=_SIDECAR_TIMEOUT) as resp:
+                text = resp.read(256).decode("utf-8", errors="replace")
+        except Exception as exc:
+            log.warning("Timetable sidecar fetch failed (%s): %s",
+                        sidecar_url, exc)
+            return None
+        digest = (text.strip().split() or [""])[0].lower()
+        if len(digest) == 64 and all(c in "0123456789abcdef" for c in digest):
+            return digest
+        log.warning("Timetable sidecar returned unexpected content: %r",
+                    text[:64])
+        return None
+
+    def _ensure_fresh(self) -> None:
+        """Make sure data/timetable.sqlite matches the remote sidecar hash.
+        On first start (db missing) just downloads. On subsequent starts,
+        compares local hash to the remote sidecar; refreshes on mismatch.
+        Falls back to serving the existing file when the sidecar is
+        unreachable (a brittle release shouldn't take the API down)."""
+        if not self.db_path.exists():
+            log.info("Timetable DB missing; downloading from %s", TIMETABLE_URL)
+            self._fetch_db()
+            self._local_hash()  # warm the cache for next start
+            return
+        remote = self._remote_hash()
+        if remote is None:
+            return
+        local = self._local_hash()
+        if local == remote:
+            log.info("Timetable DB up-to-date (sha256 %s)", remote[:12])
+            return
+        log.info("Timetable DB stale (local %s != remote %s); refreshing",
+                 (local or "?")[:12], remote[:12])
+        if self._fetch_db():
+            self._local_hash()  # rewrite cache to match the new file
 
     def _open_and_preload(self) -> None:
-        self._download_if_missing()
+        self._ensure_fresh()
         if not self.db_path.exists():
             log.error("Timetable DB missing: %s", self.db_path)
             self._con = None
@@ -233,6 +320,90 @@ class Timetable:
                 first_secs,
             )
 
+    def service_frequency(self, short_name: str) -> dict:
+        """Coarse operating-pattern stats for one route short_name.
+
+        Powers the Improvements tab's "frequent all-day services only"
+        default filter. A route is `is_frequent_all_day` iff it runs every
+        day of the week, has at least one journey starting at or after
+        18:00, and its median weekday daytime headway is <= 30 min.
+
+        runs_days union: any service_id touched by a trip with this
+        short_name contributes its day-of-week flags. last_start_sec is
+        the max first_secs across all trips. weekday_headway_min uses
+        Tuesday as the "typical weekday" sample, restricted to 08:00–18:00.
+        """
+        empty = {
+            "runs_days": [],
+            "last_start_sec": 0,
+            "weekday_headway_min": None,
+            "is_frequent_all_day": False,
+        }
+        if self._con is None:
+            return empty
+
+        days_seen = [False] * 7
+        last_start_sec = 0
+        tuesday_starts: list = []
+
+        tid_to_trip = self._tid_to_trip
+        for tid, first_secs in self._con.execute(
+            "SELECT tid, first_secs FROM trip_endpoints WHERE short_name=?",
+            (short_name,),
+        ):
+            if first_secs is None:
+                continue
+            if first_secs > last_start_sec:
+                last_start_sec = first_secs
+
+            trip_id = tid_to_trip.get(tid)
+            if trip_id is None:
+                continue
+            trip = self.trips.get(trip_id)
+            if trip is None:
+                continue
+            cal = self.calendar.get(trip.get("service_id", ""))
+            if not cal:
+                continue
+            for i, col in enumerate(self._DAY_COLS):
+                if cal.get(col, "0") == "1":
+                    days_seen[i] = True
+            if cal.get("tuesday", "0") == "1":
+                tuesday_starts.append(first_secs)
+
+        # Dedupe identical start minutes: the same clock-time journey often
+        # appears under several service_ids (schools / holidays / base
+        # calendar variants), and two buses leaving at the same minute is
+        # one departure slot, not a zero-minute headway. Without this an
+        # hourly-but-duplicated route would collapse to a 0-min median and
+        # be misclassified as frequent.
+        DAY_LO = 8 * 3600
+        DAY_HI = 18 * 3600
+        daytime = sorted({s // 60 for s in tuesday_starts if DAY_LO <= s <= DAY_HI})
+        weekday_headway_min: Optional[int] = None
+        if len(daytime) >= 2:
+            gaps = sorted(
+                daytime[i + 1] - daytime[i]
+                for i in range(len(daytime) - 1)
+            )
+            mid = len(gaps) // 2
+            median = gaps[mid] if len(gaps) % 2 else (gaps[mid - 1] + gaps[mid]) / 2.0
+            weekday_headway_min = int(round(median))
+
+        runs_days = [self._DAY_SHORT[i] for i, on in enumerate(days_seen) if on]
+        is_frequent = (
+            len(runs_days) == 7
+            and last_start_sec >= 18 * 3600
+            and weekday_headway_min is not None
+            and weekday_headway_min <= 30
+        )
+        return {
+            "runs_days": runs_days,
+            "last_start_sec": last_start_sec,
+            "weekday_headway_min": weekday_headway_min,
+            "is_frequent_all_day": is_frequent,
+        }
+
     def has_stop_times(self, stop_id: str) -> bool:
         return stop_id in self.stops_with_times
 
@@ -269,6 +440,10 @@ class Timetable:
         "SCSO": "SCSO", "SCSC": "SCSO",
         "COMT": "COMT", "CMPA": "COMT",
     }
+
+    _DAY_COLS = ("monday", "tuesday", "wednesday", "thursday",
+                 "friday", "saturday", "sunday")
+    _DAY_SHORT = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
     def representative_polylines(
         self,
@@ -392,6 +567,7 @@ class Timetable:
                     "endpoints": endpoints,
                     "category":  self._categorise(short_name),
                     "operator":  self._operator_bucket(noc),
+                    "frequency": self.service_frequency(short_name),
                 })
 
         return sorted(out, key=lambda x: x["service"])

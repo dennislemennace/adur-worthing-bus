@@ -109,9 +109,6 @@
         <path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/>
         <circle cx="12" cy="9" r="2.5"/>
       </symbol>
-      <symbol id="i-circle-dot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/>
-      </symbol>
       <symbol id="i-move" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M5 9l-3 3 3 3"/><path d="M9 5l3-3 3 3"/>
         <path d="M15 19l-3 3-3-3"/><path d="M19 9l3 3-3 3"/>
@@ -332,6 +329,13 @@
           <div class="filter-strip-row">
             <span class="filter-strip-label">Operator</span>
             <div class="filter-strip" id="service-operator-toggle"></div>
+          </div>
+          <div class="filter-strip-row">
+            <span class="filter-strip-label">Frequency</span>
+            <label class="filter-toggle" for="show-limited-services">
+              <input type="checkbox" id="show-limited-services">
+              <span>Show limited services</span>
+            </label>
           </div>
         </div>
 

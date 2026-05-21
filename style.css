@@ -308,7 +308,9 @@ body.dark-mode .btn-icon:hover {
 .map-loading {
   position: absolute;
   inset: 0;
-  background: rgba(237, 234, 227, 0.88);
+  background: rgba(237, 234, 227, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -317,7 +319,7 @@ body.dark-mode .btn-icon:hover {
   z-index: 600;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
-  transition: opacity 400ms ease;
+  transition: opacity 260ms ease;
 }
 
 .map-loading.hidden {
@@ -326,7 +328,7 @@ body.dark-mode .btn-icon:hover {
 }
 
 body.dark-mode .map-loading {
-  background: rgba(9, 14, 26, 0.9);
+  background: rgba(9, 14, 26, 0.6);
   color: var(--color-text-muted);
 }
 
@@ -1496,25 +1498,34 @@ body.dark-mode .header-icon {
 body.dark-mode :focus-visible { outline-color: var(--color-accent); }
 .leaflet-bar a:focus-visible { outline-offset: 0; }
 
-/* ---- Loading overlay: illustrated, not just text ---- */
+/* ---- Loading overlay: illustrated, translucent (map visible behind) ---- */
 .map-loading {
   gap: 14px;
   font-size: var(--font-size-sm);
   color: var(--color-text);
   background: linear-gradient(180deg,
-    rgba(237, 234, 227, 0.92) 0%,
-    rgba(237, 234, 227, 0.82) 100%);
+    rgba(237, 234, 227, 0.55) 0%,
+    rgba(237, 234, 227, 0.42) 100%);
 }
 body.dark-mode .map-loading {
   background: linear-gradient(180deg,
-    rgba(9, 14, 26, 0.94) 0%,
-    rgba(9, 14, 26, 0.82) 100%);
+    rgba(9, 14, 26, 0.62) 0%,
+    rgba(9, 14, 26, 0.48) 100%);
 }
 .map-loading-icon {
   width: 56px;
   height: 56px;
   color: var(--color-accent);
   opacity: 0.9;
+  animation: loader-rise 220ms ease-out both;
+}
+.map-loading p {
+  margin: 0;
+  animation: loader-rise 220ms ease-out 60ms both;
+}
+@keyframes loader-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
 }
 
 /* ---- Stop markers: ochre dot with ring, branded ---- */
@@ -1529,6 +1540,7 @@ body.dark-mode .map-loading {
     0 2px 4px rgba(10, 18, 32, 0.35);
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.18s;
+  animation: stop-pop 160ms ease-out both;
 }
 .stop-marker-icon:hover {
   transform: scale(1.6);
@@ -1541,6 +1553,23 @@ body.dark-mode .stop-marker-icon {
   box-shadow:
     0 0 0 2px rgba(230, 168, 32, 0.28),
     0 1px 3px rgba(0, 0, 0, 0.6);
+}
+@keyframes stop-pop {
+  from { transform: scale(0.3); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+/* In the proposal editor's Add-stop mode, hint that markers are click targets. */
+body.editor-mode-add-stop .leaflet-marker-icon.stop-marker-icon {
+  cursor: crosshair;
+}
+/* Brief confirmation pulse when a stop is added to a draft. */
+.stop-marker-icon.just-added {
+  animation: stop-add-pulse 320ms ease-out;
+}
+@keyframes stop-add-pulse {
+  0%   { transform: scale(1);   box-shadow: 0 0 0 0   rgba(192, 120, 8, 0.55); }
+  50%  { transform: scale(1.7); box-shadow: 0 0 0 10px rgba(192, 120, 8, 0);   }
+  100% { transform: scale(1);   box-shadow: 0 0 0 0   rgba(192, 120, 8, 0);    }
 }
 
 /* ---- Service badge: livery-coloured variants ---- */
@@ -1609,6 +1638,37 @@ body.dark-mode .departures-table tr.departure-row:hover td {
 }
 @media (prefers-reduced-motion: reduce) {
   .due-time.due-imminent::before { animation: none; }
+  .map-loading-icon,
+  .map-loading p,
+  .stop-marker-icon,
+  .stop-marker-icon.just-added,
+  .editor-point-row.just-added { animation: none; }
+}
+
+/* ---- Editor sidebar: new-point flash ---- */
+.editor-point-row.just-added {
+  animation: point-row-flash 600ms ease-out;
+}
+@keyframes point-row-flash {
+  0%   { background: rgba(192, 120, 8, 0.32); }
+  100% { background: transparent;             }
+}
+
+/* ---- Improvements: Frequency toggle (Show limited services) ---- */
+.filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
+}
+.filter-toggle input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--color-accent);
+  width: 14px;
+  height: 14px;
 }
 
 /* ---- Small spinner polish ---- */
@@ -2391,9 +2451,6 @@ body.editor-mode .leaflet-marker-icon.stop-marker-icon {
 }
 body.editor-mode.editor-mode-add-stop .leaflet-marker-icon.stop-marker-icon {
   cursor: crosshair !important;
-}
-body.editor-mode.editor-mode-add-waypoint #map {
-  cursor: crosshair;
 }
 body.editor-mode .proposal-existing-line {
   opacity: 0.25 !important;

@@ -82,10 +82,12 @@ const state = {
   serviceMode:             "day",  // "day" | "night" — splits chips, route lines, proposals
   visibleCategories:       null,   // Set<"focused"|"express"|"other">; populated on first load
   visibleOperators:        null,   // Set of operator buckets ("BHBC","SCSO","COMT","OTHER",""); ""=unknown
+  showLimitedServices:     false,  // false = hide services that don't run all week or finish before 18:00
   routeLines:              null,   // /api/route-lines response, fetched lazily
   routeLineLayers:         {},     // service short_name → array of L.polyline
   routeCategoryByService:  {},     // service → "focused"|"express"|"other"
   routeOperatorByService:  {},     // service → operator NOC (e.g. "COMT", "")
+  routeFrequencyByService: {},     // service → { is_frequent_all_day, runs_days, ... }
   visibleRoutes:           null,   // Set of service short_names; null = all visible
   proposals:               null,   // data/proposals.json
   proposalLayers:          {},     // proposal id → array of L.polyline
@@ -94,7 +96,7 @@ const state = {
 
   // ── Proposal editor ──
   editor:              null,      // active draft object; null = editor closed
-  editorMode:          "move",    // "move" | "addStop" | "addWaypoint"
+  editorMode:          "addStop", // "move" | "addStop" — stops-only routing
   editorLayers:        null,      // L.featureGroup holding draft polyline + markers
   editorDrafts:        [],        // cached copy of localStorage["proposalDrafts"]
   editorAutosaveTimer: null,      // setTimeout handle for debounced save
@@ -147,6 +149,7 @@ const dom = {
   serviceModeNight:       document.getElementById("service-mode-night"),
   serviceCategoryToggle:  document.getElementById("service-category-toggle"),
   serviceOperatorToggle:  document.getElementById("service-operator-toggle"),
+  showLimitedServices:    document.getElementById("show-limited-services"),
   tabAbout:               document.getElementById("tab-about"),
   tabProposals:           document.getElementById("tab-proposals"),
   tabContentAbout:        document.getElementById("tab-content-about"),
@@ -164,6 +167,125 @@ const dom = {
   draftsList:             document.getElementById("drafts-list"),
   proposalEditor:         document.getElementById("proposal-editor"),
 };
+
+// ============================================================
+// URL HASH STATE — share-friendly deep links
+// ============================================================
+// Round-trips a minimal subset of `state` to/from location.hash so a stop,
+// vehicle, proposal, view mode, or service mode can be shared as a single
+// link. Defaults are omitted to keep URLs tidy. Loop avoidance: every
+// mutator that calls pushUrlState() is suppressed while applyUrlState() is
+// re-applying a URL we just navigated to (via popstate or initial load).
+
+function parseUrlState() {
+  const hash = (location.hash || "").replace(/^#/, "");
+  const out = {};
+  if (!hash) return out;
+  for (const pair of hash.split("&")) {
+    if (!pair) continue;
+    const eq = pair.indexOf("=");
+    const k = eq === -1 ? pair : pair.slice(0, eq);
+    const v = eq === -1 ? "" : pair.slice(eq + 1);
+    try { out[k] = decodeURIComponent(v.replace(/\+/g, " ")); }
+    catch { out[k] = v; }
+  }
+  return out;
+}
+
+function buildUrlHash() {
+  const parts = [];
+  if (state.viewMode === "improvements") parts.push("view=i");
+  if (state.serviceMode === "night")     parts.push("svc=n");
+  if (state.viewMode === "live") {
+    if (state.selectedStop && state.selectedStop.atcoCode) {
+      parts.push("stop=" + encodeURIComponent(state.selectedStop.atcoCode));
+    }
+    if (state.selectedVehicleRef) {
+      parts.push("bus=" + encodeURIComponent(state.selectedVehicleRef));
+    }
+  } else if (state.selectedProposalId) {
+    parts.push("proposal=" + encodeURIComponent(state.selectedProposalId));
+  }
+  return parts.length ? "#" + parts.join("&") : "";
+}
+
+function pushUrlState({ major = false } = {}) {
+  if (state._suppressUrlSync) return;
+  const newHash = buildUrlHash();
+  if (newHash === (location.hash || "")) return;
+  const url = newHash || (location.pathname + location.search);
+  try {
+    if (major) history.pushState(null, "", url);
+    else       history.replaceState(null, "", url);
+  } catch { /* sandboxed contexts can block history APIs */ }
+}
+
+async function applyUrlState(parsed) {
+  state._suppressUrlSync = true;
+  // Clear any pending tokens from a prior URL — popstate may have arrived
+  // before a previous deep-link finished resolving.
+  state._pendingBusRef     = null;
+  state._pendingProposalId = null;
+  try {
+    const svc = parsed.svc === "n" ? "night" : "day";
+    if (state.serviceMode !== svc) setServiceMode(svc);
+
+    const view = parsed.view === "i" ? "improvements" : "live";
+    if (state.viewMode !== view) setViewMode(view);
+
+    if (view === "improvements") {
+      if (parsed.proposal) {
+        if (state.proposals) {
+          const match = state.proposals.find(x => x.id === parsed.proposal);
+          if (match) selectProposal(parsed.proposal);
+        } else {
+          state._pendingProposalId = parsed.proposal;
+        }
+      }
+      return;
+    }
+
+    if (parsed.stop) {
+      const pos = state.stopData[parsed.stop];
+      if (pos) {
+        await window.openDepartures(parsed.stop, pos.name || parsed.stop);
+      } else {
+        showToast("Stop not found.");
+      }
+    }
+    if (parsed.bus) {
+      const marker = state.busMarkers[parsed.bus];
+      if (marker && marker._vehicle) {
+        openBusInfo(marker._vehicle);
+      } else {
+        // Vehicles populate after the first /api/vehicles tick — defer.
+        state._pendingBusRef = parsed.bus;
+      }
+    }
+  } finally {
+    state._suppressUrlSync = false;
+    // If anything changed during the apply, persist the canonical hash
+    // (handles cases where parsed dropped invalid tokens).
+    pushUrlState();
+  }
+}
+
+function resolvePendingBusRef() {
+  const ref = state._pendingBusRef;
+  if (!ref) return;
+  const marker = state.busMarkers[ref];
+  if (marker && marker._vehicle) {
+    state._pendingBusRef = null;
+    openBusInfo(marker._vehicle);
+  }
+}
+
+function resolvePendingProposalId() {
+  const id = state._pendingProposalId;
+  if (!id || !state.proposals) return;
+  state._pendingProposalId = null;
+  if (state.proposals.find(x => x.id === id)) selectProposal(id);
+}
 
 // ============================================================
 // INITIALISE
@@ -191,6 +313,10 @@ async function init() {
 
   // Hide initial loading overlay
   dom.mapLoading.classList.add("hidden");
+
+  // Restore deep-linked state from URL hash, if any. Stops are loaded;
+  // vehicles and proposals resolve asynchronously via _pending* tokens.
+  await applyUrlState(parseUrlState());
 
   // Start live bus position loop
   startVehicleRefresh();
@@ -279,7 +405,7 @@ function renderStopMarker(stop) {
   });
 
   state.stopMarkers[stop.atco_code] = marker;
-  state.stopData[stop.atco_code]    = { lat: stop.latitude, lon: stop.longitude };
+  state.stopData[stop.atco_code]    = { lat: stop.latitude, lon: stop.longitude, name: stop.name };
 }
 
 // ============================================================
@@ -307,6 +433,7 @@ async function fetchVehicles() {
     if (!data || !data.vehicles) return;
 
     updateVehicleMarkers(data.vehicles);
+    resolvePendingBusRef();
 
     const now = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     dom.lastUpdatedLabel.textContent = `Updated ${now}`;
@@ -531,6 +658,7 @@ window.openDepartures = async function(atcoCode, stopName) {
     const pos = state.stopData[atcoCode];
     if (pos) {
       addStopToDraft({ atco: atcoCode, name: stopName, lat: pos.lat, lon: pos.lon });
+      pulseStopMarker(atcoCode);
     }
     state.map.closePopup();
     return;
@@ -543,6 +671,7 @@ window.openDepartures = async function(atcoCode, stopName) {
   state.map.closePopup();
 
   state.selectedStop = { atcoCode, stopName };
+  pushUrlState();
 
   // Update panel header
   dom.panelStopName.textContent = stopName;
@@ -786,6 +915,7 @@ function openBusInfo(vehicle) {
   state.selectedVehicleLost     = false;
   state.busDetails              = null;
   state.busDetailsLoading       = true;
+  pushUrlState();
 
   setActiveTab("bus");
   renderBusTab();
@@ -1121,6 +1251,7 @@ function closePanel() {
 
   // Default back to the Stop tab
   setActiveTab("stop");
+  pushUrlState();
 }
 
 // ============================================================
@@ -1179,12 +1310,27 @@ function bindUIEvents() {
   dom.viewModeLive.addEventListener("click", () => setViewMode("live"));
   dom.viewModeImprovements.addEventListener("click", () => setViewMode("improvements"));
 
+  // Browser back/forward — re-apply state from the URL hash.
+  window.addEventListener("popstate", () => applyUrlState(parseUrlState()));
+
   // Improvements panel: Day/Night service mode toggle
   if (dom.serviceModeDay) {
     dom.serviceModeDay.addEventListener("click",   () => setServiceMode("day"));
   }
   if (dom.serviceModeNight) {
     dom.serviceModeNight.addEventListener("click", () => setServiceMode("night"));
+  }
+
+  // Improvements panel: "Show limited services" toggle. Default off — hide
+  // routes that don't run all week or end before 18:00.
+  if (dom.showLimitedServices) {
+    dom.showLimitedServices.checked = state.showLimitedServices;
+    dom.showLimitedServices.addEventListener("change", (e) => {
+      state.showLimitedServices = !!e.target.checked;
+      showRouteLines();
+      renderRouteFilterChips();
+      renderProposalsList();
+    });
   }
 
   // Mobile-only "hide panel" button — collapses the side panel down to
@@ -1207,22 +1353,6 @@ function bindUIEvents() {
   if (dom.newProposalBtn) {
     dom.newProposalBtn.addEventListener("click", () => openEditor());
   }
-
-  // Freeform waypoint add: click on empty map area (not a marker) in addWaypoint mode.
-  // Gated on the editor UI being on-screen so off-tab clicks don't mutate the
-  // draft silently. Draft circleMarkers set bubblingMouseEvents:false so
-  // clicks on them won't fall through here as duplicate waypoints.
-  state.map.on("click", (e) => {
-    if (!state.editor || state.editorMode !== "addWaypoint") return;
-    if (dom.tabContentProposals &&
-        dom.tabContentProposals.classList.contains("hidden")) return;
-    const t = e.originalEvent && e.originalEvent.target;
-    if (t && t.closest &&
-        t.closest(".leaflet-marker-icon, .leaflet-marker-pane, .leaflet-popup, .leaflet-popup-pane, .bus-marker-wrapper")) {
-      return;
-    }
-    addWaypointToDraft([e.latlng.lat, e.latlng.lng]);
-  });
 
   // Flush pending draft autosaves on tab hide / page unload so a reload
   // or mobile background suspend right after an edit doesn't lose it.
@@ -1328,6 +1458,8 @@ function setServiceMode(mode) {
   // Refresh proposal overlay to match new mode (also handles selection)
   if (state.showProposals) showAllProposals();
   else                     hideAllProposals();
+
+  pushUrlState();
 }
 
 /** Switch between the About and Proposals tabs in Improvements mode. */
@@ -1369,6 +1501,9 @@ function setViewMode(mode) {
 
   // Side-effects wired in later tasks (vehicle refresh, polylines, panel).
   applyViewMode();
+
+  // View mode is a major shift — users expect Back to return to live.
+  pushUrlState({ major: true });
 }
 
 async function applyViewMode() {
@@ -1418,8 +1553,9 @@ async function loadRouteLines() {
 
   for (const r of data.routes) {
     state.visibleRoutes.add(r.service);
-    state.routeCategoryByService[r.service] = r.category || "other";
-    state.routeOperatorByService[r.service] = r.operator || "";
+    state.routeCategoryByService[r.service]  = r.category || "other";
+    state.routeOperatorByService[r.service]  = r.operator || "";
+    state.routeFrequencyByService[r.service] = r.frequency || null;
 
     const colour = getLineColour(r.service, r.operator);
     const fg = (pickTextOn(colour) === "dark") ? "#1a1a1a" : "#ffffff";
@@ -1547,9 +1683,10 @@ function isNightService(svc) {
   return /^N\d/i.test(String(svc || ""));
 }
 
-/** True iff the service passes the active category + operator filters
- *  (independent of the day/night mode and the per-service visibility
- *  toggle). Used both when rendering chips and when reconciling layers. */
+/** True iff the service passes the active category + operator + frequency
+ *  filters (independent of the day/night mode and the per-service
+ *  visibility toggle). Used both when rendering chips and when reconciling
+ *  layers. */
 function isServicePassingFilters(svc) {
   if (state.visibleCategories) {
     const cat = state.routeCategoryByService[svc] || "other";
@@ -1558,6 +1695,13 @@ function isServicePassingFilters(svc) {
   if (state.visibleOperators) {
     const op = state.routeOperatorByService[svc] || "";
     if (!state.visibleOperators.has(op)) return false;
+  }
+  if (!state.showLimitedServices) {
+    const freq = state.routeFrequencyByService[svc];
+    // Night routes are inherently "not all day" by definition (they
+    // exist for the post-23:00 window), so the "frequent all-day" gate
+    // doesn't apply to them — they show whenever Night mode is active.
+    if (!isNightService(svc) && !(freq && freq.is_frequent_all_day)) return false;
   }
   return true;
 }
@@ -1688,6 +1832,8 @@ async function loadProposals() {
     return;
   }
   state.proposals = Array.isArray(data.proposals) ? data.proposals : [];
+  // Resolve a deep-linked proposal id that arrived before this data did.
+  // Defer to the end of the function so layers exist when selectProposal runs.
 
   for (const p of state.proposals) {
     const colour = p.color || "#444";
@@ -1725,6 +1871,7 @@ async function loadProposals() {
   }
 
   renderProposalsList();
+  resolvePendingProposalId();
 }
 
 /** True when a proposal is flagged as a night service. */
@@ -1735,9 +1882,16 @@ function isProposalNight(p) {
 function renderProposalsList() {
   if (!dom.proposalsList) return;
   const isNight = state.serviceMode === "night";
-  const proposals = (state.proposals || []).filter(
-    p => isProposalNight(p) === isNight
-  );
+  const proposals = (state.proposals || []).filter(p => {
+    if (isProposalNight(p) !== isNight) return false;
+    // Hide proposals tagged as limited-service unless the Show-limited
+    // toggle is on; night proposals are exempt (Night mode already implies
+    // a limited operating window).
+    if (!state.showLimitedServices && !isNight && p.frequency_class === "limited") {
+      return false;
+    }
+    return true;
+  });
   if (proposals.length === 0) {
     dom.proposalsList.innerHTML = isNight
       ? `<p class="proposals-empty">No night-service proposals yet.</p>`
@@ -1790,6 +1944,7 @@ function selectProposal(id) {
   }
 
   renderProposalsList();
+  pushUrlState({ major: true });
 }
 
 function showProposal(id) {
@@ -1916,7 +2071,24 @@ function loadDraftsFromStorage() {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(d => d && typeof d === "object" && Array.isArray(d.points));
+    let stripped = 0;
+    const drafts = parsed
+      .filter(d => d && typeof d === "object" && Array.isArray(d.points))
+      .map(d => {
+        // The editor went stops-only — drop any waypoint entries left over
+        // from older sessions so the on-screen polyline matches what gets
+        // exported to data/proposals.json.
+        const cleaned = d.points.filter(p => p && p.type !== "waypoint");
+        if (cleaned.length !== d.points.length) stripped++;
+        return { ...d, points: cleaned };
+      });
+    if (stripped > 0) {
+      // Defer the toast until after init() finishes so dom.toast exists.
+      setTimeout(() => showToast(
+        `Removed freeform waypoints from ${stripped} draft${stripped === 1 ? "" : "s"} — proposals are now stop-based.`
+      ), 0);
+    }
+    return drafts;
   } catch {
     return [];
   }
@@ -2030,7 +2202,8 @@ function openEditor(draft) {
   state.editor = draft
     ? JSON.parse(JSON.stringify(draft))
     : emptyDraft();
-  state.editorMode = "move";
+  // Start in addStop so a fresh draft is immediately stop-clickable.
+  state.editorMode = "addStop";
 
   if (!state.editorLayers) {
     state.editorLayers = L.featureGroup().addTo(state.map);
@@ -2073,7 +2246,7 @@ function closeEditor(opts = {}) {
   }
 
   state.editor = null;
-  state.editorMode = "move";
+  state.editorMode = "addStop";
 
   if (state.editorLayers) {
     state.editorLayers.clearLayers();
@@ -2090,7 +2263,7 @@ function closeEditor(opts = {}) {
 
 function setEditorMode(mode) {
   if (!state.editor) return;
-  state.editorMode = (mode === "addStop" || mode === "addWaypoint") ? mode : "move";
+  state.editorMode = (mode === "addStop") ? "addStop" : "move";
   applyEditorModeBodyClass();
   // Re-render just the mode-button active state + re-wire dragging
   syncEditorModeButtons();
@@ -2098,8 +2271,8 @@ function setEditorMode(mode) {
 }
 
 function applyEditorModeBodyClass() {
-  document.body.classList.toggle("editor-mode-add-stop",     state.editorMode === "addStop" && !!state.editor);
-  document.body.classList.toggle("editor-mode-add-waypoint", state.editorMode === "addWaypoint" && !!state.editor);
+  document.body.classList.toggle("editor-mode-add-stop",
+    state.editorMode === "addStop" && !!state.editor);
 }
 
 function syncEditorModeButtons() {
@@ -2115,9 +2288,8 @@ function syncEditorModeButtons() {
 
 function modeHint(mode) {
   switch (mode) {
-    case "addStop":     return "Click any bus stop on the map to add it to the route.";
-    case "addWaypoint": return "Click anywhere on the map to add a freeform waypoint.";
-    default:            return "Drag any dot to move it. Shift-click a dot to remove it.";
+    case "addStop": return "Click any bus stop on the map to add it to the route.";
+    default:        return "Drag any dot to move it. Shift-click a dot to remove it.";
   }
 }
 
@@ -2172,17 +2344,13 @@ function renderEditor() {
       <div class="editor-field">
         <span class="editor-modes-label">Route builder</span>
         <div class="editor-mode-buttons" role="radiogroup" aria-label="Route edit mode">
-          <button class="editor-mode-btn" data-mode="move" type="button" role="radio">
-            <svg class="icon" aria-hidden="true"><use href="#i-move"/></svg>
-            <span>Move / delete</span>
-          </button>
           <button class="editor-mode-btn" data-mode="addStop" type="button" role="radio">
             <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>
             <span>Add stop</span>
           </button>
-          <button class="editor-mode-btn" data-mode="addWaypoint" type="button" role="radio">
-            <svg class="icon" aria-hidden="true"><use href="#i-circle-dot"/></svg>
-            <span>Add waypoint</span>
+          <button class="editor-mode-btn" data-mode="move" type="button" role="radio">
+            <svg class="icon" aria-hidden="true"><use href="#i-move"/></svg>
+            <span>Move / delete</span>
           </button>
         </div>
         <p class="editor-mode-hint">${escapeHtml(modeHint(state.editorMode))}</p>
@@ -2269,27 +2437,26 @@ function renderPointList() {
   if (!listEl || !countEl) return;
 
   const pts = state.editor.points;
-  const stopsCount = pts.filter(p => p.type === "stop").length;
-  countEl.textContent = `${pts.length} total · ${stopsCount} stop${stopsCount === 1 ? "" : "s"}`;
+  countEl.textContent = `${pts.length} stop${pts.length === 1 ? "" : "s"}`;
 
   if (pts.length === 0) {
-    listEl.innerHTML = `<p class="editor-point-list-empty">No points yet. Switch to <em>Add stop</em> or <em>Add waypoint</em> and click the map.</p>`;
+    listEl.innerHTML = `<p class="editor-point-list-empty">No stops yet. Click any bus stop on the map to add it to the route.</p>`;
     return;
   }
 
+  const flashIdx = state.editor._flashIndex;
   listEl.innerHTML = pts.map((p, i) => {
-    const label = p.type === "stop"
-      ? (p.name || p.atco || "Unnamed stop")
-      : `Waypoint`;
-    const iconId = p.type === "stop" ? "i-pin" : "i-circle-dot";
+    const label = p.name || p.atco || "Unnamed stop";
+    const cls   = i === flashIdx ? "editor-point-row just-added" : "editor-point-row";
     return `
-      <div class="editor-point-row" data-type="${escapeAttr(p.type)}" data-index="${i}">
+      <div class="${cls}" data-type="stop" data-index="${i}">
         <span class="editor-point-row-index">${i + 1}</span>
-        <svg class="icon" aria-hidden="true"><use href="#${iconId}"/></svg>
+        <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>
         <span class="editor-point-row-label">${escapeHtml(label)}</span>
         <button class="editor-point-row-remove" data-remove-index="${i}" aria-label="Remove point ${i + 1}">×</button>
       </div>`;
   }).join("");
+  state.editor._flashIndex = -1;
 
   listEl.querySelectorAll(".editor-point-row-remove").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -2315,18 +2482,26 @@ function addStopToDraft(stop) {
     name: stop.name || "",
     atco: stop.atco || "",
   });
+  state.editor._flashIndex = state.editor.points.length - 1;
   redrawEditorLayers();
   renderPointList();
   scheduleAutosave();
 }
 
-function addWaypointToDraft(latlon) {
-  if (!state.editor) return;
-  const [lat, lon] = latlon;
-  state.editor.points.push({ type: "waypoint", lat, lon });
-  redrawEditorLayers();
-  renderPointList();
-  scheduleAutosave();
+/** Brief scale pulse on a stop marker — confirmation that an editor click
+ *  registered. Marker is looked up by atco_code from state.stopMarkers; the
+ *  CSS animation is single-shot (no infinite loop), so we just toggle the
+ *  class and let it auto-clear. */
+function pulseStopMarker(atcoCode) {
+  const m = state.stopMarkers[atcoCode];
+  if (!m) return;
+  const el = m.getElement();
+  if (!el) return;
+  el.classList.remove("just-added");
+  // Force a reflow so re-adding the class restarts the animation.
+  void el.offsetWidth;
+  el.classList.add("just-added");
+  setTimeout(() => el.classList.remove("just-added"), 400);
 }
 
 function removePoint(index) {
@@ -2377,37 +2552,22 @@ function redrawEditorLayers() {
     state.editorLayers._editorPolyline = line;
   }
 
-  // Markers for every point. Draggable in "move" mode.
+  // Markers for every stop. Draggable in "move" mode.
   pts.forEach((p, i) => {
-    const isStop = p.type === "stop";
-    const marker = L.circleMarker([p.lat, p.lon], {
-      radius: isStop ? 7 : 5,
-      color: colour,
-      weight: 2,
-      fillColor: isStop ? "#fff" : colour,
-      fillOpacity: 1,
-      // Don't let clicks on an existing draft point fall through to the
-      // map's click handler — otherwise addWaypoint mode would drop a
-      // duplicate point on top of this one.
-      bubblingMouseEvents: false,
-    });
-
-    // circleMarker has no native dragging — fall back to a regular marker for stops/waypoints
-    // when move mode is active. Use a divIcon so we don't pull in default Leaflet sprites.
     if (state.editorMode === "move") {
       const drag = L.marker([p.lat, p.lon], {
         draggable: true,
         icon: L.divIcon({
           className: "editor-draggable-point",
           html: `<span style="
-              display:block;width:${isStop ? 14 : 10}px;height:${isStop ? 14 : 10}px;
+              display:block;width:14px;height:14px;
               border-radius:50%;
               border:2px solid ${colour};
-              background:${isStop ? "#fff" : colour};
+              background:#fff;
               box-shadow:0 0 0 2px rgba(255,255,255,0.7);
             "></span>`,
-          iconSize: [isStop ? 14 : 10, isStop ? 14 : 10],
-          iconAnchor: [isStop ? 7 : 5, isStop ? 7 : 5],
+          iconSize: [14, 14],
+          iconAnchor: [7, 7],
         }),
       });
       drag.on("drag", (e) => {
@@ -2424,7 +2584,15 @@ function redrawEditorLayers() {
       });
       drag.addTo(state.editorLayers);
     } else {
-      marker.addTo(state.editorLayers);
+      // In addStop mode, draft markers are non-interactive overlays.
+      L.circleMarker([p.lat, p.lon], {
+        radius: 7,
+        color: colour,
+        weight: 2,
+        fillColor: "#fff",
+        fillOpacity: 1,
+        interactive: false,
+      }).addTo(state.editorLayers);
     }
   });
 }
@@ -2446,13 +2614,21 @@ function draftToProposalJson(draft) {
   const id = slugify(draft.name || draft.draftId);
   const stops = draft.points
     .filter(p => p.type === "stop")
-    .map(p => ({ name: p.name || "", lat: round5(p.lat), lon: round5(p.lon) }));
-  const polyline = draft.points.map(p => [round5(p.lat), round5(p.lon)]);
+    .map(p => ({
+      atco_code: p.atco || "",
+      name:      p.name || "",
+      lat:       round5(p.lat),
+      lon:       round5(p.lon),
+    }));
+  // Polyline is now derived from the ordered stop coords (the editor is
+  // stops-only — no freeform waypoints to interleave).
+  const polyline = stops.map(s => [s.lat, s.lon]);
   return {
     id,
     name: draft.name || "",
     summary: draft.summary || "",
     color: draft.color || "#1e88e5",
+    frequency_class: "frequent_all_day",
     polyline,
     stops,
     description: draft.description || "",
