@@ -2092,24 +2092,7 @@ function loadDraftsFromStorage() {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    let stripped = 0;
-    const drafts = parsed
-      .filter(d => d && typeof d === "object" && Array.isArray(d.points))
-      .map(d => {
-        // The editor went stops-only — drop any waypoint entries left over
-        // from older sessions so the on-screen polyline matches what gets
-        // exported to data/proposals.json.
-        const cleaned = d.points.filter(p => p && p.type !== "waypoint");
-        if (cleaned.length !== d.points.length) stripped++;
-        return { ...d, points: cleaned };
-      });
-    if (stripped > 0) {
-      // Defer the toast until after init() finishes so dom.toast exists.
-      setTimeout(() => showToast(
-        `Removed freeform waypoints from ${stripped} draft${stripped === 1 ? "" : "s"} — proposals are now stop-based.`
-      ), 0);
-    }
-    return drafts;
+    return parsed.filter(d => d && typeof d === "object" && Array.isArray(d.points));
   } catch {
     return [];
   }
@@ -2310,7 +2293,7 @@ function syncEditorModeButtons() {
 function modeHint(mode) {
   switch (mode) {
     case "addStop": return "Click any bus stop on the map to add it to the route.";
-    default:        return "Drag any dot to move it. Shift-click a dot to remove it.";
+    default:        return "Drag any dot to move it. Click the route line to add a waypoint between stops. Shift-click to remove.";
   }
 }
 
@@ -2319,7 +2302,7 @@ function renderEditor() {
   if (!state.editor || !dom.proposalEditor) return;
   const d = state.editor;
 
-  const canExport = d.points.length >= 2;
+  const canExport = d.points.filter(p => p.type === "stop").length >= 2;
 
   dom.proposalEditor.innerHTML = `
     <div class="editor-header">
@@ -2457,24 +2440,29 @@ function renderPointList() {
   const countEl = dom.proposalEditor.querySelector("#ed-points-count");
   if (!listEl || !countEl) return;
 
-  const pts = state.editor.points;
-  countEl.textContent = `${pts.length} stop${pts.length === 1 ? "" : "s"}`;
+  // Only show stops in the sidebar; waypoints live on the map only.
+  const stops = state.editor.points
+    .map((p, i) => ({ ...p, _fullIdx: i }))
+    .filter(p => p.type === "stop");
 
-  if (pts.length === 0) {
+  countEl.textContent = `${stops.length} stop${stops.length === 1 ? "" : "s"}`;
+
+  if (stops.length === 0) {
     listEl.innerHTML = `<p class="editor-point-list-empty">No stops yet. Click any bus stop on the map to add it to the route.</p>`;
     return;
   }
 
   const flashIdx = state.editor._flashIndex;
-  listEl.innerHTML = pts.map((p, i) => {
+  listEl.innerHTML = stops.map((p, stopNum) => {
     const label = p.name || p.atco || "Unnamed stop";
-    const cls   = i === flashIdx ? "editor-point-row just-added" : "editor-point-row";
+    const cls   = p._fullIdx === flashIdx ? "editor-point-row just-added" : "editor-point-row";
     return `
-      <div class="${cls}" data-type="stop" data-index="${i}">
-        <span class="editor-point-row-index">${i + 1}</span>
+      <div class="${cls}" data-type="stop" data-stop-index="${stopNum}">
+        <span class="editor-drag-handle" aria-hidden="true"><svg class="icon"><use href="#i-grip"/></svg></span>
+        <span class="editor-point-row-index">${stopNum + 1}</span>
         <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>
         <span class="editor-point-row-label">${escapeHtml(label)}</span>
-        <button class="editor-point-row-remove" data-remove-index="${i}" aria-label="Remove point ${i + 1}">×</button>
+        <button class="editor-point-row-remove" data-remove-index="${p._fullIdx}" aria-label="Remove stop ${stopNum + 1}">×</button>
       </div>`;
   }).join("");
   state.editor._flashIndex = -1;
@@ -2486,12 +2474,96 @@ function renderPointList() {
     });
   });
 
-  // Update action-button enabled state whenever point count changes
-  const canExport = pts.length >= 2;
+  // Wire drag handles for stop reordering
+  listEl.querySelectorAll(".editor-drag-handle").forEach((handle, stopNum) => {
+    handle.addEventListener("pointerdown", (e) => startStopDrag(e, stopNum));
+  });
+
+  // Update export button enabled state
+  const canExport = stops.length >= 2;
   ["#ed-copy-btn", "#ed-download-btn", "#ed-github-btn"].forEach(sel => {
     const btn = dom.proposalEditor.querySelector(sel);
     if (btn) btn.disabled = !canExport;
   });
+}
+
+// State for the pointer-events drag-to-reorder interaction.
+const _editorDragState = { active: false, ghost: null, srcStopIdx: null, overEl: null };
+
+function startStopDrag(e, stopIdx) {
+  e.preventDefault();
+  const handle = e.currentTarget;
+  const row = handle.closest(".editor-point-row");
+  if (!row) return;
+
+  const rowRect = row.getBoundingClientRect();
+  const ghost = row.cloneNode(true);
+  ghost.className = "editor-drag-ghost";
+  ghost.style.width = rowRect.width + "px";
+  ghost.style.left = (e.clientX - rowRect.width / 2) + "px";
+  ghost.style.top = (e.clientY - 16) + "px";
+  document.body.appendChild(ghost);
+
+  _editorDragState.active = true;
+  _editorDragState.srcStopIdx = stopIdx;
+  _editorDragState.ghost = ghost;
+  _editorDragState.overEl = null;
+
+  handle.setPointerCapture(e.pointerId);
+
+  function onMove(ev) {
+    ghost.style.left = (ev.clientX - ghost.offsetWidth / 2) + "px";
+    ghost.style.top = (ev.clientY - 16) + "px";
+
+    const el = document.elementFromPoint(ev.clientX, ev.clientY);
+    const hoverRow = el && el.closest(".editor-point-row[data-stop-index]");
+
+    if (_editorDragState.overEl && _editorDragState.overEl !== hoverRow) {
+      _editorDragState.overEl.classList.remove("drag-over-above", "drag-over-below");
+      _editorDragState.overEl = null;
+    }
+    if (hoverRow && hoverRow !== row) {
+      const hoverIdx = parseInt(hoverRow.dataset.stopIndex, 10);
+      hoverRow.classList.toggle("drag-over-above", hoverIdx < stopIdx);
+      hoverRow.classList.toggle("drag-over-below", hoverIdx > stopIdx);
+      _editorDragState.overEl = hoverRow;
+    }
+  }
+
+  function onUp() {
+    _editorDragState.active = false;
+    ghost.remove();
+    handle.removeEventListener("pointermove", onMove);
+    handle.removeEventListener("pointerup", onUp);
+    handle.removeEventListener("pointercancel", onUp);
+
+    const target = _editorDragState.overEl;
+    if (target) {
+      target.classList.remove("drag-over-above", "drag-over-below");
+      const toIdx = parseInt(target.dataset.stopIndex, 10);
+      _editorDragState.overEl = null;
+      if (!isNaN(toIdx) && toIdx !== stopIdx) {
+        commitStopReorder(stopIdx, toIdx);
+        return;
+      }
+    }
+    _editorDragState.overEl = null;
+  }
+
+  handle.addEventListener("pointermove", onMove);
+  handle.addEventListener("pointerup", onUp);
+  handle.addEventListener("pointercancel", onUp);
+}
+
+function commitStopReorder(from, to) {
+  if (!state.editor) return;
+  const stops = state.editor.points.filter(p => p.type === "stop");
+  const [moved] = stops.splice(from, 1);
+  stops.splice(to, 0, moved);
+  state.editor.points = stops; // waypoints cleared — now invalid after reorder
+  redrawEditorLayers();
+  renderPointList();
+  scheduleAutosave();
 }
 
 function addStopToDraft(stop) {
@@ -2560,6 +2632,8 @@ function redrawEditorLayers() {
   const latlngs = pts.map(p => [p.lat, p.lon]);
   const colour = state.editor.color || "#1e88e5";
 
+  const inMoveMode = state.editorMode === "move";
+
   if (latlngs.length >= 2) {
     const line = L.polyline(latlngs, {
       color: colour,
@@ -2567,28 +2641,47 @@ function redrawEditorLayers() {
       opacity: 0.95,
       dashArray: "8 6",
       smoothFactor: 1.2,
-      interactive: false,
+      interactive: inMoveMode,
     });
+    if (inMoveMode) {
+      // Click the line to insert a waypoint at the nearest segment midpoint.
+      line.on("click", (e) => {
+        L.DomEvent.stopPropagation(e);
+        const clickedLL = e.latlng;
+        let bestSeg = 0, bestDist = Infinity;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const midLat = (pts[i].lat + pts[i + 1].lat) / 2;
+          const midLon = (pts[i].lon + pts[i + 1].lon) / 2;
+          const d = state.map.distance(clickedLL, L.latLng(midLat, midLon));
+          if (d < bestDist) { bestDist = d; bestSeg = i; }
+        }
+        state.editor.points.splice(bestSeg + 1, 0, {
+          type: "waypoint", lat: clickedLL.lat, lon: clickedLL.lng,
+        });
+        redrawEditorLayers();
+        scheduleAutosave();
+      });
+    }
     line.addTo(state.editorLayers);
     state.editorLayers._editorPolyline = line;
   }
 
-  // Markers for every stop. Draggable in "move" mode.
+  // Markers for every point. Draggable in "move" mode; stops and waypoints distinguished visually.
   pts.forEach((p, i) => {
-    if (state.editorMode === "move") {
+    if (inMoveMode) {
+      const isWaypoint = p.type === "waypoint";
+      const size = isWaypoint ? 10 : 14;
+      const anchor = isWaypoint ? 5 : 7;
+      const iconHtml = isWaypoint
+        ? `<span style="display:block;width:10px;height:10px;border-radius:2px;transform:rotate(45deg);border:2px solid ${colour};background:#fff;box-shadow:0 0 0 2px rgba(255,255,255,0.6);"></span>`
+        : `<span style="display:block;width:14px;height:14px;border-radius:50%;border:2px solid ${colour};background:#fff;box-shadow:0 0 0 2px rgba(255,255,255,0.7);"></span>`;
       const drag = L.marker([p.lat, p.lon], {
         draggable: true,
         icon: L.divIcon({
-          className: "editor-draggable-point",
-          html: `<span style="
-              display:block;width:14px;height:14px;
-              border-radius:50%;
-              border:2px solid ${colour};
-              background:#fff;
-              box-shadow:0 0 0 2px rgba(255,255,255,0.7);
-            "></span>`,
-          iconSize: [14, 14],
-          iconAnchor: [7, 7],
+          className: isWaypoint ? "editor-draggable-waypoint" : "editor-draggable-point",
+          html: iconHtml,
+          iconSize: [size, size],
+          iconAnchor: [anchor, anchor],
         }),
       });
       drag.on("drag", (e) => {
@@ -2605,9 +2698,10 @@ function redrawEditorLayers() {
       });
       drag.addTo(state.editorLayers);
     } else {
-      // In addStop mode, draft markers are non-interactive overlays.
+      // In addStop mode: stops are larger circles, waypoints smaller.
+      const isWaypoint = p.type === "waypoint";
       L.circleMarker([p.lat, p.lon], {
-        radius: 7,
+        radius: isWaypoint ? 4 : 7,
         color: colour,
         weight: 2,
         fillColor: "#fff",
@@ -2641,9 +2735,8 @@ function draftToProposalJson(draft) {
       lat:       round5(p.lat),
       lon:       round5(p.lon),
     }));
-  // Polyline is now derived from the ordered stop coords (the editor is
-  // stops-only — no freeform waypoints to interleave).
-  const polyline = stops.map(s => [s.lat, s.lon]);
+  // Polyline uses all points in order (stops + waypoints) to support road-aligned routes.
+  const polyline = draft.points.map(p => [round5(p.lat), round5(p.lon)]);
   return {
     id,
     name: draft.name || "",

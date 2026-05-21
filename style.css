@@ -2286,7 +2286,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
 }
 .editor-mode-buttons {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 6px;
 }
 .editor-mode-btn {
@@ -2393,6 +2393,38 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   border-radius: var(--radius-sm, 4px);
 }
 .editor-point-row-remove:hover { color: #c0392b; background: rgba(192,57,43,0.08); }
+
+.editor-drag-handle {
+  cursor: grab;
+  color: var(--color-text-muted);
+  padding: 0 2px;
+  flex-shrink: 0;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+}
+.editor-drag-handle:active { cursor: grabbing; }
+.editor-drag-handle .icon { width: 13px; height: 13px; }
+.editor-point-row.drag-over-above { border-top: 2px solid var(--color-primary); }
+.editor-point-row.drag-over-below { border-bottom: 2px solid var(--color-primary); }
+.editor-drag-ghost {
+  position: fixed;
+  z-index: 1100;
+  pointer-events: none;
+  opacity: 0.88;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  padding: 4px 6px;
+  font-size: 0.82rem;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.editor-draggable-waypoint { cursor: grab; }
+.leaflet-interactive.editor-route-clickable { cursor: crosshair; }
 
 /* Footer action row */
 .editor-actions {
