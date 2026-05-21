@@ -1367,8 +1367,11 @@ body.dark-mode .site-header {
   left: 0;
   /* End the wave where the side panel begins so the panel butts flush
      against a clean, flat header edge instead of a misaligned wavy notch.
-     Reset to full width on mobile (panel stacks below the map). */
-  right: var(--panel-width);
+     Needs an explicit width (not left+right) so preserveAspectRatio="none"
+     stretches the SVG across the full span; with only left/right the SVG
+     collapses to its intrinsic ~18:1 ratio and cuts off early. Reset to
+     full width on mobile (panel stacks below the map). */
+  width: calc(100% - var(--panel-width));
   height: 46px;
   display: block;
   pointer-events: none;
@@ -1446,7 +1449,7 @@ body.dark-mode .header-icon {
 @media (max-width: 700px) {
   :root { --header-height: 64px; }
   /* Panel stacks below the map on mobile, so the wave spans full width. */
-  .header-wave { right: 0; }
+  .header-wave { width: 100%; }
   .header-inner { gap: var(--space-sm); padding: 0 var(--space-md); }
   .header-brand { gap: 10px; flex: 1; }
   .header-icon { width: 34px; height: 34px; flex-shrink: 0; }
