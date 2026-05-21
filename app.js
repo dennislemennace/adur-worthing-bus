@@ -1492,6 +1492,7 @@ function setImprovementsTab(tab) {
   dom.tabProposals.setAttribute("aria-selected", !aboutActive ? "true" : "false");
   dom.tabContentAbout.classList.toggle("hidden", !aboutActive);
   dom.tabContentProposals.classList.toggle("hidden", aboutActive);
+  document.body.classList.toggle("proposals-tab-active", tab === "proposals");
 }
 
 // ============================================================
@@ -1592,7 +1593,7 @@ async function loadRouteLines() {
         opacity:      0.85,
         smoothFactor: 1.5,
         interactive:  false,
-        className:    "proposal-existing-line",
+        className:    "route-network-line",
       }));
 
       if (!showEndpointTags || coords.length < 2) return;
@@ -1856,6 +1857,11 @@ async function loadProposals() {
   // Resolve a deep-linked proposal id that arrived before this data did.
   // Defer to the end of the function so layers exist when selectProposal runs.
 
+  if (!map.getPane("proposalPane")) {
+    const pane = map.createPane("proposalPane");
+    pane.style.zIndex = 405; // above overlayPane (400)
+  }
+
   for (const p of state.proposals) {
     const colour = p.color || "#444";
     const layers = [];
@@ -1869,7 +1875,7 @@ async function loadProposals() {
         dashArray:   "8 6",
         smoothFactor: 1.2,
         interactive: false,
-        className:   "proposal-existing-line",
+        pane:        "proposalPane",
       }));
     }
 
@@ -1884,6 +1890,7 @@ async function loadProposals() {
           fillColor:   "#fff",
           fillOpacity: 1,
           interactive: false,
+          pane:        "proposalPane",
         }));
       }
     }

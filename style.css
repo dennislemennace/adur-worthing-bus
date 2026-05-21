@@ -2480,7 +2480,17 @@ body.editor-mode .leaflet-marker-icon.stop-marker-icon {
 body.editor-mode.editor-mode-add-stop .leaflet-marker-icon.stop-marker-icon {
   cursor: crosshair !important;
 }
-body.editor-mode .proposal-existing-line {
+body.proposals-tab-active .route-network-line {
+  opacity: 0.3;
+  transition: opacity 0.4s ease;
+}
+
+body.proposals-tab-active .route-endpoint-tag {
+  opacity: 0.3;
+  transition: opacity 0.4s ease;
+}
+
+body.editor-mode .route-network-line {
   opacity: 0.25 !important;
 }
 
