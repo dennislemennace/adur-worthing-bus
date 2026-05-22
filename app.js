@@ -1928,16 +1928,35 @@ function renderProposalsList() {
   }
   dom.proposalsList.innerHTML = proposals.map(p => {
     const sel = (p.id === state.selectedProposalId);
-    const detail = sel
-      ? `<div class="proposal-detail">${escapeHtml(p.description || "")}</div>`
-      : "";
+    const summaryText = (p.from && p.to)
+      ? `${escapeHtml(p.from)} › ${escapeHtml(p.to)}`
+      : escapeHtml(p.summary || "");
+    const hasLinks = Array.isArray(p.links) && p.links.length > 0;
+    const detail = sel ? `
+      <div class="proposal-detail">
+        ${p.description ? `
+          <p class="proposal-detail-heading">About this proposal</p>
+          <p class="proposal-detail-body">${escapeHtml(p.description)}</p>
+        ` : ""}
+        ${hasLinks ? `
+          <p class="proposal-detail-heading">Links</p>
+          <ul class="proposal-links">
+            ${p.links.map(l => `
+              <li><a class="proposal-link"
+                     href="${escapeAttr(l.url)}"
+                     target="_blank"
+                     rel="noopener noreferrer">${escapeHtml(l.label || l.url)}</a></li>
+            `).join("")}
+          </ul>
+        ` : ""}
+      </div>` : "";
     return `
       <button type="button"
               class="proposal-card ${sel ? "selected" : ""}"
               data-proposal-id="${escapeAttr(p.id)}"
               style="border-left-color:${escapeAttr(p.color || "#444")}">
         <span class="proposal-card-name">${escapeHtml(p.name || p.id)}</span>
-        <span class="proposal-card-summary">${escapeHtml(p.summary || "")}</span>
+        <span class="proposal-card-summary">${summaryText}</span>
         ${detail}
       </button>`;
   }).join("");

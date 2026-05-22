@@ -3,8 +3,16 @@
     {
       "id": "60x-shoreham-to-brighton",
       "name": "60X",
+      "from": "Steyning",
+      "to": "Brighton",
       "summary": "Shoreham Flyover \u2192 Brighton North Street",
-      "description": "This route would offer a high-quality fast way to travel from west to east towards Brighton. It has been a historical bus route which has been slowly removed from the map. With a little love and attention, this route can be slightly adapted to give many more people a local bus stop with quick access into the city centre. You can view the history of Route 20/20X and 60 here: https://history.buses.co.uk/history/route/routes.htm#:~:text=by%20Compass%20Travel-,Service%2020,-Pictures",
+      "description": "This route would offer a high-quality fast way to travel from west to east towards Brighton. It has been a historical bus route which has been slowly removed from the map. With a little love and attention, this route can be slightly adapted to give many more people a local bus stop with quick access into the city centre.",
+      "links": [
+        {
+          "label": "Route history (60)",
+          "url": "https://history.buses.co.uk/history/route/routes.htm#:~:text=Service%2060,Steine%20eastbound%20only"
+        }
+      ],
       "color": "#E53935",
       "frequency_class": "frequent_all_day",
       "polyline": [
