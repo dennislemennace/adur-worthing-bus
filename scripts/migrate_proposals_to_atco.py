@@ -288,7 +288,20 @@ def main() -> int:
                   f"  [{reason}, {dist:.0f} m]")
 
         p["stops"]    = new_stops
-        p["polyline"] = [[s["lat"], s["lon"]] for s in new_stops]
+        # Preserve a pre-baked road-following polyline (e.g. the one-time
+        # OSRM-aligned 60X / 700X geometry). A straight stop-to-stop line has
+        # exactly one point per stop; anything denser was hand-baked and must
+        # not be clobbered. Only (re)generate the cheap straight line when no
+        # such geometry exists, keeping it in sync with the snapped stops.
+        # CAVEAT: if you change a proposal's STOPS, this guard keeps the old
+        # baked line (now stale — it routes through where stops used to be).
+        # Re-bake that proposal from OSRM after editing its stops.
+        existing = p.get("polyline") or []
+        if len(existing) <= len(new_stops):
+            p["polyline"] = [[s["lat"], s["lon"]] for s in new_stops]
+        else:
+            print(f"  {proposal_id:<22}  preserving baked polyline "
+                  f"({len(existing)} pts > {len(new_stops)} stops)")
         # Every existing proposal is an all-day daytime concept; mark them
         # explicitly so the new "Show limited services" toggle gates them
         # the same way it gates real services.
