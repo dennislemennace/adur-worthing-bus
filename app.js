@@ -320,6 +320,24 @@ async function init() {
 
   // Start live bus position loop
   startVehicleRefresh();
+
+  // Warm the Improvements-view cache in the background once the page is
+  // idle, so the first Live→Improvements switch doesn't pay the route-lines
+  // network fetch (and layer build) synchronously. Idempotent + memoized.
+  prefetchImprovementsData();
+}
+
+/** Pre-fetch + pre-build the Improvements layers during idle time. */
+function prefetchImprovementsData() {
+  const run = () => {
+    loadRouteLines().catch(() => {});
+    loadProposals().catch(() => {});
+  };
+  if ("requestIdleCallback" in window) {
+    requestIdleCallback(run, { timeout: 3000 });
+  } else {
+    setTimeout(run, 1200);
+  }
 }
 
 // ============================================================
@@ -340,6 +358,14 @@ function initMap() {
     attribution: t.attribution,
     maxZoom: t.maxZoom,
   }).addTo(state.map);
+
+  // Shrink stop dots slightly when zoomed out a lot (≤ z12) so ~1400
+  // markers don't crowd the map. CSS-driven via a class on the container.
+  const applyStopDotScale = () => {
+    state.map.getContainer().classList.toggle("stops-far", state.map.getZoom() <= 12);
+  };
+  state.map.on("zoomend", applyStopDotScale);
+  applyStopDotScale();
 
   // Close panel when clicking an empty area of the map. Leaflet bubbles
   // marker/popup clicks up to the map 'click' event, so we need to
@@ -407,18 +433,11 @@ function renderStopMarker(stop) {
   const marker = L.marker([stop.latitude, stop.longitude], { icon, title: stop.name })
     .addTo(state.map);
 
-  // Popup with stop name and "Show departures" button
-  const popupHtml = `
-    <div>
-      <p class="popup-stop-name">${escapeHtml(stop.name)}</p>
-      <p class="popup-stop-id">Stop: ${escapeHtml(stop.atco_code)}</p>
-      <button class="popup-btn" onclick="openDepartures('${stop.atco_code}', '${escapeAttr(stop.name)}')">
-        <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
-        <span>Live departures</span>
-      </button>
-    </div>`;
-
-  marker.bindPopup(popupHtml, { maxWidth: 220 });
+  // Bind the popup content lazily — Leaflet evaluates this function only
+  // when the popup actually opens. Building ~1400 HTML strings eagerly at
+  // load was a measurable chunk of initial render time.
+  marker.bindPopup(() => buildStopPopupHtml(stop.atco_code, stop.name),
+                   { maxWidth: 220 });
 
   // Clicking anywhere on the marker opens the departure panel
   marker.on("click", () => {
@@ -427,6 +446,19 @@ function renderStopMarker(stop) {
 
   state.stopMarkers[stop.atco_code] = marker;
   state.stopData[stop.atco_code]    = { lat: stop.latitude, lon: stop.longitude, name: stop.name };
+}
+
+/** Popup body for a stop — built on demand (see renderStopMarker). */
+function buildStopPopupHtml(atcoCode, name) {
+  return `
+    <div>
+      <p class="popup-stop-name">${escapeHtml(name)}</p>
+      <p class="popup-stop-id">Stop: ${escapeHtml(atcoCode)}</p>
+      <button class="popup-btn" onclick="openDepartures('${atcoCode}', '${escapeAttr(name)}')">
+        <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
+        <span>Live departures</span>
+      </button>
+    </div>`;
 }
 
 // ============================================================
@@ -479,19 +511,23 @@ function updateVehicleMarkers(vehicles) {
       ? Number(vehicle.bearing)
       : null;
 
-    const popupHtml = buildBusPopupHtml(vehicle, label);
-
     let marker = state.busMarkers[ref];
     if (marker) {
       // Move existing marker smoothly and update bearing/label in place
       marker._vehicle = vehicle;
       marker.setLatLng([vehicle.latitude, vehicle.longitude]);
-      marker.setPopupContent(popupHtml);
+      // Only rebuild popup HTML for the (at most one) open popup; skipping
+      // every closed bus avoids N string builds on each 20s refresh.
+      if (marker.isPopupOpen()) {
+        marker.setPopupContent(buildBusPopupHtml(vehicle, label));
+      }
       updateBusMarkerInPlace(marker, label, bearing);
     } else {
       const icon = createBusIcon(vehicle.operator_ref, label, bearing);
       marker = L.marker([vehicle.latitude, vehicle.longitude], { icon, zIndexOffset: 200 })
-        .bindPopup(popupHtml, { maxWidth: 220 })
+        .bindPopup(() => buildBusPopupHtml(marker._vehicle,
+                                           marker._vehicle.service_ref || "?"),
+                   { maxWidth: 220 })
         .addTo(state.map);
       marker._vehicle = vehicle;
       marker.on("click", () => {
@@ -1563,7 +1599,23 @@ async function applyViewMode() {
  * Fetch /api/route-lines once and pre-build Leaflet polylines for every
  * route. Subsequent mode toggles just add/remove the cached layers.
  */
-async function loadRouteLines() {
+// Memoized: a background prefetch and a tab-open click can both call this,
+// so cache the in-flight promise. Without it, two concurrent runs would
+// each build a fresh layer set and the second would orphan the first's
+// on-map layers (hideRouteLines could no longer find them).
+function loadRouteLines() {
+  if (!state._routeLinesPromise) {
+    // Reset on failure so a transient prefetch error doesn't permanently
+    // break the Improvements tab — a later tab-open can retry.
+    state._routeLinesPromise = loadRouteLinesImpl().catch(err => {
+      state._routeLinesPromise = null;
+      throw err;
+    });
+  }
+  return state._routeLinesPromise;
+}
+
+async function loadRouteLinesImpl() {
   if (state.routeLines) return;
   const data = await apiFetch("/api/route-lines");
   if (!data || !Array.isArray(data.routes)) {
@@ -1840,7 +1892,18 @@ function setRouteVisible(service, visible) {
  * pre-build the polyline + endpoint-marker layers for each proposal.
  * Idempotent: subsequent calls are no-ops.
  */
-async function loadProposals() {
+// Memoized for the same reason as loadRouteLines (prefetch + tab-open race).
+function loadProposals() {
+  if (!state._proposalsPromise) {
+    state._proposalsPromise = loadProposalsImpl().catch(err => {
+      state._proposalsPromise = null;
+      throw err;
+    });
+  }
+  return state._proposalsPromise;
+}
+
+async function loadProposalsImpl() {
   if (state.proposals) return;
   let data;
   try {

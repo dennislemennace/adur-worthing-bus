@@ -1551,6 +1551,14 @@ body.dark-mode :focus-visible { outline-color: var(--color-accent); }
     0 0 0 3px rgba(192, 120, 8, 0.35),
     0 3px 6px rgba(10, 18, 32, 0.45);
 }
+/* Zoomed out a lot (≤ z12): nudge the dots a touch smaller so ~1400 markers
+   don't crowd the map. Size-based (not transform) to stay clear of Leaflet's
+   positioning; more specific selector + !important wins over base sizing. */
+.leaflet-container.stops-far .stop-marker-icon {
+  width: 10px !important;
+  height: 10px !important;
+  border-width: 1.5px !important;
+}
 body.dark-mode .stop-marker-icon {
   border-color: rgba(9, 14, 26, 0.85) !important;
   box-shadow:
