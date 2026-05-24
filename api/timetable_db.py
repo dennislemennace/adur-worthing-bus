@@ -450,6 +450,17 @@ class Timetable:
         "COMT": "COMT", "CMPA": "COMT",
     }
 
+    # Hand-curated operator fixes, keyed by route short_name, for routes whose
+    # GTFS agency NOC doesn't match the operator that actually runs them.
+    # Route 2 is Brighton & Hove (live SIRI reports operator_ref=BHBC) but its
+    # timetable agency NOC buckets to OTHER.
+    # TODO: confirm the underlying NOC (the routes table has two rows for "2",
+    # and _noc_by_short_name is last-row-wins) via a debug dump, then fix it at
+    # the NOC level (_OPERATOR_BUCKETS / NOC selection) instead of here.
+    _OPERATOR_OVERRIDES = {
+        "2": "BHBC",
+    }
+
     _DAY_COLS = ("monday", "tuesday", "wednesday", "thursday",
                  "friday", "saturday", "sunday")
     _DAY_SHORT = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -575,7 +586,8 @@ class Timetable:
                     "polylines": polylines,
                     "endpoints": endpoints,
                     "category":  self._categorise(short_name),
-                    "operator":  self._operator_bucket(noc),
+                    "operator":  (self._OPERATOR_OVERRIDES.get(short_name)
+                                  or self._operator_bucket(noc)),
                     "frequency": self.service_frequency(short_name, bbox_trip_ids),
                 })
 
