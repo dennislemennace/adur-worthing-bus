@@ -274,6 +274,11 @@ body.dark-mode .view-mode-btn.active {
 .btn-icon:hover {
   background: rgba(255,255,255,0.25);
 }
+/* "Off" state for toggle buttons (e.g. buses hidden) — dimmed so the
+   current state reads at a glance. */
+.btn-icon[aria-pressed="false"] {
+  opacity: 0.45;
+}
 
 body.dark-mode .btn-icon {
   background: var(--color-surface-2);

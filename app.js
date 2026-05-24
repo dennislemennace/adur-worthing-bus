@@ -65,6 +65,7 @@ const state = {
   selectedStop:  null,  // { atcoCode, name }
   refreshTimer:  null,  // setInterval handle for bus positions
   isRefreshing:  true,
+  busesVisible:  true,  // header toggle: show bus markers + run live refresh
 
   // ── Bus info panel state ──
   selectedVehicleRef:      null,   // vehicle_ref of bus shown in Bus tab
@@ -109,7 +110,7 @@ const state = {
 const dom = {
   mapLoading:         document.getElementById("map-loading"),
   lastUpdatedLabel:   document.getElementById("last-updated-label"),
-  toggleRefreshBtn:   document.getElementById("toggle-refresh-btn"),
+  toggleBusesBtn:     document.getElementById("toggle-buses-btn"),
   darkModeBtn:        document.getElementById("dark-mode-btn"),
   departurePanel:     document.getElementById("departure-panel"),
   panelStopName:      document.getElementById("panel-stop-name"),
@@ -468,16 +469,37 @@ function startVehicleRefresh() {
   fetchVehicles();   // immediate first call
   state.refreshTimer = setInterval(fetchVehicles, CONFIG.VEHICLE_REFRESH_MS);
   state.isRefreshing = true;
-  dom.toggleRefreshBtn.innerHTML = svgIcon("i-pause");
-  dom.toggleRefreshBtn.setAttribute("aria-label", "Pause live updates");
 }
 
 function stopVehicleRefresh() {
   clearInterval(state.refreshTimer);
   state.refreshTimer = null;
   state.isRefreshing = false;
-  dom.toggleRefreshBtn.innerHTML = svgIcon("i-play");
-  dom.toggleRefreshBtn.setAttribute("aria-label", "Resume live updates");
+}
+
+/** Header toggle: show/hide bus markers and pause/resume the live refresh
+ *  together. Buses are always hidden in Improvements mode, so this only
+ *  acts on the map while in Live view; the preference is remembered and
+ *  re-applied when returning to Live (see applyViewMode). */
+function setBusesVisible(on) {
+  state.busesVisible = !!on;
+  updateBusesToggleBtn();
+  if (state.viewMode === "improvements") return;
+  if (state.busesVisible) {
+    showVehicleMarkers();
+    if (!state.isRefreshing) startVehicleRefresh();
+  } else {
+    hideVehicleMarkers();
+    if (state.isRefreshing) stopVehicleRefresh();
+  }
+}
+
+function updateBusesToggleBtn() {
+  if (!dom.toggleBusesBtn) return;
+  const on = state.busesVisible;
+  dom.toggleBusesBtn.setAttribute("aria-pressed", on ? "true" : "false");
+  dom.toggleBusesBtn.setAttribute("aria-label", on ? "Hide buses" : "Show buses");
+  dom.toggleBusesBtn.title = on ? "Hide buses" : "Show buses";
 }
 
 async function fetchVehicles() {
@@ -1347,16 +1369,15 @@ function bindUIEvents() {
   // Dark mode toggle
   dom.darkModeBtn.addEventListener("click", toggleDarkMode);
 
-  // Toggle live refresh pause/resume
-  dom.toggleRefreshBtn.addEventListener("click", () => {
-    if (state.isRefreshing) {
-      stopVehicleRefresh();
-      showToast("Live updates paused.");
-    } else {
-      startVehicleRefresh();
-      showToast("Live updates resumed.");
-    }
-  });
+  // Toggle showing buses on the map (hides markers + pauses the refresh).
+  if (dom.toggleBusesBtn) {
+    dom.toggleBusesBtn.addEventListener("click", () => {
+      const willShow = !state.busesVisible;
+      setBusesVisible(willShow);
+      showToast(willShow ? "Showing buses." : "Buses hidden.");
+    });
+    updateBusesToggleBtn();
+  }
 
   // Panel error message setter
   dom.panelRetryBtn.addEventListener("click", () => {
@@ -1565,6 +1586,10 @@ function setViewMode(mode) {
 }
 
 async function applyViewMode() {
+  // The "show buses" toggle only does anything in Live view, so hide it in
+  // Improvements to avoid a control that visibly does nothing.
+  if (dom.toggleBusesBtn) dom.toggleBusesBtn.hidden = (state.viewMode === "improvements");
+
   if (state.viewMode === "improvements") {
     // Pause the live refresh — Improvements mode is a static network view.
     if (state.isRefreshing) stopVehicleRefresh();
@@ -1585,9 +1610,12 @@ async function applyViewMode() {
     // If the editor is open, tear it down — it only makes sense in Improvements mode.
     if (state.editor) closeEditor({ skipSave: false });
     hideRouteLines();
-    hideAllProposals();
-    showVehicleMarkers();
-    if (!state.isRefreshing) startVehicleRefresh();
+    hideAllProposalLayers();
+    // Respect the header "show buses" toggle when returning to Live.
+    if (state.busesVisible) {
+      showVehicleMarkers();
+      if (!state.isRefreshing) startVehicleRefresh();
+    }
   }
 }
 
@@ -2079,6 +2107,14 @@ function showAllProposals() {
     if (isProposalNight(p) === isNight) showProposal(p.id);
     else                                hideProposal(p.id);
   }
+}
+
+/** Remove every proposal layer from the map, ignoring selection. Used when
+ *  leaving Improvements for Live — nothing proposal-related should linger.
+ *  (hideAllProposals deliberately keeps the selected one for the in-tab
+ *  "Show proposals" toggle, which is wrong when switching views.) */
+function hideAllProposalLayers() {
+  for (const id of Object.keys(state.proposalLayers)) hideProposal(id);
 }
 
 function hideAllProposals() {
