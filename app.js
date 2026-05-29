@@ -1661,9 +1661,18 @@ async function loadRouteLinesImpl() {
 
     const colour = getLineColour(r.service, r.operator);
     const fg = (pickTextOn(colour) === "dark") ? "#1a1a1a" : "#ffffff";
+    const night = isNightService(r.service);
     // Endpoint tags only make sense for routes that visibly run off
-    // the edge — express variants and night routes continuing east.
-    const showEndpointTags = r.category === "express" || isNightService(r.service);
+    // the edge (express) or whose night-time destination is the point
+    // — the backend force-emits names for night routes so the disparity
+    // between Brighton-side and Worthing-side night coverage reads on
+    // the map even when a route terminates inside the bbox.
+    const showEndpointTags = r.category === "express" || night;
+    // Night tags use a deep-navy pill with a moon glyph so they read
+    // as a category rather than a clip-edge "continues off-map" tag.
+    const tagBg    = night ? "#0a1432" : colour;
+    const tagFg    = night ? "#ffffff" : fg;
+    const tagLabel = night ? `🌙 ${r.service}` : r.service;
     const layers = [];
 
     r.polylines.forEach((coords, i) => {
@@ -1684,13 +1693,13 @@ async function loadRouteLinesImpl() {
         // Place the pill in the direction the line is heading so the
         // polyline reads as flowing into the tag rather than crossing it.
         const placement = (last[1] >= prev[1]) ? "right" : "left";
-        layers.push(makeEndpointTag(last, r.service, ep.to_name, "to", placement, colour, fg));
+        layers.push(makeEndpointTag(last, tagLabel, ep.to_name, "to", placement, tagBg, tagFg));
       }
       if (ep.from_name) {
         const first = coords[0];
         const next  = coords[1];
         const placement = (first[1] <= next[1]) ? "left" : "right";
-        layers.push(makeEndpointTag(first, r.service, ep.from_name, "from", placement, colour, fg));
+        layers.push(makeEndpointTag(first, tagLabel, ep.from_name, "from", placement, tagBg, tagFg));
       }
     });
 

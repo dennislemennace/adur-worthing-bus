@@ -572,12 +572,21 @@ class Timetable:
                     if len(pts) < 2:
                         continue
                 polylines.append([[lat, lon] for lat, lon in pts])
-                endpoints.append({
-                    "from_name": (stop_info[first_sid][2] if lost_before
-                                  and first_sid in stop_info else None),
-                    "to_name":   (stop_info[last_sid][2]  if lost_after
-                                  and last_sid in stop_info  else None),
-                })
+                # Day/express routes only carry an end-name when clipped at
+                # the bbox edge ("continues off-map to X"). Night routes get
+                # the terminus name unconditionally so their destination is
+                # visible even when the whole loop sits inside the bbox —
+                # the disparity between Brighton's east-bound night network
+                # and Worthing's bare west-bound picture only reads on the
+                # map if each pill names its destination.
+                is_night = (len(short_name) > 1
+                            and short_name[0].upper() == "N"
+                            and short_name[1].isdigit())
+                from_name = (stop_info[first_sid][2] if first_sid in stop_info
+                             and (lost_before or is_night) else None)
+                to_name   = (stop_info[last_sid][2]  if last_sid in stop_info
+                             and (lost_after  or is_night) else None)
+                endpoints.append({"from_name": from_name, "to_name": to_name})
 
             if polylines:
                 noc = noc_by_short.get(short_name, "")

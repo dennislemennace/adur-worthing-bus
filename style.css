@@ -1456,7 +1456,8 @@ body.dark-mode .header-icon {
   /* Panel stacks below the map on mobile, so the wave spans full width. */
   .header-wave { width: 100%; }
   .header-inner { gap: var(--space-sm); padding: 0 var(--space-md); }
-  .header-brand { gap: 10px; flex: 1; }
+  .header-brand { gap: 10px; flex: 1; min-width: 0; }
+  .header-brand > div { min-width: 0; }
   .header-icon { width: 34px; height: 34px; flex-shrink: 0; }
   .header-icon .icon { width: 19px; height: 19px; }
   .header-controls { flex-shrink: 0; gap: var(--space-sm); }
@@ -1464,6 +1465,12 @@ body.dark-mode .header-icon {
   /* Abbreviate "Improvements" → "Plan" on small screens */
   #view-mode-improvements { font-size: 0; }
   #view-mode-improvements::after { content: "Plan"; font-size: 0.7rem; }
+  .header-title    { font-size: clamp(1.05rem, 3.6vw, 1.35rem); }
+  .header-subtitle { font-size: 0.62rem; }
+}
+@media (max-width: 480px) {
+  .header-subtitle { display: none; }
+  .header-title    { font-size: 1.1rem; }
 }
 
 /* ---- Header controls: icon buttons hold svgs ---- */
@@ -1532,6 +1539,20 @@ body.dark-mode :focus-visible { outline-color: var(--color-accent); }
   height: 56px;
   color: var(--color-accent);
   opacity: 0.9;
+}
+.map-loading-bus {
+  animation: loading-drive 2.6s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes loading-drive {
+  0%   { transform: translateX(0); }
+  45%  { transform: translateX(-38px); }
+  55%  { transform: translateX(-38px); }
+  100% { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-loading-bus { animation: none; }
 }
 .map-loading p {
   margin: 0;
