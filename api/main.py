@@ -13,6 +13,7 @@ Environment variables:
   ALLOWED_ORIGIN  — your GitHub Pages URL
 """
 
+import json
 import math
 import os
 import time
@@ -73,8 +74,44 @@ NEXTBUSES_DAILY_LIMIT        = int(os.getenv("NEXTBUSES_DAILY_LIMIT", "300"))
 _cache: dict = {}
 
 # ── NextBuses daily quota counter ─────────────────────────────
-# Single-process (Render free tier); no Redis needed.
-_nb_quota: dict = {"date": None, "count": 0}
+# Single-process (Render free tier); persisted to disk so warm
+# restarts (mid-day deploys, hook fires) don't silently reset the
+# counter and risk over-running the 300/day TransportAPI cap.
+# Cold spin-up still resets — Render free tier wipes ephemeral disk
+# on full spin-down; that's acceptable.
+_NB_QUOTA_PATH = TIMETABLE_PATH.parent / ".nb_quota.json"
+
+def _nb_quota_load() -> dict:
+    today = date.today().isoformat()
+    try:
+        data = json.loads(_NB_QUOTA_PATH.read_text(encoding="utf-8"))
+        if data.get("date") == today:
+            return {"date": today, "count": int(data.get("count", 0))}
+    except Exception:
+        pass
+    return {"date": today, "count": 0}
+
+def _nb_quota_save() -> None:
+    try:
+        _NB_QUOTA_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _NB_QUOTA_PATH.with_suffix(_NB_QUOTA_PATH.suffix + ".tmp")
+        tmp.write_text(json.dumps(_nb_quota), encoding="utf-8")
+        os.replace(tmp, _NB_QUOTA_PATH)
+    except Exception as exc:
+        log.warning("Failed to persist NextBuses quota: %s", exc)
+
+def _nb_quota_rollover() -> None:
+    today = date.today().isoformat()
+    if _nb_quota["date"] != today:
+        _nb_quota["date"] = today
+        _nb_quota["count"] = 0
+
+def _nb_quota_bump(delta: int = 1) -> None:
+    _nb_quota_rollover()
+    _nb_quota["count"] = max(0, _nb_quota["count"] + delta)
+    _nb_quota_save()
+
+_nb_quota: dict = _nb_quota_load()
 
 def cache_get(key: str):
     entry = _cache.get(key)
@@ -119,6 +156,7 @@ async def root():
 # ── Debug endpoint (remove once departures are confirmed working)
 @app.get("/api/debug/stop")
 async def debug_stop(stopId: str = Query(...)):
+    _check_api_key()
     tt        = await _get_timetable()
     variants  = _normalise_atco(stopId)
     now_local = datetime.now(UK_TZ)
@@ -429,6 +467,8 @@ async def debug_match_stats():
 @app.get("/api/debug/nb-quota")
 async def debug_nb_quota():
     """Diagnostics: current NextBuses daily quota usage."""
+    _check_api_key()
+    _nb_quota_rollover()
     return {
         "date":            _nb_quota.get("date"),
         "count":           _nb_quota.get("count", 0),
@@ -442,6 +482,7 @@ async def debug_nb_quota():
 @app.get("/api/debug/live-raw")
 async def debug_live_raw(stopId: str = Query(...)):
     """Diagnostics: raw Transport API response + parsed predictions for a stop."""
+    _check_api_key()
     if not NEXTBUSES_APP_ID or not NEXTBUSES_APP_KEY:
         return {"error": "Transport API credentials not configured"}
     url = f"{NEXTBUSES_BASE_URL}/{stopId}/live.json"
@@ -821,18 +862,15 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
     if not departures:
         cached_preds = cache_get(f"nb:{stop_id}")
         if cached_preds is None:
-            today = date.today().isoformat()
-            if _nb_quota["date"] != today:
-                _nb_quota["date"] = today
-                _nb_quota["count"] = 0
+            _nb_quota_rollover()
             if _nb_quota["count"] >= NEXTBUSES_DAILY_LIMIT:
                 return base
-            _nb_quota["count"] += 1
+            _nb_quota_bump(1)
             log.info("NextBuses hit %d/%d for stop %s (timetable fallback)",
                      _nb_quota["count"], NEXTBUSES_DAILY_LIMIT, stop_id)
             result = await _fetch_nextbuses(stop_id)
             if result is None:
-                _nb_quota["count"] -= 1
+                _nb_quota_bump(-1)
                 return base
             cache_set(f"nb:{stop_id}", result, NEXTBUSES_CACHE_TTL)
             cached_preds = result
@@ -859,20 +897,17 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
     cached_preds = cache_get(f"nb:{stop_id}")
     if cached_preds is None:
         # About to make a real network call — gate on quota first.
-        today = date.today().isoformat()
-        if _nb_quota["date"] != today:
-            _nb_quota["date"] = today
-            _nb_quota["count"] = 0
+        _nb_quota_rollover()
         if _nb_quota["count"] >= NEXTBUSES_DAILY_LIMIT:
             log.info("NextBuses quota exhausted (%d/%d)", _nb_quota["count"], NEXTBUSES_DAILY_LIMIT)
             return {**base, "live": False, "live_reason": "quota"}
 
-        _nb_quota["count"] += 1
+        _nb_quota_bump(1)
         log.info("NextBuses hit %d/%d for stop %s", _nb_quota["count"], NEXTBUSES_DAILY_LIMIT, stop_id)
 
         result = await _fetch_nextbuses(stop_id)
         if result is None:
-            _nb_quota["count"] -= 1  # don't burn quota on a broken/unreachable API
+            _nb_quota_bump(-1)  # don't burn quota on a broken/unreachable API
             return {**base, "live": False, "live_reason": "upstream"}
 
         cache_set(f"nb:{stop_id}", result, NEXTBUSES_CACHE_TTL)
