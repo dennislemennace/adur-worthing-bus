@@ -44,10 +44,23 @@ CREATE TABLE trips (
     trip_id    TEXT NOT NULL UNIQUE,
     rid        INTEGER NOT NULL,
     service_id TEXT NOT NULL,
-    headsign   TEXT NOT NULL
+    headsign   TEXT NOT NULL,
+    shape_id   TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX idx_trips_rid     ON trips(rid);
 CREATE INDEX idx_trips_service ON trips(service_id);
+
+-- Optional GTFS shapes: road-following polylines keyed by shape_id.
+-- Hot-queried per-trip from representative_polylines; not preloaded.
+-- Coverage is partial (~50% of trips in the South-East feed); trips
+-- without a shape fall back to stop-to-stop straight lines.
+CREATE TABLE shapes (
+    shape_id TEXT NOT NULL,
+    seq      INTEGER NOT NULL,
+    lat      REAL NOT NULL,
+    lon      REAL NOT NULL,
+    PRIMARY KEY (shape_id, seq)
+) WITHOUT ROWID;
 
 CREATE TABLE stop_times (
     tid      INTEGER NOT NULL,
@@ -149,8 +162,12 @@ def main() -> None:
         tid = trip_tid[tid_text]
         rid = route_rid[t["route_id"]]
         trip_rid[tid] = rid
-        trip_rows.append((tid, tid_text, rid, t["service_id"], t.get("headsign", "")))
-    con.executemany("INSERT INTO trips VALUES (?,?,?,?,?)", trip_rows)
+        trip_rows.append((
+            tid, tid_text, rid,
+            t["service_id"], t.get("headsign", ""),
+            t.get("shape_id", ""),
+        ))
+    con.executemany("INSERT INTO trips VALUES (?,?,?,?,?,?)", trip_rows)
     print(f"  trips: {len(trip_rows)}")
 
     # --- stop_times: invert stop-indexed map into per-trip list ---
@@ -186,6 +203,15 @@ def main() -> None:
 
     con.executemany("INSERT INTO trip_endpoints VALUES (?,?,?,?,?)", endpoint_rows)
     print(f"  trip_endpoints: {len(endpoint_rows)}")
+
+    # --- shapes ---
+    shape_rows = []
+    for shape_id, pts in tt.get("shapes", {}).items():
+        for seq, (lat, lon) in enumerate(pts):
+            shape_rows.append((shape_id, seq, lat, lon))
+    if shape_rows:
+        con.executemany("INSERT INTO shapes VALUES (?,?,?,?)", shape_rows)
+    print(f"  shapes: {len(shape_rows)} points across {len(tt.get('shapes', {}))} shape_ids")
 
     # --- calendar ---
     cal_rows = []

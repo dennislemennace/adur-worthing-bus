@@ -255,9 +255,11 @@ async def get_route_lines():
     """Indicative route polylines for the Improvements view.
 
     For each route short_name, returns the longest trip variant per
-    direction as an ordered list of [lat, lon] coordinates. Lines are
-    drawn stop-to-stop (no GTFS shapes yet) and filtered to routes
-    that touch the Adur & Worthing bbox.
+    direction as an ordered list of [lat, lon] coordinates. Lines
+    follow the road via GTFS shapes when the feed provides them
+    (~half the trips in the South-East bundle); otherwise they fall
+    back to straight stop-to-stop chords. Filtered to routes that
+    touch the Adur & Worthing bbox.
 
     Cached 1 hour — the timetable only refreshes weekly.
     """

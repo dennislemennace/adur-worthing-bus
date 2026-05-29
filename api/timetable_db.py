@@ -559,11 +559,19 @@ class Timetable:
             polylines = []
             endpoints = []
             for tid, first_sid, last_sid in chosen_trips:
-                pts = self._con.execute(
-                    "SELECT s.lat, s.lon FROM stop_times st "
-                    "JOIN stops s ON s.sid = st.sid "
-                    "WHERE st.tid=? ORDER BY st.seq", (tid,)
-                ).fetchall()
+                # Prefer the trip's GTFS shape (road-following) over the
+                # stop-to-stop chord when available. shape_id is populated
+                # for ~50% of trips in the BODS South-East feed; the rest
+                # fall back to straight stops. Older SQLite blobs lack the
+                # shapes table / shape_id column — OperationalError there
+                # silently degrades to the fallback path.
+                pts = self._shape_points_for_trip(tid)
+                if pts is None or len(pts) < 2:
+                    pts = self._con.execute(
+                        "SELECT s.lat, s.lon FROM stop_times st "
+                        "JOIN stops s ON s.sid = st.sid "
+                        "WHERE st.tid=? ORDER BY st.seq", (tid,)
+                    ).fetchall()
                 if len(pts) < 2:
                     continue
                 lost_before = lost_after = False
@@ -644,6 +652,27 @@ class Timetable:
             # operators, the last one wins — typically they all match.
             out[short] = noc
         return out
+
+    def _shape_points_for_trip(self, tid: int) -> Optional[list]:
+        """Return road-following polyline points for a trip, or None if
+        the trip has no shape_id, the shape has no points, or the SQLite
+        blob predates the shapes table / shape_id column.
+        """
+        try:
+            row = self._con.execute(
+                "SELECT shape_id FROM trips WHERE tid=?", (tid,)
+            ).fetchone()
+            if not row or not row[0]:
+                return None
+            pts = self._con.execute(
+                "SELECT lat, lon FROM shapes WHERE shape_id=? ORDER BY seq",
+                (row[0],),
+            ).fetchall()
+            return pts if pts else None
+        except sqlite3.OperationalError:
+            # Older blob without trips.shape_id or shapes table — degrade
+            # silently. Next weekly workflow run replaces the artifact.
+            return None
 
     @classmethod
     def _clip_to_bbox(cls, pts: list, bbox: tuple) -> tuple:

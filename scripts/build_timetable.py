@@ -156,6 +156,7 @@ def parse_gtfs(zip_path: str) -> dict:
         "stop_times":     {},
         "calendar":       {},
         "calendar_dates": {},
+        "shapes":         {},   # shape_id -> [[lat, lon], ...] in seq order
     }
 
     with zipfile.ZipFile(zip_path) as zf:
@@ -301,19 +302,24 @@ def parse_gtfs(zip_path: str) -> dict:
         log.info("Filtering trips and routes…")
         needed_route_ids = set()
         needed_service_ids = set()
+        needed_shape_ids: set = set()
         for trip_id in needed_trip_ids:
             row = all_trips.get(trip_id)
             if not row:
                 continue
             route_id = row.get("route_id", "")
             service_id = row.get("service_id", "")
+            shape_id = (row.get("shape_id") or "").strip()
             timetable["trips"][trip_id] = {
                 "route_id":   route_id,
                 "service_id": service_id,
                 "headsign":   row.get("trip_headsign") or "",
+                "shape_id":   shape_id,
             }
             needed_route_ids.add(route_id)
             needed_service_ids.add(service_id)
+            if shape_id:
+                needed_shape_ids.add(shape_id)
 
         for route_id in needed_route_ids:
             if route_id in all_routes:
@@ -327,6 +333,59 @@ def parse_gtfs(zip_path: str) -> dict:
             len(timetable["routes"]),
             len(needed_service_ids),
         )
+
+        # ── Phase 5b: shapes.txt — road-following polylines ─────
+        # GTFS shapes are optional and ~50% covered in the South-East
+        # bundle; the API falls back to stop-to-stop straight lines for
+        # any trip whose shape_id is empty or unknown. Storing only
+        # points within bbox + a generous margin keeps the SQLite
+        # blob from ballooning (raw shapes.txt is hundreds of MB).
+        SHAPE_PAD = 0.10  # ≈11 km — far wider than the runtime clip pad
+        smin_lat = BBOX_MIN_LAT - SHAPE_PAD
+        smax_lat = BBOX_MAX_LAT + SHAPE_PAD
+        smin_lon = BBOX_MIN_LON - SHAPE_PAD
+        smax_lon = BBOX_MAX_LON + SHAPE_PAD
+        if "shapes.txt" in names and needed_shape_ids:
+            log.info("Parsing shapes.txt (filtered to %d shape_ids, bbox+%.2f°)…",
+                     len(needed_shape_ids), SHAPE_PAD)
+            # Accumulate (seq, lat, lon) per shape_id; sort at the end so
+            # we don't depend on shapes.txt rows being pre-ordered.
+            collected: dict = {}
+            row_count = 0
+            kept_count = 0
+            with zf.open("shapes.txt") as f:
+                reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
+                for row in reader:
+                    row_count += 1
+                    if row_count % 1_000_000 == 0:
+                        log.info("  processed %s rows, kept %s points",
+                                 f"{row_count:,}", f"{kept_count:,}")
+                    shape_id = row.get("shape_id", "")
+                    if shape_id not in needed_shape_ids:
+                        continue
+                    try:
+                        lat = float(row.get("shape_pt_lat", ""))
+                        lon = float(row.get("shape_pt_lon", ""))
+                        seq = int(row.get("shape_pt_sequence", ""))
+                    except (ValueError, TypeError):
+                        continue
+                    if not (smin_lat <= lat <= smax_lat
+                            and smin_lon <= lon <= smax_lon):
+                        continue
+                    collected.setdefault(shape_id, []).append((seq, lat, lon))
+                    kept_count += 1
+            # Sort by seq and strip the seq once ordered; backend only
+            # consumes ordered [lat, lon] pairs.
+            for shape_id, pts in collected.items():
+                pts.sort(key=lambda p: p[0])
+                if len(pts) >= 2:
+                    timetable["shapes"][shape_id] = [
+                        [lat, lon] for (_seq, lat, lon) in pts
+                    ]
+            log.info("  processed %s rows total; kept %s points across %d shapes",
+                     f"{row_count:,}", f"{kept_count:,}", len(timetable["shapes"]))
+        else:
+            log.info("Skipping shapes.txt (file missing or no shape_ids needed)")
 
         # 5. calendar.txt
         if "calendar.txt" in names:
