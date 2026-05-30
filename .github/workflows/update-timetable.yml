@@ -50,13 +50,19 @@ jobs:
               raise SystemExit('empty timetable — aborting')
           "
 
+      - name: Generate SHA-256 sidecar
+        run: |
+          sha256sum data/timetable.sqlite | awk '{print $1}' > data/timetable.sqlite.sha256
+          echo "Sidecar:"
+          cat data/timetable.sqlite.sha256
+
       - name: Publish timetable to rolling release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="timetable-latest"
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" data/timetable.sqlite \
+          gh release create "$TAG" data/timetable.sqlite data/timetable.sqlite.sha256 \
             --title "Timetable $(date -u +%Y-%m-%d)" \
             --notes "Built $(date -u +%Y-%m-%dT%H:%M:%SZ) by $GITHUB_WORKFLOW"
 

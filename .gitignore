@@ -11,4 +11,5 @@ data/timetable.json
 data/timetable.sqlite
 data/timetable.sqlite-wal
 data/timetable.sqlite-shm
+data/timetable.sqlite.sha256.local
 data/.nb_quota.json
