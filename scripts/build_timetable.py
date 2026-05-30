@@ -20,6 +20,9 @@ import logging
 import os
 import sys
 import tempfile
+import time
+import urllib.parse
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -68,6 +71,13 @@ EXTRA_ROUTES = {
 
 BBOX_MIN_LAT, BBOX_MAX_LAT =  50.78,  50.87
 BBOX_MIN_LON, BBOX_MAX_LON = -0.42,  -0.10
+
+# Public OSRM demo. Fair-use, no SLA — we hit it ~30-50× per weekly
+# build, well under any reasonable threshold. Override with a self-
+# hosted or Mapbox endpoint via env var if needed.
+OSRM_BASE_URL  = os.getenv("OSRM_BASE_URL", "https://router.project-osrm.org")
+OSRM_SLEEP_SEC = float(os.getenv("OSRM_SLEEP_SEC", "1.2"))
+OSRM_MAX_STOPS = 80   # URL/coord-count guard for the public demo
 
 OUTPUT_PATH = Path(__file__).parent.parent / "data" / "timetable.json"
 
@@ -409,6 +419,14 @@ def parse_gtfs(zip_path: str) -> dict:
         else:
             log.info("Skipping shapes.txt (file missing or no shape_ids needed)")
 
+        # ── Phase 5d: OSRM road-following gap-fill ──────────────
+        # For each route in our bbox whose representative trip lacks a
+        # GTFS shape, ask OSRM /route for a road-following polyline
+        # through that trip's stop sequence. Stored as a synthetic
+        # shape (id "osrm:{tid}") so the runtime's shape-preferring
+        # selection picks it up naturally with no special-casing.
+        _osrm_fill(timetable, ws_stop_ids, bbox_stop_ids)
+
         # 5. calendar.txt
         if "calendar.txt" in names:
             log.info("Parsing calendar.txt…")
@@ -484,6 +502,137 @@ def _hms_to_secs(t: str) -> int:
         return secs % 86400
     except (ValueError, IndexError):
         return -1
+
+
+# ── OSRM road-following gap-fill ──────────────────────────────
+def _osrm_fill(timetable: dict, ws_stop_ids: set, bbox_stop_ids: set) -> None:
+    """For each route in our bbox whose representative trip(s) lack a
+    GTFS shape, call OSRM /route on the trip's stop sequence and store
+    the result as a synthetic shape ("osrm:{tid}"). Mirrors the runtime
+    representative-trip selection (tight coordinate bbox, not the
+    looser West-Sussex-prefix-or-bbox set used during ingest) so the
+    right trips get synthesised — not 4× too many Bognor-area trips.
+    """
+    stops = timetable["stops"]
+
+    # Tight bbox stop set: stops physically inside the visible map area,
+    # regardless of ATCO prefix. This matches runtime's bbox_trip_ids
+    # filter and excludes ws_stop_ids that live outside the map (Bognor,
+    # Chichester, Crawley, …).
+    tight_in_bbox_sids = {
+        sid for sid, s in stops.items()
+        if BBOX_MIN_LAT <= s["lat"] <= BBOX_MAX_LAT
+        and BBOX_MIN_LON <= s["lon"] <= BBOX_MAX_LON
+    }
+
+    # Invert stop_times into per-trip ordered stop sequences.
+    per_trip: dict = {}   # tid -> [(dep_secs, stop_id)]
+    for stop_id, entries in timetable["stop_times"].items():
+        for dep_secs, trip_id in entries:
+            per_trip.setdefault(trip_id, []).append((dep_secs, stop_id))
+    for tid, seq in per_trip.items():
+        seq.sort(key=lambda p: p[0])
+
+    # Group trips by route short_name, filtered to trips that touch the
+    # tight bbox — same condition as runtime bbox_trip_ids.
+    trips_by_short: dict = {}
+    for tid, t in timetable["trips"].items():
+        if tid not in per_trip:
+            continue
+        if not any(sid in tight_in_bbox_sids for _ds, sid in per_trip[tid]):
+            continue
+        route = timetable["routes"].get(t.get("route_id", ""))
+        if not route:
+            continue
+        short = route.get("short_name") or ""
+        if not short:
+            continue
+        trips_by_short.setdefault(short, []).append(tid)
+
+    # Per route, pick representative trips (primary = most stops; reverse
+    # = most stops with different first_sid near primary's last). Skip if
+    # any of the *bbox-touching* candidates already has a shape — runtime
+    # will pick those via shape-aware sort. (Don't check trips outside
+    # the bbox; those are filtered out at runtime anyway.)
+    TERMINUS_NEAR_SQ = 0.0001
+    targets: list = []   # list of tids needing OSRM
+    for short, tids in trips_by_short.items():
+        if any(timetable["trips"][tid].get("shape_id") for tid in tids):
+            continue
+        tids.sort(key=lambda tid: len(per_trip[tid]), reverse=True)
+        primary = tids[0]
+        targets.append(primary)
+        primary_first = per_trip[primary][0][1]
+        primary_last_id = per_trip[primary][-1][1]
+        last_coord = (stops[primary_last_id]["lat"],
+                      stops[primary_last_id]["lon"]) if primary_last_id in stops else None
+        if last_coord is None:
+            continue
+        for tid in tids[1:]:
+            first_id = per_trip[tid][0][1]
+            if first_id == primary_first:
+                continue
+            fc = stops.get(first_id)
+            if not fc:
+                continue
+            dlat = fc["lat"] - last_coord[0]
+            dlon = fc["lon"] - last_coord[1]
+            if dlat * dlat + dlon * dlon <= TERMINUS_NEAR_SQ:
+                targets.append(tid)
+                break
+
+    if not targets:
+        log.info("OSRM phase: no shapeless routes need filling — skipping")
+        return
+
+    log.info("OSRM phase: routing %d representative trips via %s (sleep %.1fs between)…",
+             len(targets), OSRM_BASE_URL, OSRM_SLEEP_SEC)
+    ok = err = skipped = 0
+    for i, tid in enumerate(targets):
+        seq = per_trip[tid]
+        # Trim to in-bbox / near-bbox segments to keep URL bounded and
+        # avoid asking OSRM to route through chunks we'll just clip
+        # at runtime anyway.
+        coords = []
+        for _ds, sid in seq:
+            s = stops.get(sid)
+            if not s:
+                continue
+            coords.append((s["lat"], s["lon"]))
+        # URL length / public-demo coord cap — sample down if too long.
+        if len(coords) > OSRM_MAX_STOPS:
+            step = max(1, len(coords) // OSRM_MAX_STOPS)
+            coords = coords[::step][:OSRM_MAX_STOPS]
+        if len(coords) < 3:
+            skipped += 1
+            continue
+        url = (f"{OSRM_BASE_URL}/route/v1/driving/"
+               + ";".join(f"{lon},{lat}" for lat, lon in coords)
+               + "?overview=full&geometries=geojson")
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "adur-worthing-bus build"})
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                data = json.loads(resp.read())
+            if data.get("code") != "Ok" or not data.get("routes"):
+                log.warning("  OSRM %s: code=%s msg=%s",
+                            tid, data.get("code"), data.get("message", ""))
+                err += 1
+            else:
+                geo = data["routes"][0]["geometry"]["coordinates"]
+                # OSRM returns [lon, lat]; we store [lat, lon].
+                shape_id = f"osrm:{tid}"
+                timetable["shapes"][shape_id] = [[lat, lon] for lon, lat in geo]
+                timetable["trips"][tid]["shape_id"] = shape_id
+                ok += 1
+        except Exception as exc:
+            log.warning("  OSRM %s: %s", tid, exc)
+            err += 1
+        time.sleep(OSRM_SLEEP_SEC)
+        if (i + 1) % 10 == 0:
+            log.info("  OSRM progress: %d/%d (ok=%d err=%d skipped=%d)",
+                     i + 1, len(targets), ok, err, skipped)
+    log.info("OSRM phase done: %d ok, %d errors, %d skipped (<3 stops)",
+             ok, err, skipped)
 
 
 # ── Entry point ───────────────────────────────────────────────

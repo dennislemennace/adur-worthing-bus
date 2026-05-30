@@ -22,6 +22,37 @@ from typing import Iterator, Optional
 
 log = logging.getLogger("bus_api.timetable")
 
+
+def _haversine_km(a: tuple, b: tuple) -> float:
+    """Distance between two (lat, lon) points in kilometres."""
+    import math
+    la1, lo1 = math.radians(a[0]), math.radians(a[1])
+    la2, lo2 = math.radians(b[0]), math.radians(b[1])
+    d = (math.sin((la2 - la1) / 2) ** 2
+         + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2)
+    return 6371.0 * 2 * math.asin(math.sqrt(d))
+
+
+def _split_long_chords(pts: list, threshold_km: float = 2.0) -> list:
+    """Split a polyline at any consecutive-pair distance > threshold_km.
+    Returns a list of contiguous sub-polylines. A polyline with no long
+    chord returns as `[pts]`. Used as a safety net for stop-to-stop
+    fallback polylines whose source GTFS skipped intermediate stops.
+    """
+    if len(pts) < 2:
+        return [pts]
+    cuts: list = [0]
+    for i in range(len(pts) - 1):
+        if _haversine_km(pts[i], pts[i + 1]) > threshold_km:
+            cuts.append(i + 1)
+    cuts.append(len(pts))
+    out = []
+    for a, b in zip(cuts, cuts[1:]):
+        seg = pts[a:b]
+        if len(seg) >= 2:
+            out.append(seg)
+    return out if out else [pts]
+
 TIMETABLE_URL = os.environ.get(
     "TIMETABLE_URL",
     "https://github.com/dennislemennace/adur-worthing-bus/releases/download/timetable-latest/timetable.sqlite",
@@ -589,12 +620,13 @@ class Timetable:
             for poly_idx, (tid, first_sid, last_sid) in enumerate(chosen_trips):
                 # Prefer the trip's GTFS shape (road-following) over the
                 # stop-to-stop chord when available. shape_id is populated
-                # for ~50% of trips in the BODS South-East feed; the rest
-                # fall back to straight stops. Older SQLite blobs lack the
-                # shapes table / shape_id column — OperationalError there
-                # silently degrades to the fallback path.
+                # for ~50% of trips in the BODS South-East feed; OSRM
+                # fills the rest at build time as "osrm:{tid}" shapes.
+                # Older SQLite blobs lack the shapes table / shape_id
+                # column — OperationalError there silently degrades.
                 pts = self._shape_points_for_trip(tid)
-                if pts is None or len(pts) < 2:
+                used_fallback = pts is None or len(pts) < 2
+                if used_fallback:
                     pts = self._con.execute(
                         "SELECT s.lat, s.lon FROM stop_times st "
                         "JOIN stops s ON s.sid = st.sid "
@@ -607,14 +639,10 @@ class Timetable:
                     pts, lost_before, lost_after = self._clip_to_bbox(pts, bbox)
                     if len(pts) < 2:
                         continue
-                polylines.append([[lat, lon] for lat, lon in pts])
                 # Day/express routes only carry an end-name when clipped at
                 # the bbox edge ("continues off-map to X"). Night routes get
                 # the terminus name unconditionally so their destination is
-                # visible even when the whole loop sits inside the bbox —
-                # the disparity between Brighton's east-bound night network
-                # and Worthing's bare west-bound picture only reads on the
-                # map if each pill names its destination.
+                # visible even when the whole loop sits inside the bbox.
                 is_night = (len(short_name) > 1
                             and short_name[0].upper() == "N"
                             and short_name[1].isdigit())
@@ -622,20 +650,41 @@ class Timetable:
                              and (lost_before or is_night) else None)
                 to_name   = (stop_info[last_sid][2]  if last_sid in stop_info
                              and (lost_after  or is_night) else None)
-                # For poly 0 (primary trip): to_headsign = the primary's
-                # destination text, from_headsign = the reverse trip's
-                # destination (= where the primary direction starts).
-                # Mirror for poly 1.
+                # poly 0 = primary trip's geometry; to_headsign is the
+                # primary's destination, from_headsign is the reverse
+                # trip's destination (= where the primary direction
+                # starts). Mirror for poly 1.
                 if poly_idx == 0:
                     to_hs, from_hs = primary_headsign, reverse_headsign
                 else:
                     to_hs, from_hs = reverse_headsign, primary_headsign
-                endpoints.append({
+                outer_endpoints = {
                     "from_name":     from_name,
                     "to_name":       to_name,
                     "from_headsign": from_hs if (lost_before or is_night) else None,
                     "to_headsign":   to_hs   if (lost_after  or is_night) else None,
-                })
+                }
+                # Chord-hide safety net: if a fallback (stop-to-stop)
+                # polyline contains an implausibly long gap between
+                # consecutive points (>2 km), split it. Catches GTFS
+                # data quirks where a trip's stop_times skips a chunk
+                # of road (e.g. route 46's old 8.21 km chord). Do NOT
+                # apply to shaped/OSRM polylines — express routes
+                # legitimately have long road segments without points.
+                if used_fallback:
+                    segments = _split_long_chords([(la, lo) for la, lo in pts])
+                else:
+                    segments = [[(la, lo) for la, lo in pts]]
+                for seg_idx, seg in enumerate(segments):
+                    polylines.append([[la, lo] for la, lo in seg])
+                    is_first = seg_idx == 0
+                    is_last  = seg_idx == len(segments) - 1
+                    endpoints.append({
+                        "from_name":     outer_endpoints["from_name"]     if is_first else None,
+                        "to_name":       outer_endpoints["to_name"]       if is_last  else None,
+                        "from_headsign": outer_endpoints["from_headsign"] if is_first else None,
+                        "to_headsign":   outer_endpoints["to_headsign"]   if is_last  else None,
+                    })
 
             if polylines:
                 noc = noc_by_short.get(short_name, "")
