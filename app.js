@@ -1868,18 +1868,36 @@ function inCentralBrighton(latlon) {
  *  (for city night routes whose stop name doesn't name the area), then
  *  sanitised headsign (for outbound routes like N29), then sanitised
  *  stop name (last-resort fallback). */
+// Destinations taken from the operator's published night-services page
+// (https://www.buses.co.uk/services/night-services). Keys cover both
+// stop-name and headsign variants the backend may surface so the
+// override fires regardless of which string ends up in the pill.
 const NIGHT_DESTINATION_OVERRIDES = {
-  "N1":   { "College Close": "Mile Oak",
-            "Cowley Drive Shops": "Whitehawk" },
+  "N1":   { "College Close": "Downs Park",
+            "Cowley Drive Shops": "Woodingdean" },
   "N5":   { "Hardwick Road": "Hangleton",
             "Grenadier Hotel": "Hangleton",
-            "Hollingbury Asda": "Hollingbury" },
-  "N7":   { "Marina": "Marina",
+            "Hollingbury Asda": "Hollingbury",
+            "Asda Crowhurst Road": "Hollingbury" },
+  "N7":   { "George Street": "Hove",
+            "George Street (stop J)": "Hove",
+            "Marina": "Marina",
             "Marina Cinema": "Marina" },
-  "N25":  { "Sussex House": "Coldean",
-            "Coldean Lane": "Coldean" },
+  "N12":  { "Marine Gate": "Eastbourne",
+            "Marine Gate Flats": "Eastbourne",
+            "Seaford Library": "Eastbourne" },
+  "N14":  { "Marine Gate": "Seaford",
+            "Marine Gate Flats": "Seaford",
+            "Meridian Centre": "Seaford" },
+  "N25":  { "Sussex House": "Universities",
+            "Coldean Lane": "Universities",
+            "Park Road": "Universities" },
+  "N29":  { "Coldean Lane": "Lewes",
+            "School Hill Bottom": "Lewes" },
+  "N48":  { "Bolney Road": "Lower Bevendean" },
   "N700": { "Wallace Avenue": "Worthing",
             "Durrington Tesco": "Worthing",
+            "Tesco": "Worthing",
             "West Worthing Wallace Avenue": "Worthing" },
 };
 function stripStopCruft(s) {
