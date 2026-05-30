@@ -2682,11 +2682,44 @@ function renderEditor() {
         <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>
         <span>Download</span>
       </button>
+      <button class="editor-action-btn editor-help-btn" id="ed-help-btn" type="button"
+              aria-label="How to contribute" title="How to contribute">
+        <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
+      </button>
       <button class="editor-action-btn primary" id="ed-github-btn" type="button" ${canExport ? "" : "disabled"}>
         <svg class="icon" aria-hidden="true"><use href="#i-github"/></svg>
         <span>Contribute</span>
       </button>
       <span class="editor-status" id="ed-status"></span>
+
+      <div class="editor-help-popover hidden" id="ed-help-popover" role="dialog"
+           aria-labelledby="ed-help-title" aria-modal="false">
+        <button class="editor-help-close" id="ed-help-close" type="button"
+                aria-label="Close help">
+          <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
+        <h4 class="editor-help-title" id="ed-help-title">Submitting your proposal</h4>
+        <p class="editor-help-blurb">
+          Contribute opens a GitHub page with your route already filled in.
+          The maintainers review submissions and turn the good ones into
+          live route lines on the map.
+        </p>
+        <ol class="editor-help-steps">
+          <li>
+            <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-github"/></svg>
+            <span><strong>Need a GitHub account.</strong>
+              <a href="https://github.com/signup" target="_blank" rel="noopener noreferrer">Sign up free</a> if you don't have one — takes about 30 seconds.</span>
+          </li>
+          <li>
+            <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-pin"/></svg>
+            <span><strong>Click Contribute</strong> — a GitHub page opens with the title and details of your proposal already filled in.</span>
+          </li>
+          <li>
+            <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-plus"/></svg>
+            <span><strong>Scroll down and click the green <em>Submit new issue</em> button.</strong> That's it — you're done.</span>
+          </li>
+        </ol>
+      </div>
     </div>
   `;
 
@@ -2701,6 +2734,26 @@ function renderEditor() {
       closeEditor({ skipSave: true });
       deleteDraft(id);
     });
+
+  // Help popover (Contribute walkthrough)
+  const helpBtn   = dom.proposalEditor.querySelector("#ed-help-btn");
+  const helpPop   = dom.proposalEditor.querySelector("#ed-help-popover");
+  const helpClose = dom.proposalEditor.querySelector("#ed-help-close");
+  const closeHelp = () => helpPop.classList.add("hidden");
+  helpBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    helpPop.classList.toggle("hidden");
+  });
+  helpClose.addEventListener("click", closeHelp);
+  // Click anywhere outside the popover (and not on the trigger) dismisses
+  document.addEventListener("click", (e) => {
+    if (helpPop.classList.contains("hidden")) return;
+    if (helpPop.contains(e.target) || helpBtn.contains(e.target)) return;
+    closeHelp();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !helpPop.classList.contains("hidden")) closeHelp();
+  });
 
   // Field listeners (live update + autosave)
   const nameInput = dom.proposalEditor.querySelector("#ed-name");

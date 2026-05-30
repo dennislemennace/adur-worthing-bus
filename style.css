@@ -2552,6 +2552,82 @@ body.improvements-mode .map-overlay-controls { display: flex; }
 }
 .editor-action-btn.primary:hover { background: var(--color-primary-dark, var(--color-primary)); }
 
+/* Info icon next to Contribute — opens a friendly walkthrough popover */
+.editor-help-btn { padding: 6px; }
+.editor-help-btn .icon { width: 16px; height: 16px; }
+
+/* Footer is position-relative-ready: popover anchors above the button row.
+   Caps width so it never overflows the side panel on mobile (~360-480px). */
+.editor-actions { position: relative; }
+.editor-help-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: var(--space-md);
+  left: var(--space-md);
+  max-width: 360px;
+  margin-left: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  padding: 14px 16px 12px;
+  z-index: 1000;
+}
+.editor-help-popover.hidden { display: none; }
+.editor-help-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  line-height: 0;
+}
+.editor-help-close:hover { background: var(--color-surface-2); color: var(--color-text); }
+.editor-help-close .icon { width: 12px; height: 12px; }
+.editor-help-title {
+  margin: 0 24px 6px 0;
+  font-size: 0.92rem;
+  color: var(--color-text);
+}
+.editor-help-blurb {
+  margin: 0 0 10px 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+.editor-help-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.editor-help-steps li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--color-text);
+}
+.editor-help-step-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--color-accent);
+}
+.editor-help-steps a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
 .editor-status {
   margin-left: auto;
   font-size: 0.72rem;
