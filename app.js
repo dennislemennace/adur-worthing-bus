@@ -2089,9 +2089,18 @@ async function loadProposalsImpl() {
     const colour = p.color || "#444";
     const layers = [];
 
-    // Main route line — dashed to distinguish from existing services
-    if (Array.isArray(p.polyline) && p.polyline.length >= 2) {
-      layers.push(L.polyline(p.polyline, {
+    // Normalise once at load: a proposal carries one polyline (existing
+    // schema) OR an array of polylines (new for proposals that fork at
+    // a junction, e.g. N2 splitting at Red Lion). Downstream code reads
+    // p._polylines and never has to branch on schema shape.
+    p._polylines = Array.isArray(p.polylines) && p.polylines.length
+      ? p.polylines.filter(pl => Array.isArray(pl) && pl.length >= 2)
+      : (Array.isArray(p.polyline) && p.polyline.length >= 2 ? [p.polyline] : []);
+
+    // One dashed line per branch — same colour, indistinguishable until
+    // a multi-branch proposal needs them.
+    for (const pl of p._polylines) {
+      layers.push(L.polyline(pl, {
         color:       colour,
         weight:      5,
         opacity:     0.92,
@@ -2243,10 +2252,11 @@ function selectProposal(id) {
 
   if (id) {
     showProposal(id);
-    // Pan / zoom to fit the selected proposal's polyline
+    // Pan / zoom to fit the selected proposal's polyline(s)
     const p = (state.proposals || []).find(x => x.id === id);
-    if (p && Array.isArray(p.polyline) && p.polyline.length) {
-      state.map.fitBounds(L.latLngBounds(p.polyline), {
+    const allPts = (p && p._polylines || []).flat();
+    if (allPts.length) {
+      state.map.fitBounds(L.latLngBounds(allPts), {
         padding: [40, 40], maxZoom: 14,
       });
     }
