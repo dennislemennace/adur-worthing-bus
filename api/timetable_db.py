@@ -536,9 +536,22 @@ class Timetable:
         # for grouping terminus stops that share a stand)
         TERMINUS_NEAR_SQ = 0.0001
 
+        # Set of trip ids that have a GTFS or OSRM shape — used as a
+        # tie-breaker so we prefer a road-following trip over an equally
+        # long stop-to-stop trip. Tolerates older blobs without the
+        # shape_id column by leaving the set empty (sort key still works).
+        try:
+            shaped_tids = {row[0] for row in self._con.execute(
+                "SELECT tid FROM trips WHERE shape_id != ''")}
+        except sqlite3.OperationalError:
+            shaped_tids = set()
+
         out = []
         for short_name, trips in trips_by_route.items():
-            trips.sort(key=lambda t: stop_counts.get(t[0], 0), reverse=True)
+            trips.sort(
+                key=lambda t: (t[0] in shaped_tids, stop_counts.get(t[0], 0)),
+                reverse=True,
+            )
             primary_tid, primary_first, primary_last = trips[0]
             primary_last_coord = stop_coords.get(primary_last)
 

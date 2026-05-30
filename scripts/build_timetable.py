@@ -348,10 +348,33 @@ def parse_gtfs(zip_path: str) -> dict:
         smin_lon = BBOX_MIN_LON - SHAPE_PAD
         smax_lon = BBOX_MAX_LON + SHAPE_PAD
         if "shapes.txt" in names and needed_shape_ids:
-            log.info("Parsing shapes.txt (filtered to %d shape_ids, bbox+%.2f°)…",
-                     len(needed_shape_ids), SHAPE_PAD)
-            # Accumulate (seq, lat, lon) per shape_id; sort at the end so
-            # we don't depend on shapes.txt rows being pre-ordered.
+            log.info("Parsing shapes.txt — pass 1 (find shape_ids touching bbox+%.2f°)…",
+                     SHAPE_PAD)
+            # Two-pass: pass 1 identifies which needed shape_ids have at
+            # least one point inside the padded bbox; pass 2 keeps every
+            # point of those shapes (no per-point filter), so a shape
+            # that briefly leaves the box and re-enters doesn't get
+            # mid-polyline gaps. Runtime _clip_to_bbox handles the trim.
+            keep_shape_ids: set = set()
+            with zf.open("shapes.txt") as f:
+                reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
+                for row in reader:
+                    shape_id = row.get("shape_id", "")
+                    if (shape_id not in needed_shape_ids
+                            or shape_id in keep_shape_ids):
+                        continue
+                    try:
+                        lat = float(row.get("shape_pt_lat", ""))
+                        lon = float(row.get("shape_pt_lon", ""))
+                    except (ValueError, TypeError):
+                        continue
+                    if (smin_lat <= lat <= smax_lat
+                            and smin_lon <= lon <= smax_lon):
+                        keep_shape_ids.add(shape_id)
+            log.info("  pass 1 kept %d / %d shape_ids (rest live entirely outside our area)",
+                     len(keep_shape_ids), len(needed_shape_ids))
+
+            log.info("Parsing shapes.txt — pass 2 (collect all points for kept shapes)…")
             collected: dict = {}
             row_count = 0
             kept_count = 0
@@ -363,16 +386,13 @@ def parse_gtfs(zip_path: str) -> dict:
                         log.info("  processed %s rows, kept %s points",
                                  f"{row_count:,}", f"{kept_count:,}")
                     shape_id = row.get("shape_id", "")
-                    if shape_id not in needed_shape_ids:
+                    if shape_id not in keep_shape_ids:
                         continue
                     try:
                         lat = float(row.get("shape_pt_lat", ""))
                         lon = float(row.get("shape_pt_lon", ""))
                         seq = int(row.get("shape_pt_sequence", ""))
                     except (ValueError, TypeError):
-                        continue
-                    if not (smin_lat <= lat <= smax_lat
-                            and smin_lon <= lon <= smax_lon):
                         continue
                     collected.setdefault(shape_id, []).append((seq, lat, lon))
                     kept_count += 1
@@ -384,7 +404,7 @@ def parse_gtfs(zip_path: str) -> dict:
                     timetable["shapes"][shape_id] = [
                         [lat, lon] for (_seq, lat, lon) in pts
                     ]
-            log.info("  processed %s rows total; kept %s points across %d shapes",
+            log.info("  processed %s rows; kept %s points across %d shapes",
                      f"{row_count:,}", f"{kept_count:,}", len(timetable["shapes"]))
         else:
             log.info("Skipping shapes.txt (file missing or no shape_ids needed)")
