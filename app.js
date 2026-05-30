@@ -1661,18 +1661,12 @@ async function loadRouteLinesImpl() {
 
     const colour = getLineColour(r.service, r.operator);
     const fg = (pickTextOn(colour) === "dark") ? "#1a1a1a" : "#ffffff";
-    const night = isNightService(r.service);
     // Endpoint tags only make sense for routes that visibly run off
     // the edge (express) or whose night-time destination is the point
     // — the backend force-emits names for night routes so the disparity
     // between Brighton-side and Worthing-side night coverage reads on
     // the map even when a route terminates inside the bbox.
-    const showEndpointTags = r.category === "express" || night;
-    // Night tags use a deep-navy pill with a moon glyph so they read
-    // as a category rather than a clip-edge "continues off-map" tag.
-    const tagBg    = night ? "#0a1432" : colour;
-    const tagFg    = night ? "#ffffff" : fg;
-    const tagLabel = night ? `🌙 ${r.service}` : r.service;
+    const showEndpointTags = r.category === "express" || isNightService(r.service);
     const layers = [];
 
     r.polylines.forEach((coords, i) => {
@@ -1689,17 +1683,23 @@ async function loadRouteLinesImpl() {
       const ep = (r.endpoints || [])[i] || {};
       if (ep.to_name) {
         const last = coords[coords.length - 1];
-        const prev = coords[coords.length - 2];
-        // Place the pill in the direction the line is heading so the
-        // polyline reads as flowing into the tag rather than crossing it.
-        const placement = (last[1] >= prev[1]) ? "right" : "left";
-        layers.push(makeEndpointTag(last, tagLabel, ep.to_name, "to", placement, tagBg, tagFg));
+        if (!inCentralBrighton(last)) {
+          const prev = coords[coords.length - 2];
+          // Place the pill in the direction the line is heading so the
+          // polyline reads as flowing into the tag rather than crossing it.
+          const placement = (last[1] >= prev[1]) ? "right" : "left";
+          const place = prettyDestination(r.service, ep.to_name, ep.to_headsign);
+          layers.push(makeEndpointTag(last, r.service, place, "to", placement, colour, fg));
+        }
       }
       if (ep.from_name) {
         const first = coords[0];
-        const next  = coords[1];
-        const placement = (first[1] <= next[1]) ? "left" : "right";
-        layers.push(makeEndpointTag(first, tagLabel, ep.from_name, "from", placement, tagBg, tagFg));
+        if (!inCentralBrighton(first)) {
+          const next  = coords[1];
+          const placement = (first[1] <= next[1]) ? "left" : "right";
+          const place = prettyDestination(r.service, ep.from_name, ep.from_headsign);
+          layers.push(makeEndpointTag(first, r.service, place, "from", placement, colour, fg));
+        }
       }
     });
 
@@ -1792,6 +1792,54 @@ function setAllRoutesVisible(visible) {
 /** True for services whose short_name is N + digits ("N1", "N700"). */
 function isNightService(svc) {
   return /^N\d/i.test(String(svc || ""));
+}
+
+/** Tags at Brighton city-centre termini (Old Steine / Churchill Sq /
+ *  Royal Pavilion cluster) would pile up confusingly. Marina and
+ *  Kemptown sit east of this box and keep their tags. */
+const CENTRAL_BRIGHTON = {minLat: 50.815, maxLat: 50.830, minLon: -0.158, maxLon: -0.130};
+function inCentralBrighton(latlon) {
+  if (!latlon) return false;
+  const [lat, lon] = latlon;
+  return lat >= CENTRAL_BRIGHTON.minLat && lat <= CENTRAL_BRIGHTON.maxLat
+      && lon >= CENTRAL_BRIGHTON.minLon && lon <= CENTRAL_BRIGHTON.maxLon;
+}
+
+/** Final-stop names are mixed-quality ("College Close"); GTFS headsigns
+ *  carry the true destination for off-map routes ("Lewes") but reduce
+ *  to a stop name for city circulars. So: hand-mapped override first
+ *  (for city night routes whose stop name doesn't name the area), then
+ *  sanitised headsign (for outbound routes like N29), then sanitised
+ *  stop name (last-resort fallback). */
+const NIGHT_DESTINATION_OVERRIDES = {
+  "N1":   { "College Close": "Mile Oak",
+            "Cowley Drive Shops": "Whitehawk" },
+  "N5":   { "Hardwick Road": "Hangleton",
+            "Grenadier Hotel": "Hangleton",
+            "Hollingbury Asda": "Hollingbury" },
+  "N7":   { "Marina": "Marina",
+            "Marina Cinema": "Marina" },
+  "N25":  { "Sussex House": "Coldean",
+            "Coldean Lane": "Coldean" },
+  "N700": { "Wallace Avenue": "Worthing",
+            "Durrington Tesco": "Worthing",
+            "West Worthing Wallace Avenue": "Worthing" },
+};
+function stripStopCruft(s) {
+  return (s || "")
+    .replace(/\s*\(stop [A-Z0-9]+\)\s*$/i, "")
+    .replace(/^\s*Stop\s+[A-Z0-9]+\s*[—-]\s*/i, "")
+    .trim();
+}
+function prettyDestination(svc, stopName, headsign) {
+  // Check both stopName and headsign against the override map — for
+  // some routes the headsign carries the area cue (N1 "Cowley Drive
+  // Shops"), for others the last stop name does (N1 "College Close").
+  const overrides = NIGHT_DESTINATION_OVERRIDES[svc] || {};
+  if (overrides[stopName]) return overrides[stopName];
+  if (overrides[headsign]) return overrides[headsign];
+  if (headsign) return stripStopCruft(headsign);
+  return stripStopCruft(stopName);
 }
 
 /** True iff the service passes the active category + operator + frequency

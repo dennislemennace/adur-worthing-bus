@@ -556,9 +556,24 @@ class Timetable:
                         chosen_trips.append((tid, first_sid, last_sid))
                         break  # already sorted by stop count desc
 
+            # Pre-fetch headsigns for the chosen trips so we can surface
+            # the front-of-bus destination (the only reliable name source
+            # for off-map routes like N29 → Lewes — the last in-bbox stop
+            # is just an edge stop).
+            chosen_tids = [t[0] for t in chosen_trips]
+            placeholders = ",".join("?" * len(chosen_tids))
+            chosen_headsigns = dict(self._con.execute(
+                f"SELECT tid, headsign FROM trips WHERE tid IN ({placeholders})",
+                chosen_tids,
+            )) if chosen_tids else {}
+            primary_tid = chosen_trips[0][0]
+            reverse_tid = chosen_trips[1][0] if len(chosen_trips) > 1 else None
+            primary_headsign = chosen_headsigns.get(primary_tid) or None
+            reverse_headsign = chosen_headsigns.get(reverse_tid) or None
+
             polylines = []
             endpoints = []
-            for tid, first_sid, last_sid in chosen_trips:
+            for poly_idx, (tid, first_sid, last_sid) in enumerate(chosen_trips):
                 # Prefer the trip's GTFS shape (road-following) over the
                 # stop-to-stop chord when available. shape_id is populated
                 # for ~50% of trips in the BODS South-East feed; the rest
@@ -594,7 +609,20 @@ class Timetable:
                              and (lost_before or is_night) else None)
                 to_name   = (stop_info[last_sid][2]  if last_sid in stop_info
                              and (lost_after  or is_night) else None)
-                endpoints.append({"from_name": from_name, "to_name": to_name})
+                # For poly 0 (primary trip): to_headsign = the primary's
+                # destination text, from_headsign = the reverse trip's
+                # destination (= where the primary direction starts).
+                # Mirror for poly 1.
+                if poly_idx == 0:
+                    to_hs, from_hs = primary_headsign, reverse_headsign
+                else:
+                    to_hs, from_hs = reverse_headsign, primary_headsign
+                endpoints.append({
+                    "from_name":     from_name,
+                    "to_name":       to_name,
+                    "from_headsign": from_hs if (lost_before or is_night) else None,
+                    "to_headsign":   to_hs   if (lost_after  or is_night) else None,
+                })
 
             if polylines:
                 noc = noc_by_short.get(short_name, "")

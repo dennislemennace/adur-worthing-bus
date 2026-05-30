@@ -57,8 +57,10 @@ EXTRA_ROUTES = {
     "1", "1A", "1B", "2", "2A", "2B", "5", "5B", "7", "7A",
     "1X", "3X", "6", "13X", "21", "23X", "25X", "29X",
     "37", "37B", "46", "47", "49",
-    # Brighton & Hove night routes
-    "N1", "N5", "N7", "N25",
+    # Brighton & Hove night routes — N12/N14/N29/N48 head out of
+    # Brighton westward/northward and otherwise wouldn't survive the
+    # 4400-or-EXTRA_ROUTES filter since their stops are all 1490 prefix.
+    "N1", "N5", "N7", "N12", "N14", "N25", "N29", "N48",
     # Stagecoach Coastliner — runs all the way to Brighton Old Steine
     # (1490 prefix); without this the polyline truncates at Mill Road.
     "700", "N700",
