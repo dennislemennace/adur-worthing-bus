@@ -222,11 +222,17 @@ async def get_stops():
     Sourced from the local GTFS SQLite — no external dependency. Only
     stops with at least one scheduled departure are returned, since
     those are the ones the app can serve /api/departures for.
+
+    Each entry includes `night_serving`: true iff at least one route
+    matching `N[0-9]*` (Brighton & Hove night services and equivalents)
+    stops there. Used by the frontend to hide non-night stops when the
+    Improvements view is set to Night mode.
     """
     cached = cache_get("stops")
     if cached:
         return cached
     tt = await _get_timetable()
+    night_stop_ids = tt.night_serving_stop_ids()
     stops = []
     for stop_id, s in tt.stops.items():
         lat, lon = s.get("lat"), s.get("lon")
@@ -238,10 +244,11 @@ async def get_stops():
         if not tt.has_stop_times(stop_id):
             continue
         stops.append({
-            "atco_code": stop_id,
-            "name":      s.get("name") or "Bus Stop",
-            "latitude":  lat,
-            "longitude": lon,
+            "atco_code":     stop_id,
+            "name":          s.get("name") or "Bus Stop",
+            "latitude":      lat,
+            "longitude":     lon,
+            "night_serving": stop_id in night_stop_ids,
         })
     result = {"stops": stops, "count": len(stops)}
     if stops:

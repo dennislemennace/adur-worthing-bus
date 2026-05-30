@@ -399,6 +399,7 @@ async function loadStops() {
     // stays responsive and markers populate progressively behind the
     // loading dialog. Resolves once the last chunk has painted.
     await renderStopsInChunks(data.stops);
+    applyStopVisibility();   // honour any view/service mode set from URL before stops arrived
   } catch (err) {
     console.error("Failed to load stops:", err);
     showToast("Could not load bus stops. Check your API configuration.");
@@ -446,7 +447,51 @@ function renderStopMarker(stop) {
   });
 
   state.stopMarkers[stop.atco_code] = marker;
-  state.stopData[stop.atco_code]    = { lat: stop.latitude, lon: stop.longitude, name: stop.name };
+  state.stopData[stop.atco_code]    = {
+    lat: stop.latitude,
+    lon: stop.longitude,
+    name: stop.name,
+    night_serving: !!stop.night_serving,
+  };
+}
+
+/** Hide/show stop markers based on the current view + service mode +
+ *  selected proposal. Called when any of those change.
+ *
+ *  Rules:
+ *    - Live view: every stop visible (live tracker shows the whole network).
+ *    - Improvements + Day: every stop visible.
+ *    - Improvements + Night: only stops with night_serving=true, PLUS any
+ *      stops belonging to the currently-selected proposal (so opening a
+ *      proposal reveals the stops it relies on even if a night route
+ *      doesn't currently serve them).
+ */
+function applyStopVisibility() {
+  if (!state.map || !state.stopMarkers) return;
+  const filterToNight =
+    state.viewMode === "improvements" && state.serviceMode === "night";
+
+  const overrideShow = new Set();
+  if (state.selectedProposalId) {
+    const p = (state.proposals || []).find(x => x.id === state.selectedProposalId);
+    if (p && Array.isArray(p.stops)) {
+      for (const s of p.stops) {
+        if (s && s.atco_code) overrideShow.add(s.atco_code);
+      }
+    }
+  }
+
+  for (const atco in state.stopMarkers) {
+    const marker = state.stopMarkers[atco];
+    let shouldShow = true;
+    if (filterToNight) {
+      const data = state.stopData[atco] || {};
+      shouldShow = data.night_serving || overrideShow.has(atco);
+    }
+    const has = state.map.hasLayer(marker);
+    if (shouldShow && !has)      state.map.addLayer(marker);
+    else if (!shouldShow && has) state.map.removeLayer(marker);
+  }
 }
 
 /** Popup body for a stop — built on demand (see renderStopMarker). */
@@ -1542,6 +1587,7 @@ function setServiceMode(mode) {
   if (state.showProposals) showAllProposals();
   else                     hideAllProposals();
 
+  applyStopVisibility();
   pushUrlState();
 }
 
@@ -1622,6 +1668,7 @@ async function applyViewMode() {
       if (!state.isRefreshing) startVehicleRefresh();
     }
   }
+  applyStopVisibility();
 }
 
 // ============================================================
@@ -2139,6 +2186,7 @@ function selectProposal(id) {
   }
 
   renderProposalsList();
+  applyStopVisibility();   // proposal stops may need to be unhidden in night mode
   pushUrlState({ major: true });
 }
 

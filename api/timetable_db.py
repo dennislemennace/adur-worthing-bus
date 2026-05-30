@@ -451,6 +451,26 @@ class Timetable:
         it = iter(self.stops_with_times)
         return [next(it) for _ in range(min(n, len(self.stops_with_times)))]
 
+    def night_serving_stop_ids(self) -> frozenset:
+        """Stop ids served by at least one route whose short_name matches
+        N + digit (Brighton & Hove night services and similar). Computed
+        once per Timetable lifetime (data is read-only)."""
+        cached = getattr(self, "_night_stops_cache", None)
+        if cached is not None:
+            return cached
+        if self._con is None:
+            return frozenset()
+        ids = frozenset(row[0] for row in self._con.execute("""
+            SELECT DISTINCT s.stop_id
+            FROM stop_times st
+            JOIN trips  t ON t.tid = st.tid
+            JOIN routes r ON r.rid = t.rid
+            JOIN stops  s ON s.sid = st.sid
+            WHERE r.short_name GLOB 'N[0-9]*'
+        """))
+        self._night_stops_cache = ids
+        return ids
+
     # Coach / school / unwanted services that pollute the route filter
     # in the Improvements view. Matched against GTFS `route_short_name`
     # exactly (case-sensitive).
