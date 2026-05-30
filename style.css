@@ -1972,6 +1972,22 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
   font-style: italic;
 }
 
+.proposals-section + .proposals-section { margin-top: var(--space-lg); }
+.proposals-section-title {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  margin: 0 0 4px 0;
+}
+.proposals-section-blurb {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-sm) 0;
+  line-height: 1.4;
+}
+.proposals-section-cards { display: flex; flex-direction: column; gap: 8px; }
+
 /* Each route chip — shows route number on its livery colour */
 .route-chip {
   --chip-bg: var(--color-surface-2);

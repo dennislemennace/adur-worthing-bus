@@ -468,8 +468,11 @@ function renderStopMarker(stop) {
  */
 function applyStopVisibility() {
   if (!state.map || !state.stopMarkers) return;
-  const filterToNight =
-    state.viewMode === "improvements" && state.serviceMode === "night";
+  // In the proposal editor every stop is selectable, so don't hide any
+  // even if the underlying view+service mode would normally filter.
+  const editorOpen = !!state.editor;
+  const filterToNight = !editorOpen
+    && state.viewMode === "improvements" && state.serviceMode === "night";
 
   const overrideShow = new Set();
   if (state.selectedProposalId) {
@@ -1583,9 +1586,15 @@ function setServiceMode(mode) {
   renderRouteFilterChips();
   renderProposalsList();
 
-  // Refresh proposal overlay to match new mode (also handles selection)
+  // Refresh proposal overlay to match new mode (also handles selection).
+  // showAllProposals adds every proposal; otherwise we still want the
+  // baseline officials (mode-appropriate ones) on the map.
   if (state.showProposals) showAllProposals();
-  else                     hideAllProposals();
+  else {
+    hideAllProposals();        // clears community proposals from other mode
+    showOfficialProposals();   // re-adds officials matching new mode
+  }
+  if (state.selectedProposalId) showProposal(state.selectedProposalId);
 
   applyStopVisibility();
   pushUrlState();
@@ -1652,6 +1661,7 @@ async function applyViewMode() {
       await Promise.all([loadRouteLines(), loadProposals()]);
       showRouteLines();
       if (state.showProposals) showAllProposals();
+      else                     showOfficialProposals();
       if (state.selectedProposalId) showProposal(state.selectedProposalId);
     } catch (err) {
       console.warn("Improvements data fetch failed:", err);
@@ -2094,12 +2104,33 @@ async function loadProposalsImpl() {
   }
 
   renderProposalsList();
+  // Officials are part of the baseline Improvements view — show them as
+  // soon as data lands if the user is already on that view.
+  if (state.viewMode === "improvements") showOfficialProposals();
   resolvePendingProposalId();
 }
 
 /** True when a proposal is flagged as a night service. */
 function isProposalNight(p) {
   return !!(p && p.is_night);
+}
+
+/** True for project-maintained proposals (auto-shown in the Improvements
+ *  view). Community-submitted proposals (category === "community", or
+ *  any other value) stay hidden until the user clicks them in. */
+function isOfficialProposal(p) {
+  return (p && p.category) === "official";
+}
+
+/** Add all official proposals matching the current day/night mode to
+ *  the map. Idempotent — safe to call on every mode toggle. */
+function showOfficialProposals() {
+  const isNight = state.serviceMode === "night";
+  for (const p of state.proposals || []) {
+    if (!isOfficialProposal(p)) continue;
+    if (isProposalNight(p) !== isNight) continue;
+    showProposal(p.id);
+  }
 }
 
 function renderProposalsList() {
@@ -2121,7 +2152,11 @@ function renderProposalsList() {
       : `<p class="proposals-empty">No proposals yet. Add ideas to <code>data/proposals.json</code>.</p>`;
     return;
   }
-  dom.proposalsList.innerHTML = proposals.map(p => {
+
+  const official  = proposals.filter(isOfficialProposal);
+  const community = proposals.filter(p => !isOfficialProposal(p));
+
+  const cardHtml = (p) => {
     const sel = (p.id === state.selectedProposalId);
     const summaryText = (p.from && p.to)
       ? `${escapeHtml(p.from)} › ${escapeHtml(p.to)}`
@@ -2154,7 +2189,22 @@ function renderProposalsList() {
         <span class="proposal-card-summary">${summaryText}</span>
         ${detail}
       </button>`;
-  }).join("");
+  };
+
+  const section = (title, blurb, items) => items.length === 0 ? "" : `
+    <section class="proposals-section">
+      <h3 class="proposals-section-title">${escapeHtml(title)}</h3>
+      ${blurb ? `<p class="proposals-section-blurb">${escapeHtml(blurb)}</p>` : ""}
+      <div class="proposals-section-cards">${items.map(cardHtml).join("")}</div>
+    </section>`;
+
+  dom.proposalsList.innerHTML =
+    section("Maintained routes",
+            "Shown on the map by default — curated by the project.",
+            official) +
+    section("Community submissions",
+            "Click to show on the map. Add yours via a pull request to data/proposals.json.",
+            community);
 
   dom.proposalsList.querySelectorAll(".proposal-card").forEach(card => {
     card.addEventListener("click", () => {
@@ -2170,6 +2220,7 @@ function renderProposalsList() {
  * list so the description block expands inline.
  */
 function selectProposal(id) {
+  const prevId = state.selectedProposalId;
   state.selectedProposalId = id;
 
   if (id) {
@@ -2181,8 +2232,11 @@ function selectProposal(id) {
         padding: [40, 40], maxZoom: 14,
       });
     }
-  } else if (!state.showProposals) {
-    hideAllProposals();
+  } else if (!state.showProposals && prevId) {
+    // Deselect → hide just the previously-shown community proposal.
+    // Official ones stay visible (they're the baseline of this view).
+    const prev = (state.proposals || []).find(x => x.id === prevId);
+    if (prev && !isOfficialProposal(prev)) hideProposal(prevId);
   }
 
   renderProposalsList();
@@ -2456,6 +2510,7 @@ function openEditor(draft) {
   renderEditor();
   redrawEditorLayers();
   fitEditorLayers();
+  applyStopVisibility();   // editor needs every stop visible regardless of mode
 }
 
 function closeEditor(opts = {}) {
@@ -2493,6 +2548,7 @@ function closeEditor(opts = {}) {
   if (dom.proposalEditor) dom.proposalEditor.classList.add("hidden");
 
   renderDraftsSection();
+  applyStopVisibility();   // restore normal mode-driven filtering
 }
 
 function setEditorMode(mode) {
