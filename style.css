@@ -2561,6 +2561,12 @@ body.proposals-tab-active .route-endpoint-tag {
   opacity: 0.3;
   transition: opacity 0.4s ease;
 }
+/* Night mode swaps the entire visible network for night-only services
+   — the dim-the-day-network rationale doesn't apply, so keep tags
+   fully readable. */
+body.proposals-tab-active.service-mode-night .route-endpoint-tag {
+  opacity: 1;
+}
 
 body.editor-mode .route-network-line {
   opacity: 0.25 !important;

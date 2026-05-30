@@ -1518,6 +1518,11 @@ function setServiceMode(mode) {
     dom.serviceModeNight.classList.toggle("active", !day);
     dom.serviceModeNight.setAttribute("aria-selected", !day ? "true" : "false");
   }
+  // Used by CSS to keep destination tags fully opaque in night mode —
+  // the proposals-tab-active dim is meant to push the day network back
+  // when looking at proposals, but in night mode the visible network
+  // IS the night service, so the tags shouldn't fade.
+  document.body.classList.toggle("service-mode-night", !day);
 
   // If a proposal from the other mode was selected, drop the selection
   // before its layer gets hidden — otherwise hideAllProposals would
@@ -1681,6 +1686,10 @@ async function loadRouteLinesImpl() {
 
       if (!showEndpointTags || coords.length < 2) return;
       const ep = (r.endpoints || [])[i] || {};
+      // Only render the `to` end. Each direction's `from` is the OTHER
+      // direction's `to` at the same physical terminus — drawing both
+      // produces overlapping/duplicate pills (e.g. N5 Hangleton). One
+      // tag per polyline pair gives one tag per terminus.
       if (ep.to_name) {
         const last = coords[coords.length - 1];
         if (!inCentralBrighton(last)) {
@@ -1690,15 +1699,6 @@ async function loadRouteLinesImpl() {
           const placement = (last[1] >= prev[1]) ? "right" : "left";
           const place = prettyDestination(r.service, ep.to_name, ep.to_headsign);
           layers.push(makeEndpointTag(last, r.service, place, "to", placement, colour, fg));
-        }
-      }
-      if (ep.from_name) {
-        const first = coords[0];
-        if (!inCentralBrighton(first)) {
-          const next  = coords[1];
-          const placement = (first[1] <= next[1]) ? "left" : "right";
-          const place = prettyDestination(r.service, ep.from_name, ep.from_headsign);
-          layers.push(makeEndpointTag(first, r.service, place, "from", placement, colour, fg));
         }
       }
     });
