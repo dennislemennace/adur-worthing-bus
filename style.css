@@ -32,14 +32,19 @@
   --color-text-muted:     #6a625a;
   --color-text-inverse:   #ffffff;
 
-  /* Font sizes */
-  --font-size-xs:         0.72rem;
-  --font-size-sm:         0.85rem;
-  --font-size-base:       1rem;
-  --font-size-lg:         1.125rem;
+  /* Font sizes — 7-step scale. Components must use these, not one-off rems,
+     so type lines up to a shared rhythm. Each step maps a cluster of the
+     near-identical sizes the UI had drifted into. */
+  --font-size-2xs:        0.65rem;   /* micro uppercase labels, table th, badges */
+  --font-size-xs:         0.74rem;   /* small labels, chips, captions */
+  --font-size-sm:         0.82rem;   /* secondary body, blurbs, small buttons */
+  --font-size-md:         0.9rem;    /* body / inputs / card summary */
+  --font-size-base:       1rem;      /* html/body default */
+  --font-size-lg:         1.125rem;  /* panel + section titles */
   --font-size-xl:         1.35rem;
 
   /* Spacing */
+  --space-2xs: 0.375rem;  /* 6px — most common un-tokenised gap */
   --space-xs:  0.25rem;
   --space-sm:  0.5rem;
   --space-md:  1rem;
@@ -59,12 +64,16 @@
 
   --transition: 180ms ease;
 
-  --header-height: 56px;
+  --header-height: 60px;
   --panel-width:   360px;
+
+  /* Match native UI (scrollbars, form controls, caret) to the theme. */
+  color-scheme: light;
 }
 
 /* ===== DARK MODE — Coastal Night ===== */
-body.dark-mode {
+html.dark-mode {
+  color-scheme: dark;
   --color-primary:        #2872c2;
   --color-primary-dark:   #1a508e;
   --color-primary-light:  #091523;
@@ -139,7 +148,7 @@ button { font-family: inherit; cursor: pointer; }
   flex-shrink: 0;
 }
 
-body.dark-mode .site-header {
+html.dark-mode .site-header {
   background: var(--color-surface);
   border-bottom-color: var(--color-border);
   box-shadow: var(--shadow-sm);
@@ -173,7 +182,7 @@ body.dark-mode .site-header {
   letter-spacing: -0.01em;
 }
 
-body.dark-mode .header-title {
+html.dark-mode .header-title {
   color: var(--color-accent);
 }
 
@@ -185,7 +194,7 @@ body.dark-mode .header-title {
   margin-top: 2px;
 }
 
-body.dark-mode .header-subtitle {
+html.dark-mode .header-subtitle {
   color: var(--color-text-muted);
 }
 
@@ -197,64 +206,87 @@ body.dark-mode .header-subtitle {
 
 .last-updated {
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: var(--font-size-2xs);
   color: rgba(255,255,255,0.65);
   white-space: nowrap;
 }
 
-body.dark-mode .last-updated {
+html.dark-mode .last-updated {
   color: var(--color-text-muted);
 }
 
-/* Segmented control: Live | Improvements view-mode toggle */
-.view-mode-toggle {
-  display: inline-flex;
-  background: rgba(255,255,255,0.12);
-  border: 1px solid rgba(255,255,255,0.22);
-  border-radius: var(--radius-md);
-  padding: 2px;
-  gap: 0;
-}
+/* Section nav dropdown — replaces the segmented Live/Improvements toggle.
+   Trigger is styled like the existing .btn-icon family so it reads as part
+   of the same control row; menu hangs beneath, anchored to the trigger. */
+.section-nav { position: relative; }
 
-.view-mode-btn {
+.section-nav-trigger {
   appearance: none;
-  background: transparent;
-  border: none;
-  color: rgba(255,255,255,0.78);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: var(--radius-md);
+  color: #fff;
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   letter-spacing: 0.01em;
-  padding: 5px 12px;
-  border-radius: calc(var(--radius-md) - 3px);
+  padding: 6px 10px;
   cursor: pointer;
-  transition: background var(--transition), color var(--transition);
+  transition: background var(--transition);
   white-space: nowrap;
 }
+.section-nav-trigger:hover { background: rgba(255,255,255,0.25); }
+.section-nav-chevron { width: 12px; height: 12px; transition: transform var(--transition); }
+.section-nav-trigger[aria-expanded="true"] .section-nav-chevron { transform: rotate(180deg); }
 
-.view-mode-btn:hover {
-  color: #fff;
-  background: rgba(255,255,255,0.10);
+.section-nav-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  margin: 0;
+  padding: var(--space-xs);
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  min-width: 160px;
+  z-index: 1100;
+}
+.section-nav-menu.hidden { display: none; }
+
+.section-nav-menu [role="option"] {
+  display: block;
+  padding: 7px 12px;
+  border-radius: calc(var(--radius-md) - 4px);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
+}
+.section-nav-menu [role="option"]:hover,
+.section-nav-menu [role="option"]:focus {
+  background: var(--color-surface-2);
+  outline: none;
+}
+.section-nav-menu [role="option"][aria-selected="true"] {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+html.dark-mode .section-nav-menu [role="option"][aria-selected="true"] {
+  color: var(--color-accent);
 }
 
-.view-mode-btn.active {
-  background: #fff;
-  color: var(--color-primary, #0d3b66);
-}
-
-body.dark-mode .view-mode-toggle {
+html.dark-mode .section-nav-trigger {
   background: var(--color-surface-2);
   border-color: var(--color-border);
+  color: var(--color-text);
 }
-
-body.dark-mode .view-mode-btn {
-  color: var(--color-text-muted);
-}
-
-body.dark-mode .view-mode-btn.active {
-  background: var(--color-text);
-  color: var(--color-surface);
-}
+html.dark-mode .section-nav-trigger:hover { background: var(--color-border); }
 
 .btn-icon {
   background: rgba(255,255,255,0.15);
@@ -267,7 +299,7 @@ body.dark-mode .view-mode-btn.active {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.9rem;
+  font-size: var(--font-size-md);
   transition: background var(--transition), border-color var(--transition);
 }
 
@@ -280,13 +312,13 @@ body.dark-mode .view-mode-btn.active {
   opacity: 0.45;
 }
 
-body.dark-mode .btn-icon {
+html.dark-mode .btn-icon {
   background: var(--color-surface-2);
   border-color: var(--color-border);
   color: var(--color-text-muted);
 }
 
-body.dark-mode .btn-icon:hover {
+html.dark-mode .btn-icon:hover {
   background: var(--color-border);
   color: var(--color-text);
 }
@@ -339,7 +371,7 @@ body.dark-mode .btn-icon:hover {
   pointer-events: none;
 }
 
-body.dark-mode .map-loading {
+html.dark-mode .map-loading {
   background: var(--color-surface);
   border-color: var(--color-border);
   color: var(--color-text-muted);
@@ -435,7 +467,7 @@ body.dark-mode .map-loading {
 }
 
 .panel-tab-icon {
-  font-size: 0.85rem;
+  font-size: var(--font-size-sm);
 }
 
 .panel-tabs-bar .btn-close,
@@ -448,7 +480,7 @@ body.dark-mode .map-loading {
   height: auto;
   align-self: stretch;
   padding: 0;
-  font-size: 0.95rem;
+  font-size: var(--font-size-md);
   margin: 0;
   color: var(--color-text-muted);
   transition: background var(--transition), color var(--transition);
@@ -479,9 +511,13 @@ body.dark-mode .map-loading {
   .panel-tabs-bar .btn-collapse-panel { display: flex; }
 }
 
-/* Collapsed state: hide everything in the active panel-mode except the
-   tab strip itself, so the strip remains a re-expand affordance. */
-body.panel-collapsed .panel-mode > :not(.panel-tabs-bar) {
+/* Collapsed state: hide the tab content panels so the strip can act as a
+   re-expand affordance. In Improvements mode we deliberately keep the
+   service-mode toggle + filter strip visible so the user can still tweak
+   filters with the content collapsed; Live mode has nothing above the
+   tab strip, so the rule is mode-scoped. */
+body.panel-collapsed .panel-mode > .panel-tab-content,
+body.panel-collapsed .panel-mode[data-mode="live"] > :not(.panel-tabs-bar) {
   display: none !important;
 }
 
@@ -571,15 +607,15 @@ body.panel-collapsed .btn-collapse-panel .icon {
   color: #fff;
   border: none;
   padding: var(--space-sm) var(--space-lg);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md);
   font-family: var(--font-family);
   font-size: var(--font-size-sm);
   font-weight: 600;
-  transition: opacity var(--transition);
+  transition: background var(--transition);
 }
 
 .btn-retry:hover {
-  opacity: 0.85;
+  background: var(--color-primary-dark);
 }
 
 /* ===== DEPARTURES CONTAINER ===== */
@@ -627,7 +663,7 @@ body.panel-collapsed .btn-collapse-panel .icon {
   background: var(--color-surface-2);
 }
 
-body.dark-mode .btn-text {
+html.dark-mode .btn-text {
   color: var(--color-accent);
 }
 
@@ -659,7 +695,7 @@ body.dark-mode .btn-text {
   text-align: left;
   padding: 6px var(--space-sm);
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: var(--font-size-2xs);
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -696,7 +732,7 @@ body.dark-mode .btn-text {
   color: #fff;
   font-family: var(--font-family);
   font-weight: 700;
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   min-width: 36px;
   height: 22px;
   padding: 0 6px;
@@ -735,7 +771,7 @@ body.dark-mode .btn-text {
   align-items: center;
   padding: 3px 8px;
   border-radius: var(--radius-pill);
-  font-size: 0.63rem;
+  font-size: var(--font-size-2xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -769,25 +805,25 @@ body.dark-mode .btn-text {
 }
 
 /* Dark mode chips */
-body.dark-mode .status-on-time {
+html.dark-mode .status-on-time {
   background: rgba(52, 192, 106, 0.12);
   color: var(--color-on-time);
   border-color: rgba(52, 192, 106, 0.28);
 }
 
-body.dark-mode .status-early {
+html.dark-mode .status-early {
   background: rgba(40, 180, 196, 0.12);
   color: var(--color-early);
   border-color: rgba(40, 180, 196, 0.28);
 }
 
-body.dark-mode .status-late {
+html.dark-mode .status-late {
   background: rgba(232, 78, 60, 0.12);
   color: var(--color-late);
   border-color: rgba(232, 78, 60, 0.28);
 }
 
-body.dark-mode .status-scheduled {
+html.dark-mode .status-scheduled {
   background: rgba(90, 116, 136, 0.1);
   color: var(--color-unknown);
   border-color: rgba(90, 116, 136, 0.22);
@@ -966,16 +1002,16 @@ body.dark-mode .status-scheduled {
   color: #fff;
   border: none;
   padding: 6px 14px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md);
   font-family: var(--font-family);
   font-size: var(--font-size-xs);
   font-weight: 600;
   width: 100%;
-  transition: opacity var(--transition);
+  transition: background var(--transition);
 }
 
 .popup-btn:hover {
-  opacity: 0.85;
+  background: var(--color-primary-dark);
 }
 
 .leaflet-bar a {
@@ -1045,7 +1081,7 @@ body.dark-mode .status-scheduled {
 .bus-info-grid {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2xs);
   padding: var(--space-sm) 0;
   border-bottom: 1px solid var(--color-border);
   margin: 0;
@@ -1123,7 +1159,7 @@ body.dark-mode .status-scheduled {
 
 .upcoming-stops-title {
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: var(--font-size-2xs);
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -1160,7 +1196,7 @@ body.dark-mode .status-scheduled {
 
 .upcoming-stop-marker {
   color: var(--color-text-muted);
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   text-align: center;
 }
 
@@ -1195,14 +1231,14 @@ body.dark-mode .status-scheduled {
   list-style: none;
   text-align: center;
   color: var(--color-text-muted);
-  font-size: 0.65rem;
+  font-size: var(--font-size-2xs);
   padding: 3px 0;
   letter-spacing: 0.12em;
 }
 
 .upcoming-stop--terminus .upcoming-stop-marker {
   color: var(--color-accent);
-  font-size: 0.9rem;
+  font-size: var(--font-size-md);
 }
 
 /* ===== TICKET INFO ===== */
@@ -1218,7 +1254,7 @@ body.dark-mode .status-scheduled {
 
 .ticket-info-title {
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: var(--font-size-2xs);
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -1229,7 +1265,7 @@ body.dark-mode .status-scheduled {
 .ticket-rows {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .ticket-row {
@@ -1281,7 +1317,7 @@ body.dark-mode .status-scheduled {
   text-align: center;
 }
 
-body.dark-mode .bus-info-lost {
+html.dark-mode .bus-info-lost {
   background: rgba(230, 168, 32, 0.1);
   color: var(--color-accent);
   border-color: rgba(230, 168, 32, 0.25);
@@ -1291,14 +1327,14 @@ body.dark-mode .bus-info-lost {
 .bus-popup {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2xs);
   min-width: 160px;
 }
 
 .bus-popup-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   padding-bottom: 6px;
   border-bottom: 1px solid var(--color-border);
 }
@@ -1334,7 +1370,7 @@ body.dark-mode .bus-info-lost {
 .btn-close {
   background: none;
   border: none;
-  font-size: 1rem;
+  font-size: var(--font-size-base);
   color: var(--color-text-muted);
   padding: var(--space-xs);
   border-radius: var(--radius-sm);
@@ -1352,16 +1388,26 @@ body.dark-mode .bus-info-lost {
  * PHASE 0 UPGRADES — visual polish (Civic Coastal direction)
  * ================================================================ */
 
-/* ---- Header: enlarge + wave-shaped bottom edge ---- */
-:root { --header-height: 72px; }
+/* ---- Header: enlarge + wave-shaped bottom edge ----
+   NOTE (maintainability): this "PHASE 0" block intentionally re-styles several
+   components already defined earlier in the file (.site-header, .header-title,
+   .header-icon, .service-badge, .due-time, .map-loading, .departures-table…).
+   The cascade resolves correctly, but if you edit one of those components,
+   search the whole file — the winning rule may live down here, not at the
+   first definition. --header-height is now declared once (in :root above);
+   only the mobile override remains. */
 
 .site-header {
   position: relative;
   overflow: visible;   /* let the wave hang below the header rectangle */
   border-bottom: none; /* hard edge replaced by the wave */
   box-shadow: none;    /* drop-shadow now follows the wave contour */
+  /* Above the side panel (z-index 1001) so the section-nav dropdown, which
+     hangs below the header, can overlay the panel instead of being clipped
+     behind it. */
+  z-index: 1100;
 }
-body.dark-mode .site-header {
+html.dark-mode .site-header {
   border-bottom: none;
   box-shadow: none;
 }
@@ -1377,14 +1423,14 @@ body.dark-mode .site-header {
      collapses to its intrinsic ~18:1 ratio and cuts off early. Reset to
      full width on mobile (panel stacks below the map). */
   width: calc(100% - var(--panel-width));
-  height: 46px;
+  height: 22px;
   display: block;
   pointer-events: none;
   z-index: 2;
-  filter: drop-shadow(0 6px 12px rgba(10, 18, 32, 0.16));
+  filter: drop-shadow(0 4px 8px rgba(10, 18, 32, 0.10));
 }
-body.dark-mode .header-wave {
-  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.55));
+html.dark-mode .header-wave {
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.40));
 }
 
 /* Lift the side panel above the header's wave so the Stop/Bus tabs
@@ -1393,9 +1439,11 @@ body.dark-mode .header-wave {
 
 .header-wave-back  { fill: var(--color-primary-dark); }
 .header-wave-front { fill: var(--color-primary); }
-body.dark-mode .header-wave-front { fill: var(--color-surface); }
+html.dark-mode .header-wave-front { fill: var(--color-surface); }
 
-.header-inner { position: relative; z-index: 1; gap: var(--space-md); }
+/* Above the wave (z-index 2) so the section-nav dropdown menu, which lives
+   inside header-inner, isn't painted behind the wave that hangs below. */
+.header-inner { position: relative; z-index: 3; gap: var(--space-md); }
 
 /* min-width:0 lets the brand text shrink + ellipsis inside the flex row
    at every width, not just under the mobile breakpoint. */
@@ -1414,7 +1462,7 @@ body.dark-mode .header-wave-front { fill: var(--color-surface); }
   color: #fff;
 }
 .header-icon .icon { width: 22px; height: 22px; }
-body.dark-mode .header-icon {
+html.dark-mode .header-icon {
   background: rgba(230,168,32,0.12);
   border-color: rgba(230,168,32,0.28);
   color: var(--color-accent);
@@ -1432,6 +1480,10 @@ body.dark-mode .header-icon {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Fraunces' "A" has left-side bearing that combined with negative
+     letter-spacing extends slightly outside the layout box; overflow:hidden
+     then clips the first glyph. Tiny left padding gives the bearing room. */
+  padding-left: 2px;
 }
 .header-subtitle {
   font-size: clamp(0.6rem, 0.52rem + 0.25vw, 0.72rem);
@@ -1452,25 +1504,26 @@ body.dark-mode .header-icon {
 }
 
 @media (max-width: 700px) {
-  :root { --header-height: 64px; }
+  :root { --header-height: 52px; }
   /* Panel stacks below the map on mobile, so the wave spans full width. */
-  .header-wave { width: 100%; }
+  .header-wave { width: 100%; height: 16px; }
   .header-inner { gap: var(--space-sm); padding: 0 var(--space-md); }
   .header-brand { gap: 10px; flex: 1; min-width: 0; }
   .header-brand > div { min-width: 0; }
   .header-icon { width: 34px; height: 34px; flex-shrink: 0; }
   .header-icon .icon { width: 19px; height: 19px; }
   .header-controls { flex-shrink: 0; gap: var(--space-sm); }
-  .view-mode-btn { padding: 4px 8px; font-size: 0.7rem; }
-  /* Abbreviate "Improvements" → "Plan" on small screens */
-  #view-mode-improvements { font-size: 0; }
-  #view-mode-improvements::after { content: "Plan"; font-size: 0.7rem; }
+  .section-nav-trigger { padding: 5px 9px; font-size: var(--font-size-xs); }
   .header-title    { font-size: clamp(1.05rem, 3.6vw, 1.35rem); }
-  .header-subtitle { font-size: 0.62rem; }
+  .header-subtitle { font-size: var(--font-size-2xs); }
 }
 @media (max-width: 480px) {
   .header-subtitle { display: none; }
   .header-title    { font-size: 1.1rem; }
+  /* Drop the bus icon at the smallest widths — the dropdown carries the
+     brand context, and freeing this 40px lets the full title fit. */
+  .header-icon     { display: none; }
+  .header-inner    { padding: 0 var(--space-sm); }
 }
 
 /* ---- Header controls: icon buttons hold svgs ---- */
@@ -1505,7 +1558,7 @@ body.dark-mode .header-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2xs);
 }
 .popup-btn .icon { width: 13px; height: 13px; }
 .btn-text .icon { width: 13px; height: 13px; }
@@ -1515,7 +1568,7 @@ body.dark-mode .header-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 .bus-info-lost .icon { width: 15px; height: 15px; flex-shrink: 0; }
 
@@ -1525,7 +1578,7 @@ body.dark-mode .header-icon {
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
-body.dark-mode :focus-visible { outline-color: var(--color-accent); }
+html.dark-mode :focus-visible { outline-color: var(--color-accent); }
 .leaflet-bar a:focus-visible { outline-offset: 0; }
 
 /* ---- Loading dialog: illustrated pier + bus, centered card ---- */
@@ -1585,7 +1638,7 @@ body.dark-mode :focus-visible { outline-color: var(--color-accent); }
   height: 10px !important;
   border-width: 1.5px !important;
 }
-body.dark-mode .stop-marker-icon {
+html.dark-mode .stop-marker-icon {
   border-color: rgba(9, 14, 26, 0.85) !important;
   box-shadow:
     0 0 0 2px rgba(230, 168, 32, 0.28),
@@ -1609,7 +1662,7 @@ body.editor-mode-add-stop .leaflet-marker-icon.stop-marker-icon {
 .service-badge {
   min-width: 40px;
   height: 24px;
-  font-size: 0.74rem;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.01em;
   box-shadow: inset 0 -1px 0 rgba(0,0,0,0.15);
   border: 1px solid rgba(0,0,0,0.1);
@@ -1628,7 +1681,7 @@ body.editor-mode-add-stop .leaflet-marker-icon.stop-marker-icon {
   border-bottom: 1px solid rgba(10, 18, 32, 0.05);
   padding: 10px var(--space-sm);
 }
-body.dark-mode .departures-table td {
+html.dark-mode .departures-table td {
   border-bottom-color: rgba(200, 216, 236, 0.06);
 }
 .departures-table tr:last-child td { border-bottom: none; }
@@ -1636,7 +1689,7 @@ body.dark-mode .departures-table td {
 .departures-table tr.departure-row:hover td {
   background: rgba(192, 120, 8, 0.05);
 }
-body.dark-mode .departures-table tr.departure-row:hover td {
+html.dark-mode .departures-table tr.departure-row:hover td {
   background: rgba(230, 168, 32, 0.06);
 }
 
@@ -1647,7 +1700,7 @@ body.dark-mode .departures-table tr.departure-row:hover td {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
-  font-size: 0.98rem;
+  font-size: var(--font-size-base); /* focal departure time — kept prominent */
   letter-spacing: -0.02em;
   display: inline-flex;
   align-items: center;
@@ -1688,8 +1741,8 @@ body.dark-mode .departures-table tr.departure-row:hover td {
 .filter-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.85rem;
+  gap: var(--space-sm);
+  font-size: var(--font-size-sm);
   color: var(--color-text);
   cursor: pointer;
   user-select: none;
@@ -1708,10 +1761,10 @@ body.dark-mode .departures-table tr.departure-row:hover td {
 /* Leaves the tile source untouched; layers a subtle navy multiply
    on the tile pane so the map integrates with the coastal palette
    instead of reading as generic grey-black. */
-body.dark-mode .leaflet-tile-pane {
+html.dark-mode .leaflet-tile-pane {
   filter: hue-rotate(-6deg) saturate(1.08) contrast(1.04);
 }
-body.dark-mode #map::after {
+html.dark-mode #map::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -1742,7 +1795,7 @@ body.dark-mode #map::after {
 /* Segmented Day/Night toggle, sits above the About/Proposals tab strip */
 .service-mode-toggle {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
   padding: 8px var(--space-md);
   background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border);
@@ -1757,14 +1810,14 @@ body.dark-mode #map::after {
   border-radius: var(--radius-md);
   color: var(--color-text-muted);
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   letter-spacing: 0.02em;
   padding: 5px 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2xs);
   cursor: pointer;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
@@ -1782,7 +1835,7 @@ body.dark-mode #map::after {
   border-color: var(--color-accent, var(--color-primary));
 }
 
-body.dark-mode .service-mode-btn.active {
+html.dark-mode .service-mode-btn.active {
   color: var(--color-bg);
 }
 
@@ -1808,15 +1861,15 @@ body.dark-mode .service-mode-btn.active {
   white-space: nowrap;
   font-family: var(--font-mono, monospace);
   font-weight: 700;
-  font-size: 0.66rem;
+  font-size: var(--font-size-2xs);
   letter-spacing: 0.02em;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 2px solid #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
-body.dark-mode .route-endpoint-pill {
+html.dark-mode .route-endpoint-pill {
   border-color: var(--color-bg);
 }
 
@@ -1824,7 +1877,7 @@ body.dark-mode .route-endpoint-pill {
 .filter-strip-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2xs);
   padding: 6px var(--space-md) 8px;
   background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border);
@@ -1834,13 +1887,13 @@ body.dark-mode .route-endpoint-pill {
 .filter-strip-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   min-height: 22px;
 }
 
 .filter-strip-label {
   flex: 0 0 56px;
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1850,7 +1903,7 @@ body.dark-mode .route-endpoint-pill {
 .filter-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-xs);
   flex: 1;
 }
 
@@ -1858,10 +1911,10 @@ body.dark-mode .route-endpoint-pill {
   appearance: none;
   background: transparent;
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-muted);
   font-family: inherit;
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
   padding: 3px 10px;
@@ -1880,7 +1933,7 @@ body.dark-mode .route-endpoint-pill {
   border-color: var(--color-text);
 }
 
-body.dark-mode .filter-chip.active {
+html.dark-mode .filter-chip.active {
   background: var(--color-accent, var(--color-primary));
   color: var(--color-bg);
   border-color: var(--color-accent, var(--color-primary));
@@ -1915,13 +1968,23 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
 }
 
 .improvements-intro p {
-  font-size: 0.86rem;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--color-text-muted);
   margin: 0 0 8px;
 }
 
 .improvements-intro p:last-child { margin-bottom: 0; }
+
+/* Heads-up callout: subtle left-rule + tint so the "Show limited services"
+   caveat reads as a note, not just another paragraph. */
+.improvements-intro p.improvements-note {
+  padding: 8px 10px;
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+}
 
 /* ── Route filter list ── */
 .route-filters {
@@ -1943,7 +2006,7 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
 
 .route-filters-title {
   font-family: var(--font-brand, var(--font-family));
-  font-size: 0.95rem;
+  font-size: var(--font-size-md);
   font-weight: 700;
   margin: 0;
   color: var(--color-text);
@@ -1951,7 +2014,7 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
 
 .route-filters-actions {
   display: inline-flex;
-  gap: 6px;
+  gap: var(--space-2xs);
 }
 
 .route-filter-chips {
@@ -1959,7 +2022,7 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
   min-height: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2xs);
   overflow-y: auto;
   padding-right: 4px;
   align-content: flex-start;
@@ -1967,26 +2030,26 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
 
 .route-filters-empty,
 .proposals-empty {
-  font-size: 0.8rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   font-style: italic;
 }
 
 .proposals-section + .proposals-section { margin-top: var(--space-lg); }
 .proposals-section-title {
-  font-size: 0.78rem;
+  font-size: var(--font-size-sm);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--color-text-muted);
   margin: 0 0 4px 0;
 }
 .proposals-section-blurb {
-  font-size: 0.78rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   margin: 0 0 var(--space-sm) 0;
   line-height: 1.4;
 }
-.proposals-section-cards { display: flex; flex-direction: column; gap: 8px; }
+.proposals-section-cards { display: flex; flex-direction: column; gap: var(--space-sm); }
 
 /* Each route chip — shows route number on its livery colour */
 .route-chip {
@@ -1998,10 +2061,10 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
   color: var(--chip-fg);
   font-family: var(--font-mono, monospace);
   font-weight: 700;
-  font-size: 0.78rem;
+  font-size: var(--font-size-sm);
   letter-spacing: 0.02em;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
   transition: opacity var(--transition), transform var(--transition);
   line-height: 1.1;
@@ -2019,13 +2082,13 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
 
 /* ── Proposals tab ── */
 .proposals-intro {
-  padding: var(--space-md) var(--space-md) 10px;
+  padding: var(--space-md) var(--space-md) var(--space-sm); /* match .improvements-intro */
   border-bottom: 1px solid var(--color-border);
 }
 
 .proposals-intro p {
   margin: 0;
-  font-size: 0.86rem;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--color-text-muted);
 }
@@ -2050,7 +2113,7 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
   font-family: inherit;
   color: inherit;
   transition: background var(--transition), transform var(--transition);
@@ -2065,12 +2128,12 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
 
 .proposal-card-name {
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: var(--font-size-md);
   color: var(--color-text);
 }
 
 .proposal-card-summary {
-  font-size: 0.8rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   line-height: 1.4;
 }
@@ -2082,7 +2145,7 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
 }
 
 .proposal-detail-heading {
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -2095,7 +2158,7 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
 }
 
 .proposal-detail-body {
-  font-size: 0.82rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   line-height: 1.5;
   margin: 0;
@@ -2108,11 +2171,11 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .proposal-link {
-  font-size: 0.82rem;
+  font-size: var(--font-size-sm);
   color: var(--color-primary);
   text-decoration: none;
   word-break: break-all;
@@ -2130,7 +2193,7 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
   z-index: 500;
   display: none;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
   pointer-events: none; /* container ignores; children re-enable */
 }
 
@@ -2146,25 +2209,30 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   border-radius: var(--radius-md);
   padding: 6px 12px;
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2xs);
   transition: background var(--transition), border-color var(--transition);
 }
 
 .map-overlay-btn:hover { background: var(--color-surface-2); }
 
+/* Active/selected state uses accent across the app (tabs, Day/Night, selected
+   proposal). Dark text in dark mode keeps contrast on the lighter gold —
+   mirrors .service-mode-btn.active. */
 .map-overlay-btn[aria-pressed="true"] {
-  background: var(--color-primary);
+  background: var(--color-accent);
   color: #fff;
-  border-color: var(--color-primary);
+  border-color: var(--color-accent);
 }
-
 .map-overlay-btn[aria-pressed="true"]:hover {
-  background: var(--color-primary-dark, var(--color-primary));
+  background: var(--color-accent);
+}
+html.dark-mode .map-overlay-btn[aria-pressed="true"] {
+  color: var(--color-bg);
 }
 
 /* ============================================================
@@ -2176,14 +2244,14 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   margin-top: 10px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2xs);
   appearance: none;
   background: var(--color-primary);
   color: #fff;
   border: 1px solid var(--color-primary);
   border-radius: var(--radius-md);
   font-family: inherit;
-  font-size: 0.82rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   padding: 6px 12px;
   cursor: pointer;
@@ -2200,7 +2268,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
 .drafts-section.hidden { display: none; }
 .drafts-title {
   margin: 0 0 8px;
-  font-size: 0.82rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -2209,7 +2277,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
 .drafts-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 .draft-card {
   appearance: none;
@@ -2232,14 +2300,14 @@ body.improvements-mode .map-overlay-controls { display: flex; }
 .draft-card-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .draft-card-name {
   font-weight: 600;
-  font-size: 0.88rem;
+  font-size: var(--font-size-md);
   color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .draft-card-meta {
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
 .draft-card-delete {
@@ -2248,7 +2316,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   border: none;
   color: var(--color-text-muted);
   cursor: pointer;
-  padding: 4px;
+  padding: var(--space-xs);
   border-radius: var(--radius-sm, 4px);
   display: inline-flex;
   align-items: center;
@@ -2271,13 +2339,13 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-sm);
   padding: 10px var(--space-md);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface-2);
 }
 .editor-header-title {
-  font-size: 0.92rem;
+  font-size: var(--font-size-md);
   font-weight: 700;
   color: var(--color-text);
   overflow: hidden;
@@ -2292,11 +2360,11 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   padding: 4px 8px;
   color: var(--color-text);
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: var(--font-size-sm);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
   transition: background var(--transition);
 }
 .editor-back-btn:hover { background: var(--color-surface); }
@@ -2315,10 +2383,10 @@ body.improvements-mode .map-overlay-controls { display: flex; }
 .editor-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 .editor-field > label {
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -2332,7 +2400,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   border-radius: var(--radius-md);
   padding: 6px 10px;
   font-family: inherit;
-  font-size: 0.88rem;
+  font-size: var(--font-size-md);
   color: var(--color-text);
   width: 100%;
 }
@@ -2359,13 +2427,13 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   cursor: pointer;
 }
 .editor-color-row-caption {
-  font-size: 0.74rem;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
 
 /* Mode buttons: Add stop / Add waypoint / Move / delete */
 .editor-modes-label {
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -2375,7 +2443,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
 .editor-mode-buttons {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
+  gap: var(--space-2xs);
 }
 .editor-mode-btn {
   appearance: none;
@@ -2384,25 +2452,26 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   border-radius: var(--radius-md);
   padding: 8px 4px;
   font-family: inherit;
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--color-text);
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
   transition: background var(--transition), border-color var(--transition);
 }
 .editor-mode-btn .icon { width: 16px; height: 16px; }
 .editor-mode-btn:hover { background: var(--color-surface); }
 .editor-mode-btn.active {
-  background: var(--color-primary);
+  background: var(--color-accent);
   color: #fff;
-  border-color: var(--color-primary);
+  border-color: var(--color-accent);
 }
+html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
 .editor-mode-hint {
-  font-size: 0.74rem;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   line-height: 1.4;
   margin-top: -4px;
@@ -2410,7 +2479,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
 
 /* Ordered point list */
 .editor-points-label {
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -2423,34 +2492,34 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   font-weight: 400;
   text-transform: none;
   letter-spacing: 0;
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
 }
 .editor-point-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
   max-height: 260px;
   overflow-y: auto;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 4px;
+  padding: var(--space-xs);
   background: var(--color-surface);
 }
 .editor-point-list-empty {
   margin: 0;
   padding: 14px;
   text-align: center;
-  font-size: 0.78rem;
+  font-size: var(--font-size-sm);
   font-style: italic;
   color: var(--color-text-muted);
 }
 .editor-point-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   padding: 4px 6px;
   border-radius: var(--radius-sm, 4px);
-  font-size: 0.82rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text);
 }
 .editor-point-row:hover { background: var(--color-surface-2); }
@@ -2460,7 +2529,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
-  font-size: 0.76rem;
+  font-size: var(--font-size-xs);
 }
 .editor-point-row-label {
   flex: 1;
@@ -2477,7 +2546,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   cursor: pointer;
   padding: 2px 4px;
   line-height: 1;
-  font-size: 1rem;
+  font-size: var(--font-size-base);
   border-radius: var(--radius-sm, 4px);
 }
 .editor-point-row-remove:hover { color: #c0392b; background: rgba(192,57,43,0.08); }
@@ -2505,11 +2574,11 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   border-radius: var(--radius-sm, 4px);
   box-shadow: 0 4px 16px rgba(0,0,0,0.18);
   padding: 4px 6px;
-  font-size: 0.82rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 .editor-draggable-waypoint { cursor: grab; }
 .leaflet-interactive.editor-route-clickable { cursor: crosshair; }
@@ -2520,7 +2589,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   border-top: 1px solid var(--color-border);
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2xs);
   background: var(--color-surface-2);
 }
 .editor-action-btn {
@@ -2531,7 +2600,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   padding: 6px 10px;
   color: var(--color-text);
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
@@ -2553,8 +2622,26 @@ body.improvements-mode .map-overlay-controls { display: flex; }
 .editor-action-btn.primary:hover { background: var(--color-primary-dark, var(--color-primary)); }
 
 /* Info icon next to Contribute — opens a friendly walkthrough popover */
-.editor-help-btn { padding: 6px; }
+.editor-help-btn { padding: var(--space-2xs); }
 .editor-help-btn .icon { width: 16px; height: 16px; }
+
+/* Icon-only secondary actions: drop the label, keep visual weight low so the
+   primary Contribute reads as the focal action. */
+.editor-action-btn.editor-icon-only { padding: var(--space-2xs); }
+.editor-action-btn.editor-icon-only .icon { width: 16px; height: 16px; }
+
+/* Push the Info+Contribute group to the right edge of the action row so the
+   primary Contribute lands where the eye expects (bottom-right). The Info
+   button carries the margin since wrap behaviour on narrow widths keeps the
+   pair adjacent. */
+.editor-help-btn { margin-left: auto; }
+
+/* The focal primary: slightly larger padding + font so it visually outranks
+   the secondary actions without changing layout. */
+.editor-action-btn--focal {
+  padding: 8px 14px;
+  font-size: var(--font-size-sm);
+}
 
 /* Footer is position-relative-ready: popover anchors above the button row.
    Caps width so it never overflows the side panel on mobile (~360-480px). */
@@ -2571,9 +2658,27 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   border-radius: var(--radius-md);
   box-shadow: 0 8px 24px rgba(0,0,0,0.15);
   padding: 14px 16px 12px;
-  z-index: 1000;
+  z-index: 1200;
+  max-height: min(70vh, 480px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .editor-help-popover.hidden { display: none; }
+
+/* On mobile the panel is short and the popover needs to clear the action
+   row + tabs above it. Pin to the viewport (no ancestor uses transform/
+   filter, so position:fixed escapes cleanly) so the popover can be
+   tall + scrollable without being clipped by the panel container. */
+@media (max-width: 700px) {
+  .editor-help-popover {
+    position: fixed;
+    bottom: 72px;
+    left: 12px;
+    right: 12px;
+    max-width: none;
+    max-height: 60vh;
+  }
+}
 .editor-help-close {
   position: absolute;
   top: 6px;
@@ -2583,7 +2688,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
-  padding: 4px;
+  padding: var(--space-xs);
   border-radius: var(--radius-sm);
   line-height: 0;
 }
@@ -2591,12 +2696,12 @@ body.improvements-mode .map-overlay-controls { display: flex; }
 .editor-help-close .icon { width: 12px; height: 12px; }
 .editor-help-title {
   margin: 0 24px 6px 0;
-  font-size: 0.92rem;
+  font-size: var(--font-size-md);
   color: var(--color-text);
 }
 .editor-help-blurb {
   margin: 0 0 10px 0;
-  font-size: 0.8rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   line-height: 1.45;
 }
@@ -2606,13 +2711,13 @@ body.improvements-mode .map-overlay-controls { display: flex; }
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 .editor-help-steps li {
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  font-size: 0.82rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   color: var(--color-text);
 }
@@ -2630,7 +2735,7 @@ body.improvements-mode .map-overlay-controls { display: flex; }
 
 .editor-status {
   margin-left: auto;
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   align-self: center;
 }
@@ -2647,6 +2752,13 @@ body.editor-mode.editor-mode-add-stop .leaflet-marker-icon.stop-marker-icon {
 body.proposals-tab-active .route-network-line {
   opacity: 0.3;
   transition: opacity 0.4s ease;
+}
+/* Night mode shows only the sparse night-service network rather than the
+   dense day network, so the heavy dim that keeps proposals legible by day
+   is overkill — ease it off so the night routes stay readable behind a
+   proposal. (Mirrors the night-mode exemption for endpoint tags below.) */
+body.proposals-tab-active.service-mode-night .route-network-line {
+  opacity: 0.65;
 }
 
 body.proposals-tab-active .route-endpoint-tag {

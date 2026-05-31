@@ -80,6 +80,7 @@ const state = {
 
   // ── Improvements view (network/proposals mode) ──
   viewMode:                "live", // "live" | "improvements"
+  improvementsTab:         "about",// "about" | "proposals" — official proposal lines only show on the Proposals tab
   serviceMode:             "day",  // "day" | "night" — splits chips, route lines, proposals
   visibleCategories:       null,   // Set<"focused"|"express"|"other">; populated on first load
   visibleOperators:        null,   // Set of operator buckets ("BHBC","SCSO","COMT","OTHER",""); ""=unknown
@@ -140,9 +141,10 @@ const dom = {
   busPanelPrompt:     document.getElementById("bus-panel-prompt"),
   busInfoContainer:   document.getElementById("bus-info-container"),
 
-  // ── View mode toggle ──
-  viewModeLive:          document.getElementById("view-mode-live"),
-  viewModeImprovements:  document.getElementById("view-mode-improvements"),
+  // ── Section nav (dropdown) ──
+  sectionNavTrigger: document.getElementById("section-nav-trigger"),
+  sectionNavLabel:   document.getElementById("section-nav-label"),
+  sectionNavMenu:    document.getElementById("section-nav-menu"),
 
   // ── Improvements view ──
   closePanelBtnImprovements: document.getElementById("close-panel-btn-improvements"),
@@ -294,10 +296,11 @@ function resolvePendingProposalId() {
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
-  // Apply dark mode before map/paint so there's no flash
-  if (localStorage.getItem("darkMode") === "1") {
-    state.darkMode = true;
-    document.body.classList.add("dark-mode");
+  // The pre-paint script in index.html already applied html.dark-mode from
+  // localStorage (or the OS preference on first visit), so there's no flash.
+  // Sync our state + the toggle button to whatever it decided.
+  state.darkMode = document.documentElement.classList.contains("dark-mode");
+  if (state.darkMode) {
     dom.darkModeBtn.innerHTML = svgIcon("i-sun");
     dom.darkModeBtn.title = "Switch to light mode";
   }
@@ -1321,7 +1324,7 @@ function showPanelState(stateKey, errorMsg) {
 
 function toggleDarkMode() {
   state.darkMode = !state.darkMode;
-  document.body.classList.toggle("dark-mode", state.darkMode);
+  document.documentElement.classList.toggle("dark-mode", state.darkMode);
   localStorage.setItem("darkMode", state.darkMode ? "1" : "0");
   dom.darkModeBtn.innerHTML = svgIcon(state.darkMode ? "i-sun" : "i-moon");
   dom.darkModeBtn.title = state.darkMode ? "Switch to light mode" : "Toggle dark mode";
@@ -1432,9 +1435,8 @@ function bindUIEvents() {
     if (state.selectedStop) fetchDepartures(state.selectedStop.atcoCode);
   });
 
-  // View mode toggle (Live ↔ Improvements)
-  dom.viewModeLive.addEventListener("click", () => setViewMode("live"));
-  dom.viewModeImprovements.addEventListener("click", () => setViewMode("improvements"));
+  // Section nav dropdown (Live / Improvements / future sections)
+  initSectionNav();
 
   // Browser back/forward — re-apply state from the URL hash.
   window.addEventListener("popstate", () => applyUrlState(parseUrlState()));
@@ -1586,14 +1588,9 @@ function setServiceMode(mode) {
   renderRouteFilterChips();
   renderProposalsList();
 
-  // Refresh proposal overlay to match new mode (also handles selection).
-  // showAllProposals adds every proposal; otherwise we still want the
-  // baseline officials (mode-appropriate ones) on the map.
-  if (state.showProposals) showAllProposals();
-  else {
-    hideAllProposals();        // clears community proposals from other mode
-    showOfficialProposals();   // re-adds officials matching new mode
-  }
+  // Refresh proposal overlay to match new mode (respects active tab +
+  // overlay toggle; officials only on the Proposals tab).
+  reconcileProposalLayers();
   if (state.selectedProposalId) showProposal(state.selectedProposalId);
 
   applyStopVisibility();
@@ -1603,6 +1600,7 @@ function setServiceMode(mode) {
 /** Switch between the About and Proposals tabs in Improvements mode. */
 function setImprovementsTab(tab) {
   const aboutActive = (tab === "about");
+  state.improvementsTab = aboutActive ? "about" : "proposals";
   dom.tabAbout.classList.toggle("active", aboutActive);
   dom.tabAbout.setAttribute("aria-selected", aboutActive ? "true" : "false");
   dom.tabProposals.classList.toggle("active", !aboutActive);
@@ -1610,6 +1608,9 @@ function setImprovementsTab(tab) {
   dom.tabContentAbout.classList.toggle("hidden", !aboutActive);
   dom.tabContentProposals.classList.toggle("hidden", aboutActive);
   document.body.classList.toggle("proposals-tab-active", tab === "proposals");
+  // Official proposal lines are tied to the Proposals tab — reconcile when
+  // the tab changes (only meaningful once proposal layers exist).
+  if (state.proposals) reconcileProposalLayers();
 }
 
 // ============================================================
@@ -1628,21 +1629,93 @@ function setViewMode(mode) {
   if (state.viewMode === mode) return;
   state.viewMode = mode;
 
-  // Toggle button visual + aria state
-  const live = (mode === "live");
-  dom.viewModeLive.classList.toggle("active", live);
-  dom.viewModeLive.setAttribute("aria-selected", live ? "true" : "false");
-  dom.viewModeImprovements.classList.toggle("active", !live);
-  dom.viewModeImprovements.setAttribute("aria-selected", !live ? "true" : "false");
+  syncSectionNavToViewMode();
 
   // Body class for CSS-level swaps
-  document.body.classList.toggle("improvements-mode", !live);
+  document.body.classList.toggle("improvements-mode", mode !== "live");
 
   // Side-effects wired in later tasks (vehicle refresh, polylines, panel).
   applyViewMode();
 
   // View mode is a major shift — users expect Back to return to live.
   pushUrlState({ major: true });
+}
+
+/** Update the section-nav trigger label + listbox aria-selected to match
+ *  the current view mode. Called from setViewMode and also at init so a
+ *  deep-linked ?view=i lands on the right label. */
+function syncSectionNavToViewMode() {
+  if (!dom.sectionNavMenu || !dom.sectionNavLabel) return;
+  const items = dom.sectionNavMenu.querySelectorAll('[role="option"]');
+  for (const li of items) {
+    const selected = li.dataset.mode === state.viewMode;
+    li.setAttribute("aria-selected", selected ? "true" : "false");
+    if (selected) dom.sectionNavLabel.textContent = li.textContent.trim();
+  }
+}
+
+/** Wire the section-nav dropdown: trigger toggles open/close, options
+ *  switch the view, Escape closes + returns focus, Arrow keys move within
+ *  the menu, Enter/Space selects, outside-click closes. Standard listbox
+ *  interactions so keyboard parity with the previous button-pair is kept. */
+function initSectionNav() {
+  if (!dom.sectionNavTrigger || !dom.sectionNavMenu) return;
+  const trigger = dom.sectionNavTrigger;
+  const menu    = dom.sectionNavMenu;
+  const items   = () => [...menu.querySelectorAll('[role="option"]')];
+
+  const isOpen = () => trigger.getAttribute("aria-expanded") === "true";
+  const open = () => {
+    trigger.setAttribute("aria-expanded", "true");
+    menu.classList.remove("hidden");
+    // Focus the currently-selected option (or first) for arrow-key flow.
+    const all = items();
+    const sel = all.find(li => li.getAttribute("aria-selected") === "true") || all[0];
+    if (sel) sel.focus();
+  };
+  const close = (returnFocus = false) => {
+    trigger.setAttribute("aria-expanded", "false");
+    menu.classList.add("hidden");
+    if (returnFocus) trigger.focus();
+  };
+
+  trigger.addEventListener("click", () => isOpen() ? close() : open());
+  trigger.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (!isOpen()) open(); else items()[0]?.focus();
+    }
+  });
+
+  menu.addEventListener("click", (e) => {
+    const li = e.target.closest('[role="option"]');
+    if (!li) return;
+    setViewMode(li.dataset.mode);
+    close(true);
+  });
+
+  menu.addEventListener("keydown", (e) => {
+    const all = items();
+    const idx = all.indexOf(document.activeElement);
+    if (e.key === "Escape")   { e.preventDefault(); close(true); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); all[(idx + 1) % all.length]?.focus(); }
+    else if (e.key === "ArrowUp")   { e.preventDefault(); all[(idx - 1 + all.length) % all.length]?.focus(); }
+    else if (e.key === "Home")      { e.preventDefault(); all[0]?.focus(); }
+    else if (e.key === "End")       { e.preventDefault(); all[all.length - 1]?.focus(); }
+    else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      const li = document.activeElement;
+      if (li && li.dataset.mode) { setViewMode(li.dataset.mode); close(true); }
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!isOpen()) return;
+    if (trigger.contains(e.target) || menu.contains(e.target)) return;
+    close();
+  });
+
+  syncSectionNavToViewMode();
 }
 
 async function applyViewMode() {
@@ -1660,8 +1733,7 @@ async function applyViewMode() {
     try {
       await Promise.all([loadRouteLines(), loadProposals()]);
       showRouteLines();
-      if (state.showProposals) showAllProposals();
-      else                     showOfficialProposals();
+      reconcileProposalLayers();
       if (state.selectedProposalId) showProposal(state.selectedProposalId);
     } catch (err) {
       console.warn("Improvements data fetch failed:", err);
@@ -1715,6 +1787,12 @@ async function loadRouteLinesImpl() {
   state.routeLines = data.routes;
   state.visibleRoutes = new Set();
 
+  // Two-pass build: (1) polylines + collect endpoint-tag intents; (2) cluster
+  // intents at shared termini and assign a stackIndex so co-located tags
+  // (e.g. N12 + N14 at Marine Gate) render in a vertical column instead of
+  // piling on top of each other.
+  const tagIntents = []; // {service, anchor, place, placement, colour, fg}
+
   for (const r of data.routes) {
     state.visibleRoutes.add(r.service);
     state.routeCategoryByService[r.service]  = r.category || "other";
@@ -1723,11 +1801,6 @@ async function loadRouteLinesImpl() {
 
     const colour = getLineColour(r.service, r.operator);
     const fg = (pickTextOn(colour) === "dark") ? "#1a1a1a" : "#ffffff";
-    // Endpoint tags only make sense for routes that visibly run off
-    // the edge (express) or whose night-time destination is the point
-    // — the backend force-emits names for night routes so the disparity
-    // between Brighton-side and Worthing-side night coverage reads on
-    // the map even when a route terminates inside the bbox.
     const showEndpointTags = r.category === "express" || isNightService(r.service);
     const layers = [];
 
@@ -1751,16 +1824,51 @@ async function loadRouteLinesImpl() {
         const last = coords[coords.length - 1];
         if (!inCentralBrighton(last)) {
           const prev = coords[coords.length - 2];
-          // Place the pill in the direction the line is heading so the
-          // polyline reads as flowing into the tag rather than crossing it.
           const placement = (last[1] >= prev[1]) ? "right" : "left";
           const place = prettyDestination(r.service, ep.to_name, ep.to_headsign);
-          layers.push(makeEndpointTag(last, r.service, place, "to", placement, colour, fg));
+          tagIntents.push({
+            service: r.service,
+            anchor: last,
+            place,
+            placement,
+            colour,
+            fg,
+            layers,
+          });
         }
       }
     });
 
     state.routeLineLayers[r.service] = layers;
+  }
+
+  // Cluster co-located tag intents by real distance + placement. Bucket-keying
+  // by rounded coords splits tags that fall on opposite sides of a rounding
+  // boundary (the OSRM-built polyline ends near, not at, the GTFS stop, so
+  // two routes terminating at the same stop can have tail points 10–80 m
+  // apart). Greedy O(n²) with a 250 m threshold handles both exact-match and
+  // near-by termini; well below the spacing between distinct termini in this
+  // region (~600 m+), so no false merges. Same-placement only — tags on
+  // opposite sides of a point don't overlap.
+  const STACK_RADIUS_M = 250;
+  const clusters = [];
+  const nearby = (a, b) => {
+    const dy = (a[0] - b[0]) * 110540;
+    const dx = (a[1] - b[1]) * 111320 * Math.cos(a[0] * Math.PI / 180);
+    return Math.hypot(dx, dy) <= STACK_RADIUS_M;
+  };
+  for (const t of tagIntents) {
+    const cluster = clusters.find(c =>
+      c[0].placement === t.placement && nearby(c[0].anchor, t.anchor));
+    if (cluster) cluster.push(t);
+    else clusters.push([t]);
+  }
+  for (const group of clusters) {
+    group.sort((a, b) => compareServiceNames(a.service, b.service));
+    group.forEach((t, idx) => {
+      t.layers.push(makeEndpointTag(
+        t.anchor, t.service, t.place, "to", t.placement, t.colour, t.fg, idx));
+    });
   }
 
   state.visibleCategories = new Set(Object.values(state.routeCategoryByService));
@@ -1970,18 +2078,21 @@ function compareServiceNames(a, b) {
  *  so the user sees "1X → Brighton" or "Bognor ← N700" where the line
  *  runs off the edge of the focused area. The marker is non-interactive
  *  and inherits the route's livery colour. */
-function makeEndpointTag([lat, lon], service, place, side, placement, bg, fg) {
+function makeEndpointTag([lat, lon], service, place, side, placement, bg, fg, stackIndex = 0) {
   // `side` drives the arrow text (→ for "to", ← for "from").
   // `placement` is "left" | "right" — which side of the geographical
   // anchor the pill sits on; chosen by the caller based on the
   // polyline's outward heading at this end.
+  // `stackIndex` shifts the pill downward when multiple routes share
+  // this terminus, so they stack vertically instead of overlapping.
   const text = (side === "to")
     ? `${service} → ${place}`
     : `${place} ← ${service}`;
-  const W = 220, H = 22, GAP = 4;
+  const W = 220, H = 22, GAP = 4, STACK_GAP = 2;
+  const yOffset = stackIndex * (H + STACK_GAP);
   const anchor = (placement === "right")
-    ? [-GAP, H / 2]      // pill to the right of the geographical point
-    : [W + GAP, H / 2];  // pill to the left
+    ? [-GAP, H / 2 - yOffset]      // pill to the right of the geographical point
+    : [W + GAP, H / 2 - yOffset];  // pill to the left
   return L.marker([lat, lon], {
     icon: L.divIcon({
       className: `route-endpoint-tag route-endpoint-tag--${placement}`,
@@ -2131,9 +2242,9 @@ async function loadProposalsImpl() {
   }
 
   renderProposalsList();
-  // Officials are part of the baseline Improvements view — show them as
-  // soon as data lands if the user is already on that view.
-  if (state.viewMode === "improvements") showOfficialProposals();
+  // Draw proposal layers appropriate to the current tab once data lands
+  // (officials only on the Proposals tab).
+  if (state.viewMode === "improvements") reconcileProposalLayers();
   resolvePendingProposalId();
 }
 
@@ -2147,6 +2258,24 @@ function isProposalNight(p) {
  *  any other value) stay hidden until the user clicks them in. */
 function isOfficialProposal(p) {
   return (p && p.category) === "official";
+}
+
+/** Decide which proposal layers belong on the map right now, given the
+ *  active tab + the "Show proposals" overlay toggle. Official lines are
+ *  gated behind the Proposals tab so the Improvements view opens on a clean
+ *  network map (About tab) — the official proposals only draw once the user
+ *  switches to Proposals. The explicit overlay toggle still trumps the tab.
+ *  Idempotent — safe to call on every tab/mode/toggle change. */
+function reconcileProposalLayers() {
+  if (state.showProposals) { showAllProposals(); return; }
+  if (state.improvementsTab === "proposals") {
+    hideAllProposals();        // clear any other-mode community layers first
+    showOfficialProposals();
+  } else {
+    // About tab: nothing auto-drawn. hideAllProposals keeps a selected
+    // proposal visible (selection trumps), which is what deep-links want.
+    hideAllProposals();
+  }
 }
 
 /** Add all official proposals matching the current day/night mode to
@@ -2318,8 +2447,9 @@ function hideAllProposals() {
 
 function setShowProposals(on) {
   state.showProposals = !!on;
-  if (state.showProposals) showAllProposals();
-  else                     hideAllProposals();
+  // Reconcile honours the active tab: turning the overlay off on the
+  // Proposals tab falls back to the official lines, not a blank map.
+  reconcileProposalLayers();
   if (dom.mapOverlayControls) {
     const btn = dom.mapOverlayControls.querySelector("[data-overlay='proposals']");
     if (btn) btn.setAttribute("aria-pressed", state.showProposals ? "true" : "false");
@@ -2688,15 +2818,15 @@ function renderEditor() {
         <svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>
         <span>Copy JSON</span>
       </button>
-      <button class="editor-action-btn" id="ed-download-btn" type="button" ${canExport ? "" : "disabled"}>
+      <button class="editor-action-btn editor-icon-only" id="ed-download-btn" type="button"
+              aria-label="Download JSON" title="Download JSON" ${canExport ? "" : "disabled"}>
         <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>
-        <span>Download</span>
       </button>
       <button class="editor-action-btn editor-help-btn" id="ed-help-btn" type="button"
               aria-label="How to contribute" title="How to contribute">
         <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
       </button>
-      <button class="editor-action-btn primary" id="ed-github-btn" type="button" ${canExport ? "" : "disabled"}>
+      <button class="editor-action-btn primary editor-action-btn--focal" id="ed-github-btn" type="button" ${canExport ? "" : "disabled"}>
         <svg class="icon" aria-hidden="true"><use href="#i-github"/></svg>
         <span>Contribute</span>
       </button>
@@ -2726,7 +2856,7 @@ function renderEditor() {
           </li>
           <li>
             <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-plus"/></svg>
-            <span><strong>Scroll down and click the green <em>Submit new issue</em> button.</strong> That's it — you're done.</span>
+            <span><strong>Scroll down and click the green button at the bottom of the page.</strong> That's it — you're done.</span>
           </li>
         </ol>
       </div>

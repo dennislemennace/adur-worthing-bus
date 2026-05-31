@@ -14,6 +14,17 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,800&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" />
 
+  <!-- Set the theme before first paint so dark-mode users never see a white
+       flash. Falls back to the OS preference on first visit. Mirrored by the
+       darkMode logic in app.js (which reads this class back). -->
+  <script>
+    try {
+      var d = localStorage.getItem('darkMode');
+      if (d === null) d = matchMedia('(prefers-color-scheme: dark)').matches ? '1' : '0';
+      if (d === '1') document.documentElement.classList.add('dark-mode');
+    } catch (e) {}
+  </script>
+
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -105,10 +116,6 @@
       <symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="6 9 12 15 18 9"/>
       </symbol>
-      <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/>
-        <circle cx="12" cy="9" r="2.5"/>
-      </symbol>
       <symbol id="i-move" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M5 9l-3 3 3 3"/><path d="M9 5l3-3 3 3"/>
         <path d="M15 19l-3 3-3-3"/><path d="M19 9l3 3-3 3"/>
@@ -135,12 +142,21 @@
         </div>
       </div>
       <div class="header-controls">
-        <!-- View mode toggle: live tracker vs network/proposals view -->
-        <div class="view-mode-toggle" role="tablist" aria-label="View mode">
-          <button class="view-mode-btn active" data-mode="live" role="tab"
-                  aria-selected="true" id="view-mode-live">Live</button>
-          <button class="view-mode-btn" data-mode="improvements" role="tab"
-                  aria-selected="false" id="view-mode-improvements">Improvements</button>
+        <!-- Section navigation. Dropdown chosen over a segmented toggle so
+             new sections (Tickets, Mission, etc.) can be added without
+             eating horizontal header space. -->
+        <div class="section-nav">
+          <button class="section-nav-trigger" id="section-nav-trigger"
+                  type="button" aria-haspopup="listbox" aria-expanded="false"
+                  aria-controls="section-nav-menu" aria-label="Choose section">
+            <span class="section-nav-label" id="section-nav-label">Live</span>
+            <svg class="icon section-nav-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </button>
+          <ul class="section-nav-menu hidden" id="section-nav-menu" role="listbox"
+              aria-labelledby="section-nav-trigger" tabindex="-1">
+            <li role="option" data-mode="live" aria-selected="true" tabindex="-1">Live</li>
+            <li role="option" data-mode="improvements" aria-selected="false" tabindex="-1">Improvements</li>
+          </ul>
         </div>
         <!-- Last-updated timestamp for live data -->
         <span class="last-updated" id="last-updated-label">Connecting…</span>
@@ -157,11 +173,14 @@
     <!-- Coastal wave forming the header's bottom edge. Two layered shapes
          at offset phases so the deeper navy peeks through between the
          front wave's crests, giving a soft layered-surf effect. -->
-    <svg class="header-wave" aria-hidden="true" preserveAspectRatio="none" viewBox="0 0 1440 80">
+    <svg class="header-wave" aria-hidden="true" preserveAspectRatio="none" viewBox="0 0 1440 40">
+      <!-- Right edge (V4/V2) sits nearly flush with the header's flat bottom so
+           the side panel butts in cleanly; the wave only dips toward the left
+           (map side), avoiding a step/notch where the panel meets the header. -->
       <path class="header-wave-back"
-            d="M0,0 H1440 V28 C1260,62 1080,8 900,34 C720,60 540,12 360,34 C200,54 80,22 0,36 Z"/>
+            d="M0,0 H1440 V4 C1152,22 864,6 648,18 C432,28 216,8 0,20 Z"/>
       <path class="header-wave-front"
-            d="M0,0 H1440 V16 C1320,44 1140,4 960,26 C780,46 600,2 420,24 C240,42 90,14 0,26 Z"/>
+            d="M0,0 H1440 V2 C1152,16 864,2 648,12 C432,22 216,4 0,14 Z"/>
     </svg>
   </header>
 
@@ -385,6 +404,21 @@
               line; toggle routes below to compare coverage, or open Proposals
               to see the targeted additions.
             </p>
+            <p class="improvements-note">
+              Tip: turning on <strong>“Show limited services”</strong> reveals
+              how — on paper — the map looks well covered. But many of those
+              routes are infrequent, run only at peak times, or don't run at
+              weekends, so locals can't actually rely on them for everyday
+              travel.
+            </p>
+            <p class="improvements-opensource">
+              This site is <strong>open source</strong>. It's built and shared on
+              <a href="https://github.com/dennislemennace/adur-worthing-bus"
+                 target="_blank" rel="noopener noreferrer">GitHub</a> — the platform
+              that hosts the code and collects community proposals. That's why
+              contributing a proposal needs a free GitHub account: your idea is
+              submitted as a GitHub issue for the maintainers to review.
+            </p>
           </div>
 
           <!-- Route filter list populated by task 5 -->
@@ -413,7 +447,7 @@
                 <strong>Show proposals</strong> toggle on the map to layer
                 all proposals over the existing network for comparison.
               </p>
-              <button class="btn-primary new-proposal-btn" id="new-proposal-btn" type="button">
+              <button class="new-proposal-btn" id="new-proposal-btn" type="button">
                 <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
                 <span>New proposal</span>
               </button>
