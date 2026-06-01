@@ -82,12 +82,12 @@ const state = {
   viewMode:                "live", // "live" | "improvements"
   improvementsTab:         "about",// "about" | "proposals" — official proposal lines only show on the Proposals tab
   serviceMode:             "day",  // "day" | "night" — splits chips, route lines, proposals
-  visibleCategories:       null,   // Set<"focused"|"express"|"other">; populated on first load
+  visibleCategories:       null,   // Set of enabled area keys ("worthing","adur","brighton"); populated on first load
   visibleOperators:        null,   // Set of operator buckets ("BHBC","SCSO","COMT","OTHER",""); ""=unknown
   showLimitedServices:     false,  // false = hide services that don't run all week or finish before 18:00
   routeLines:              null,   // /api/route-lines response, fetched lazily
   routeLineLayers:         {},     // service short_name → array of L.polyline
-  routeCategoryByService:  {},     // service → "focused"|"express"|"other"
+  routeAreasByService:     {},     // service → array of area keys it serves, e.g. ["worthing","adur"]
   routeOperatorByService:  {},     // service → operator NOC (e.g. "COMT", "")
   routeFrequencyByService: {},     // service → { is_frequent_all_day, runs_days, ... }
   visibleRoutes:           null,   // Set of service short_names; null = all visible
@@ -1503,9 +1503,9 @@ const FILTER_STRIPS = [
     container: () => dom.serviceCategoryToggle,
     set:       () => state.visibleCategories,
     options: [
-      { key: "focused", label: "Adur & Worthing" },
-      { key: "express", label: "Express"         },
-      { key: "other",   label: "Other"           },
+      { key: "adur",     label: "Adur"     },
+      { key: "worthing", label: "Worthing" },
+      { key: "brighton", label: "Brighton" },
     ],
   },
   {
@@ -1795,13 +1795,13 @@ async function loadRouteLinesImpl() {
 
   for (const r of data.routes) {
     state.visibleRoutes.add(r.service);
-    state.routeCategoryByService[r.service]  = r.category || "other";
+    state.routeAreasByService[r.service]     = areasForRoute(r.polylines);
     state.routeOperatorByService[r.service]  = r.operator || "";
     state.routeFrequencyByService[r.service] = r.frequency || null;
 
     const colour = getLineColour(r.service, r.operator);
     const fg = (pickTextOn(colour) === "dark") ? "#1a1a1a" : "#ffffff";
-    const showEndpointTags = r.category === "express" || isNightService(r.service);
+    const showEndpointTags = isExpressService(r.service) || isNightService(r.service);
     const layers = [];
 
     r.polylines.forEach((coords, i) => {
@@ -1871,7 +1871,8 @@ async function loadRouteLinesImpl() {
     });
   }
 
-  state.visibleCategories = new Set(Object.values(state.routeCategoryByService));
+  // Type filter = geographic area. Default all three on.
+  state.visibleCategories = new Set(AREA_KEYS);
   state.visibleOperators  = new Set(Object.values(state.routeOperatorByService));
 
   syncFilterStrips();
@@ -1959,6 +1960,50 @@ function isNightService(svc) {
   return /^N\d/i.test(String(svc || ""));
 }
 
+/** True for express variants — short_name ends in "X" ("700X", "60X", "1X").
+ *  Used to decide which routes get off-edge destination tags (independent of
+ *  the area filter). Mirrors the old backend `_categorise` express rule. */
+function isExpressService(svc) {
+  return /x$/i.test(String(svc || ""));
+}
+
+/** Geographic area bands by longitude — the coast runs roughly W→E, so a
+ *  point's longitude places it in Worthing (west), Adur (Lancing/Shoreham/
+ *  Southwick, middle) or Brighton & Hove (east). Boundaries sit at the
+ *  district edges: Sompting↔Lancing (~-0.335) and Fishersgate↔Portslade
+ *  (~-0.215). Route-line polylines are bbox-clipped server-side, so binning
+ *  by longitude alone is safe (no far-flung lat outliers). */
+const AREA_WORTHING_MAX_LON = -0.335;
+const AREA_ADUR_MAX_LON     = -0.215;
+function areaForLon(lon) {
+  if (lon <= AREA_WORTHING_MAX_LON) return "worthing";
+  if (lon <= AREA_ADUR_MAX_LON)     return "adur";
+  return "brighton";
+}
+const AREA_KEYS = ["worthing", "adur", "brighton"];
+
+/** Which areas a route serves, derived from how much of its polyline length
+ *  falls in each band. Distance-weighted (not point-count) so a long straight
+ *  express segment isn't under-counted vs a point-dense windy one. A route
+ *  must have ≥400 m of line in a band to "serve" it, so a brief boundary
+ *  clip doesn't tag an area the route barely touches. */
+function areasForRoute(polylines) {
+  const len = { worthing: 0, adur: 0, brighton: 0 };
+  for (const pl of polylines || []) {
+    for (let i = 1; i < pl.length; i++) {
+      const a = pl[i - 1], b = pl[i];
+      const dy = (a[0] - b[0]) * 110540;
+      const dx = (a[1] - b[1]) * 111320 * Math.cos((a[0] * Math.PI) / 180);
+      len[areaForLon((a[1] + b[1]) / 2)] += Math.hypot(dx, dy);
+    }
+  }
+  const total = len.worthing + len.adur + len.brighton;
+  if (!total) return AREA_KEYS.slice();          // degenerate (no geometry): show under all
+  const areas = AREA_KEYS.filter(k => len[k] >= 400);
+  // Fallback to the dominant band if every band is below the 400 m floor.
+  return areas.length ? areas : [AREA_KEYS.reduce((x, y) => (len[x] >= len[y] ? x : y))];
+}
+
 /** Tags at Brighton city-centre termini (Old Steine / Churchill Sq /
  *  Royal Pavilion cluster) would pile up confusingly. Marina and
  *  Kemptown sit east of this box and keep their tags. */
@@ -2031,8 +2076,10 @@ function prettyDestination(svc, stopName, headsign) {
  *  layers. */
 function isServicePassingFilters(svc) {
   if (state.visibleCategories) {
-    const cat = state.routeCategoryByService[svc] || "other";
-    if (!state.visibleCategories.has(cat)) return false;
+    // Multi-area: a route shows if it serves at least one enabled area.
+    // (A Worthing→Brighton trunk stays visible while any of its areas is on.)
+    const areas = state.routeAreasByService[svc] || [];
+    if (areas.length && !areas.some(a => state.visibleCategories.has(a))) return false;
   }
   if (state.visibleOperators) {
     const op = state.routeOperatorByService[svc] || "";

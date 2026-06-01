@@ -505,11 +505,19 @@ class Timetable:
     # GTFS agency NOC doesn't match the operator that actually runs them.
     # Route 2 is Brighton & Hove (live SIRI reports operator_ref=BHBC) but its
     # timetable agency NOC buckets to OTHER.
+    # Routes 47 and 60 each have two route rows: the operator serving our bbox
+    # (47=Compass/COMT around Brighton-Hove, 60=Brighton & Hove/BHBC around
+    # Shoreham-Fishersgate) plus an unrelated Stagecoach/SCSO service of the
+    # same number over in Chichester (lon ~-0.79, entirely outside our area).
+    # _noc_by_short_name is last-row-wins, so the Chichester SCSO row wins and
+    # mislabels them as Stagecoach — pin them to the correct local operator.
     # TODO: confirm the underlying NOC (the routes table has two rows for "2",
     # and _noc_by_short_name is last-row-wins) via a debug dump, then fix it at
     # the NOC level (_OPERATOR_BUCKETS / NOC selection) instead of here.
     _OPERATOR_OVERRIDES = {
         "2": "BHBC",
+        "47": "COMT",
+        "60": "BHBC",
     }
 
     _DAY_COLS = ("monday", "tuesday", "wednesday", "thursday",
