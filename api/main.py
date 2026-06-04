@@ -538,8 +538,11 @@ async def get_vehicle(vehicleRef: str = Query(...)):
 
     tt = await _get_timetable()
 
-    trip_id  = vehicle.get("trip_id")
-    headsign = vehicle.get("trip_headsign")
+    # Refine the trip match for this one vehicle using position+time (see
+    # _best_trip_for_vehicle) so mid-route buses don't show a fresher trip's
+    # later times. Fall back to the bulk start-time match if it can't lock on.
+    trip_id  = _best_trip_for_vehicle(vehicle, tt) or vehicle.get("trip_id")
+    headsign = tt.trips.get(trip_id, {}).get("headsign") or vehicle.get("trip_headsign")
     upcoming = _upcoming_stops_from_trip(vehicle, tt, trip_id)
     source   = "trip"
     if not upcoming:
@@ -1193,6 +1196,103 @@ def _haversine_sq(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 # How many upcoming stops to show (before the terminus)
 _UPCOMING_COUNT = 5
+
+
+def _best_trip_for_vehicle(vehicle: dict, tt: Timetable):
+    """Position+time aware trip match for a single vehicle.
+
+    The bulk `_enrich_vehicles_with_trip_match` picks the trip whose *start*
+    time is closest to now — cheap, and fine for headsigns. But for a bus
+    mid-route on a frequent corridor it systematically prefers a *fresher*
+    departure of the same route, so the upcoming-stop times read 30–60 min
+    late (the GPS-nearest stop maps to a later trip's schedule).
+
+    Here we instead score each candidate trip by how closely the schedule
+    puts a bus at THIS vehicle's current location at NOW: take the trip's
+    stop nearest the vehicle, and compare that stop's scheduled time to the
+    current time. The correct trip scores ≈ 0 (only the bus's real delay);
+    a fresher trip scores +30–60 min. Returns the best direction-matched
+    trip, or None if nothing maps to within ~25 min (caller then falls back
+    to the cheap match). Runs only for the one clicked vehicle, so the extra
+    per-trip stop scans are affordable.
+    """
+    if not tt.ok():
+        return None
+    svc = vehicle.get("service_ref") or ""
+    vlat = vehicle.get("latitude")
+    vlon = vehicle.get("longitude")
+    if not svc or vlat is None or vlon is None:
+        return None
+
+    now_local = datetime.now(UK_TZ)
+    now_secs  = now_local.hour * 3600 + now_local.minute * 60 + now_local.second
+    today     = now_local.date()
+    dow       = today.weekday()
+    today_str = today.strftime("%Y%m%d")
+    calendar, calendar_dates = tt.calendar, tt.calendar_dates
+    trips, stops = tt.trips, tt.stops
+    svc_set   = _svc_variants(svc)
+    dest_name = (vehicle.get("destination") or "").replace("_", " ").lower()
+
+    def wrap(d: int) -> int:
+        if d > 43200:
+            return d - 86400
+        if d < -43200:
+            return d + 86400
+        return d
+
+    best, best_score = None, None              # overall (fallback)
+    best_dir, best_dir_score = None, None       # direction-matched
+
+    for svc_key in svc_set:
+        if not svc_key:
+            continue
+        for trip_id, first_stop, last_stop, first_secs in tt.service_endpoints(svc_key):
+            trip = trips.get(trip_id, {})
+            if not _runs_today(trip.get("service_id", ""), today, today_str,
+                               dow, calendar, calendar_dates):
+                continue
+            # Prune by start time: a bus seen now can only be on a trip that
+            # started within the last ~3 h (longest local run) or is about to.
+            start_delta = wrap(first_secs - now_secs)
+            if start_delta > 900 or start_delta < -10800:
+                continue
+            seq = tt.trip_stops_for(trip_id)
+            if not seq:
+                continue
+            near_secs, near_d = None, None
+            for secs, sid in seq:
+                s = stops.get(sid)
+                if not s:
+                    continue
+                slat, slon = s.get("lat"), s.get("lon")
+                if slat is None or slon is None:
+                    continue
+                d = _haversine_sq(vlat, vlon, slat, slon)
+                if near_d is None or d < near_d:
+                    near_d, near_secs = d, secs
+            if near_secs is None:
+                continue
+            score = abs(wrap(near_secs - now_secs))
+            if best_score is None or score < best_score:
+                best, best_score = trip_id, score
+            if dest_name:
+                headsign  = (trip.get("headsign") or "").lower()
+                last_name = (stops.get(last_stop, {}).get("name") or "").lower()
+                if (dest_name in headsign or dest_name in last_name
+                        or (headsign and headsign in dest_name)
+                        or (last_name and last_name in dest_name)):
+                    if best_dir_score is None or score < best_dir_score:
+                        best_dir, best_dir_score = trip_id, score
+
+    chosen       = best_dir if best_dir is not None else best
+    chosen_score = best_dir_score if best_dir is not None else best_score
+    # Only trust the position match if the bus actually lines up with this
+    # trip's schedule (≤25 min off). Otherwise let the caller keep the cheap
+    # start-time match rather than inventing a worse one.
+    if chosen is not None and chosen_score is not None and chosen_score <= 1500:
+        return chosen
+    return None
 
 
 def _upcoming_stops_from_trip(vehicle: dict, tt: Timetable, trip_id) -> list:
