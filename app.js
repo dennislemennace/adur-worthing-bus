@@ -82,7 +82,7 @@ const state = {
   viewMode:                "live", // "live" | "improvements"
   improvementsTab:         "about",// "about" | "proposals" — official proposal lines only show on the Proposals tab
   serviceMode:             "day",  // "day" | "night" — splits chips, route lines, proposals
-  visibleCategories:       null,   // Set holding "express" when the Express type-filter chip is on
+  visibleCategories:       null,   // Set holding the active type-filter key: "all" | "express" | "standard"
   visibleOperators:        null,   // Set of operator buckets ("BHBC","SCSO","COMT","OTHER",""); ""=unknown
   showLimitedServices:     false,  // false = hide services that don't run all week or finish before 18:00
   routeLines:              null,   // /api/route-lines response, fetched lazily
@@ -1501,8 +1501,11 @@ const FILTER_STRIPS = [
   {
     container: () => dom.serviceCategoryToggle,
     set:       () => state.visibleCategories,
+    single:    true,   // mutually-exclusive: All / Express / Standard
     options: [
-      { key: "express", label: "Express" },
+      { key: "all",      label: "All"      },
+      { key: "express",  label: "Express"  },
+      { key: "standard", label: "Standard" },
     ],
   },
   {
@@ -1539,11 +1542,21 @@ function renderFilterStrip(strip) {
     btn.addEventListener("click", () => {
       if (!visibleSet) return;
       const key = btn.dataset.filterKey;
-      if (visibleSet.has(key)) visibleSet.delete(key);
-      else                     visibleSet.add(key);
+      if (strip.single) {
+        // Radio behaviour: exactly one key selected, never empty.
+        visibleSet.clear();
+        visibleSet.add(key);
+      } else if (visibleSet.has(key)) {
+        visibleSet.delete(key);
+      } else {
+        visibleSet.add(key);
+      }
       syncFilterStrips();
       showRouteLines();
       renderRouteFilterChips();
+      // The type filter also gates proposals, so reconcile them too.
+      reconcileProposalLayers();
+      renderProposalsList();
     });
   });
 }
@@ -1867,9 +1880,8 @@ async function loadRouteLinesImpl() {
     });
   }
 
-  // Type filter = single "Express" chip, on by default (so all routes show;
-  // turning it off hides express routes).
-  state.visibleCategories = new Set(["express"]);
+  // Type filter = tri-state radio (All / Express / Standard), default All.
+  state.visibleCategories = new Set(["all"]);
   state.visibleOperators  = new Set(Object.values(state.routeOperatorByService));
 
   syncFilterStrips();
@@ -1963,6 +1975,21 @@ function isExpressService(svc) {
   return /x$/i.test(String(svc || ""));
 }
 
+/** Current Type filter mode: "all" | "express" | "standard". */
+function currentTypeFilter() {
+  const s = state.visibleCategories;
+  if (s && s.has("express"))  return "express";
+  if (s && s.has("standard")) return "standard";
+  return "all";
+}
+
+/** Whether a route/proposal (express or not) passes the active Type filter.
+ *  Shared by network routes and proposals so the two stay in sync. */
+function passesTypeFilter(isExpress) {
+  const m = currentTypeFilter();
+  return m === "all" || (m === "express") === !!isExpress;
+}
+
 /** Tags at Brighton city-centre termini (Old Steine / Churchill Sq /
  *  Royal Pavilion cluster) would pile up confusingly. Marina and
  *  Kemptown sit east of this box and keep their tags. */
@@ -2034,11 +2061,8 @@ function prettyDestination(svc, stopName, headsign) {
  *  visibility toggle). Used both when rendering chips and when reconciling
  *  layers. */
 function isServicePassingFilters(svc) {
-  if (state.visibleCategories) {
-    // Only the Express chip exists: express routes are gated by it, everything
-    // else is always shown. Turning the chip off hides express services.
-    if (isExpressService(svc) && !state.visibleCategories.has("express")) return false;
-  }
+  // Type filter (All / Express / Standard) — applies to express and non-express alike.
+  if (!passesTypeFilter(isExpressService(svc))) return false;
   if (state.visibleOperators) {
     const op = state.routeOperatorByService[svc] || "";
     if (!state.visibleOperators.has(op)) return false;
@@ -2290,6 +2314,7 @@ function showOfficialProposals() {
   for (const p of state.proposals || []) {
     if (!isOfficialProposal(p)) continue;
     if (isProposalNight(p) !== isNight) continue;
+    if (!passesTypeFilter(isExpressService(p.name))) continue;
     showProposal(p.id);
   }
 }
@@ -2299,6 +2324,8 @@ function renderProposalsList() {
   const isNight = state.serviceMode === "night";
   const proposals = (state.proposals || []).filter(p => {
     if (isProposalNight(p) !== isNight) return false;
+    // Type filter (All / Express / Standard) — matches the map layers.
+    if (!passesTypeFilter(isExpressService(p.name))) return false;
     // Hide proposals tagged as limited-service unless the Show-limited
     // toggle is on; night proposals are exempt (Night mode already implies
     // a limited operating window).
@@ -2425,8 +2452,11 @@ function showAllProposals() {
   // hide any from the other mode that may already be on the map.
   const isNight = state.serviceMode === "night";
   for (const p of state.proposals || []) {
-    if (isProposalNight(p) === isNight) showProposal(p.id);
-    else                                hideProposal(p.id);
+    if (isProposalNight(p) === isNight && passesTypeFilter(isExpressService(p.name))) {
+      showProposal(p.id);
+    } else {
+      hideProposal(p.id);
+    }
   }
 }
 
