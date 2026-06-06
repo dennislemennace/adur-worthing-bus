@@ -1311,7 +1311,7 @@
       "operator": "SCSO",
       "name": "Worthing Dayrider",
       "category": "current",
-      "coverage": "Stagecoach Worthing Ticket Zone \u2014 Worthing built-up area: Ferring & Goring (W); Durrington, Salvington, Findon Valley & a spike north to Findon Homewood (N); Sompting, Lancing/North Lancing east to Coombes Road and The Longshore. South edge follows the coastline; NE corner shared with the Brighton zone.",
+      "coverage": "Worthing built-up area: Ferring/Goring west to The Longshore; arc north through Findon Valley with a spike up to Findon Homewood.",
       "restrictions": "",
       "color": "#0a3d7a",
       "official_map_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Worthing%20Network%20Map%200425.pdf",
@@ -2063,7 +2063,7 @@
       "operator": "SCSO",
       "name": "Brighton Dayrider",
       "category": "current",
-      "coverage": "Stagecoach Brighton Ticket Zone \u2014 limited to where services 9, 17 & 700 run: Coombes Road & The Longshore (W), the coastal corridor through Shoreham, Holmbush, Southwick, Portslade and Hove to Brighton city centre (route 700/9), and a northern arm up through Preston & Withdean to Black Lion / Patcham (route 17). Kemp Town, the Marina and the Downs are outside it.",
+      "coverage": "Where 9, 17 & 700 run: coast from The Longshore through Shoreham, Southwick, Portslade & Hove to Brighton centre, plus the 17 arm up to Black Lion.",
       "restrictions": "",
       "color": "#4aa3df",
       "official_map_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Brighton%20Network%20Map%200424.pdf",
@@ -3657,6 +3657,279 @@
           -0.2964
         ]
       ]
+    },
+    {
+      "id": "mb-metrovoyager",
+      "operator": "METR",
+      "name": "Metrovoyager",
+      "category": "current",
+      "coverage": "Unlimited travel on Metrobus services (except TfL); also valid on Brighton & Hove Buses. Locally it covers the Brighton citySAVER area plus the route-23 corridor that runs south from Horsham via Findon into Worthing; tags show how far key Metrobus & B&H routes reach beyond Adur & Worthing.",
+      "restrictions": "Not valid on Transport for London (TfL) services.",
+      "color": "#007a4c",
+      "official_map_url": "https://www.metrobus.co.uk/tickets",
+      "polygons_from": [
+        "bh-citysaver"
+      ],
+      "reach_points": [
+        {
+          "name": "Crawley",
+          "lat": 51.112,
+          "lon": -0.183,
+          "routes": "271/272/273"
+        },
+        {
+          "name": "Gatwick Airport",
+          "lat": 51.1537,
+          "lon": -0.1821,
+          "routes": "100"
+        },
+        {
+          "name": "Horsham",
+          "lat": 51.064,
+          "lon": -0.327,
+          "routes": "23"
+        },
+        {
+          "name": "East Grinstead",
+          "lat": 51.126,
+          "lon": -0.011,
+          "routes": "270"
+        },
+        {
+          "name": "Haywards Heath",
+          "lat": 51.005,
+          "lon": -0.103,
+          "routes": "270"
+        },
+        {
+          "name": "Steyning",
+          "lat": 50.8905,
+          "lon": -0.3315,
+          "routes": "2/2B"
+        },
+        {
+          "name": "Devil's Dyke",
+          "lat": 50.8844,
+          "lon": -0.2128,
+          "routes": "77"
+        },
+        {
+          "name": "Lewes",
+          "lat": 50.8736,
+          "lon": 0.0099,
+          "routes": "28/29"
+        },
+        {
+          "name": "Ringmer",
+          "lat": 50.8853,
+          "lon": 0.053,
+          "routes": "28/29B"
+        },
+        {
+          "name": "Newhaven",
+          "lat": 50.7935,
+          "lon": 0.0556,
+          "routes": "12"
+        },
+        {
+          "name": "Seaford",
+          "lat": 50.7707,
+          "lon": 0.1015,
+          "routes": "12"
+        },
+        {
+          "name": "Peacehaven",
+          "lat": 50.792,
+          "lon": -0.001,
+          "routes": "12"
+        },
+        {
+          "name": "Tunbridge Wells",
+          "lat": 51.1324,
+          "lon": 0.2637,
+          "routes": "29"
+        }
+      ],
+      "polygons": [
+        [
+          [
+            50.8098,
+            -0.3723
+          ],
+          [
+            50.8111,
+            -0.3735
+          ],
+          [
+            50.8147,
+            -0.3749
+          ],
+          [
+            50.8194,
+            -0.3764
+          ],
+          [
+            50.8247,
+            -0.3769
+          ],
+          [
+            50.8275,
+            -0.3776
+          ],
+          [
+            50.8301,
+            -0.3809
+          ],
+          [
+            50.8326,
+            -0.3847
+          ],
+          [
+            50.8365,
+            -0.3896
+          ],
+          [
+            50.8384,
+            -0.3935
+          ],
+          [
+            50.8398,
+            -0.3969
+          ],
+          [
+            50.843,
+            -0.3974
+          ],
+          [
+            50.8469,
+            -0.4001
+          ],
+          [
+            50.851,
+            -0.4027
+          ],
+          [
+            50.8543,
+            -0.4042
+          ],
+          [
+            50.8571,
+            -0.4061
+          ],
+          [
+            50.8604,
+            -0.4069
+          ],
+          [
+            50.8644,
+            -0.4137
+          ],
+          [
+            50.8685,
+            -0.414
+          ],
+          [
+            50.8705,
+            -0.4105
+          ],
+          [
+            50.8685,
+            -0.407
+          ],
+          [
+            50.8644,
+            -0.4067
+          ],
+          [
+            50.8604,
+            -0.3999
+          ],
+          [
+            50.8571,
+            -0.3991
+          ],
+          [
+            50.8543,
+            -0.3972
+          ],
+          [
+            50.851,
+            -0.3957
+          ],
+          [
+            50.8469,
+            -0.3931
+          ],
+          [
+            50.843,
+            -0.3904
+          ],
+          [
+            50.8398,
+            -0.3899
+          ],
+          [
+            50.8384,
+            -0.3865
+          ],
+          [
+            50.8365,
+            -0.3826
+          ],
+          [
+            50.8326,
+            -0.3777
+          ],
+          [
+            50.8301,
+            -0.3739
+          ],
+          [
+            50.8275,
+            -0.3706
+          ],
+          [
+            50.8247,
+            -0.3699
+          ],
+          [
+            50.8194,
+            -0.3694
+          ],
+          [
+            50.8147,
+            -0.3679
+          ],
+          [
+            50.8111,
+            -0.3665
+          ],
+          [
+            50.8098,
+            -0.3653
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "sc-gold-dayrider",
+      "operator": "SCSO",
+      "name": "Gold Dayrider",
+      "category": "current",
+      "subgroup": "Gold tickets \u2014 all Stagecoach buses in the area",
+      "coverage": "All day on every Stagecoach bus across Surrey, Hampshire & West Sussex \u2014 the whole network."
+    },
+    {
+      "id": "sc-gold-nightrider",
+      "operator": "SCSO",
+      "name": "Gold Nightrider",
+      "category": "current",
+      "subgroup": "Gold tickets \u2014 all Stagecoach buses in the area",
+      "coverage": "Same network-wide validity as Gold Dayrider.",
+      "restrictions": "After 19:30 only; cheaper than the Dayrider."
     }
-  ]
+  ],
+  "operator_notes": {
+    "SCSO": "N700 needs a \u00a32 supplement on any Day/Night Rider, or \u00a35 single."
+  }
 }

@@ -2575,16 +2575,34 @@ async function loadTicketZonesImpl() {
     return;
   }
   state.ticketZones = Array.isArray(data.zones) ? data.zones : [];
+  state.ticketOperatorNotes = (data.operator_notes && typeof data.operator_notes === "object")
+    ? data.operator_notes : {};
 
   if (!state.map.getPane("ticketZonePane")) {
     const pane = state.map.createPane("ticketZonePane");
     pane.style.zIndex = 404; // above overlayPane (400), below markers
   }
 
+  const zoneById = Object.fromEntries(state.ticketZones.map(z => [z.id, z]));
   for (const z of state.ticketZones) {
     const colour = z.color || "#444";
-    if (Array.isArray(z.polygon) && z.polygon.length >= 3) {
-      state.ticketZoneLayers[z.id] = L.polygon(z.polygon, {
+    // A zone's drawn area can come from its own `polygon`, an explicit
+    // `polygons` array, or `polygons_from` — a list of other zone ids whose
+    // shapes are reused (Metrovoyager = citySAVER + Worthing, without copying
+    // ~500 coords). Several rings render as one multipolygon layer; Leaflet
+    // treats [[ring],[ring]] as separate fills vs [ring,ring] (ring + holes).
+    let rings = [];
+    if (Array.isArray(z.polygons_from)) {
+      rings.push(...z.polygons_from
+        .map(id => zoneById[id] && zoneById[id].polygon)
+        .filter(p => Array.isArray(p) && p.length >= 3));
+    }
+    if (Array.isArray(z.polygons)) rings.push(...z.polygons);   // inline rings (e.g. a seam bridge)
+    if (Array.isArray(z.polygon) && z.polygon.length >= 3) rings.push(z.polygon);
+    rings = rings.filter(p => Array.isArray(p) && p.length >= 3);
+    if (rings.length) {
+      const latlngs = rings.length > 1 ? rings.map(r => [r]) : rings[0];
+      state.ticketZoneLayers[z.id] = L.polygon(latlngs, {
         color:       colour,
         weight:      2,
         opacity:     0.9,
@@ -2720,9 +2738,13 @@ function renderTicketZonesList() {
     const border   = getOperatorBorderColour(z.operator);
     const meta     = z.price || "";
     // Reach-aware note: a reach zone IS shown (as tags), so don't say "not drawn".
-    let note = "";
-    if (hasReach && !hasGeo) note = "Reach shown as tags — see official map for the full zone";
-    else if (!hasGeo && !hasReach) note = "Whole-network — see official map";
+    // A card may also carry its own `note`; intentional card-only tickets (those
+    // with a `coverage` blurb, e.g. Gold) shouldn't get the "not drawn" fallback.
+    let note = z.note || "";
+    if (!note) {
+      if (hasReach && !hasGeo) note = "Reach shown as tags — see official map for the full zone";
+      else if (!hasGeo && !hasReach && !z.coverage) note = "Whole-network — see official map";
+    }
     return `
       <div class="proposal-card ticket-zone-card ${sel ? "selected" : ""} ${z.category === "proposed" ? "ticket-zone--proposed" : ""}"
            role="button" tabindex="0"
@@ -2756,6 +2778,21 @@ function renderTicketZonesList() {
     const fg   = pickTextOn(fill) === "dark" ? "#1a1a1a" : "#ffffff";
     const open = state.expandedOperators.has(op);
     const n    = items.length;
+    // Ungrouped cards first, then any named sub-categories (e.g. "Gold tickets"),
+    // then an operator-wide footnote (e.g. the N700 supplement).
+    const ungrouped = items.filter(z => !z.subgroup);
+    const subgroups = new Map();
+    for (const z of items) {
+      if (!z.subgroup) continue;
+      if (!subgroups.has(z.subgroup)) subgroups.set(z.subgroup, []);
+      subgroups.get(z.subgroup).push(z);
+    }
+    let inner = ungrouped.map(cardHtml).join("");
+    for (const [name, sub] of subgroups) {
+      inner += `<p class="ticket-subgroup-heading">${escapeHtml(name)}</p>` + sub.map(cardHtml).join("");
+    }
+    const footnote = (state.ticketOperatorNotes || {})[op];
+    if (footnote) inner += `<p class="ticket-operator-footnote">${escapeHtml(footnote)}</p>`;
     return `
       <section class="ticket-operator-group">
         <div class="ticket-operator-card" role="button" tabindex="0"
@@ -2766,7 +2803,7 @@ function renderTicketZonesList() {
           <svg class="icon ticket-operator-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
         </div>
         <div class="ticket-operator-zones ${open ? "expanded" : ""}">
-          ${items.map(cardHtml).join("")}
+          ${inner}
         </div>
       </section>`;
   };

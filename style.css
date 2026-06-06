@@ -2285,6 +2285,22 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   border-left: 2px solid var(--color-border);
 }
 .ticket-operator-zones.expanded { display: flex; }
+/* Sub-category heading within an operator group (e.g. "Gold tickets"). */
+.ticket-subgroup-heading {
+  margin: var(--space-2xs) 0 0;
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+/* Operator-wide footnote (e.g. the N700 supplement). */
+.ticket-operator-footnote {
+  margin: var(--space-2xs) 0 0;
+  font-size: var(--font-size-xs);
+  font-style: italic;
+  color: var(--color-text-muted);
+}
 /* "Proposed" tag on a future zone card */
 .ticket-zone-proposed-tag {
   display: inline-block;
