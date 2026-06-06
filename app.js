@@ -95,6 +95,14 @@ const state = {
   showProposals:           false,  // map overlay toggle in Improvements mode
   selectedProposalId:      null,
 
+  // ── Ticket view (fare zones) ──
+  ticketZones:             null,   // data/ticket_zones.json (array); null = not loaded
+  ticketZoneLayers:        {},     // zone id → L.polygon (only for zones with geometry)
+  ticketReachLayers:       {},     // zone id → [L.marker] reach pills (networkSAVER-style)
+  selectedZoneId:          null,
+  expandedOperators:       null,    // Set of operator codes whose ticket sub-cards are revealed
+  _ticketZonesPromise:     null,
+
   // ── Proposal editor ──
   editor:              null,      // active draft object; null = editor closed
   editorMode:          "addStop", // "move" | "addStop" — stops-only routing
@@ -160,6 +168,7 @@ const dom = {
   routesAllBtn:           document.getElementById("routes-all-btn"),
   routesNoneBtn:          document.getElementById("routes-none-btn"),
   proposalsList:          document.getElementById("proposals-list"),
+  ticketZonesList:        document.getElementById("ticket-zones-list"),
   mapOverlayControls:     document.getElementById("map-overlay-controls"),
 
   // ── Proposal editor ──
@@ -197,6 +206,7 @@ function parseUrlState() {
 function buildUrlHash() {
   const parts = [];
   if (state.viewMode === "improvements") parts.push("view=i");
+  else if (state.viewMode === "tickets") parts.push("view=t");
   if (state.serviceMode === "night")     parts.push("svc=n");
   if (state.viewMode === "live") {
     if (state.selectedStop && state.selectedStop.atcoCode) {
@@ -232,7 +242,9 @@ async function applyUrlState(parsed) {
     const svc = parsed.svc === "n" ? "night" : "day";
     if (state.serviceMode !== svc) setServiceMode(svc);
 
-    const view = parsed.view === "i" ? "improvements" : "live";
+    const view = parsed.view === "i" ? "improvements"
+               : parsed.view === "t" ? "tickets"
+               : "live";
     if (state.viewMode !== view) setViewMode(view);
 
     if (view === "improvements") {
@@ -534,7 +546,7 @@ function stopVehicleRefresh() {
 function setBusesVisible(on) {
   state.busesVisible = !!on;
   updateBusesToggleBtn();
-  if (state.viewMode === "improvements") return;
+  if (state.viewMode !== "live") return;   // buses only shown in Live
   if (state.busesVisible) {
     showVehicleMarkers();
     if (!state.isRefreshing) startVehicleRefresh();
@@ -556,6 +568,10 @@ async function fetchVehicles() {
   try {
     const data = await apiFetch("/api/vehicles");
     if (!data || !data.vehicles) return;
+
+    // A request in flight when the user switched to a non-live view (Route or
+    // Ticket) must not re-add bus markers after the switch cleared them.
+    if (state.viewMode !== "live" || !state.busesVisible) return;
 
     updateVehicleMarkers(data.vehicles);
     resolvePendingBusRef();
@@ -793,8 +809,8 @@ window.openDepartures = async function(atcoCode, stopName) {
     return;
   }
 
-  // Stops are inert in Improvements mode (network-view rather than live).
-  if (state.viewMode === "improvements") return;
+  // Stops are inert in the non-live network views (Route view / Ticket view).
+  if (state.viewMode !== "live") return;
 
   // Close any open Leaflet popup to avoid clutter
   state.map.closePopup();
@@ -1635,14 +1651,14 @@ function setImprovementsTab(tab) {
  * visible but don't react to clicks.
  */
 function setViewMode(mode) {
-  if (mode !== "live" && mode !== "improvements") return;
+  if (mode !== "live" && mode !== "improvements" && mode !== "tickets") return;
   if (state.viewMode === mode) return;
   state.viewMode = mode;
 
   syncSectionNavToViewMode();
 
-  // Body class for CSS-level swaps
-  document.body.classList.toggle("improvements-mode", mode !== "live");
+  // data-view drives CSS-level panel/map swaps across the three sections.
+  document.body.dataset.view = mode;
 
   // Side-effects wired in later tasks (vehicle refresh, polylines, panel).
   applyViewMode();
@@ -1729,16 +1745,21 @@ function initSectionNav() {
 }
 
 async function applyViewMode() {
-  // The "show buses" toggle only does anything in Live view, so hide it in
-  // Improvements to avoid a control that visibly does nothing.
-  if (dom.toggleBusesBtn) dom.toggleBusesBtn.hidden = (state.viewMode === "improvements");
+  const live = state.viewMode === "live";
+  // The "show buses" toggle only does anything in Live view.
+  if (dom.toggleBusesBtn) dom.toggleBusesBtn.hidden = !live;
 
-  if (state.viewMode === "improvements") {
-    // Pause the live refresh — Improvements mode is a static network view.
+  // Any non-live section is a static network view: pause the live refresh,
+  // hide vehicles, and dismiss the live stop/bus panel + popups.
+  if (!live) {
     if (state.isRefreshing) stopVehicleRefresh();
     hideVehicleMarkers();
     state.map.closePopup();
     closePanel();
+  }
+
+  if (state.viewMode === "improvements") {
+    hideTicketZones();
     ensureMapOverlayControls();
     try {
       await Promise.all([loadRouteLines(), loadProposals()]);
@@ -1746,15 +1767,27 @@ async function applyViewMode() {
       reconcileProposalLayers();
       if (state.selectedProposalId) showProposal(state.selectedProposalId);
     } catch (err) {
-      console.warn("Improvements data fetch failed:", err);
-      showToast("Could not load Improvements data. Try again later.");
+      console.warn("Route view data fetch failed:", err);
+      showToast("Could not load route data. Try again later.");
     }
-  } else {
-    // If the editor is open, tear it down — it only makes sense in Improvements mode.
+  } else if (state.viewMode === "tickets") {
+    // The editor only makes sense in Route view; tear it down.
     if (state.editor) closeEditor({ skipSave: false });
     hideRouteLines();
     hideAllProposalLayers();
-    // Respect the header "show buses" toggle when returning to Live.
+    try {
+      await loadTicketZones();
+      showTicketZones();
+    } catch (err) {
+      console.warn("Ticket view data fetch failed:", err);
+      showToast("Could not load ticket data. Try again later.");
+    }
+  } else {
+    // Live: tear down all network-view layers and restore the live map.
+    if (state.editor) closeEditor({ skipSave: false });
+    hideRouteLines();
+    hideAllProposalLayers();
+    hideTicketZones();
     if (state.busesVisible) {
       showVehicleMarkers();
       if (!state.isRefreshing) startVehicleRefresh();
@@ -2509,6 +2542,273 @@ function ensureMapOverlayControls() {
   dom.mapOverlayControls.dataset.built = "1";
   dom.mapOverlayControls.querySelector("[data-overlay='proposals']")
     .addEventListener("click", () => setShowProposals(!state.showProposals));
+}
+
+// ============================================================
+// TICKET VIEW (fare zones)
+// ============================================================
+
+/** Memoised loader, mirrors loadRouteLines: fetch the zone catalogue once and
+ *  pre-build a Leaflet polygon for every zone that ships geometry. */
+function loadTicketZones() {
+  if (!state._ticketZonesPromise) {
+    state._ticketZonesPromise = loadTicketZonesImpl().catch(err => {
+      state._ticketZonesPromise = null;
+      throw err;
+    });
+  }
+  return state._ticketZonesPromise;
+}
+
+async function loadTicketZonesImpl() {
+  if (state.ticketZones) return;
+  let data;
+  try {
+    const res = await fetch("data/ticket_zones.json");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+  } catch (err) {
+    // No catalogue yet (or fetch failed) — degrade to an empty list, don't throw.
+    console.warn("Ticket zones load failed:", err);
+    state.ticketZones = [];
+    renderTicketZonesList();
+    return;
+  }
+  state.ticketZones = Array.isArray(data.zones) ? data.zones : [];
+
+  if (!state.map.getPane("ticketZonePane")) {
+    const pane = state.map.createPane("ticketZonePane");
+    pane.style.zIndex = 404; // above overlayPane (400), below markers
+  }
+
+  for (const z of state.ticketZones) {
+    const colour = z.color || "#444";
+    if (Array.isArray(z.polygon) && z.polygon.length >= 3) {
+      state.ticketZoneLayers[z.id] = L.polygon(z.polygon, {
+        color:       colour,
+        weight:      2,
+        opacity:     0.9,
+        fillColor:   colour,
+        fillOpacity: 0.12,
+        interactive: false,
+        pane:        "ticketZonePane",
+      });
+    }
+    // Reach pills (networkSAVER-style): the furthest points routes reach beyond
+    // the city zone, rendered as "{routes} → {place}" tags. Each pill is tinted
+    // with its route's livery colour (first route number wins for "28/29").
+    if (Array.isArray(z.reach_points) && z.reach_points.length) {
+      state.ticketReachLayers[z.id] = z.reach_points.map(rp => {
+        const firstRoute = rp.routes ? String(rp.routes).split(/[\/,]/)[0].trim() : "";
+        const bg = getRouteColour(firstRoute, z.operator);
+        const fg = pickTextOn(bg) === "dark" ? "#1a1a1a" : "#ffffff";
+        return makeReachPill(rp.lat, rp.lon,
+          `${rp.routes ? rp.routes + " → " : ""}${rp.name}`, bg, fg);
+      });
+    }
+  }
+  renderTicketZonesList();
+}
+
+/** A standalone destination pill centred on a point (reuses the route-endpoint
+ *  pill look). Used for networkSAVER "reach" tags. */
+function makeReachPill(lat, lon, label, bg, fg) {
+  return L.marker([lat, lon], {
+    icon: L.divIcon({
+      className: "ticket-reach-tag",
+      html: `<span class="route-endpoint-pill ticket-reach-pill" `
+          + `style="background:${bg};color:${fg}">${escapeHtml(label)}</span>`,
+      iconSize:   [0, 0],
+      iconAnchor: [0, 0],
+    }),
+    interactive: false,
+    keyboard:    false,
+    zIndexOffset: 650,
+  });
+}
+
+function showTicketZones() {
+  reconcileTicketDisplay();
+}
+
+function hideTicketZones() {
+  for (const layer of Object.values(state.ticketZoneLayers)) {
+    if (state.map.hasLayer(layer)) state.map.removeLayer(layer);
+  }
+  for (const pills of Object.values(state.ticketReachLayers)) {
+    for (const m of pills) if (state.map.hasLayer(m)) state.map.removeLayer(m);
+  }
+}
+
+/** Look up a zone's operator from the loaded catalogue. */
+function zoneOperator(zoneId) {
+  const z = (state.ticketZones || []).find(z => z.id === zoneId);
+  return z ? z.operator : null;
+}
+
+/** Map display is operator-driven: a zone's polygon + reach pills are shown
+ *  only while its operator is expanded in the list. Nothing shows by default;
+ *  clicking an operator reveals all of that operator's zones. The selected
+ *  sub-card's zone just gets a heavier stroke for emphasis. */
+function reconcileTicketDisplay() {
+  const expanded = state.expandedOperators || new Set();
+  const inTickets = state.viewMode === "tickets";
+  for (const [id, layer] of Object.entries(state.ticketZoneLayers)) {
+    const show = inTickets && expanded.has(zoneOperator(id));
+    if (show) {
+      if (!state.map.hasLayer(layer)) layer.addTo(state.map);
+      const sel = id === state.selectedZoneId;
+      layer.setStyle({ weight: sel ? 4 : 2.5, fillOpacity: sel ? 0.3 : 0.22 });
+      if (sel) layer.bringToFront();
+    } else if (state.map.hasLayer(layer)) {
+      state.map.removeLayer(layer);
+    }
+  }
+  for (const [zid, pills] of Object.entries(state.ticketReachLayers)) {
+    const show = inTickets && expanded.has(zoneOperator(zid));
+    for (const m of pills) {
+      if (show && !state.map.hasLayer(m))      m.addTo(state.map);
+      else if (!show && state.map.hasLayer(m)) state.map.removeLayer(m);
+    }
+  }
+}
+
+/** Combined map bounds of every shown zone (polygons + reach pills) for an
+ *  operator, or null if it has nothing to fit to. */
+function operatorBounds(op) {
+  let b = null;
+  for (const z of (state.ticketZones || [])) {
+    if (z.operator !== op) continue;
+    const layer = state.ticketZoneLayers[z.id];
+    if (layer) b = b ? b.extend(layer.getBounds()) : L.latLngBounds(layer.getBounds());
+    for (const m of (state.ticketReachLayers[z.id] || [])) {
+      const ll = m.getLatLng();
+      b = b ? b.extend(ll) : L.latLngBounds(ll, ll);
+    }
+  }
+  return b;
+}
+
+/** Toggle selection of a zone (click again to deselect); zoom to its polygon,
+ *  or to its reach-pill cluster for a card/reach zone like networkSAVER. */
+function selectZone(id) {
+  state.selectedZoneId = (state.selectedZoneId === id) ? null : id;
+  reconcileTicketDisplay();
+  const sel   = state.selectedZoneId;
+  const layer = state.ticketZoneLayers[sel];
+  const pills = state.ticketReachLayers[sel];
+  if (layer) {
+    state.map.fitBounds(layer.getBounds(), { padding: [40, 40], maxZoom: 13 });
+  } else if (pills && pills.length) {
+    const b = L.latLngBounds(pills.map(m => m.getLatLng()));
+    state.map.fitBounds(b, { padding: [50, 50], maxZoom: 12 });
+  }
+  renderTicketZonesList();
+}
+
+function renderTicketZonesList() {
+  if (!dom.ticketZonesList) return;
+  const zones = state.ticketZones || [];
+  if (zones.length === 0) {
+    dom.ticketZonesList.innerHTML = `<p class="proposals-empty">No ticket zones yet.</p>`;
+    return;
+  }
+  const cardHtml = (z) => {
+    const sel      = z.id === state.selectedZoneId;
+    const hasGeo   = !!state.ticketZoneLayers[z.id];
+    const hasReach = !!(state.ticketReachLayers[z.id] || []).length;
+    const border   = getOperatorBorderColour(z.operator);
+    const meta     = z.price || "";
+    // Reach-aware note: a reach zone IS shown (as tags), so don't say "not drawn".
+    let note = "";
+    if (hasReach && !hasGeo) note = "Reach shown as tags — see official map for the full zone";
+    else if (!hasGeo && !hasReach) note = "Whole-network — see official map";
+    return `
+      <div class="proposal-card ticket-zone-card ${sel ? "selected" : ""} ${z.category === "proposed" ? "ticket-zone--proposed" : ""}"
+           role="button" tabindex="0"
+           data-zone-id="${escapeAttr(z.id)}"
+           style="border-left-color:${escapeAttr(border)}">
+        <span class="proposal-card-name">${escapeHtml(z.name || z.id)}${z.category === "proposed" ? ` <span class="ticket-zone-proposed-tag">Proposed</span>` : ""}</span>
+        ${meta ? `<span class="proposal-card-summary">${escapeHtml(meta)}</span>` : ""}
+        ${z.coverage ? `<span class="proposal-card-summary">${escapeHtml(z.coverage)}</span>` : ""}
+        ${z.restrictions ? `<span class="ticket-zone-restrict">${escapeHtml(z.restrictions)}</span>` : ""}
+        ${z.official_map_url ? `<a class="ticket-zone-link" href="${escapeAttr(z.official_map_url)}" target="_blank" rel="noopener noreferrer">View official zone map ↗</a>` : ""}
+        ${note ? `<span class="ticket-zone-note">${escapeHtml(note)}</span>` : ""}
+      </div>`;
+  };
+
+  // Group by operator; each operator is a collapsible card revealing its zones.
+  const byOp = new Map();              // operator → [zones], preserving first-seen order
+  for (const z of zones) {
+    if (!byOp.has(z.operator)) byOp.set(z.operator, []);
+    byOp.get(z.operator).push(z);
+  }
+  if (!state.expandedOperators) state.expandedOperators = new Set();
+  // Keep the operator of the selected zone open so the highlighted card shows
+  // (expansion is exclusive — only that operator's zones stay on the map).
+  if (state.selectedZoneId) {
+    const selZone = zones.find(z => z.id === state.selectedZoneId);
+    if (selZone) state.expandedOperators = new Set([selZone.operator]);
+  }
+
+  const operatorSection = (op, items) => {
+    const fill = OPERATOR_COLOURS[op] || "#444";
+    const fg   = pickTextOn(fill) === "dark" ? "#1a1a1a" : "#ffffff";
+    const open = state.expandedOperators.has(op);
+    const n    = items.length;
+    return `
+      <section class="ticket-operator-group">
+        <div class="ticket-operator-card" role="button" tabindex="0"
+             data-operator="${escapeAttr(op)}" aria-expanded="${open ? "true" : "false"}"
+             style="--op-bg:${fill};--op-fg:${fg}">
+          <span class="ticket-operator-name">${escapeHtml(getOperatorName(op) || op || "Other operators")}</span>
+          <span class="ticket-operator-count">${n} ${n === 1 ? "ticket" : "tickets"}</span>
+          <svg class="icon ticket-operator-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+        </div>
+        <div class="ticket-operator-zones ${open ? "expanded" : ""}">
+          ${items.map(cardHtml).join("")}
+        </div>
+      </section>`;
+  };
+  dom.ticketZonesList.innerHTML =
+    [...byOp.entries()].map(([op, items]) => operatorSection(op, items)).join("");
+
+  // Operator card: open this operator (revealing its zones on the map) and
+  // close any other — expansion is exclusive so overlapping operators never
+  // pile filled polygons on top of each other. Click an open one to collapse.
+  dom.ticketZonesList.querySelectorAll(".ticket-operator-card").forEach(card => {
+    const toggle = () => {
+      const op = card.dataset.operator;
+      const nowOpen = !state.expandedOperators.has(op);
+      // A header click is an operator switch, not a zone pick — always clear the
+      // sub-card selection, else renderTicketZonesList's auto-expand would snap
+      // expansion back to the previously-selected zone's operator.
+      state.selectedZoneId = null;
+      state.expandedOperators = nowOpen ? new Set([op]) : new Set();
+      renderTicketZonesList();                      // reflect exclusive state
+      reconcileTicketDisplay();
+      if (nowOpen) {
+        const b = operatorBounds(op);
+        if (b && b.isValid()) state.map.fitBounds(b, { padding: [45, 45], maxZoom: 13 });
+      }
+    };
+    card.addEventListener("click", toggle);
+    card.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+    });
+  });
+
+  // Zone sub-card: select/zoom its zone.
+  dom.ticketZonesList.querySelectorAll(".ticket-zone-card").forEach(card => {
+    const activate = (e) => {
+      if (e.target.closest("a")) return;      // let the official-map link through
+      selectZone(card.dataset.zoneId);
+    };
+    card.addEventListener("click", activate);
+    card.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(e); }
+    });
+  });
 }
 
 // ============================================================

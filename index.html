@@ -27,7 +27,7 @@
 
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
+<body data-view="live">
 
   <!-- ===== SVG ICON SPRITE (Lucide, MIT) ===== -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -137,8 +137,8 @@
           <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
         </span>
         <div>
-          <h1 class="header-title">Adur &amp; Worthing Buses</h1>
-          <p class="header-subtitle">Live departures &amp; vehicle tracking</p>
+          <h1 class="header-title">Better buses for Adur &amp; Worthing</h1>
+          <p class="header-subtitle">Let's connect Adur, Worthing, Brighton &amp; beyond</p>
         </div>
       </div>
       <div class="header-controls">
@@ -149,13 +149,14 @@
           <button class="section-nav-trigger" id="section-nav-trigger"
                   type="button" aria-haspopup="listbox" aria-expanded="false"
                   aria-controls="section-nav-menu" aria-label="Choose section">
-            <span class="section-nav-label" id="section-nav-label">Live</span>
+            <span class="section-nav-label" id="section-nav-label">Live Bus Tracking</span>
             <svg class="icon section-nav-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
           </button>
           <ul class="section-nav-menu hidden" id="section-nav-menu" role="listbox"
               aria-labelledby="section-nav-trigger" tabindex="-1">
-            <li role="option" data-mode="live" aria-selected="true" tabindex="-1">Live</li>
-            <li role="option" data-mode="improvements" aria-selected="false" tabindex="-1">Improvements</li>
+            <li role="option" data-mode="live" aria-selected="true" tabindex="-1">Live Bus Tracking</li>
+            <li role="option" data-mode="improvements" aria-selected="false" tabindex="-1">Route view</li>
+            <li role="option" data-mode="tickets" aria-selected="false" tabindex="-1">Ticket view</li>
           </ul>
         </div>
         <!-- Last-updated timestamp for live data -->
@@ -367,7 +368,7 @@
 
         <!-- Tab strip + close button -->
         <div class="panel-tabs-bar">
-          <div class="panel-tabs" role="tablist" aria-label="Improvements view panels">
+          <div class="panel-tabs" role="tablist" aria-label="Route view panels">
             <button class="panel-tab active" data-improvements-tab="about" role="tab"
                     aria-selected="true" id="tab-about" aria-controls="tab-content-about">
               <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-info"/></svg>
@@ -471,6 +472,28 @@
         </div>
 
       </div><!-- /panel-mode[data-mode="improvements"] -->
+
+      <!-- === TICKET VIEW (fare zones) === -->
+      <div class="panel-mode" data-mode="tickets">
+        <div class="panel-tab-content" id="tab-content-tickets" role="tabpanel">
+          <div class="improvements-intro">
+            <h2 class="improvements-title">Ticket zones</h2>
+            <p>
+              Each operator sells day tickets valid only inside a set zone. This
+              shows what each ticket covers across Adur, Worthing &amp; Brighton —
+              so you can see where one ticket stops working and another is needed.
+            </p>
+            <p class="improvements-note">
+              Zone outlines drawn here are <strong>indicative</strong> — always
+              check the operator's official zone map (linked on each ticket)
+              before you travel.
+            </p>
+          </div>
+          <div class="ticket-zones-list" id="ticket-zones-list" aria-live="polite">
+            <p class="proposals-empty">Loading ticket zones…</p>
+          </div>
+        </div>
+      </div><!-- /panel-mode[data-mode="tickets"] -->
 
     </aside>
 

@@ -1941,15 +1941,28 @@ html.dark-mode .filter-chip.active {
 
 .panel-mode.hidden { display: none; }
 
-/* Mode visibility driven by body class so initial render is consistent */
-body:not(.improvements-mode) .panel-mode[data-mode="improvements"] { display: none; }
-body.improvements-mode      .panel-mode[data-mode="live"]         { display: none; }
+/* Mode visibility driven by body[data-view] so the right panel-mode shows for
+   each of the three sections (live / improvements=Route view / tickets). */
+.panel-mode { display: none; }
+body[data-view="live"]         .panel-mode[data-mode="live"],
+body[data-view="improvements"] .panel-mode[data-mode="improvements"],
+body[data-view="tickets"]      .panel-mode[data-mode="tickets"] { display: flex; }
 
-/* In Improvements mode stops stay visible but inert (no clicks, no popup).
-   Vehicle markers are removed from the map entirely by JS. */
-body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
+/* In the non-live network views stops stay visible but inert (no clicks, no
+   popup). Vehicle markers are removed from the map entirely by JS. */
+body:not([data-view="live"]) .leaflet-marker-icon.stop-marker-icon {
   pointer-events: none !important;
   opacity: 0.55;
+}
+
+/* Ticket view is about the zone fills, not individual stops — shrink the dots
+   and fade them so ~1400 markers recede into the background behind the zones. */
+body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
+  width: 7px !important;
+  height: 7px !important;
+  border-width: 1px !important;
+  opacity: 0.3;
+  box-shadow: none !important;
 }
 
 /* ── About tab ── */
@@ -2185,6 +2198,120 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
   text-decoration: underline;
 }
 
+/* ── Ticket view: fare-zone cards (reuse .proposal-card visuals) ── */
+.ticket-zones-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ticket-zone-restrict {
+  font-size: var(--font-size-xs);
+  color: var(--color-late);
+  font-weight: 600;
+}
+.ticket-zone-link {
+  font-size: var(--font-size-sm);
+  color: var(--color-accent);
+  text-decoration: none;
+  font-weight: 600;
+  align-self: flex-start;
+}
+.ticket-zone-link:hover { text-decoration: underline; }
+.ticket-zone-note {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* Per-operator accordion: a brand-coloured operator card that expands to
+   reveal its ticket sub-cards. Colours come from --op-bg/--op-fg inline. */
+.ticket-operator-group + .ticket-operator-group { margin-top: var(--space-sm); }
+.ticket-operator-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--op-bg, var(--color-primary));
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition), transform var(--transition);
+}
+.ticket-operator-card:hover { background: var(--color-surface); transform: translateY(-1px); }
+.ticket-operator-card[aria-expanded="true"] { background: var(--color-surface); }
+/* Small brand-colour swatch keeps the operator's identity without a loud fill. */
+.ticket-operator-card::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--op-bg, var(--color-primary));
+}
+.ticket-operator-name {
+  flex: 1;
+  font-family: var(--font-brand, var(--font-family));
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text);
+}
+.ticket-operator-count {
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+.ticket-operator-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+  transition: transform var(--transition);
+}
+.ticket-operator-card[aria-expanded="true"] .ticket-operator-chevron { transform: rotate(180deg); }
+/* Collapsible zone sub-cards under an operator card. */
+.ticket-operator-zones {
+  display: none;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin: var(--space-2xs) 0 0 var(--space-sm);
+  padding-left: var(--space-sm);
+  border-left: 2px solid var(--color-border);
+}
+.ticket-operator-zones.expanded { display: flex; }
+/* "Proposed" tag on a future zone card */
+.ticket-zone-proposed-tag {
+  display: inline-block;
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: #fff;
+  vertical-align: middle;
+}
+.ticket-zone--proposed { border-style: dashed; }
+
+/* networkSAVER-style reach pills: a destination tag centred on its point.
+   Reuses .route-endpoint-pill for the pill look; this just centres it. */
+.ticket-reach-tag { overflow: visible; }
+.ticket-reach-pill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* ── Map overlay control: "Show proposals" toggle ── */
 .map-overlay-controls {
   position: absolute;
@@ -2197,7 +2324,9 @@ body.improvements-mode .leaflet-marker-icon.stop-marker-icon {
   pointer-events: none; /* container ignores; children re-enable */
 }
 
-body.improvements-mode .map-overlay-controls { display: flex; }
+/* Route-view only — the overlay button is "Show proposals". Ticket view gets
+   its own controls (rendered separately), so don't blanket non-live here. */
+body[data-view="improvements"] .map-overlay-controls { display: flex; }
 
 .map-overlay-btn {
   pointer-events: auto;

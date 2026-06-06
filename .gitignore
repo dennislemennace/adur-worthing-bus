@@ -5,6 +5,9 @@ __pycache__/
 # Local-only handoff doc
 .HANDOFF.md
 
+# Personal Claude Code settings (e.g. local preview-server hooks)
+.claude/settings.local.json
+
 # Timetable data is published to a rolling GitHub Release and fetched
 # at Render build time; never commit the blobs themselves.
 data/timetable.json
