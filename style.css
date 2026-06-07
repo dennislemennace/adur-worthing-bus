@@ -224,22 +224,26 @@ html.dark-mode .last-updated {
 .status-pill {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-xs);
-  padding: 4px 6px 4px 12px;
-  background: rgba(255,255,255,0.10);
-  border: 1px solid rgba(255,255,255,0.22);
-  border-radius: 999px;
+  gap: var(--space-2xs);
+  padding: 3px 4px 3px 10px;
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: var(--radius-md);
 }
 html.dark-mode .status-pill {
   background: var(--color-surface-2);
   border-color: var(--color-border);
 }
 .status-pill .btn-icon.status-pill-toggle {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  border-radius: calc(var(--radius-md) - 4px);
   background: transparent;
   border: none;
+}
+.status-pill .btn-icon.status-pill-toggle .icon {
+  width: 14px;
+  height: 14px;
 }
 .status-pill .btn-icon.status-pill-toggle:hover {
   background: rgba(255,255,255,0.18);
