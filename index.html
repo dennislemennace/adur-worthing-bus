@@ -6,6 +6,9 @@
   <title>Adur &amp; Worthing Live Bus Tracker</title>
   <meta name="description" content="Live bus departure boards and vehicle tracking for Adur and Worthing, West Sussex." />
 
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="apple-touch-icon" href="favicon.ico" />
+
   <!-- Leaflet CSS (map library — free, no API key needed) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
 
@@ -159,15 +162,20 @@
             <li role="option" data-mode="tickets" aria-selected="false" tabindex="-1">Ticket view</li>
           </ul>
         </div>
-        <!-- Last-updated timestamp for live data -->
-        <span class="last-updated" id="last-updated-label">Connecting…</span>
-        <!-- Dark mode toggle -->
-        <button class="btn-icon" id="dark-mode-btn" title="Toggle dark mode" aria-label="Toggle dark mode">
+        <!-- Live-data status: connecting/updated text + bus visibility toggle, grouped -->
+        <div class="status-pill" id="live-status-pill">
+          <span class="last-updated is-loading" id="last-updated-label" aria-live="polite">
+            <span class="status-pill-label">Connecting</span>
+            <span class="loading-dots" aria-hidden="true"></span>
+          </span>
+          <button class="btn-icon status-pill-toggle" id="toggle-buses-btn"
+                  title="Hide buses" aria-label="Hide buses" aria-pressed="true">
+            <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
+          </button>
+        </div>
+        <!-- Dark mode toggle — global preference, intentionally distinct shape/colour -->
+        <button class="btn-icon btn-theme" id="dark-mode-btn" title="Toggle dark mode" aria-label="Toggle dark mode">
           <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg>
-        </button>
-        <!-- Show/hide buses toggle (hides markers + pauses the live refresh) -->
-        <button class="btn-icon" id="toggle-buses-btn" title="Hide buses" aria-label="Hide buses" aria-pressed="true">
-          <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
         </button>
       </div>
     </div>

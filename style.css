@@ -207,13 +207,79 @@ html.dark-mode .header-subtitle {
 .last-updated {
   font-family: var(--font-mono);
   font-size: var(--font-size-2xs);
-  color: rgba(255,255,255,0.65);
+  font-weight: 600;
+  color: rgba(255,255,255,0.92);
   white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
 }
 
 html.dark-mode .last-updated {
-  color: var(--color-text-muted);
+  color: var(--color-text);
 }
+
+/* Status pill: groups the connecting/updated label + bus-visibility toggle so
+   they read as a single "live data" control. The bus toggle nests inside as a
+   smaller circular dot; dark-mode toggle lives outside (intentionally distinct). */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 4px 6px 4px 12px;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: 999px;
+}
+html.dark-mode .status-pill {
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+}
+.status-pill .btn-icon.status-pill-toggle {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+}
+.status-pill .btn-icon.status-pill-toggle:hover {
+  background: rgba(255,255,255,0.18);
+}
+html.dark-mode .status-pill .btn-icon.status-pill-toggle:hover {
+  background: var(--color-border);
+}
+
+/* Cascading "., .., ..." loading dots — width-reveal in 4 discrete steps so
+   the dots accumulate left-to-right ('' → . → .. → ...) instead of waving. */
+.last-updated .loading-dots {
+  display: none;
+  margin-left: 2px;
+  width: 3ch;
+  overflow: hidden;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.last-updated.is-loading .loading-dots { display: inline-block; }
+.last-updated.is-loading .loading-dots::before {
+  content: "...";
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
+  animation: lu-dot-grow 1.4s steps(4, jump-none) infinite;
+}
+@keyframes lu-dot-grow {
+  from { width: 0;   }
+  to   { width: 3ch; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .last-updated.is-loading .loading-dots::before { animation: none; width: 3ch; }
+}
+
+/* Failure tint so "Update failed — retrying" doesn't look identical to a
+   normal connect (both bold + animated). Amber = "still trying, but degraded". */
+.last-updated.is-error .status-pill-label,
+.last-updated.is-error .loading-dots { color: #ffcf80; }
+html.dark-mode .last-updated.is-error .status-pill-label,
+html.dark-mode .last-updated.is-error .loading-dots { color: #ffb84d; }
 
 /* Section nav dropdown — replaces the segmented Live/Improvements toggle.
    Trigger is styled like the existing .btn-icon family so it reads as part
@@ -321,6 +387,37 @@ html.dark-mode .btn-icon {
 html.dark-mode .btn-icon:hover {
   background: var(--color-border);
   color: var(--color-text);
+}
+
+/* Dark-mode toggle — circular, warm-tinted disc in light mode, cool disc in
+   dark mode. Reads as a global preference control, not a sibling of the
+   live-data icons inside the status pill. */
+.btn-icon.btn-theme {
+  border-radius: 50%;
+  background: linear-gradient(135deg,
+              rgba(255,210,140,0.30),
+              rgba(255,255,255,0.05));
+  border: 1px solid rgba(255,210,140,0.60);
+  color: #fff8e6;
+  box-shadow: 0 0 0 2px rgba(255,210,140,0.10);
+}
+.btn-icon.btn-theme:hover {
+  background: linear-gradient(135deg,
+              rgba(255,210,140,0.45),
+              rgba(255,255,255,0.10));
+}
+html.dark-mode .btn-icon.btn-theme {
+  background: linear-gradient(135deg,
+              rgba(120,180,255,0.22),
+              rgba(255,255,255,0.03));
+  border-color: rgba(150,195,255,0.55);
+  color: #e6f0ff;
+  box-shadow: 0 0 0 2px rgba(120,180,255,0.10);
+}
+html.dark-mode .btn-icon.btn-theme:hover {
+  background: linear-gradient(135deg,
+              rgba(120,180,255,0.32),
+              rgba(255,255,255,0.06));
 }
 
 /* ===== MAIN LAYOUT ===== */

@@ -577,11 +577,20 @@ async function fetchVehicles() {
     resolvePendingBusRef();
 
     const now = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    dom.lastUpdatedLabel.textContent = `Updated ${now}`;
+    setStatusLabel({ text: `Updated ${now}`, loading: false });
   } catch (err) {
     console.warn("Vehicle refresh failed:", err);
-    dom.lastUpdatedLabel.textContent = "Update failed — retrying…";
+    setStatusLabel({ text: "Update failed — retrying", loading: true, error: true });
   }
+}
+
+function setStatusLabel({ text, loading, error = false }) {
+  const el = dom.lastUpdatedLabel;
+  if (!el) return;
+  el.classList.toggle("is-loading", !!loading);
+  el.classList.toggle("is-error", !!error);
+  const dots = loading ? '<span class="loading-dots" aria-hidden="true"></span>' : "";
+  el.innerHTML = `<span class="status-pill-label">${escapeHtml(text)}</span>${dots}`;
 }
 
 function updateVehicleMarkers(vehicles) {
@@ -1117,7 +1126,7 @@ function renderBusTab() {
   const fleetId      = v.vehicle_ref || "–";
   const chip         = buildStatusChip({ delay_seconds: v.delay_seconds });
   const upcomingHtml = buildUpcomingStopsHtml();
-  const ticketHtml   = buildTicketInfoHtml(v.operator_ref);
+  const ticketHtml   = buildTicketInfoHtml(v.operator_ref, null, service);
 
   const iconHtml = iconUrl
     ? `<img class="bus-info-icon" src="${escapeAttr(iconUrl)}" alt="">`
@@ -1194,12 +1203,21 @@ function renderBusTab() {
  * API response (e.g. from /api/tickets?operatorRef=...) can be merged in
  * by passing it as the optional `liveData` argument.
  */
-function buildTicketInfoHtml(operatorRef, liveData = null) {
+function buildTicketInfoHtml(operatorRef, liveData = null, service = "") {
   // Future: merge liveData fields over the static entry when available.
   const info = OPERATOR_TICKETS[operatorRef] || null;
-  if (!info && !liveData) return "";
+  const isN700 = /^N700$/i.test(String(service || "").trim());
+  if (!info && !liveData && !isN700) return "";
 
   const rows = [];
+
+  if (isN700) {
+    rows.push(`
+      <div class="ticket-row">
+        <span class="ticket-label">N700 single</span>
+        <span class="ticket-value">Anytime single £5, or £2 supplement on a Stagecoach Day/Night Rider.</span>
+      </div>`);
+  }
 
   if (info?.dayPass) {
     rows.push(`
