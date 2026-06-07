@@ -73,6 +73,9 @@ const state = {
   selectedVehicleLastSeen: null,   // Date of last feed where the bus appeared
   selectedVehicleLost:     false,  // true once it drops out of the feed
   followSelectedBus:       false,  // map-follow checkbox state
+  notifyOnMove:            false,  // "Notify when this bus moves" checkbox state
+  notifyBaseline:          null,   // {lat, lon, ref} captured when arming
+  notifyOverThresholdCount: 0,     // consecutive frames over deadzone (requires 2 to fire)
   activeTab:               "stop", // "stop" | "bus"
   busInfoTickTimer:        null,   // setInterval handle for "X ago" text
   busDetails:              null,   // /api/vehicle response for selected bus
@@ -584,6 +587,58 @@ async function fetchVehicles() {
   }
 }
 
+// "Notify me when this bus moves" — distance deadzone in metres. Typical AVL
+// jitter is 10–30 m; 50 m is well above that and a real moving bus clears it
+// in a single 20 s frame. We also require 2 consecutive over-threshold frames
+// to kill single-frame GPS spikes.
+const NOTIFY_MOVE_THRESHOLD_M = 50;
+const NOTIFY_MOVE_FRAMES_REQ  = 2;
+
+function checkNotifyOnMove(vehicle) {
+  if (!state.notifyOnMove || !state.notifyBaseline) return;
+  if (state.notifyBaseline.ref !== vehicle.vehicle_ref) return;
+  if (vehicle.latitude == null || vehicle.longitude == null) return;
+  const d = state.map.distance(
+    [state.notifyBaseline.lat, state.notifyBaseline.lon],
+    [vehicle.latitude,         vehicle.longitude]
+  );
+  if (d >= NOTIFY_MOVE_THRESHOLD_M) {
+    state.notifyOverThresholdCount += 1;
+    if (state.notifyOverThresholdCount >= NOTIFY_MOVE_FRAMES_REQ) {
+      fireMoveNotification(vehicle, d);
+      // Latch off: clear so it doesn't re-fire every frame as the bus rolls.
+      state.notifyOnMove = false;
+      state.notifyBaseline = null;
+      state.notifyOverThresholdCount = 0;
+      if (state.activeTab === "bus") renderBusTab();
+    }
+  } else {
+    // Drop below threshold (e.g. jitter spike) — reset the counter so we
+    // only fire when the bus has *sustained* movement away from the baseline.
+    state.notifyOverThresholdCount = 0;
+  }
+}
+
+function fireMoveNotification(vehicle, distanceM) {
+  const svc = vehicle.service_ref || "Bus";
+  const dest = prettifyName(
+    vehicle.destination
+    || state.busDetails?.vehicle?.trip_headsign
+    || vehicle.trip_headsign
+  ) || "";
+  const title = `${svc} is on the move`;
+  const body = dest
+    ? `Service ${svc} to ${dest} has moved ~${Math.round(distanceM)} m.`
+    : `Service ${svc} has moved ~${Math.round(distanceM)} m.`;
+  try {
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification(title, { body, tag: `bus-move-${vehicle.vehicle_ref}` });
+    }
+  } catch (e) {
+    console.warn("Notification failed:", e);
+  }
+}
+
 function setStatusLabel({ text, loading, error = false }) {
   const el = dom.lastUpdatedLabel;
   if (!el) return;
@@ -639,6 +694,7 @@ function updateVehicleMarkers(vehicles) {
       state.selectedVehicle = vehicle;
       state.selectedVehicleLastSeen = new Date();
       state.selectedVehicleLost = false;
+      checkNotifyOnMove(vehicle);
       if (state.activeTab === "bus") renderBusTab();
       if (state.followSelectedBus) {
         state.map.panTo([vehicle.latitude, vehicle.longitude], { animate: true });
@@ -1063,6 +1119,13 @@ function setActiveTab(tab) {
  * Switches to the Bus tab and renders the latest known data.
  */
 function openBusInfo(vehicle) {
+  // Clear notify-on-move state when switching buses (latch + baseline are
+  // per-vehicle; a stale baseline against a new bus would fire instantly).
+  if (state.selectedVehicleRef !== vehicle.vehicle_ref) {
+    state.notifyOnMove = false;
+    state.notifyBaseline = null;
+    state.notifyOverThresholdCount = 0;
+  }
   state.selectedVehicleRef      = vehicle.vehicle_ref;
   state.selectedVehicle         = vehicle;
   state.selectedVehicleLastSeen = new Date();
@@ -1173,6 +1236,13 @@ function renderBusTab() {
       <span>Follow this bus on the map</span>
     </label>
 
+    <label class="follow-bus-toggle">
+      <input type="checkbox" id="notify-move-checkbox" ${state.notifyOnMove ? "checked" : ""}>
+      <span>Notify me when this bus moves
+        <small class="follow-bus-hint">(while this site is open)</small>
+      </span>
+    </label>
+
     ${upcomingHtml}
 
     ${ticketHtml}
@@ -1192,6 +1262,56 @@ function renderBusTab() {
           [state.selectedVehicle.latitude, state.selectedVehicle.longitude],
           { animate: true }
         );
+      }
+    });
+  }
+
+  const nb = document.getElementById("notify-move-checkbox");
+  if (nb) {
+    nb.addEventListener("change", (e) => armNotifyOnMove(e.target.checked, nb));
+  }
+}
+
+// Arm/disarm the "notify on move" latch. Requesting Notification permission
+// must happen on a user gesture; if the user denies (or has previously
+// blocked) we revert the checkbox so the UI doesn't pretend it's armed.
+function armNotifyOnMove(wantOn, checkboxEl) {
+  if (!wantOn) {
+    state.notifyOnMove = false;
+    state.notifyBaseline = null;
+    state.notifyOverThresholdCount = 0;
+    return;
+  }
+  if (!("Notification" in window)) {
+    alert("Your browser doesn't support notifications.");
+    if (checkboxEl) checkboxEl.checked = false;
+    return;
+  }
+  const v = state.selectedVehicle;
+  if (!v || v.latitude == null || v.longitude == null) {
+    if (checkboxEl) checkboxEl.checked = false;
+    return;
+  }
+  const captureBaseline = () => {
+    state.notifyOnMove = true;
+    state.notifyBaseline = {
+      ref: state.selectedVehicleRef,
+      lat: v.latitude,
+      lon: v.longitude,
+    };
+    state.notifyOverThresholdCount = 0;
+  };
+  if (Notification.permission === "granted") {
+    captureBaseline();
+  } else if (Notification.permission === "denied") {
+    alert("Notifications are blocked. Enable them in your browser settings for this site.");
+    if (checkboxEl) checkboxEl.checked = false;
+  } else {
+    Notification.requestPermission().then((perm) => {
+      if (perm === "granted") {
+        captureBaseline();
+      } else {
+        if (checkboxEl) checkboxEl.checked = false;
       }
     });
   }
