@@ -81,10 +81,17 @@ NEXTBUSES_DAILY_LIMIT        = int(os.getenv("NEXTBUSES_DAILY_LIMIT", "300"))
 # Entitlement (per user's account): GB (Network Rail) namespace,
 # 14-day history, 30/min · 750/hr · 9 000/day · 30 000/wk.
 # Per-minute is the binding constraint — design around it, not the day.
-RTT_BEARER_TOKEN    = os.environ.get("RTT_BEARER_TOKEN", "")
+RTT_BEARER_TOKEN    = os.environ.get("RTT_BEARER_TOKEN", "")   # the LONG-LIVED token ID (UUID)
 RTT_BASE_URL        = os.environ.get("RTT_BASE_URL", "https://data.rtt.io")
 RTT_NAMESPACE       = os.environ.get("RTT_NAMESPACE", "gb-nr")
 RTT_CACHE_TTL       = int(os.environ.get("RTT_CACHE_TTL", "30"))  # matches RTT cadence
+RTT_ISSUE_PATH      = os.environ.get("RTT_ISSUE_PATH", "/api/get_access_token")
+# Short-lived access token cache. The portal hands us a token-ID (UUID); we
+# swap it for an access token (~24-min lifetime) at /api/get_access_token,
+# then reuse it until close to expiry. Re-issuing every ~20 min costs ~70
+# calls/day, well inside the 9 000-call budget.
+_rtt_access: dict = {"token": "", "valid_until": 0.0}
+RTT_ACCESS_GRACE_S  = 60   # refresh this many seconds before validUntil
 RAIL_STATIONS_PATH  = Path(__file__).parent.parent / "data" / "rail_stations.json"
 
 def _load_rail_stations() -> list[dict]:
@@ -306,9 +313,65 @@ async def get_stops():
 # Cache TTL matches RTT's ~30 s upstream cadence so polling faster
 # than that just hits our cache (the user's per-minute budget is 30).
 
-def _rtt_headers() -> dict:
-    return {
+async def _rtt_access_token() -> str:
+    """Return a valid access token, issuing a new one from the token-ID if the
+    cached one is missing or about to expire. Raises HTTPException on failure
+    so the caller can return a clean envelope to the frontend."""
+    now = time.time()
+    cached = _rtt_access["token"]
+    if cached and _rtt_access["valid_until"] - RTT_ACCESS_GRACE_S > now:
+        return cached
+    if not RTT_BEARER_TOKEN:
+        raise HTTPException(status_code=503, detail="Rail data not configured (RTT_BEARER_TOKEN missing).")
+    url = f"{RTT_BASE_URL}{RTT_ISSUE_PATH}"
+    headers = {
         "Authorization": f"Bearer {RTT_BEARER_TOKEN}",
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip",
+        "User-Agent": "adur-worthing-bus/1.0 (+rail)",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            # The endpoint accepts both GET and POST in practice; POST is the
+            # documented verb. Retry once on 405 with the other verb.
+            r = await client.post(url, headers=headers)
+            if r.status_code == 405:
+                r = await client.get(url, headers=headers)
+    except Exception as e:
+        log.warning("RTT access-token swap exception: %s", e)
+        raise HTTPException(status_code=502, detail=f"Could not issue RTT access token: {e}")
+    if r.status_code != 200:
+        log.warning("RTT access-token swap → HTTP %s: %s", r.status_code, r.text[:200])
+        raise HTTPException(status_code=502,
+            detail=f"Could not issue RTT access token (upstream {r.status_code}).")
+    try:
+        body = r.json()
+    except Exception:
+        raise HTTPException(status_code=502, detail="RTT issuance response was not JSON.")
+    # Field name varies across implementations — handle the common spellings.
+    token = (body.get("token") or body.get("accessToken")
+             or body.get("access_token") or body.get("bearer"))
+    if not token:
+        log.warning("RTT issuance response missing token field. Keys: %s",
+                    list(body.keys())[:20])
+        raise HTTPException(status_code=502, detail="RTT issuance response missing token field.")
+    valid_until_iso = body.get("validUntil") or body.get("expiresAt") or body.get("valid_until")
+    valid_until_ts = now + 600  # conservative fallback
+    if valid_until_iso:
+        try:
+            vu = datetime.fromisoformat(str(valid_until_iso).replace("Z", "+00:00"))
+            valid_until_ts = vu.timestamp()
+        except Exception:
+            pass
+    _rtt_access["token"] = token
+    _rtt_access["valid_until"] = valid_until_ts
+    log.info("Issued RTT access token (valid until %s)", valid_until_iso or "?")
+    return token
+
+async def _rtt_headers() -> dict:
+    tok = await _rtt_access_token()
+    return {
+        "Authorization": f"Bearer {tok}",
         "Accept": "application/json",
         "Accept-Encoding": "gzip",
         "User-Agent": "adur-worthing-bus/1.0 (+rail)",
@@ -405,6 +468,21 @@ def _project_service_location(loc: dict) -> dict:
         "pass":        _temporal(td, "pass"),
     }
 
+@app.get("/api/debug/rail-token")
+async def debug_rail_token():
+    """Returns just the access-token validity window so we can confirm the
+    UUID → access-token swap is working. Never returns the token itself."""
+    try:
+        await _rtt_access_token()
+    except HTTPException as e:
+        return {"ok": False, "status": e.status_code, "detail": e.detail}
+    return {
+        "ok": True,
+        "valid_until":      datetime.fromtimestamp(_rtt_access["valid_until"], tz=timezone.utc).isoformat(),
+        "seconds_remaining": int(_rtt_access["valid_until"] - time.time()),
+        "token_length":      len(_rtt_access["token"]),
+    }
+
 @app.get("/api/rail-stations")
 async def get_rail_stations():
     """Static list of rail stations inside the bus bbox. ~15 entries.
@@ -418,8 +496,6 @@ async def get_rail_departures(crs: str = Query(..., min_length=3, max_length=3))
     crs = crs.upper()
     if crs not in RAIL_CRS_SET:
         raise HTTPException(status_code=404, detail=f"Station {crs} is outside the in-scope area.")
-    if not RTT_BEARER_TOKEN:
-        raise HTTPException(status_code=503, detail="Rail data not configured (RTT_BEARER_TOKEN missing).")
     cache_key = f"rail:dep:{crs}"
     cached = cache_get(cache_key)
     if cached:
@@ -428,7 +504,7 @@ async def get_rail_departures(crs: str = Query(..., min_length=3, max_length=3))
     params = {"code": crs}
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(url, headers=_rtt_headers(), params=params)
+            r = await client.get(url, headers=await _rtt_headers(), params=params)
         _log_rtt_quota(r)
         if r.status_code == 429:
             retry = r.headers.get("Retry-After", "?")
@@ -462,8 +538,6 @@ async def get_rail_service(
 ):
     """Single-service calling pattern (RTT `/gb-nr/service?identity=…&departureDate=…`).
     Cached per (uid, date) for RTT_CACHE_TTL seconds."""
-    if not RTT_BEARER_TOKEN:
-        raise HTTPException(status_code=503, detail="Rail data not configured (RTT_BEARER_TOKEN missing).")
     cache_key = f"rail:svc:{uid}:{date}"
     cached = cache_get(cache_key)
     if cached:
@@ -472,7 +546,7 @@ async def get_rail_service(
     params = {"identity": uid, "departureDate": date}
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(url, headers=_rtt_headers(), params=params)
+            r = await client.get(url, headers=await _rtt_headers(), params=params)
         _log_rtt_quota(r)
         if r.status_code == 429:
             retry = r.headers.get("Retry-After", "?")
