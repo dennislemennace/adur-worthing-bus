@@ -3997,6 +3997,9 @@ const OPERATOR_ICONS = {
   "CMPA": "icons/CMPA.png",
   "COMT": "icons/CMPA.png",
 
+  // Metrobus
+  "METR": "icons/METR.png",
+
   // National Express
   "NATX": "icons/NTXP.png",
   "NTXP": "icons/NTXP.png",
@@ -4301,13 +4304,10 @@ function railStationDivIcon() {
 
 function railTrainDivIcon(colour, label, opts = {}) {
   const bg = colour || RAIL_TRAIN_FILL_DEFAULT;
-  // The wrap houses the pulse ring + handles the incoming-state class.
-  // No bearing rotation — the pill shows the destination code and has no
-  // directional glyph, so heading rotation would just make the label hard
-  // to read for no visual gain.
+  // No bearing rotation — the pill has no directional glyph and the label
+  // needs to stay readable. Pulse class is removed by JS after ~4 s.
   const cls = ["rail-train-icon-wrap"];
-  if (opts.incoming) cls.push("rail-train-icon-wrap--incoming");
-  if (opts.pulse)    cls.push("rail-train-icon-wrap--pulse");
+  if (opts.pulse) cls.push("rail-train-icon-wrap--pulse");
   const html = `
     <div class="${cls.join(' ')}" style="--rail-train-bg:${bg};">
       <div class="rail-train-pulse" aria-hidden="true"></div>
@@ -4524,13 +4524,11 @@ async function selectRailService(uid, date) {
     console.warn("rail service initial fetch failed", uid, err);
   }
   recomputeRailPositions();
+  // recomputeRailPositions handles the one-shot flyTo when a marker first
+  // materialises. If nothing was drawn (forecast-only train not in-bbox yet),
+  // tell the user so they know to wait.
   const entry = state.selectedRailServices[uid];
-  if (entry && entry.lastPos) {
-    // Fly the user to the dot so it's never off-screen.
-    state.map.flyTo([entry.lastPos.lat, entry.lastPos.lon],
-                    Math.max(state.map.getZoom(), 13),
-                    { duration: 0.8 });
-  } else if (entry) {
+  if (entry && !entry.marker) {
     showToast("Service not yet showing on map — will appear when it enters the area.");
   }
   renderRailBoard(); // re-render so the row button flips to "Hide"
@@ -4630,11 +4628,14 @@ function recomputeRailPositions() {
     }
 
     // ── Resolve A (last-known position) and B (next call) ──────────────
+    // We ONLY render a marker once the train has actualised an in-bbox stop.
+    // Forecast-only / "approaching from out-of-bbox" states deliberately
+    // produce no marker — a dot pinned at a station the train hasn't reached
+    // reads as "the train is there" which is wrong (user feedback). The
+    // toast at Track time already explains "will appear when it enters the
+    // area"; the board row keeps showing live progress.
     let A = null, B = null;
-    let aActualised = false;     // tells the wrap helper whether to roll `now`
-    let incoming = false;        // train is approaching from out-of-bbox
-
-    // Case 1: train has actualised at least one in-bbox station.
+    let aActualised = false;
     for (let i = 0; i < locs.length; i++) {
       const l = locs[i];
       if (!l.inBbox) continue;
@@ -4653,71 +4654,9 @@ function recomputeRailPositions() {
       }
     }
 
-    // Case 2: no actualised in-bbox station, but we have an in-bbox A with
-    // any kind of forecast / scheduled time — the train is forecast through
-    // our area and we can draw it approaching the first in-bbox station.
-    if (!A) {
-      for (let i = 0; i < locs.length; i++) {
-        const l = locs[i];
-        if (!l.inBbox) continue;
-        if (l.departure && (l.departure.forecast || l.departure.scheduled)) {
-          A = { loc: l, idx: i };
-          break;
-        }
-      }
-      if (A) {
-        for (let i = A.idx + 1; i < locs.length; i++) {
-          const l = locs[i];
-          if (!l.inBbox) continue;
-          B = { loc: l, idx: i };
-          break;
-        }
-      }
-    }
-
-    // Case 3 (new — advisor catch): only one in-bbox station and it's the
-    // first/terminus, and the train hasn't crossed it yet. Seed B = the
-    // first in-bbox station; anchor the marker at B's coords with an
-    // "incoming" pulse so the user sees something.
-    //
-    // CRITICAL: only run when the train has NOT actualised an in-bbox stop
-    // yet. Without this gate, a through-train that has already crossed and
-    // left the bbox would teleport backward to its entry station (Case 1
-    // finds A but no in-bbox B remains, so Case 3 would fire and re-pin
-    // the marker at the *first* in-bbox station — visibly wrong for 40+ min).
-    if (!B && !aActualised) {
-      let firstInBboxIdx = -1;
-      for (let i = 0; i < locs.length; i++) {
-        if (locs[i].inBbox) { firstInBboxIdx = i; break; }
-      }
-      if (firstInBboxIdx >= 0) {
-        B = { loc: locs[firstInBboxIdx], idx: firstInBboxIdx };
-        // Try to seed A from the previous calling point (out-of-bbox) so we
-        // have a time window for the rAF lerp to use; coords come from B
-        // either way because A is off-screen.
-        for (let i = firstInBboxIdx - 1; i >= 0; i--) {
-          const l = locs[i];
-          const hasTime =
-            (l.departure && (l.departure.actual || l.departure.forecast || l.departure.scheduled)) ||
-            (l.arrival   && (l.arrival.actual   || l.arrival.forecast   || l.arrival.scheduled));
-          if (hasTime) { A = { loc: l, idx: i }; break; }
-        }
-        if (A) {
-          incoming = true;
-          aActualised = !!(A.loc.departure && A.loc.departure.actual);
-        } else {
-          // No usable prior time either — give up cleanly.
-          B = null;
-        }
-      }
-    }
-
     if (!A || !B) { removeRailTrainMarker(uid); entry.target = null; continue; }
 
-    // Coords: A may be out-of-bbox (Case 3) → use B's coords for both ends
-    // so the marker sits at B with no chord motion.
-    const aStation = incoming ? state.railStationByCrs[B.loc.crs]
-                              : state.railStationByCrs[A.loc.crs];
+    const aStation = state.railStationByCrs[A.loc.crs];
     const bStation = state.railStationByCrs[B.loc.crs];
     if (!aStation || !bStation) { removeRailTrainMarker(uid); entry.target = null; continue; }
 
@@ -4735,10 +4674,7 @@ function recomputeRailPositions() {
       bLat: bStation.lat, bLon: bStation.lon,
       tA: tAraw, tB: tBraw,
       aActualised,
-      incoming,
-      fromName: incoming ? (state.railStationByCrs[A.loc.crs]?.name
-                          || A.loc.description || A.loc.crs || "earlier stop")
-                         : aStation.name,
+      fromName: aStation.name,
       toName:   bStation.name,
       fromCrs:  A.loc.crs,
       toCrs:    B.loc.crs,
@@ -4753,10 +4689,11 @@ function recomputeRailPositions() {
                       && svc.destination[0].crs) || "";
     const label    = destCrs || headcode;
 
-    if (!entry.marker) {
+    const justCreated = !entry.marker;
+    if (justCreated) {
       ensureRailPanes();
       entry.marker = L.marker([lat, lon], {
-        icon: railTrainDivIcon(colour, label, { pulse: true, incoming }),
+        icon: railTrainDivIcon(colour, label, { pulse: true }),
         pane: "railTrainPane",
         title: railTrainTitle(svc, entry.target),
         keyboard: false,
@@ -4769,8 +4706,7 @@ function recomputeRailPositions() {
       entry.marker.addTo(state.map);
       entry.markerColour = colour;
       entry.markerLabel  = label;
-      // Pulse fades to a subdued state after ~4s so a long-tracked marker
-      // doesn't strobe forever; the class swap is cheap.
+      // Pulse fades after ~4 s so a long-tracked marker doesn't strobe forever.
       setTimeout(() => {
         if (entry.marker) {
           const el = entry.marker.getElement();
@@ -4779,18 +4715,9 @@ function recomputeRailPositions() {
         }
       }, 4000);
     } else if (entry.markerColour !== colour || entry.markerLabel !== label) {
-      // Colour/label only changes when atocCode or destination changes —
-      // rare; safe to setIcon here (NOT per frame).
-      entry.marker.setIcon(railTrainDivIcon(colour, label, { incoming }));
+      entry.marker.setIcon(railTrainDivIcon(colour, label));
       entry.markerColour = colour;
       entry.markerLabel  = label;
-    } else {
-      // Toggle the incoming class if it changed mid-track (train enters bbox).
-      const el = entry.marker.getElement();
-      const wrap = el && el.querySelector(".rail-train-icon-wrap");
-      if (wrap) {
-        wrap.classList.toggle("rail-train-icon-wrap--incoming", incoming);
-      }
     }
     entry.marker.setLatLng([lat, lon]);
     const tipEl = entry.marker.getElement();
@@ -4798,16 +4725,21 @@ function recomputeRailPositions() {
 
     entry.lastPos = { lat, lon };
     entry.lastSeg = { fromCrs: A.loc.crs, toCrs: B.loc.crs };
+
+    // One-shot flyTo when the marker first materialises (whether on Track
+    // click or a later refresh that finally produced an in-bbox actual).
+    if (justCreated && !entry.flownTo) {
+      state.map.flyTo([lat, lon],
+                      Math.max(state.map.getZoom(), 13),
+                      { duration: 0.8 });
+      entry.flownTo = true;
+    }
   }
 }
 
 // Helper: where is the train *right now* given a target window? Used both by
 // recomputeRailPositions (initial placement) and tickRailAnimation (per frame).
 function railPosAt(t, now) {
-  if (t.incoming) {
-    // Out-of-bbox A → marker stays at B with no chord motion.
-    return { lat: t.bLat, lon: t.bLon, f: 0 };
-  }
   const { tA, tB, now: tnow } = wrapRailTimes(t.tA, t.tB, now, t.aActualised);
   let f = (tB > tA) ? (tnow - tA) / (tB - tA) : 0;
   if (f < 0) f = 0; else if (f > 1) f = 1;
@@ -4820,9 +4752,6 @@ function railPosAt(t, now) {
 
 function railTrainTitle(svc, target) {
   const hc = svc.headcode || svc.uid;
-  if (target.incoming) {
-    return `Service ${hc} — approaching ${target.toName} from ${target.fromName}`;
-  }
   return `Service ${hc} — estimated position between ${target.fromName} and ${target.toName}`;
 }
 
