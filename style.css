@@ -3091,7 +3091,7 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
    the pill has no directional glyph and the label needs to stay readable. */
 .rail-train-icon-wrap {
   position: relative;
-  width: 48px; height: 26px;
+  width: 120px; height: 26px;
   display: flex; align-items: center; justify-content: center;
   pointer-events: auto;
 }
@@ -3101,6 +3101,7 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   display: inline-flex; align-items: center; justify-content: center;
   height: 26px;
   min-width: 40px;
+  max-width: 116px;
   padding: 0 8px;
   border-radius: 13px;
   color: #fff;
@@ -3113,12 +3114,22 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   white-space: nowrap;
   z-index: 2;
 }
+.rail-train-icon .rail-train-label {
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
 
-/* Pulse ring behind the pill. Appears for ~4 s on first show; the `pulse`
+/* Pulse ring tracks the pill itself (it's a child of .rail-train-icon).
+   `inset: -2px` so the ring sits just outside the pill border at scale 1
+   and grows from there. Appears for ~4 s on first show; the `pulse`
    modifier class is removed by JS so long-tracked markers don't strobe. */
 .rail-train-pulse {
   position: absolute;
-  inset: 0;
+  inset: -2px;
   border-radius: 13px;
   background: var(--rail-train-bg, #0b66c2);
   opacity: 0;

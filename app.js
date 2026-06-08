@@ -4310,15 +4310,15 @@ function railTrainDivIcon(colour, label, opts = {}) {
   if (opts.pulse) cls.push("rail-train-icon-wrap--pulse");
   const html = `
     <div class="${cls.join(' ')}" style="--rail-train-bg:${bg};">
-      <div class="rail-train-pulse" aria-hidden="true"></div>
       <div class="rail-train-icon" style="background:${bg};">
+        <div class="rail-train-pulse" aria-hidden="true"></div>
         <span class="rail-train-label">${escapeHtml(label || "")}</span>
       </div>
     </div>`;
   return L.divIcon({
     html, className: "rail-train-divicon",
-    iconSize:   [48, 26],
-    iconAnchor: [24, 13],
+    iconSize:   [120, 26],
+    iconAnchor: [60, 13],
   });
 }
 
@@ -4515,7 +4515,19 @@ function renderRailBoardRow(svc) {
 async function selectRailService(uid, date) {
   if (!uid || !date) return;
   if (state.selectedRailServices[uid]) return; // already tracked
-  state.selectedRailServices[uid] = { date, calling: null, marker: null, lastPos: null };
+  state.selectedRailServices[uid] = {
+    date,
+    calling: null,
+    marker: null,
+    lastPos: null,
+    displayed: null,
+    target: null,
+    flownTo: false,
+    // Pin the board CRS at Track time — the user may switch boards while
+    // tracking; the pill should keep showing the time at the board the
+    // service was selected from.
+    boardCrs: state.selectedRailStation?.crs || null,
+  };
   startRailRefreshTimer();
   startRailAnimationLoop();
   try {
@@ -4684,14 +4696,16 @@ function recomputeRailPositions() {
     const { lat, lon } = railPosAt(entry.target, now);
 
     const colour   = railOperatorColour(svc.atocCode);
-    const headcode = svc.headcode || (svc.uid || "").slice(-3);
-    const destCrs  = (svc.destination && svc.destination[0]
-                      && svc.destination[0].crs) || "";
-    const label    = destCrs || headcode;
+    const label    = railPillLabel(svc, entry);
 
     const justCreated = !entry.marker;
     if (justCreated) {
       ensureRailPanes();
+      // Place the marker at the freshly computed position and seed `displayed`
+      // so the rAF loop has a starting point to ease from. The rAF loop is the
+      // ONLY steady-state position-writer — subsequent refreshes update target
+      // only, so transitions glide instead of snapping.
+      entry.displayed = { lat, lon };
       entry.marker = L.marker([lat, lon], {
         icon: railTrainDivIcon(colour, label, { pulse: true }),
         pane: "railTrainPane",
@@ -4714,27 +4728,49 @@ function recomputeRailPositions() {
                     ?.classList.remove("rail-train-icon-wrap--pulse");
         }
       }, 4000);
+
+      // One-shot flyTo when the marker first materialises (whether on Track
+      // click or a later refresh that finally produced an in-bbox actual).
+      if (!entry.flownTo) {
+        state.map.flyTo([lat, lon],
+                        Math.max(state.map.getZoom(), 13),
+                        { duration: 0.8 });
+        entry.flownTo = true;
+      }
     } else if (entry.markerColour !== colour || entry.markerLabel !== label) {
+      // Colour/label change only — no setLatLng; rAF loop owns position.
       entry.marker.setIcon(railTrainDivIcon(colour, label));
       entry.markerColour = colour;
       entry.markerLabel  = label;
     }
-    entry.marker.setLatLng([lat, lon]);
+    // Title (tooltip) may have changed if A/B advanced; cheap to update.
     const tipEl = entry.marker.getElement();
     if (tipEl) tipEl.setAttribute("title", railTrainTitle(svc, entry.target));
 
-    entry.lastPos = { lat, lon };
     entry.lastSeg = { fromCrs: A.loc.crs, toCrs: B.loc.crs };
-
-    // One-shot flyTo when the marker first materialises (whether on Track
-    // click or a later refresh that finally produced an in-bbox actual).
-    if (justCreated && !entry.flownTo) {
-      state.map.flyTo([lat, lon],
-                      Math.max(state.map.getZoom(), 13),
-                      { duration: 0.8 });
-      entry.flownTo = true;
-    }
   }
+}
+
+// Build the pill label: destination name + due time at the board CRS.
+// e.g. "Bedford 04:12". Fallback chain: name → CRS → headcode so the pill
+// never shows nothing.
+function railPillLabel(svc, entry) {
+  const dest = svc.destination && svc.destination[0];
+  const destName = (dest && (dest.description || dest.crs)) || "";
+  const boardTime = railBoardTimeFor(svc, entry.boardCrs);
+  const name = destName || svc.headcode || (svc.uid || "").slice(-3);
+  return boardTime ? `${name} ${boardTime}` : name;
+}
+
+function railBoardTimeFor(svc, boardCrs) {
+  if (!boardCrs || !svc || !Array.isArray(svc.locations)) return "";
+  const loc = svc.locations.find(l => l && l.crs === boardCrs);
+  if (!loc) return "";
+  // Prefer departure for non-terminus, arrival for terminus.
+  const td = pickRailDisplayTime(loc.departure && (loc.departure.actual
+              || loc.departure.forecast || loc.departure.scheduled)
+              ? loc.departure : loc.arrival);
+  return formatRailTime(td.iso);
 }
 
 // Helper: where is the train *right now* given a target window? Used both by
@@ -4756,9 +4792,13 @@ function railTrainTitle(svc, target) {
 }
 
 // ── Per-frame animation loop ─────────────────────────────────
-// Runs while at least one service is tracked. Each frame, for every entry
-// with a target, recompute the position from current wall-clock time and
-// move the marker. No DOM writes beyond Leaflet's own setLatLng → cheap.
+// Runs while at least one service is tracked. Each frame, the rAF loop
+// computes where the train *should* be (the raw target) and eases the
+// *displayed* position toward it. This is the ONLY steady-state writer
+// of marker.setLatLng — recomputeRailPositions deliberately doesn't
+// touch position after marker creation, so a 30s refresh that advances
+// A→B doesn't snap the dot.
+const RAIL_EASE = 0.18;   // ~85% of distance closed in ~10 frames @ 60Hz
 let _railAnimFrame = null;
 function startRailAnimationLoop() {
   if (_railAnimFrame != null) return;
@@ -4769,9 +4809,14 @@ function startRailAnimationLoop() {
     for (const uid of Object.keys(state.selectedRailServices)) {
       const entry = state.selectedRailServices[uid];
       if (!entry || !entry.marker || !entry.target) continue;
-      const { lat, lon } = railPosAt(entry.target, now);
-      entry.marker.setLatLng([lat, lon]);
-      entry.lastPos = { lat, lon };
+      const target = railPosAt(entry.target, now);
+      const cur = entry.displayed || target;
+      entry.displayed = {
+        lat: cur.lat + (target.lat - cur.lat) * RAIL_EASE,
+        lon: cur.lon + (target.lon - cur.lon) * RAIL_EASE,
+      };
+      entry.marker.setLatLng([entry.displayed.lat, entry.displayed.lon]);
+      entry.lastPos = { lat: entry.displayed.lat, lon: entry.displayed.lon };
     }
     _railAnimFrame = requestAnimationFrame(loop);
   };
