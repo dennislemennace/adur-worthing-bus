@@ -86,6 +86,7 @@ RTT_BASE_URL        = os.environ.get("RTT_BASE_URL", "https://data.rtt.io")
 RTT_NAMESPACE       = os.environ.get("RTT_NAMESPACE", "gb-nr")
 RTT_CACHE_TTL       = int(os.environ.get("RTT_CACHE_TTL", "30"))  # matches RTT cadence
 RTT_ISSUE_PATH      = os.environ.get("RTT_ISSUE_PATH", "/api/get_access_token")
+RTT_DEBUG_ENABLED   = os.environ.get("RTT_DEBUG_ENABLED", "").lower() in ("1","true","yes")
 # Short-lived access token cache. The portal hands us a token-ID (UUID); we
 # swap it for an access token (~24-min lifetime) at /api/get_access_token,
 # then reuse it until close to expiry. Re-issuing every ~20 min costs ~70
@@ -427,20 +428,38 @@ def _location_pair(o):
 def _ends(arr):
     return [p for p in (_location_pair(o) for o in (arr or [])) if p]
 
-def _project_board_service(svc: dict) -> dict:
+def _project_board_service(svc: dict, board_crs: str | None = None,
+                                       board_name: str | None = None) -> dict:
     sm = svc.get("scheduleMetadata") or {}
     lm = svc.get("locationMetadata") or {}
     td = svc.get("temporalData") or {}
     op = sm.get("operator") or {}
     plat = (lm.get("platform") or {}) if isinstance(lm.get("platform"), dict) else {}
+    # Project origin/destination through `_ends`. If the projected list is
+    # empty (either the upstream array was empty, or every entry lacked a
+    # parseable description), AND the temporalData.displayAs marks this row
+    # as the train's origin/destination, synthesise a single entry from the
+    # board's queried station so the UI can render *something* meaningful
+    # ("Brighton" instead of "Headcode 9R00"). Keying on projected-empty,
+    # not raw-empty, rescues both cases at once.
+    origin_proj      = _ends(svc.get("origin"))
+    destination_proj = _ends(svc.get("destination"))
+    display_as = (td.get("displayAs") or "").upper()
+    if not destination_proj and ("TERMINATES" in display_as or "DESTINATION" in display_as) \
+       and board_crs:
+        destination_proj = [{"description": board_name or board_crs, "crs": board_crs}]
+    if not origin_proj and ("ORIGIN" in display_as or "STARTS" in display_as) \
+       and board_crs:
+        origin_proj = [{"description": board_name or board_crs, "crs": board_crs}]
+
     return {
         "uid":            sm.get("identity"),
         "headcode":       sm.get("trainReportingIdentity"),
         "departureDate":  _normalise_date(sm.get("departureDate")),
         "atocCode":       op.get("code"),
         "atocName":       op.get("name"),
-        "origin":         _ends(svc.get("origin")),
-        "destination":    _ends(svc.get("destination")),
+        "origin":         origin_proj,
+        "destination":    destination_proj,
         "platform":       plat.get("actual") or plat.get("planned"),
         "platformConfirmed": bool(plat.get("actual")),
         "displayAs":      td.get("displayAs"),
@@ -467,6 +486,51 @@ def _project_service_location(loc: dict) -> dict:
         "departure":   _temporal(td, "departure"),
         "pass":        _temporal(td, "pass"),
     }
+
+@app.get("/api/debug/rail-raw")
+async def debug_rail_raw(crs: str = Query(..., min_length=3, max_length=3)):
+    """Raw RTT location response — for projection field-name debugging. Gated
+    behind RTT_DEBUG_ENABLED so the upstream feed isn't trivially re-exposed
+    in production."""
+    if not RTT_DEBUG_ENABLED:
+        raise HTTPException(status_code=404, detail="Not Found")
+    crs = crs.upper()
+    if crs not in RAIL_CRS_SET:
+        raise HTTPException(status_code=404, detail=f"Station {crs} not in scope.")
+    url = f"{RTT_BASE_URL}/{RTT_NAMESPACE}/location"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, headers=await _rtt_headers(), params={"code": crs})
+        _log_rtt_quota(r)
+        if r.status_code != 200:
+            return {"ok": False, "status": r.status_code, "body": r.text[:1000]}
+        return r.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.get("/api/debug/rail-raw-service")
+async def debug_rail_raw_service(
+    uid:  str = Query(..., min_length=1, max_length=16),
+    date: str = Query(..., regex=r"^\d{4}-\d{2}-\d{2}$"),
+):
+    """Raw RTT service response — for projection field-name debugging."""
+    if not RTT_DEBUG_ENABLED:
+        raise HTTPException(status_code=404, detail="Not Found")
+    url = f"{RTT_BASE_URL}/{RTT_NAMESPACE}/service"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, headers=await _rtt_headers(),
+                                 params={"identity": uid, "departureDate": date})
+        _log_rtt_quota(r)
+        if r.status_code != 200:
+            return {"ok": False, "status": r.status_code, "body": r.text[:1000]}
+        return r.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 @app.get("/api/debug/rail-token")
 async def debug_rail_token():
@@ -520,10 +584,12 @@ async def get_rail_departures(crs: str = Query(..., min_length=3, max_length=3))
     except Exception as e:
         log.warning("RTT location %s failed: %s", crs, e)
         raise HTTPException(status_code=502, detail=f"Rail upstream error: {e}")
-    services = [_project_board_service(s) for s in (body.get("services") or [])]
+    board_name = next((s["name"] for s in RAIL_STATIONS if s["crs"] == crs), crs)
+    services = [_project_board_service(s, board_crs=crs, board_name=board_name)
+                for s in (body.get("services") or [])]
     result = {
         "crs":      crs,
-        "name":     next((s["name"] for s in RAIL_STATIONS if s["crs"] == crs), crs),
+        "name":     board_name,
         "services": services,
         "count":    len(services),
         "fetched":  datetime.now(timezone.utc).isoformat(),
