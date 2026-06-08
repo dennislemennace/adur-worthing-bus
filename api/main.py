@@ -415,15 +415,55 @@ def _normalise_date(s: str | None) -> str | None:
         return f"{digits[0:4]}-{digits[4:6]}-{digits[6:8]}"
     return s
 
-def _location_pair(o):
+_NAME_KEYS = ("description", "name", "stationName", "longName", "shortName",
+              "displayName", "locationName")
+_CRS_KEYS  = ("crs", "crsCode", "code", "shortCode")
+
+def _find_name(o):
+    """Depth-first scan for a string-valued station-name field. Looks at the
+    top level then recurses into nested objects (RTT wraps station identities
+    differently across endpoints — sometimes flat, sometimes inside a
+    `location` / `locationDetail` / `geographicLocation` block)."""
     if not isinstance(o, dict): return None
-    return {
-        "description": (o.get("description") or o.get("name") or
-                        o.get("longName")    or o.get("shortName")),
-        "crs":         ((o.get("shortCodes") or [None])[0]
-                        if isinstance(o.get("shortCodes"), list)
-                        else o.get("crs")),
-    }
+    for k in _NAME_KEYS:
+        v = o.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    for v in o.values():
+        if isinstance(v, dict):
+            r = _find_name(v)
+            if r: return r
+    return None
+
+def _find_crs(o):
+    """Depth-first scan for a 3-letter CRS-like code."""
+    if not isinstance(o, dict): return None
+    # Preferred: shortCodes array (matches GeographicLocation schema).
+    sc = o.get("shortCodes")
+    if isinstance(sc, list):
+        for s in sc:
+            if isinstance(s, str) and len(s) == 3 and s.isalpha():
+                return s.upper()
+    for k in _CRS_KEYS:
+        v = o.get(k)
+        if isinstance(v, str) and len(v) == 3 and v.isalpha():
+            return v.upper()
+    for v in o.values():
+        if isinstance(v, dict):
+            r = _find_crs(v)
+            if r: return r
+    return None
+
+def _location_pair(o):
+    """Project an RTT LocationPair-ish object to {description, crs}. Tolerates
+    flat shapes (description at top level) and nested shapes (inside
+    `location` / `locationDetail` / `geographicLocation`). Returns None only
+    if neither a name nor a CRS code could be found anywhere in the object."""
+    if not isinstance(o, dict): return None
+    name = _find_name(o)
+    crs  = _find_crs(o)
+    if not name and not crs: return None
+    return {"description": name, "crs": crs}
 
 def _ends(arr):
     return [p for p in (_location_pair(o) for o in (arr or [])) if p]
