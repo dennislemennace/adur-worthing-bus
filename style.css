@@ -3070,3 +3070,192 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   }
 }
 
+
+/* ============================================================
+   RAIL — stations, trains, live departure board
+   ============================================================ */
+
+.rail-station-divicon,
+.rail-train-divicon { background: transparent; border: none; pointer-events: auto; }
+
+.rail-station-icon {
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
+  transition: transform 120ms ease;
+}
+.rail-station-icon:hover { transform: scale(1.18); }
+.rail-station-icon svg { width: 100%; height: 100%; }
+
+.rail-train-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 22px;
+  min-width: 34px;
+  padding: 0 6px;
+  border-radius: 11px;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: 1.5px solid rgba(255,255,255,0.85);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+  white-space: nowrap;
+}
+
+/* Stops and rail markers all become small + faint when not in Live view —
+   handled for stops already; rail just inherits the same gating via Live-only
+   visibility. No extra rule needed there. */
+
+/* ── Live rail departure board (rendered inside the Stop tab) ── */
+.rail-board {
+  display: flex; flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-sm) var(--space-md);
+}
+.rail-board-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--space-sm);
+}
+.rail-board-eyebrow {
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.rail-board-station {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.rail-board-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+.rail-board-table th,
+.rail-board-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+.rail-board-table th {
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+.rail-col-time { width: 22%; white-space: nowrap; font-family: var(--font-mono); }
+.rail-col-plat { width: 10%; text-align: center; }
+.rail-col-op   { width: 22%; }
+.rail-col-act  { width: 14%; text-align: right; }
+
+.rail-time-sched { font-weight: 600; }
+.rail-time { margin-left: 4px; font-size: var(--font-size-xs); font-weight: 600; }
+.rail-time--actual    { color: #1e8e3e; }
+.rail-time--changed   { color: #d97706; }
+.rail-time--cancelled { color: #b91c1c; text-decoration: line-through; }
+
+.rail-row--cancelled td { opacity: 0.6; }
+
+.rail-plat {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+.rail-plat--unconfirmed { opacity: 0.65; font-style: italic; }
+
+.rail-op-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.rail-track-btn {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.rail-track-btn:hover { background: var(--color-border); }
+.rail-track-btn--on {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.rail-board-loading,
+.rail-board-empty,
+.rail-board-error {
+  text-align: center;
+  padding: var(--space-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.rail-board-error { color: #b91c1c; }
+
+.rail-board-footer {
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin-top: var(--space-xs);
+}
+
+/* ── Train marker popup ── */
+.rail-train-popup-wrap .leaflet-popup-content {
+  margin: 8px 10px;
+  font-family: var(--font-family);
+}
+.rail-train-popup-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: 4px;
+}
+.rail-train-popup-headcode {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  font-weight: 700;
+}
+.rail-train-popup-op {
+  font-size: var(--font-size-2xs);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.rail-train-popup-seg {
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  margin-bottom: 6px;
+}
+.rail-train-popup-calls {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 6px 0;
+  font-size: var(--font-size-xs);
+}
+.rail-train-popup-calls li { padding: 2px 0; }
+.rail-train-popup-foot {
+  font-size: var(--font-size-2xs);
+  font-style: italic;
+  color: var(--color-text-muted);
+  margin: 4px 0 0 0;
+}

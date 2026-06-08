@@ -1,0 +1,101 @@
+{
+  "stations": [
+    {
+      "crs": "DUR",
+      "name": "Durrington-On-Sea",
+      "lat": 50.817463,
+      "lon": -0.411463
+    },
+    {
+      "crs": "WWO",
+      "name": "West Worthing",
+      "lat": 50.818111,
+      "lon": -0.392983
+    },
+    {
+      "crs": "WRH",
+      "name": "Worthing",
+      "lat": 50.818768,
+      "lon": -0.375924
+    },
+    {
+      "crs": "EWR",
+      "name": "East Worthing",
+      "lat": 50.822071,
+      "lon": -0.354517
+    },
+    {
+      "crs": "LAC",
+      "name": "Lancing",
+      "lat": 50.827015,
+      "lon": -0.323103
+    },
+    {
+      "crs": "SSE",
+      "name": "Shoreham-By-Sea",
+      "lat": 50.834358,
+      "lon": -0.271709
+    },
+    {
+      "crs": "SWK",
+      "name": "Southwick",
+      "lat": 50.832928,
+      "lon": -0.236254
+    },
+    {
+      "crs": "FSG",
+      "name": "Fishersgate",
+      "lat": 50.834469,
+      "lon": -0.219161
+    },
+    {
+      "crs": "PLD",
+      "name": "Portslade",
+      "lat": 50.836044,
+      "lon": -0.204898
+    },
+    {
+      "crs": "AGT",
+      "name": "Aldrington",
+      "lat": 50.836601,
+      "lon": -0.182151
+    },
+    {
+      "crs": "HOV",
+      "name": "Hove",
+      "lat": 50.835514,
+      "lon": -0.170824
+    },
+    {
+      "crs": "PRP",
+      "name": "Preston Park",
+      "lat": 50.846054,
+      "lon": -0.154787
+    },
+    {
+      "crs": "BTN",
+      "name": "Brighton",
+      "lat": 50.829659,
+      "lon": -0.141234
+    },
+    {
+      "crs": "LRB",
+      "name": "London Road (Brighton)",
+      "lat": 50.836773,
+      "lon": -0.136696
+    },
+    {
+      "crs": "MCB",
+      "name": "Moulsecoomb",
+      "lat": 50.844616,
+      "lon": -0.12076
+    }
+  ],
+  "source": "github.com/davwheat/uk-railway-stations",
+  "bbox": {
+    "minLat": 50.78,
+    "maxLat": 50.87,
+    "minLon": -0.42,
+    "maxLon": -0.1
+  }
+}

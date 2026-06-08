@@ -40,6 +40,12 @@
         <path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/>
         <circle cx="7" cy="18" r="2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/>
       </symbol>
+      <symbol id="i-train" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="3" width="16" height="14" rx="3" ry="3"/>
+        <path d="M4 11h16"/>
+        <path d="M8 19l-2 2"/><path d="M16 19l2 2"/>
+        <circle cx="9" cy="14.5" r="1"/><circle cx="15" cy="14.5" r="1"/>
+      </symbol>
       <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/>
         <circle cx="12" cy="10" r="3"/>
@@ -171,6 +177,10 @@
           <button class="btn-icon status-pill-toggle" id="toggle-buses-btn"
                   title="Hide buses" aria-label="Hide buses" aria-pressed="true">
             <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
+          </button>
+          <button class="btn-icon status-pill-toggle" id="toggle-rail-btn"
+                  title="Hide trains" aria-label="Hide trains" aria-pressed="true">
+            <svg class="icon" aria-hidden="true"><use href="#i-train"/></svg>
           </button>
         </div>
         <!-- Dark mode toggle — global preference, intentionally distinct shape/colour -->
@@ -307,6 +317,11 @@
           </table>
           <p class="departures-footer">Data from Bus Open Data Service (BODS)</p>
         </div>
+
+        <!-- Rail departure board (populated by app.js when a station is selected).
+             Kept as a sibling of #departures-container so the existing bus
+             elements (loading/error/prompt/departures-container) stay intact. -->
+        <div class="rail-board-host hidden" id="rail-board-host"></div>
 
       </div>
 

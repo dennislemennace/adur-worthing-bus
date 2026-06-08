@@ -81,6 +81,18 @@ const state = {
   busDetails:              null,   // /api/vehicle response for selected bus
   busDetailsLoading:       false,  // true while waiting on /api/vehicle
 
+  // ── Rail (Realtime Trains) ──
+  railVisible:             true,   // header toggle: show stations + train dots
+  railStations:            null,   // /api/rail-stations response, fetched lazily
+  railStationMarkers:      {},     // crs → L.marker
+  railStationByCrs:        {},     // crs → station object (lat/lon/name)
+  selectedRailStation:     null,   // { crs, name } shown in the panel, or null
+  railBoard:               null,   // last /api/rail-departures response for selectedRailStation
+  railBoardLoading:        false,
+  selectedRailServices:    {},     // uid → { date, calling, marker, lastPos, lastSeg }
+  railRefreshTimer:        null,   // setInterval handle for service polling
+  railFreezeNoticed:       false,  // shown once if the rail panel is opened with rail hidden
+
   // ── Improvements view (network/proposals mode) ──
   viewMode:                "live", // "live" | "improvements"
   improvementsTab:         "about",// "about" | "proposals" — official proposal lines only show on the Proposals tab
@@ -138,6 +150,8 @@ const dom = {
   departuresNotice:   document.getElementById("departures-notice"),
   refreshStopBtn:     document.getElementById("refresh-stop-btn"),
   toast:              document.getElementById("toast"),
+  toggleRailBtn:      document.getElementById("toggle-rail-btn"),
+  railBoardHost:      document.getElementById("rail-board-host"),
 
   // ── Tabs ──
   tabStop:            document.getElementById("tab-stop"),
@@ -338,6 +352,13 @@ async function init() {
 
   // Start live bus position loop
   startVehicleRefresh();
+
+  // Load rail stations + render in Live view. Failure here is non-fatal —
+  // buses still work even if RTT is unconfigured / unreachable.
+  if (state.viewMode === "live" && state.railVisible) {
+    loadRailStations().then(() => showRailStations())
+                      .catch(err => console.warn("Rail init failed:", err));
+  }
 
   // Warm the Improvements-view cache in the background once the page is
   // idle, so the first Live→Improvements switch doesn't pay the route-lines
@@ -1463,6 +1484,7 @@ function showPanelState(stateKey, errorMsg) {
   dom.panelError.classList.add("hidden");
   dom.panelPrompt.classList.add("hidden");
   dom.departuresContainer.classList.add("hidden");
+  if (dom.railBoardHost) dom.railBoardHost.classList.add("hidden");
 
   switch (stateKey) {
     case "loading": dom.panelLoading.classList.remove("hidden"); break;
@@ -1471,6 +1493,9 @@ function showPanelState(stateKey, errorMsg) {
       if (errorMsg) dom.panelErrorMsg.textContent = errorMsg;
       break;
     case "results": dom.departuresContainer.classList.remove("hidden"); break;
+    case "rail":
+      if (dom.railBoardHost) dom.railBoardHost.classList.remove("hidden");
+      break;
     default:        dom.panelPrompt.classList.remove("hidden");  break;
   }
 }
@@ -1532,6 +1557,15 @@ function closePanel() {
   dom.busInfoContainer.innerHTML = "";
   dom.busPanelPrompt.classList.remove("hidden");
 
+  // Clear rail station selection (any panel-level Train rendering)
+  state.selectedRailStation = null;
+  state.railBoard           = null;
+  state.railBoardLoading    = false;
+  if (dom.railBoardHost) {
+    dom.railBoardHost.innerHTML = "";
+    dom.railBoardHost.classList.add("hidden");
+  }
+
   // Default back to the Stop tab
   setActiveTab("stop");
   pushUrlState();
@@ -1581,6 +1615,16 @@ function bindUIEvents() {
       showToast(willShow ? "Showing buses." : "Buses hidden.");
     });
     updateBusesToggleBtn();
+  }
+
+  // Toggle showing trains (rail stations + tracked train markers).
+  if (dom.toggleRailBtn) {
+    dom.toggleRailBtn.addEventListener("click", () => {
+      const willShow = !state.railVisible;
+      setRailVisible(willShow);
+      showToast(willShow ? "Showing trains." : "Trains hidden.");
+    });
+    syncRailToggleUI();
   }
 
   // Panel error message setter
@@ -1886,12 +1930,15 @@ async function applyViewMode() {
   const live = state.viewMode === "live";
   // The "show buses" toggle only does anything in Live view.
   if (dom.toggleBusesBtn) dom.toggleBusesBtn.hidden = !live;
+  if (dom.toggleRailBtn)  dom.toggleRailBtn.hidden  = !live;
 
   // Any non-live section is a static network view: pause the live refresh,
   // hide vehicles, and dismiss the live stop/bus panel + popups.
   if (!live) {
     if (state.isRefreshing) stopVehicleRefresh();
     hideVehicleMarkers();
+    hideRailStations();
+    clearAllSelectedRailServices();
     state.map.closePopup();
     closePanel();
   }
@@ -1929,6 +1976,14 @@ async function applyViewMode() {
     if (state.busesVisible) {
       showVehicleMarkers();
       if (!state.isRefreshing) startVehicleRefresh();
+    }
+    if (state.railVisible) {
+      try {
+        await loadRailStations();
+        showRailStations();
+      } catch (err) {
+        console.warn("Rail station load failed:", err);
+      }
     }
   }
   applyStopVisibility();
@@ -4134,6 +4189,576 @@ const OPERATOR_NAMES = {
 
 function getOperatorName(operatorRef) {
   return OPERATOR_NAMES[operatorRef] || operatorRef || "Unknown operator";
+}
+
+// ============================================================
+// REALTIME TRAINS — rail integration
+// ------------------------------------------------------------
+// Architecture: stations are static markers (loaded once from
+// /api/rail-stations). Clicking a station opens a live departure
+// board in the existing side panel. Each board row has a
+// "Show on map" action which fetches the service's calling
+// pattern and renders an interpolated train dot, polled every
+// 30 s while the service stays selected.
+//
+// There is no train GPS in this data — positions are estimates
+// from the per-stop timestamps RTT exposes. The microcopy on
+// every train marker and the board footer says so.
+// ============================================================
+
+const RAIL_REFRESH_MS         = 30_000;   // matches RTT upstream cadence + cache TTL
+const RAIL_STATION_COLOUR     = "#1e8e3e"; // neutral rail green (not per-operator; station ≠ operator)
+const RAIL_TRAIN_FILL_DEFAULT = "#0b66c2";
+
+// ATOC code → brand colour for the operator badge on board rows.
+// Started with the ATOCs serving our 15 in-bbox stations; extend on first
+// sight of a different code in the live feed.
+const RAIL_OPERATOR_COLOURS = {
+  "SN": "#00a560",   // Southern
+  "TL": "#ec4e9b",   // Thameslink
+  "GX": "#f04e23",   // Gatwick Express
+  "GW": "#1c4d8d",   // Great Western
+  "SW": "#00a3e0",   // South Western
+  "GR": "#143d6b",   // LNER
+  "GN": "#3c2974",   // Great Northern
+  "VT": "#004354",   // Avanti
+  "XC": "#600f48",   // CrossCountry
+};
+const RAIL_OPERATOR_NAMES = {
+  "SN": "Southern",
+  "TL": "Thameslink",
+  "GX": "Gatwick Express",
+  "GW": "GWR",
+  "SW": "South Western",
+};
+
+function railOperatorColour(code) {
+  return RAIL_OPERATOR_COLOURS[String(code || "").toUpperCase()] || "#555";
+}
+function railOperatorName(code, fallback) {
+  const k = String(code || "").toUpperCase();
+  return RAIL_OPERATOR_NAMES[k] || fallback || k || "Rail";
+}
+
+// Parse an ISO 8601 string from the RTT projection. Returns null on bad input.
+function parseRailTime(iso) {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? t : null;
+}
+
+// Format an ISO string as HH:mm for the board / popup.
+function formatRailTime(iso) {
+  const t = parseRailTime(iso);
+  if (t == null) return "–";
+  return new Date(t).toLocaleTimeString("en-GB",
+    { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+// Pick the most useful "expected" time for display: actual > forecast > scheduled.
+function pickRailDisplayTime(td) {
+  if (!td) return { iso: null, kind: "missing" };
+  if (td.actual)    return { iso: td.actual,   kind: "actual"   };
+  if (td.forecast)  return { iso: td.forecast, kind: "forecast" };
+  if (td.scheduled) return { iso: td.scheduled, kind: "scheduled" };
+  return { iso: null, kind: "missing" };
+}
+
+// Ensure the rail panes exist. Stations sit just above the route/zone layers,
+// trains above stations (so a station marker doesn't occlude a train on it).
+function ensureRailPanes() {
+  if (!state.map) return;
+  if (!state.map.getPane("railStationPane")) {
+    const p = state.map.createPane("railStationPane");
+    p.style.zIndex = "406";
+  }
+  if (!state.map.getPane("railTrainPane")) {
+    const p = state.map.createPane("railTrainPane");
+    p.style.zIndex = "407";
+  }
+}
+
+// SVG glyph used inside both station markers and train markers.
+function railStationDivIcon() {
+  const html = `
+    <div class="rail-station-icon" title="Train station">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="6" y="3" width="12" height="14" rx="3" ry="3" fill="${RAIL_STATION_COLOUR}"/>
+        <rect x="8" y="6" width="3.5" height="4" rx="0.5" fill="#fff" opacity="0.95"/>
+        <rect x="12.5" y="6" width="3.5" height="4" rx="0.5" fill="#fff" opacity="0.95"/>
+        <circle cx="9" cy="14" r="1.4" fill="#1a1a1a"/>
+        <circle cx="15" cy="14" r="1.4" fill="#1a1a1a"/>
+        <path d="M9 18 L7 21" stroke="${RAIL_STATION_COLOUR}" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M15 18 L17 21" stroke="${RAIL_STATION_COLOUR}" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </div>`;
+  return L.divIcon({
+    html, className: "rail-station-divicon",
+    iconSize:   [22, 22],
+    iconAnchor: [11, 11],
+  });
+}
+
+function railTrainDivIcon(colour, label) {
+  const bg = colour || RAIL_TRAIN_FILL_DEFAULT;
+  const html = `
+    <div class="rail-train-icon" style="background:${bg};">
+      <span class="rail-train-label">${escapeHtml(label || "")}</span>
+    </div>`;
+  return L.divIcon({
+    html, className: "rail-train-divicon",
+    iconSize:   [38, 22],
+    iconAnchor: [19, 11],
+  });
+}
+
+async function loadRailStations() {
+  if (state.railStations) return state.railStations;
+  try {
+    const data = await apiFetch("/api/rail-stations");
+    state.railStations    = data?.stations || [];
+    state.railStationByCrs = Object.fromEntries(state.railStations.map(s => [s.crs, s]));
+    return state.railStations;
+  } catch (err) {
+    console.warn("Failed to load rail stations:", err);
+    state.railStations = [];
+    return [];
+  }
+}
+
+function showRailStations() {
+  if (!state.map || state.viewMode !== "live" || !state.railVisible) return;
+  if (!state.railStations) return;
+  ensureRailPanes();
+  for (const s of state.railStations) {
+    if (state.railStationMarkers[s.crs]) continue;
+    const m = L.marker([s.lat, s.lon], {
+      icon:        railStationDivIcon(),
+      pane:        "railStationPane",
+      title:       `${s.name} (${s.crs})`,
+      keyboard:    false,
+      bubblingMouseEvents: false,
+    });
+    m.on("click", (e) => {
+      L.DomEvent.stopPropagation(e);
+      state._ignoreNextMapClick = true;
+      openRailBoard(s.crs, s.name);
+    });
+    m.addTo(state.map);
+    state.railStationMarkers[s.crs] = m;
+  }
+}
+
+function hideRailStations() {
+  for (const crs of Object.keys(state.railStationMarkers)) {
+    state.map.removeLayer(state.railStationMarkers[crs]);
+    delete state.railStationMarkers[crs];
+  }
+}
+
+// ── Departure board (panel reuse) ────────────────────────────
+async function openRailBoard(crs, name) {
+  if (!crs) return;
+  // Clear any bus stop / bus selection so the panel's other state is consistent.
+  state.selectedStop            = null;
+  state.selectedVehicleRef      = null;
+  state.selectedVehicle         = null;
+  state.busDetails              = null;
+  state.busDetailsLoading       = false;
+  stopBusInfoTicker();
+  state.selectedRailStation     = { crs, name };
+  state.railBoardLoading        = true;
+  state.railBoard               = null;
+
+  dom.panelStopName.textContent = `🚆 ${name}`;
+  dom.panelStopId.textContent   = `CRS: ${crs}`;
+  setActiveTab("stop");
+  showPanelState("rail");      // shows the dedicated rail host, hides bus children
+  renderRailBoard();           // shows "loading" rows while we fetch
+  dom.departurePanel.scrollIntoView({ behavior: "smooth", block: "end" });
+
+  try {
+    const data = await apiFetch(`/api/rail-departures?crs=${encodeURIComponent(crs)}`);
+    if (!state.selectedRailStation || state.selectedRailStation.crs !== crs) return;
+    state.railBoard = data;
+  } catch (err) {
+    console.warn("Rail board fetch failed:", err);
+    if (state.selectedRailStation && state.selectedRailStation.crs === crs) {
+      state.railBoard = { error: err?.message || "Could not load rail data." };
+    }
+  } finally {
+    state.railBoardLoading = false;
+    renderRailBoard();
+  }
+}
+
+function renderRailBoard() {
+  const host = dom.railBoardHost;
+  if (!host || !state.selectedRailStation) return;
+  const board   = state.railBoard;
+  const loading = state.railBoardLoading;
+  const services = (board && board.services) || [];
+  let rowsHtml;
+  if (loading) {
+    rowsHtml = `<tr><td colspan="5" class="rail-board-loading">Loading live trains…</td></tr>`;
+  } else if (board && board.error) {
+    rowsHtml = `<tr><td colspan="5" class="rail-board-error">${escapeHtml(board.error)}</td></tr>`;
+  } else if (services.length === 0) {
+    rowsHtml = `<tr><td colspan="5" class="rail-board-empty">No live departures right now.</td></tr>`;
+  } else {
+    rowsHtml = services.map(svc => renderRailBoardRow(svc)).join("");
+  }
+  host.innerHTML = `
+    <div class="rail-board">
+      <div class="rail-board-header">
+        <span class="rail-board-eyebrow">Live trains</span>
+        <span class="rail-board-station">${escapeHtml(state.selectedRailStation.name)} (${escapeHtml(state.selectedRailStation.crs)})</span>
+      </div>
+      <table class="departures-table rail-board-table">
+        <thead>
+          <tr>
+            <th class="rail-col-time">Time</th>
+            <th class="rail-col-dest">Destination</th>
+            <th class="rail-col-plat">Plat</th>
+            <th class="rail-col-op">Operator</th>
+            <th class="rail-col-act" aria-label="Track on map"></th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <p class="rail-board-footer">
+        Live data from Realtime Trains. Train positions are estimated
+        between stations — there is no GPS on this feed.
+      </p>
+    </div>
+  `;
+  // Wire the "Show on map" buttons after the table is in the DOM.
+  host.querySelectorAll("[data-rail-action='select']").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const uid  = btn.getAttribute("data-uid");
+      const date = btn.getAttribute("data-date");
+      const isSelected = !!state.selectedRailServices[uid];
+      if (isSelected) deselectRailService(uid);
+      else            selectRailService(uid, date);
+    });
+  });
+}
+
+function renderRailBoardRow(svc) {
+  if (!svc) return "";
+  const dep = svc.departure || {};
+  const arr = svc.arrival   || {};
+  // For board display prefer the departure time (origin/intermediate); fall back to arrival (terminus).
+  const sched = dep.scheduled || arr.scheduled;
+  const live  = pickRailDisplayTime(dep.scheduled ? dep : arr);
+  const schedTxt = formatRailTime(sched);
+  const liveTxt  = formatRailTime(live.iso);
+  const isCancelled = dep.cancelled || arr.cancelled
+    || /CANCELLED/i.test(svc.displayAs || "")
+    || /CANCELLED/i.test(svc.callType || "");
+  const isChanged = sched && live.iso && sched !== live.iso;
+  const destList = (svc.destination || []).map(d => d.description).filter(Boolean);
+  const destination = destList.join(" & ") || (svc.headcode ? `Headcode ${svc.headcode}` : "—");
+  const plat   = svc.platform || "–";
+  const platCls = svc.platformConfirmed ? "rail-plat rail-plat--confirmed"
+                                        : "rail-plat rail-plat--unconfirmed";
+  const opCode = svc.atocCode || "";
+  const opCol  = railOperatorColour(opCode);
+  const opName = railOperatorName(opCode, svc.atocName);
+  const opTxt  = pickTextOn(opCol) === "dark" ? "#1a1a1a" : "#ffffff";
+  const uid = svc.uid || "";
+  const date = svc.departureDate || "";
+  const isSelected = !!state.selectedRailServices[uid];
+  const actLabel = isSelected ? "Hide" : "Track";
+  const actCls   = isSelected ? "rail-track-btn rail-track-btn--on" : "rail-track-btn";
+  const liveCls = isCancelled ? "rail-time rail-time--cancelled"
+                : isChanged   ? "rail-time rail-time--changed"
+                : live.kind === "actual"   ? "rail-time rail-time--actual"
+                                            : "rail-time";
+  return `
+    <tr class="rail-row ${isCancelled ? 'rail-row--cancelled' : ''}">
+      <td class="rail-col-time">
+        <span class="rail-time-sched">${escapeHtml(schedTxt)}</span>
+        ${liveTxt !== schedTxt
+          ? `<span class="${liveCls}">→ ${escapeHtml(liveTxt)}</span>`
+          : ''}
+      </td>
+      <td class="rail-col-dest">${escapeHtml(destination)}</td>
+      <td class="rail-col-plat"><span class="${platCls}">${escapeHtml(plat)}</span></td>
+      <td class="rail-col-op">
+        <span class="rail-op-badge" style="background:${opCol};color:${opTxt};">
+          ${escapeHtml(opName)}
+        </span>
+      </td>
+      <td class="rail-col-act">
+        ${uid && date
+          ? `<button type="button" class="${actCls}"
+                  data-rail-action="select" data-uid="${escapeAttr(uid)}"
+                  data-date="${escapeAttr(date)}">${actLabel}</button>`
+          : ''}
+      </td>
+    </tr>`;
+}
+
+// ── Selected-service tracking (Stage 2) ──────────────────────
+async function selectRailService(uid, date) {
+  if (!uid || !date) return;
+  if (state.selectedRailServices[uid]) return; // already tracked
+  state.selectedRailServices[uid] = { date, calling: null, marker: null, lastPos: null };
+  startRailRefreshTimer();
+  await refreshRailService(uid);
+  recomputeRailPositions();
+  renderRailBoard(); // re-render so the row button flips to "Hide"
+}
+
+function deselectRailService(uid) {
+  const entry = state.selectedRailServices[uid];
+  if (!entry) return;
+  if (entry.marker) state.map.removeLayer(entry.marker);
+  delete state.selectedRailServices[uid];
+  if (Object.keys(state.selectedRailServices).length === 0) stopRailRefreshTimer();
+  renderRailBoard();
+}
+
+function clearAllSelectedRailServices() {
+  for (const uid of Object.keys(state.selectedRailServices)) {
+    const entry = state.selectedRailServices[uid];
+    if (entry.marker) state.map.removeLayer(entry.marker);
+  }
+  state.selectedRailServices = {};
+  stopRailRefreshTimer();
+}
+
+function startRailRefreshTimer() {
+  if (state.railRefreshTimer) return;
+  state.railRefreshTimer = setInterval(async () => {
+    for (const uid of Object.keys(state.selectedRailServices)) {
+      const entry = state.selectedRailServices[uid];
+      try { await refreshRailService(uid); }
+      catch (e) { console.warn("rail service refresh failed", uid, e); }
+    }
+    recomputeRailPositions();
+  }, RAIL_REFRESH_MS);
+}
+
+function stopRailRefreshTimer() {
+  if (state.railRefreshTimer) {
+    clearInterval(state.railRefreshTimer);
+    state.railRefreshTimer = null;
+  }
+}
+
+async function refreshRailService(uid) {
+  const entry = state.selectedRailServices[uid];
+  if (!entry) return;
+  const data = await apiFetch(
+    `/api/rail-service?uid=${encodeURIComponent(uid)}&date=${encodeURIComponent(entry.date)}`
+  );
+  if (!state.selectedRailServices[uid]) return; // user deselected mid-fetch
+  state.selectedRailServices[uid].calling = data;
+}
+
+// Time-wrap helper for midnight-rollover services.
+// If `now` is before `tA`, assume `now` is on the next calendar day.
+// If `tB < tA`, the segment crosses midnight so push `tB` forward 24 h.
+function wrapRailTimes(tA, tB, now) {
+  const DAY = 24 * 60 * 60 * 1000;
+  if (tB < tA) tB += DAY;
+  if (now < tA) now += DAY;
+  return { tA, tB, now };
+}
+
+function recomputeRailPositions() {
+  const now = Date.now();
+  for (const uid of Object.keys(state.selectedRailServices)) {
+    const entry = state.selectedRailServices[uid];
+    const svc = entry.calling;
+    if (!svc) continue;
+    const locs = svc.locations || [];
+    if (locs.length < 2) {
+      removeRailTrainMarker(uid);
+      continue;
+    }
+
+    // Cancelled / terminated → drop the marker, keep the entry until the user
+    // explicitly Hides it so the board's "Hide" toggle still works.
+    const allCancelled = locs.every(l => (l.arrival && l.arrival.cancelled)
+                                       || (l.departure && l.departure.cancelled));
+    if (allCancelled) { removeRailTrainMarker(uid); continue; }
+    const terminus = locs[locs.length - 1];
+    if (terminus && terminus.arrival && terminus.arrival.actual) {
+      // Train has arrived at destination — auto-clean.
+      deselectRailService(uid);
+      continue;
+    }
+
+    // Find last location with an actual departure (A), and the next location
+    // we expect it at (B). Only count locations whose CRS is in our station set.
+    let A = null, B = null;
+    for (let i = 0; i < locs.length; i++) {
+      const l = locs[i];
+      if (!l.inBbox) continue;
+      const actDep = l.departure && l.departure.actual;
+      const actArr = l.arrival   && l.arrival.actual;
+      if (actDep || actArr) {
+        A = { loc: l, idx: i };
+      }
+    }
+    if (A) {
+      // First in-bbox location after A that's *not* already actualised.
+      for (let i = A.idx + 1; i < locs.length; i++) {
+        const l = locs[i];
+        if (!l.inBbox) continue;
+        const actArr = l.arrival && l.arrival.actual;
+        if (actArr) { A = { loc: l, idx: i }; continue; } // catch up to the latest actual
+        B = { loc: l, idx: i };
+        break;
+      }
+    } else {
+      // Train hasn't reported in-bbox yet — try to seed A from the first
+      // in-bbox location whose departure we have *any* time for, so we can
+      // at least draw the train approaching from its scheduled origin once
+      // the next forecast appears. If nothing useful, skip.
+      for (let i = 0; i < locs.length; i++) {
+        const l = locs[i];
+        if (!l.inBbox) continue;
+        if (l.departure && (l.departure.forecast || l.departure.scheduled)) {
+          A = { loc: l, idx: i };
+          break;
+        }
+      }
+      if (A) {
+        for (let i = A.idx + 1; i < locs.length; i++) {
+          const l = locs[i];
+          if (!l.inBbox) continue;
+          B = { loc: l, idx: i };
+          break;
+        }
+      }
+    }
+
+    if (!A || !B) { removeRailTrainMarker(uid); continue; }
+
+    const aStation = state.railStationByCrs[A.loc.crs];
+    const bStation = state.railStationByCrs[B.loc.crs];
+    if (!aStation || !bStation) { removeRailTrainMarker(uid); continue; }
+
+    // Times for the interpolation window.
+    const aDep = pickRailDisplayTime(A.loc.departure);
+    const aArr = pickRailDisplayTime(A.loc.arrival);
+    const bArr = pickRailDisplayTime(B.loc.arrival);
+    const bDep = pickRailDisplayTime(B.loc.departure);
+    const tAraw = parseRailTime(aDep.iso || aArr.iso);
+    const tBraw = parseRailTime(bArr.iso || bDep.iso);
+    if (tAraw == null || tBraw == null) { removeRailTrainMarker(uid); continue; }
+
+    const { tA, tB, now: tnow } = wrapRailTimes(tAraw, tBraw, now);
+    let f = (tB > tA) ? (tnow - tA) / (tB - tA) : 0;
+    if (f < 0) f = 0; else if (f > 1) f = 1;
+
+    const lat = aStation.lat + f * (bStation.lat - aStation.lat);
+    const lon = aStation.lon + f * (bStation.lon - aStation.lon);
+    const bearing = Math.atan2(bStation.lon - aStation.lon,
+                               bStation.lat - aStation.lat) * 180 / Math.PI;
+
+    const colour = railOperatorColour(svc.atocCode);
+    const headcode = svc.headcode || (svc.uid || "").slice(-3);
+    const destination = (svc.destination && svc.destination[0]
+                         && svc.destination[0].crs) || "";
+    const label = destination || headcode;
+
+    if (!entry.marker) {
+      ensureRailPanes();
+      entry.marker = L.marker([lat, lon], {
+        icon: railTrainDivIcon(colour, label),
+        pane: "railTrainPane",
+        title: `Service ${svc.headcode || svc.uid} — estimated position between ${aStation.name} and ${bStation.name}`,
+        keyboard: false,
+      });
+      entry.marker.on("click", (e) => {
+        L.DomEvent.stopPropagation(e);
+        state._ignoreNextMapClick = true;
+        showRailTrainPopup(uid);
+      });
+      entry.marker.addTo(state.map);
+    } else {
+      entry.marker.setLatLng([lat, lon]);
+      entry.marker.setIcon(railTrainDivIcon(colour, label));
+      const tipEl = entry.marker.getElement();
+      if (tipEl) {
+        tipEl.setAttribute("title",
+          `Service ${svc.headcode || svc.uid} — estimated position between ${aStation.name} and ${bStation.name}`);
+      }
+    }
+    entry.lastPos = { lat, lon, bearing };
+    entry.lastSeg = { fromCrs: A.loc.crs, toCrs: B.loc.crs };
+  }
+}
+
+function removeRailTrainMarker(uid) {
+  const entry = state.selectedRailServices[uid];
+  if (!entry) return;
+  if (entry.marker) {
+    state.map.removeLayer(entry.marker);
+    entry.marker = null;
+  }
+}
+
+function showRailTrainPopup(uid) {
+  const entry = state.selectedRailServices[uid];
+  if (!entry || !entry.marker || !entry.calling) return;
+  const svc = entry.calling;
+  const nextCalls = (svc.locations || [])
+    .filter(l => !(l.departure && l.departure.actual)
+              && !(l.arrival   && l.arrival.actual))
+    .slice(0, 3);
+  const callsHtml = nextCalls.map(l => {
+    const t = pickRailDisplayTime(l.arrival.scheduled ? l.arrival : l.departure);
+    return `<li><b>${escapeHtml(formatRailTime(t.iso))}</b> ${escapeHtml(l.description || l.crs || "")}</li>`;
+  }).join("");
+  const headcode = svc.headcode || svc.uid || "";
+  const opName = railOperatorName(svc.atocCode, svc.atocName);
+  const html = `
+    <div class="rail-train-popup">
+      <div class="rail-train-popup-head">
+        <span class="rail-train-popup-headcode">${escapeHtml(headcode)}</span>
+        <span class="rail-train-popup-op">${escapeHtml(opName)}</span>
+      </div>
+      <div class="rail-train-popup-seg">
+        Estimated between
+        <b>${escapeHtml(state.railStationByCrs[entry.lastSeg?.fromCrs]?.name || entry.lastSeg?.fromCrs || "?")}</b>
+        and
+        <b>${escapeHtml(state.railStationByCrs[entry.lastSeg?.toCrs]?.name || entry.lastSeg?.toCrs || "?")}</b>
+      </div>
+      ${callsHtml ? `<ol class="rail-train-popup-calls">${callsHtml}</ol>` : ''}
+      <p class="rail-train-popup-foot">Estimated from timetable + realtime predictions. No GPS.</p>
+    </div>`;
+  entry.marker.bindPopup(html, { className: "rail-train-popup-wrap" }).openPopup();
+}
+
+// Show/hide all rail UI as a group — driven by header toggle and view gating.
+function setRailVisible(on) {
+  state.railVisible = !!on;
+  syncRailToggleUI();
+  if (state.railVisible && state.viewMode === "live") {
+    loadRailStations().then(() => showRailStations());
+  } else {
+    hideRailStations();
+    clearAllSelectedRailServices();
+    if (state.selectedRailStation) {
+      // The board is currently shown; collapse the panel so we don't render a
+      // stale board with no way to refresh.
+      closePanel();
+    }
+  }
+}
+function syncRailToggleUI() {
+  if (!dom.toggleRailBtn) return;
+  const on = state.railVisible;
+  dom.toggleRailBtn.setAttribute("aria-pressed", on ? "true" : "false");
+  dom.toggleRailBtn.setAttribute("aria-label", on ? "Hide trains" : "Show trains");
+  dom.toggleRailBtn.title = on ? "Hide trains" : "Show trains";
 }
 
 // ============================================================

@@ -9,8 +9,11 @@ Only live vehicle positions are fetched from BODS at runtime —
 no large downloads, no timeouts.
 
 Environment variables:
-  BODS_API_KEY    — https://data.bus-data.dft.gov.uk/
-  ALLOWED_ORIGIN  — your GitHub Pages URL
+  BODS_API_KEY        — https://data.bus-data.dft.gov.uk/
+  ALLOWED_ORIGIN      — your GitHub Pages URL
+  NEXTBUSES_APP_ID    — transportapi.com app id (legacy var name)
+  NEXTBUSES_APP_KEY   — transportapi.com app key (legacy var name)
+  RTT_BEARER_TOKEN    — Realtime Trains (data.rtt.io) bearer token
 """
 
 import json
@@ -69,6 +72,48 @@ NEXTBUSES_SKIP_THRESHOLD_SEC = (
     int(os.getenv("NEXTBUSES_SKIP_THRESHOLD_MINUTES", "30")) * 60
 )
 NEXTBUSES_DAILY_LIMIT        = int(os.getenv("NEXTBUSES_DAILY_LIMIT", "300"))
+
+# ── Realtime Trains (RTT) — new-gen API at data.rtt.io ────────
+# Set RTT_BEARER_TOKEN in Render env vars. Tokens MUST stay server-side
+# (the API's terms ban tokens in distributable client apps), so the
+# browser only ever talks to /api/rail-*; we proxy upstream.
+#
+# Entitlement (per user's account): GB (Network Rail) namespace,
+# 14-day history, 30/min · 750/hr · 9 000/day · 30 000/wk.
+# Per-minute is the binding constraint — design around it, not the day.
+RTT_BEARER_TOKEN    = os.environ.get("RTT_BEARER_TOKEN", "")
+RTT_BASE_URL        = os.environ.get("RTT_BASE_URL", "https://data.rtt.io")
+RTT_NAMESPACE       = os.environ.get("RTT_NAMESPACE", "gb-nr")
+RTT_CACHE_TTL       = int(os.environ.get("RTT_CACHE_TTL", "30"))  # matches RTT cadence
+RAIL_STATIONS_PATH  = Path(__file__).parent.parent / "data" / "rail_stations.json"
+
+def _load_rail_stations() -> list[dict]:
+    """Load + bbox-filter the rail-station list. Filtered at build time too,
+    but re-filter here so an out-of-bbox row added by mistake can't leak out."""
+    if not RAIL_STATIONS_PATH.exists():
+        log.warning("rail_stations.json not found at %s", RAIL_STATIONS_PATH)
+        return []
+    try:
+        raw = json.loads(RAIL_STATIONS_PATH.read_text())
+    except Exception as e:
+        log.error("rail_stations.json parse failed: %s", e)
+        return []
+    out = []
+    for s in raw.get("stations", []):
+        lat, lon, crs = s.get("lat"), s.get("lon"), s.get("crs")
+        if lat is None or lon is None or not crs:
+            continue
+        if not (BBOX_MIN_LAT <= lat <= BBOX_MAX_LAT
+                and BBOX_MIN_LON <= lon <= BBOX_MAX_LON):
+            continue
+        out.append({"crs": crs, "name": s.get("name") or crs,
+                    "lat": float(lat), "lon": float(lon)})
+    out.sort(key=lambda s: s["lon"])  # west → east
+    return out
+
+RAIL_STATIONS = _load_rail_stations()
+RAIL_CRS_SET  = {s["crs"] for s in RAIL_STATIONS}
+log.info("Loaded %d rail stations in bbox", len(RAIL_STATIONS))
 
 # ── In-memory cache ───────────────────────────────────────────
 _cache: dict = {}
@@ -254,6 +299,215 @@ async def get_stops():
     if stops:
         cache_set("stops", result, 86_400)
     log.info("Serving %d stops from local timetable", len(stops))
+    return result
+
+# ── Realtime Trains (RTT) proxy endpoints ─────────────────────
+# The browser only talks to /api/rail-* — tokens stay server-side.
+# Cache TTL matches RTT's ~30 s upstream cadence so polling faster
+# than that just hits our cache (the user's per-minute budget is 30).
+
+def _rtt_headers() -> dict:
+    return {
+        "Authorization": f"Bearer {RTT_BEARER_TOKEN}",
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip",
+        "User-Agent": "adur-worthing-bus/1.0 (+rail)",
+    }
+
+def _log_rtt_quota(resp: httpx.Response) -> None:
+    """Surface RTT rate-limit headers so we can see the budget burn down."""
+    try:
+        rem_min = resp.headers.get("X-RateLimit-Remaining-Minute")
+        rem_day = resp.headers.get("X-RateLimit-Remaining-Day")
+        if rem_min is not None or rem_day is not None:
+            log.info("RTT quota: %s/min · %s/day remaining", rem_min, rem_day)
+    except Exception:
+        pass
+
+def _temporal(td: dict, key: str) -> dict:
+    """Project an IndividualTemporalData block (arrival/departure/pass) to
+    just the fields the frontend cares about. Times are ISO 8601 strings
+    straight through — JS Date.parse() handles them."""
+    if not isinstance(td, dict): return {}
+    sub = td.get(key) or {}
+    if not isinstance(sub, dict): return {}
+    return {
+        "scheduled":  sub.get("scheduleAdvertised") or sub.get("scheduleInternal"),
+        "forecast":   sub.get("realtimeForecast") or sub.get("realtimeEstimate"),
+        "actual":     sub.get("realtimeActual"),
+        "noReport":   bool(sub.get("realtimeNoReport")),
+        "cancelled":  bool(sub.get("isCancelled")),
+    }
+
+def _normalise_date(s: str | None) -> str | None:
+    """RTT's departureDate is documented as YYYY-MM-DD, but be defensive about
+    upstream variations (YYYYMMDD or YYYY/MM/DD) so the frontend can pass it
+    straight back to /api/rail-service without worrying about format."""
+    if not s: return None
+    s = str(s).strip()
+    if not s: return None
+    digits = s.replace("-", "").replace("/", "")
+    if len(digits) == 8 and digits.isdigit():
+        return f"{digits[0:4]}-{digits[4:6]}-{digits[6:8]}"
+    return s
+
+def _location_pair(o):
+    if not isinstance(o, dict): return None
+    return {
+        "description": (o.get("description") or o.get("name") or
+                        o.get("longName")    or o.get("shortName")),
+        "crs":         ((o.get("shortCodes") or [None])[0]
+                        if isinstance(o.get("shortCodes"), list)
+                        else o.get("crs")),
+    }
+
+def _ends(arr):
+    return [p for p in (_location_pair(o) for o in (arr or [])) if p]
+
+def _project_board_service(svc: dict) -> dict:
+    sm = svc.get("scheduleMetadata") or {}
+    lm = svc.get("locationMetadata") or {}
+    td = svc.get("temporalData") or {}
+    op = sm.get("operator") or {}
+    plat = (lm.get("platform") or {}) if isinstance(lm.get("platform"), dict) else {}
+    return {
+        "uid":            sm.get("identity"),
+        "headcode":       sm.get("trainReportingIdentity"),
+        "departureDate":  _normalise_date(sm.get("departureDate")),
+        "atocCode":       op.get("code"),
+        "atocName":       op.get("name"),
+        "origin":         _ends(svc.get("origin")),
+        "destination":    _ends(svc.get("destination")),
+        "platform":       plat.get("actual") or plat.get("planned"),
+        "platformConfirmed": bool(plat.get("actual")),
+        "displayAs":      td.get("displayAs"),
+        "callType":       td.get("realtimeCallType") or td.get("scheduledCallType"),
+        "arrival":        _temporal(td, "arrival"),
+        "departure":      _temporal(td, "departure"),
+        "pass":           _temporal(td, "pass"),
+    }
+
+def _project_service_location(loc: dict) -> dict:
+    lm   = loc.get("locationMetadata") or {}
+    td   = loc.get("temporalData") or {}
+    geo  = loc.get("location") or {}
+    plat = (lm.get("platform") or {}) if isinstance(lm.get("platform"), dict) else {}
+    short_codes = geo.get("shortCodes") if isinstance(geo.get("shortCodes"), list) else []
+    return {
+        "crs":         (short_codes[0] if short_codes else None),
+        "description": geo.get("description"),
+        "displayAs":   td.get("displayAs"),
+        "callType":    td.get("realtimeCallType") or td.get("scheduledCallType"),
+        "platform":    plat.get("actual") or plat.get("planned"),
+        "platformConfirmed": bool(plat.get("actual")),
+        "arrival":     _temporal(td, "arrival"),
+        "departure":   _temporal(td, "departure"),
+        "pass":        _temporal(td, "pass"),
+    }
+
+@app.get("/api/rail-stations")
+async def get_rail_stations():
+    """Static list of rail stations inside the bus bbox. ~15 entries.
+    Generated at build time from a public station CSV; see scripts/."""
+    return {"stations": RAIL_STATIONS, "count": len(RAIL_STATIONS)}
+
+@app.get("/api/rail-departures")
+async def get_rail_departures(crs: str = Query(..., min_length=3, max_length=3)):
+    """Live departure board at a station (RTT `/gb-nr/location?code=…`).
+    Cached for RTT_CACHE_TTL seconds; rejects CRS codes not in our bbox."""
+    crs = crs.upper()
+    if crs not in RAIL_CRS_SET:
+        raise HTTPException(status_code=404, detail=f"Station {crs} is outside the in-scope area.")
+    if not RTT_BEARER_TOKEN:
+        raise HTTPException(status_code=503, detail="Rail data not configured (RTT_BEARER_TOKEN missing).")
+    cache_key = f"rail:dep:{crs}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+    url = f"{RTT_BASE_URL}/{RTT_NAMESPACE}/location"
+    params = {"code": crs}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, headers=_rtt_headers(), params=params)
+        _log_rtt_quota(r)
+        if r.status_code == 429:
+            retry = r.headers.get("Retry-After", "?")
+            raise HTTPException(status_code=429,
+                detail=f"Rail upstream rate-limited (retry after {retry}s).")
+        if r.status_code != 200:
+            log.warning("RTT location %s → HTTP %s: %s", crs, r.status_code, r.text[:200])
+            raise HTTPException(status_code=502,
+                detail=f"Rail upstream returned {r.status_code}.")
+        body = r.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.warning("RTT location %s failed: %s", crs, e)
+        raise HTTPException(status_code=502, detail=f"Rail upstream error: {e}")
+    services = [_project_board_service(s) for s in (body.get("services") or [])]
+    result = {
+        "crs":      crs,
+        "name":     next((s["name"] for s in RAIL_STATIONS if s["crs"] == crs), crs),
+        "services": services,
+        "count":    len(services),
+        "fetched":  datetime.now(timezone.utc).isoformat(),
+    }
+    cache_set(cache_key, result, RTT_CACHE_TTL)
+    return result
+
+@app.get("/api/rail-service")
+async def get_rail_service(
+    uid:  str = Query(..., min_length=1, max_length=16),
+    date: str = Query(..., regex=r"^\d{4}-\d{2}-\d{2}$"),
+):
+    """Single-service calling pattern (RTT `/gb-nr/service?identity=…&departureDate=…`).
+    Cached per (uid, date) for RTT_CACHE_TTL seconds."""
+    if not RTT_BEARER_TOKEN:
+        raise HTTPException(status_code=503, detail="Rail data not configured (RTT_BEARER_TOKEN missing).")
+    cache_key = f"rail:svc:{uid}:{date}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+    url = f"{RTT_BASE_URL}/{RTT_NAMESPACE}/service"
+    params = {"identity": uid, "departureDate": date}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, headers=_rtt_headers(), params=params)
+        _log_rtt_quota(r)
+        if r.status_code == 429:
+            retry = r.headers.get("Retry-After", "?")
+            raise HTTPException(status_code=429,
+                detail=f"Rail upstream rate-limited (retry after {retry}s).")
+        if r.status_code != 200:
+            log.warning("RTT service %s/%s → HTTP %s: %s", uid, date, r.status_code, r.text[:200])
+            raise HTTPException(status_code=502,
+                detail=f"Rail upstream returned {r.status_code}.")
+        body = r.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.warning("RTT service %s/%s failed: %s", uid, date, e)
+        raise HTTPException(status_code=502, detail=f"Rail upstream error: {e}")
+    svc = body.get("service") or {}
+    sm  = svc.get("scheduleMetadata") or {}
+    op  = sm.get("operator") or {}
+    locations = [_project_service_location(loc) for loc in (svc.get("locations") or [])]
+    # Pre-annotate which locations are in our bbox set so the frontend
+    # doesn't need to know the station list to decide what to render.
+    for loc in locations:
+        loc["inBbox"] = bool(loc.get("crs") and loc["crs"] in RAIL_CRS_SET)
+    result = {
+        "uid":          sm.get("identity") or uid,
+        "headcode":     sm.get("trainReportingIdentity"),
+        "departureDate": _normalise_date(sm.get("departureDate")) or date,
+        "atocCode":     op.get("code"),
+        "atocName":     op.get("name"),
+        "origin":       _ends(svc.get("origin")),
+        "destination":  _ends(svc.get("destination")),
+        "locations":    locations,
+        "fetched":      datetime.now(timezone.utc).isoformat(),
+    }
+    cache_set(cache_key, result, RTT_CACHE_TTL)
     return result
 
 # ── /api/route-lines ──────────────────────────────────────────
