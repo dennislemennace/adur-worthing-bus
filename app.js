@@ -4302,23 +4302,41 @@ function railStationDivIcon() {
   });
 }
 
+// Front-carriage livery images from Realtime Trains (credit: realtimetrains.co.uk).
+// Keyed by ATOC code → [stockClass, operatorPath, frontCarriageFile].
+// onerror on the <img> silently falls back to the operator colour pill.
+const RTT_LIVERY_BASE = "https://www.realtimetrains.co.uk/assets/train-svgs";
+const RTT_FRONT_CAR = {
+  TL: ["700", "tl", "DMC"],
+  SN: ["377", "sn", "DMSL"],
+  GX: ["387", "gx", "DMSL"],
+};
+function rttFrontCarUrl(atocCode) {
+  const e = RTT_FRONT_CAR[(atocCode || "").toUpperCase()];
+  return e ? `${RTT_LIVERY_BASE}/${e[0]}/${e[1]}/${e[2]}.png` : null;
+}
+
 function railTrainDivIcon(colour, label, opts = {}) {
   const bg = colour || RAIL_TRAIN_FILL_DEFAULT;
-  // No bearing rotation — the pill has no directional glyph and the label
-  // needs to stay readable. Pulse class is removed by JS after ~4 s.
   const cls = ["rail-train-icon-wrap"];
   if (opts.pulse) cls.push("rail-train-icon-wrap--pulse");
+  const liveryHtml = opts.liveryUrl
+    ? `<img class="rail-train-livery" src="${escapeHtml(opts.liveryUrl)}" alt=""
+           onerror="this.style.display='none'"
+           onload="this.style.opacity='1'">`
+    : "";
   const html = `
     <div class="${cls.join(' ')}" style="--rail-train-bg:${bg};">
       <div class="rail-train-icon" style="background:${bg};">
+        ${liveryHtml}
         <div class="rail-train-pulse" aria-hidden="true"></div>
         <span class="rail-train-label">${escapeHtml(label || "")}</span>
       </div>
     </div>`;
   return L.divIcon({
     html, className: "rail-train-divicon",
-    iconSize:   [120, 26],
-    iconAnchor: [60, 13],
+    iconSize:   [0, 0],
+    iconAnchor: [0, 0],
   });
 }
 
@@ -4695,8 +4713,9 @@ function recomputeRailPositions() {
     // Compute initial position so the marker can materialise immediately.
     const { lat, lon } = railPosAt(entry.target, now);
 
-    const colour   = railOperatorColour(svc.atocCode);
-    const label    = railPillLabel(svc, entry);
+    const colour    = railOperatorColour(svc.atocCode);
+    const label     = railPillLabel(svc, entry);
+    if (!entry.liveryUrl) entry.liveryUrl = rttFrontCarUrl(svc.atocCode);
 
     const justCreated = !entry.marker;
     if (justCreated) {
@@ -4707,7 +4726,7 @@ function recomputeRailPositions() {
       // only, so transitions glide instead of snapping.
       entry.displayed = { lat, lon };
       entry.marker = L.marker([lat, lon], {
-        icon: railTrainDivIcon(colour, label, { pulse: true }),
+        icon: railTrainDivIcon(colour, label, { pulse: true, liveryUrl: entry.liveryUrl }),
         pane: "railTrainPane",
         title: railTrainTitle(svc, entry.target),
         keyboard: false,
@@ -4739,7 +4758,7 @@ function recomputeRailPositions() {
       }
     } else if (entry.markerColour !== colour || entry.markerLabel !== label) {
       // Colour/label change only — no setLatLng; rAF loop owns position.
-      entry.marker.setIcon(railTrainDivIcon(colour, label));
+      entry.marker.setIcon(railTrainDivIcon(colour, label, { liveryUrl: entry.liveryUrl }));
       entry.markerColour = colour;
       entry.markerLabel  = label;
     }

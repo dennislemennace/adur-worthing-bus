@@ -3089,11 +3089,13 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 
 /* Wrapper houses the pulse ring behind the pill. No bearing rotation —
    the pill has no directional glyph and the label needs to stay readable. */
+/* iconSize [0,0] + iconAnchor [0,0] in JS; transform keeps the pill
+   centred over the geographic point regardless of text width. */
 .rail-train-icon-wrap {
   position: relative;
-  width: 120px; height: 26px;
   display: flex; align-items: center; justify-content: center;
   pointer-events: auto;
+  transform: translate(-50%, -50%);
 }
 
 .rail-train-icon {
@@ -3101,7 +3103,6 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   display: inline-flex; align-items: center; justify-content: center;
   height: 26px;
   min-width: 40px;
-  max-width: 116px;
   padding: 0 8px;
   border-radius: 13px;
   color: #fff;
@@ -3112,15 +3113,28 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   border: 2px solid rgba(255,255,255,0.95);
   box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.25);
   white-space: nowrap;
+  overflow: hidden;
   z-index: 2;
 }
 .rail-train-icon .rail-train-label {
   position: relative;
   z-index: 2;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6);
+}
+
+/* Front-carriage livery image covers the pill; operator colour shows while
+   loading or on 404. onload sets opacity:1; onerror leaves it hidden. */
+.rail-train-livery {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  object-position: left center;
+  border-radius: 11px;
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
 }
 
 /* Pulse ring tracks the pill itself (it's a child of .rail-train-icon).
