@@ -4299,16 +4299,26 @@ function railStationDivIcon() {
   });
 }
 
-function railTrainDivIcon(colour, label) {
+function railTrainDivIcon(colour, label, opts = {}) {
   const bg = colour || RAIL_TRAIN_FILL_DEFAULT;
+  // The wrap houses the pulse ring + handles the incoming-state class.
+  // No bearing rotation — the pill shows the destination code and has no
+  // directional glyph, so heading rotation would just make the label hard
+  // to read for no visual gain.
+  const cls = ["rail-train-icon-wrap"];
+  if (opts.incoming) cls.push("rail-train-icon-wrap--incoming");
+  if (opts.pulse)    cls.push("rail-train-icon-wrap--pulse");
   const html = `
-    <div class="rail-train-icon" style="background:${bg};">
-      <span class="rail-train-label">${escapeHtml(label || "")}</span>
+    <div class="${cls.join(' ')}" style="--rail-train-bg:${bg};">
+      <div class="rail-train-pulse" aria-hidden="true"></div>
+      <div class="rail-train-icon" style="background:${bg};">
+        <span class="rail-train-label">${escapeHtml(label || "")}</span>
+      </div>
     </div>`;
   return L.divIcon({
     html, className: "rail-train-divicon",
-    iconSize:   [38, 22],
-    iconAnchor: [19, 11],
+    iconSize:   [48, 26],
+    iconAnchor: [24, 13],
   });
 }
 
@@ -4507,8 +4517,22 @@ async function selectRailService(uid, date) {
   if (state.selectedRailServices[uid]) return; // already tracked
   state.selectedRailServices[uid] = { date, calling: null, marker: null, lastPos: null };
   startRailRefreshTimer();
-  await refreshRailService(uid);
+  startRailAnimationLoop();
+  try {
+    await refreshRailService(uid);
+  } catch (err) {
+    console.warn("rail service initial fetch failed", uid, err);
+  }
   recomputeRailPositions();
+  const entry = state.selectedRailServices[uid];
+  if (entry && entry.lastPos) {
+    // Fly the user to the dot so it's never off-screen.
+    state.map.flyTo([entry.lastPos.lat, entry.lastPos.lon],
+                    Math.max(state.map.getZoom(), 13),
+                    { duration: 0.8 });
+  } else if (entry) {
+    showToast("Service not yet showing on map — will appear when it enters the area.");
+  }
   renderRailBoard(); // re-render so the row button flips to "Hide"
 }
 
@@ -4517,7 +4541,10 @@ function deselectRailService(uid) {
   if (!entry) return;
   if (entry.marker) state.map.removeLayer(entry.marker);
   delete state.selectedRailServices[uid];
-  if (Object.keys(state.selectedRailServices).length === 0) stopRailRefreshTimer();
+  if (Object.keys(state.selectedRailServices).length === 0) {
+    stopRailRefreshTimer();
+    stopRailAnimationLoop();
+  }
   renderRailBoard();
 }
 
@@ -4528,6 +4555,7 @@ function clearAllSelectedRailServices() {
   }
   state.selectedRailServices = {};
   stopRailRefreshTimer();
+  stopRailAnimationLoop();
 }
 
 function startRailRefreshTimer() {
@@ -4560,15 +4588,22 @@ async function refreshRailService(uid) {
 }
 
 // Time-wrap helper for midnight-rollover services.
-// If `now` is before `tA`, assume `now` is on the next calendar day.
 // If `tB < tA`, the segment crosses midnight so push `tB` forward 24 h.
-function wrapRailTimes(tA, tB, now) {
+// Only wrap `now` past midnight when A is an actualised departure (we know the
+// train *did* leave A on day-N and we're now on day-N+1). For a forecast-seed
+// A, `now < tA` is the normal "not yet arrived" case — f should clamp to 0,
+// not roll over.
+function wrapRailTimes(tA, tB, now, aActualised) {
   const DAY = 24 * 60 * 60 * 1000;
   if (tB < tA) tB += DAY;
-  if (now < tA) now += DAY;
+  if (aActualised && now < tA) now += DAY;
   return { tA, tB, now };
 }
 
+// Recompute the *target* window (A, B, tA, tB, coords, bearing) for every
+// tracked service. Called by the 30 s refresh path. This function does NOT
+// move the marker each frame — that's tickRailAnimation's job. It just sets
+// entry.target, and creates the marker on first availability.
 function recomputeRailPositions() {
   const now = Date.now();
   for (const uid of Object.keys(state.selectedRailServices)) {
@@ -4578,14 +4613,15 @@ function recomputeRailPositions() {
     const locs = svc.locations || [];
     if (locs.length < 2) {
       removeRailTrainMarker(uid);
+      entry.target = null;
       continue;
     }
 
-    // Cancelled / terminated → drop the marker, keep the entry until the user
-    // explicitly Hides it so the board's "Hide" toggle still works.
+    // Cancelled — drop the marker, keep the entry until the user explicitly
+    // hits Hide so the board's toggle state stays consistent.
     const allCancelled = locs.every(l => (l.arrival && l.arrival.cancelled)
                                        || (l.departure && l.departure.cancelled));
-    if (allCancelled) { removeRailTrainMarker(uid); continue; }
+    if (allCancelled) { removeRailTrainMarker(uid); entry.target = null; continue; }
     const terminus = locs[locs.length - 1];
     if (terminus && terminus.arrival && terminus.arrival.actual) {
       // Train has arrived at destination — auto-clean.
@@ -4593,33 +4629,34 @@ function recomputeRailPositions() {
       continue;
     }
 
-    // Find last location with an actual departure (A), and the next location
-    // we expect it at (B). Only count locations whose CRS is in our station set.
+    // ── Resolve A (last-known position) and B (next call) ──────────────
     let A = null, B = null;
+    let aActualised = false;     // tells the wrap helper whether to roll `now`
+    let incoming = false;        // train is approaching from out-of-bbox
+
+    // Case 1: train has actualised at least one in-bbox station.
     for (let i = 0; i < locs.length; i++) {
       const l = locs[i];
       if (!l.inBbox) continue;
       const actDep = l.departure && l.departure.actual;
       const actArr = l.arrival   && l.arrival.actual;
-      if (actDep || actArr) {
-        A = { loc: l, idx: i };
-      }
+      if (actDep || actArr) { A = { loc: l, idx: i }; aActualised = true; }
     }
     if (A) {
-      // First in-bbox location after A that's *not* already actualised.
       for (let i = A.idx + 1; i < locs.length; i++) {
         const l = locs[i];
         if (!l.inBbox) continue;
         const actArr = l.arrival && l.arrival.actual;
-        if (actArr) { A = { loc: l, idx: i }; continue; } // catch up to the latest actual
+        if (actArr) { A = { loc: l, idx: i }; continue; } // catch up
         B = { loc: l, idx: i };
         break;
       }
-    } else {
-      // Train hasn't reported in-bbox yet — try to seed A from the first
-      // in-bbox location whose departure we have *any* time for, so we can
-      // at least draw the train approaching from its scheduled origin once
-      // the next forecast appears. If nothing useful, skip.
+    }
+
+    // Case 2: no actualised in-bbox station, but we have an in-bbox A with
+    // any kind of forecast / scheduled time — the train is forecast through
+    // our area and we can draw it approaching the first in-bbox station.
+    if (!A) {
       for (let i = 0; i < locs.length; i++) {
         const l = locs[i];
         if (!l.inBbox) continue;
@@ -4638,11 +4675,51 @@ function recomputeRailPositions() {
       }
     }
 
-    if (!A || !B) { removeRailTrainMarker(uid); continue; }
+    // Case 3 (new — advisor catch): only one in-bbox station and it's the
+    // first/terminus, and the train hasn't crossed it yet. Seed B = the
+    // first in-bbox station; anchor the marker at B's coords with an
+    // "incoming" pulse so the user sees something.
+    //
+    // CRITICAL: only run when the train has NOT actualised an in-bbox stop
+    // yet. Without this gate, a through-train that has already crossed and
+    // left the bbox would teleport backward to its entry station (Case 1
+    // finds A but no in-bbox B remains, so Case 3 would fire and re-pin
+    // the marker at the *first* in-bbox station — visibly wrong for 40+ min).
+    if (!B && !aActualised) {
+      let firstInBboxIdx = -1;
+      for (let i = 0; i < locs.length; i++) {
+        if (locs[i].inBbox) { firstInBboxIdx = i; break; }
+      }
+      if (firstInBboxIdx >= 0) {
+        B = { loc: locs[firstInBboxIdx], idx: firstInBboxIdx };
+        // Try to seed A from the previous calling point (out-of-bbox) so we
+        // have a time window for the rAF lerp to use; coords come from B
+        // either way because A is off-screen.
+        for (let i = firstInBboxIdx - 1; i >= 0; i--) {
+          const l = locs[i];
+          const hasTime =
+            (l.departure && (l.departure.actual || l.departure.forecast || l.departure.scheduled)) ||
+            (l.arrival   && (l.arrival.actual   || l.arrival.forecast   || l.arrival.scheduled));
+          if (hasTime) { A = { loc: l, idx: i }; break; }
+        }
+        if (A) {
+          incoming = true;
+          aActualised = !!(A.loc.departure && A.loc.departure.actual);
+        } else {
+          // No usable prior time either — give up cleanly.
+          B = null;
+        }
+      }
+    }
 
-    const aStation = state.railStationByCrs[A.loc.crs];
+    if (!A || !B) { removeRailTrainMarker(uid); entry.target = null; continue; }
+
+    // Coords: A may be out-of-bbox (Case 3) → use B's coords for both ends
+    // so the marker sits at B with no chord motion.
+    const aStation = incoming ? state.railStationByCrs[B.loc.crs]
+                              : state.railStationByCrs[A.loc.crs];
     const bStation = state.railStationByCrs[B.loc.crs];
-    if (!aStation || !bStation) { removeRailTrainMarker(uid); continue; }
+    if (!aStation || !bStation) { removeRailTrainMarker(uid); entry.target = null; continue; }
 
     // Times for the interpolation window.
     const aDep = pickRailDisplayTime(A.loc.departure);
@@ -4651,29 +4728,37 @@ function recomputeRailPositions() {
     const bDep = pickRailDisplayTime(B.loc.departure);
     const tAraw = parseRailTime(aDep.iso || aArr.iso);
     const tBraw = parseRailTime(bArr.iso || bDep.iso);
-    if (tAraw == null || tBraw == null) { removeRailTrainMarker(uid); continue; }
+    if (tAraw == null || tBraw == null) { removeRailTrainMarker(uid); entry.target = null; continue; }
 
-    const { tA, tB, now: tnow } = wrapRailTimes(tAraw, tBraw, now);
-    let f = (tB > tA) ? (tnow - tA) / (tB - tA) : 0;
-    if (f < 0) f = 0; else if (f > 1) f = 1;
+    entry.target = {
+      aLat: aStation.lat, aLon: aStation.lon,
+      bLat: bStation.lat, bLon: bStation.lon,
+      tA: tAraw, tB: tBraw,
+      aActualised,
+      incoming,
+      fromName: incoming ? (state.railStationByCrs[A.loc.crs]?.name
+                          || A.loc.description || A.loc.crs || "earlier stop")
+                         : aStation.name,
+      toName:   bStation.name,
+      fromCrs:  A.loc.crs,
+      toCrs:    B.loc.crs,
+    };
 
-    const lat = aStation.lat + f * (bStation.lat - aStation.lat);
-    const lon = aStation.lon + f * (bStation.lon - aStation.lon);
-    const bearing = Math.atan2(bStation.lon - aStation.lon,
-                               bStation.lat - aStation.lat) * 180 / Math.PI;
+    // Compute initial position so the marker can materialise immediately.
+    const { lat, lon } = railPosAt(entry.target, now);
 
-    const colour = railOperatorColour(svc.atocCode);
+    const colour   = railOperatorColour(svc.atocCode);
     const headcode = svc.headcode || (svc.uid || "").slice(-3);
-    const destination = (svc.destination && svc.destination[0]
-                         && svc.destination[0].crs) || "";
-    const label = destination || headcode;
+    const destCrs  = (svc.destination && svc.destination[0]
+                      && svc.destination[0].crs) || "";
+    const label    = destCrs || headcode;
 
     if (!entry.marker) {
       ensureRailPanes();
       entry.marker = L.marker([lat, lon], {
-        icon: railTrainDivIcon(colour, label),
+        icon: railTrainDivIcon(colour, label, { pulse: true, incoming }),
         pane: "railTrainPane",
-        title: `Service ${svc.headcode || svc.uid} — estimated position between ${aStation.name} and ${bStation.name}`,
+        title: railTrainTitle(svc, entry.target),
         keyboard: false,
       });
       entry.marker.on("click", (e) => {
@@ -4682,17 +4767,91 @@ function recomputeRailPositions() {
         showRailTrainPopup(uid);
       });
       entry.marker.addTo(state.map);
+      entry.markerColour = colour;
+      entry.markerLabel  = label;
+      // Pulse fades to a subdued state after ~4s so a long-tracked marker
+      // doesn't strobe forever; the class swap is cheap.
+      setTimeout(() => {
+        if (entry.marker) {
+          const el = entry.marker.getElement();
+          if (el) el.querySelector(".rail-train-icon-wrap")
+                    ?.classList.remove("rail-train-icon-wrap--pulse");
+        }
+      }, 4000);
+    } else if (entry.markerColour !== colour || entry.markerLabel !== label) {
+      // Colour/label only changes when atocCode or destination changes —
+      // rare; safe to setIcon here (NOT per frame).
+      entry.marker.setIcon(railTrainDivIcon(colour, label, { incoming }));
+      entry.markerColour = colour;
+      entry.markerLabel  = label;
     } else {
-      entry.marker.setLatLng([lat, lon]);
-      entry.marker.setIcon(railTrainDivIcon(colour, label));
-      const tipEl = entry.marker.getElement();
-      if (tipEl) {
-        tipEl.setAttribute("title",
-          `Service ${svc.headcode || svc.uid} — estimated position between ${aStation.name} and ${bStation.name}`);
+      // Toggle the incoming class if it changed mid-track (train enters bbox).
+      const el = entry.marker.getElement();
+      const wrap = el && el.querySelector(".rail-train-icon-wrap");
+      if (wrap) {
+        wrap.classList.toggle("rail-train-icon-wrap--incoming", incoming);
       }
     }
-    entry.lastPos = { lat, lon, bearing };
+    entry.marker.setLatLng([lat, lon]);
+    const tipEl = entry.marker.getElement();
+    if (tipEl) tipEl.setAttribute("title", railTrainTitle(svc, entry.target));
+
+    entry.lastPos = { lat, lon };
     entry.lastSeg = { fromCrs: A.loc.crs, toCrs: B.loc.crs };
+  }
+}
+
+// Helper: where is the train *right now* given a target window? Used both by
+// recomputeRailPositions (initial placement) and tickRailAnimation (per frame).
+function railPosAt(t, now) {
+  if (t.incoming) {
+    // Out-of-bbox A → marker stays at B with no chord motion.
+    return { lat: t.bLat, lon: t.bLon, f: 0 };
+  }
+  const { tA, tB, now: tnow } = wrapRailTimes(t.tA, t.tB, now, t.aActualised);
+  let f = (tB > tA) ? (tnow - tA) / (tB - tA) : 0;
+  if (f < 0) f = 0; else if (f > 1) f = 1;
+  return {
+    lat: t.aLat + f * (t.bLat - t.aLat),
+    lon: t.aLon + f * (t.bLon - t.aLon),
+    f,
+  };
+}
+
+function railTrainTitle(svc, target) {
+  const hc = svc.headcode || svc.uid;
+  if (target.incoming) {
+    return `Service ${hc} — approaching ${target.toName} from ${target.fromName}`;
+  }
+  return `Service ${hc} — estimated position between ${target.fromName} and ${target.toName}`;
+}
+
+// ── Per-frame animation loop ─────────────────────────────────
+// Runs while at least one service is tracked. Each frame, for every entry
+// with a target, recompute the position from current wall-clock time and
+// move the marker. No DOM writes beyond Leaflet's own setLatLng → cheap.
+let _railAnimFrame = null;
+function startRailAnimationLoop() {
+  if (_railAnimFrame != null) return;
+  const loop = () => {
+    _railAnimFrame = null;
+    if (Object.keys(state.selectedRailServices).length === 0) return;
+    const now = Date.now();
+    for (const uid of Object.keys(state.selectedRailServices)) {
+      const entry = state.selectedRailServices[uid];
+      if (!entry || !entry.marker || !entry.target) continue;
+      const { lat, lon } = railPosAt(entry.target, now);
+      entry.marker.setLatLng([lat, lon]);
+      entry.lastPos = { lat, lon };
+    }
+    _railAnimFrame = requestAnimationFrame(loop);
+  };
+  _railAnimFrame = requestAnimationFrame(loop);
+}
+function stopRailAnimationLoop() {
+  if (_railAnimFrame != null) {
+    cancelAnimationFrame(_railAnimFrame);
+    _railAnimFrame = null;
   }
 }
 

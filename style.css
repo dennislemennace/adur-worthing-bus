@@ -3087,20 +3087,65 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 .rail-station-icon:hover { transform: scale(1.18); }
 .rail-station-icon svg { width: 100%; height: 100%; }
 
+/* Wrapper houses the pulse ring behind the pill. No bearing rotation —
+   the pill has no directional glyph and the label needs to stay readable. */
+.rail-train-icon-wrap {
+  position: relative;
+  width: 48px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: auto;
+}
+
 .rail-train-icon {
+  position: relative;
   display: inline-flex; align-items: center; justify-content: center;
-  height: 22px;
-  min-width: 34px;
-  padding: 0 6px;
-  border-radius: 11px;
+  height: 26px;
+  min-width: 40px;
+  padding: 0 8px;
+  border-radius: 13px;
   color: #fff;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  border: 1.5px solid rgba(255,255,255,0.85);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+  border: 2px solid rgba(255,255,255,0.95);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.25);
   white-space: nowrap;
+  z-index: 2;
+}
+
+/* Pulse ring behind the pill. Appears for ~4 s on first show; the `pulse`
+   modifier class is removed by JS so long-tracked markers don't strobe. */
+.rail-train-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 13px;
+  background: var(--rail-train-bg, #0b66c2);
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.rail-train-icon-wrap--pulse .rail-train-pulse {
+  animation: rail-train-pulse 1.4s ease-out infinite;
+}
+@keyframes rail-train-pulse {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  100% { transform: scale(1.9); opacity: 0;    }
+}
+
+/* Incoming = train approaching from out-of-bbox. Marker pins at the first
+   in-bbox station with a dashed border + slower pulse so the user can tell
+   it's not chord-interpolated. */
+.rail-train-icon-wrap--incoming .rail-train-icon {
+  border-style: dashed;
+  border-color: rgba(255,255,255,0.85);
+}
+.rail-train-icon-wrap--incoming .rail-train-pulse {
+  animation: rail-train-pulse 2.2s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-train-icon-wrap--pulse .rail-train-pulse,
+  .rail-train-icon-wrap--incoming .rail-train-pulse { animation: none; opacity: 0.25; }
 }
 
 /* Stops and rail markers all become small + faint when not in Live view —
