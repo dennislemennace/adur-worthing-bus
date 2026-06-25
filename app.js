@@ -4219,6 +4219,19 @@ async function submitSuggestion() {
   const name      = form.querySelector("#sg-name").value.trim();
   const email     = form.querySelector("#sg-email").value.trim();
 
+  // Ready-to-publish object, matching data/suggestions.json's schema, so the
+  // approval email carries a copy-paste blob (scripts/add_suggestion.py reads
+  // it). Deliberately excludes the submitter's email — that's private.
+  const publish = {
+    id:     `${slugify(title)}-${Date.now().toString(36).slice(-4)}`,
+    title,
+    body:   details,
+    area,
+    name:   name || "",
+    date:   new Date().toISOString().slice(0, 10), // YYYY-MM-DD
+    status: "published",
+  };
+
   const fields = {
     subject:           `New idea: ${title}`,
     from_name:         name || "Adur & Worthing bus site",
@@ -4228,6 +4241,8 @@ async function submitSuggestion() {
     related_objective: objective || "(none)",
     details,
     name:              name || "(not given)",
+    // Paste this line into data/suggestions.json (or feed to add_suggestion.py):
+    suggestion_json:   JSON.stringify(publish),
   };
   if (email) fields.email = email; // Web3Forms treats `email` as reply-to.
 

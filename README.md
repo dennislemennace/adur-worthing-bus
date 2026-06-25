@@ -22,10 +22,38 @@ only authorises sending mail to your own account); spam is held back by a
 honeypot plus Web3Forms' built-in filtering. Until a key is set, the form shows a
 friendly "not switched on yet" message.
 
-Curated content is plain JSON you edit by hand: network goals live in
-`data/objectives.json`, and approved community ideas in `data/suggestions.json`
-(copy the good ones from your inbox). Run `pytest` (see `requirements-dev.txt`)
-to validate these files before committing.
+### Approving an idea
+
+Nothing is published automatically — every submission just emails you, so junk
+never reaches the site. Each approval email contains a `suggestion_json` line: a
+ready-to-publish object. To approve one:
+
+```sh
+# paste the suggestion_json blob from the email:
+python scripts/add_suggestion.py '{"title":"…","body":"…","area":"…"}'
+# …or pipe it in:  wl-paste | python scripts/add_suggestion.py
+# …or run with no args to type the fields in by hand
+```
+
+The script gives the entry a unique `id`, fills today's date, forces
+`status: "published"`, appends it to `data/suggestions.json`, and re-validates
+the file. Then review and publish:
+
+```sh
+git add data/suggestions.json && git commit -m "Publish community idea" && git push
+```
+
+(Pass `--commit` to stage + commit for you; it never pushes.) GitHub Pages
+redeploys and the idea appears in the **Ideas** tab after a page reload.
+
+### Other curated content
+
+Network goals (`data/objectives.json`) are maintainer-authored — edit them by
+hand and change a `status` (`not_considered` → `discussed` → `in_progress` →
+`delivered`) as delivery progresses. Route proposals submitted via the editor's
+**Submit** button arrive with a `proposal_json` blob you paste into
+`data/proposals.json`. Run `pytest` (see `requirements-dev.txt`) to validate any
+of these files before committing.
 
 Pull requests are welcome — please keep the code plain HTML/CSS/JS on the frontend and pure FastAPI on the backend (no heavy frameworks) so it stays easy to maintain.
 
