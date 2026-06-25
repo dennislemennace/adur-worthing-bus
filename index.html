@@ -166,6 +166,7 @@
             <li role="option" data-mode="live" aria-selected="true" tabindex="-1">Live Bus Tracking</li>
             <li role="option" data-mode="improvements" aria-selected="false" tabindex="-1">Route view</li>
             <li role="option" data-mode="tickets" aria-selected="false" tabindex="-1">Ticket view</li>
+            <li role="option" data-mode="network" aria-selected="false" tabindex="-1">Network Objectives</li>
           </ul>
         </div>
         <!-- Live-data status: connecting/updated text + bus visibility toggle, grouped -->
@@ -518,6 +519,128 @@
         </div>
       </div><!-- /panel-mode[data-mode="tickets"] -->
 
+      <!-- === NETWORK PLAN VIEW (objectives + community ideas) === -->
+      <div class="panel-mode" data-mode="network">
+
+        <!-- Tab strip (Objectives / Ideas) + mobile collapse -->
+        <div class="panel-tabs-bar">
+          <div class="panel-tabs" role="tablist" aria-label="Network Objectives panels">
+            <button class="panel-tab active" data-network-tab="objectives" role="tab"
+                    aria-selected="true" id="tab-objectives" aria-controls="tab-content-objectives">
+              <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-info"/></svg>
+              <span class="panel-tab-label">Objectives</span>
+            </button>
+            <button class="panel-tab" data-network-tab="ideas" role="tab"
+                    aria-selected="false" id="tab-ideas" aria-controls="tab-content-ideas">
+              <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-lightbulb"/></svg>
+              <span class="panel-tab-label">Ideas</span>
+            </button>
+          </div>
+          <button class="btn-collapse-panel" type="button" aria-label="Hide panel" aria-pressed="false">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </button>
+        </div>
+
+        <!-- ── OBJECTIVES TAB ── -->
+        <div class="panel-tab-content" id="tab-content-objectives" role="tabpanel" aria-labelledby="tab-objectives">
+          <div class="improvements-intro">
+            <h2 class="improvements-title">What we're aiming for</h2>
+            <p>
+              These objectives set out the kind of network Adur &amp; Worthing
+              could have. The tag on each one tracks how far the people who run the
+              buses — the councils and operators — have actually got with it, from
+              <strong>not considered</strong> through to <strong>delivered</strong>.
+              The <strong>Ideas</strong> tab is where you turn them into concrete
+              suggestions.
+            </p>
+          </div>
+          <div class="objectives-list" id="objectives-list" aria-live="polite">
+            <p class="proposals-empty">Loading objectives…</p>
+          </div>
+        </div>
+
+        <!-- ── IDEAS TAB (no-account suggestion form + curated feed) ── -->
+        <div class="panel-tab-content hidden" id="tab-content-ideas" role="tabpanel" aria-labelledby="tab-ideas">
+          <div class="improvements-intro">
+            <h2 class="improvements-title">Share an idea</h2>
+            <p>
+              Got a suggestion for the network — a missing link, a stop that needs a
+              shelter, a route that should run later? Send it below. <strong>No
+              account needed.</strong> Good ideas get added to the list further down
+              and can grow into full proposals.
+            </p>
+          </div>
+
+          <form class="suggest-form" id="suggest-form" novalidate>
+            <div class="editor-field">
+              <label for="sg-title">Your idea, in a line</label>
+              <input id="sg-title" name="title" type="text" maxlength="120" required
+                     placeholder="e.g. Later buses on the 700 on Sundays">
+            </div>
+
+            <div class="editor-field">
+              <label for="sg-area">What's it about?</label>
+              <select id="sg-area" name="area">
+                <option value="New route">New route</option>
+                <option value="More frequency">More frequency</option>
+                <option value="Stops &amp; shelters">Stops &amp; shelters</option>
+                <option value="Accessibility">Accessibility</option>
+                <option value="Fares">Fares</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+
+            <div class="editor-field">
+              <label for="sg-objective">Related objective (optional)</label>
+              <select id="sg-objective" name="objective">
+                <option value="">— none in particular —</option>
+              </select>
+            </div>
+
+            <div class="editor-field">
+              <label for="sg-details">Tell us more</label>
+              <textarea id="sg-details" name="details" maxlength="1000" required
+                        placeholder="What would change, who would it help, and why?"></textarea>
+            </div>
+
+            <div class="editor-field">
+              <label for="sg-name">Your name (optional)</label>
+              <input id="sg-name" name="name" type="text" maxlength="60"
+                     placeholder="Shown next to your idea if we publish it">
+            </div>
+
+            <div class="editor-field">
+              <label for="sg-email">Email (optional)</label>
+              <input id="sg-email" name="email" type="email" maxlength="120"
+                     placeholder="Only if you're happy for us to follow up">
+            </div>
+
+            <!-- Honeypot: hidden from humans; bots that fill it are dropped. -->
+            <div class="suggest-honeypot" aria-hidden="true">
+              <label for="sg-botcheck">Leave this field empty</label>
+              <input id="sg-botcheck" name="botcheck" type="checkbox" tabindex="-1" autocomplete="off">
+            </div>
+
+            <div class="suggest-actions">
+              <button class="editor-action-btn primary" id="sg-submit" type="submit">
+                <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
+                <span>Send idea</span>
+              </button>
+              <span class="editor-status" id="sg-status" role="status" aria-live="polite"></span>
+            </div>
+          </form>
+
+          <section class="proposals-section community-ideas">
+            <h3 class="proposals-section-title">Community ideas</h3>
+            <p class="proposals-section-blurb">Suggestions from people across Adur &amp; Worthing.</p>
+            <div class="proposals-section-cards" id="community-ideas-list" aria-live="polite">
+              <p class="proposals-empty">Loading ideas…</p>
+            </div>
+          </section>
+        </div>
+
+      </div><!-- /panel-mode[data-mode="network"] -->
+
     </aside>
 
   </main>
@@ -528,8 +651,9 @@
   <!-- ===== FOOTER ===== -->
   <footer class="site-footer">
     <p>
-      Live data &copy; <a href="https://www.bus-data.dft.gov.uk/" target="_blank" rel="noopener">Bus Open Data Service</a> /
+      Live bus data &copy; <a href="https://www.bus-data.dft.gov.uk/" target="_blank" rel="noopener">Bus Open Data Service</a> /
       Department for Transport.
+      Live train data from <a href="https://www.realtimetrains.co.uk/" target="_blank" rel="noopener">Realtime Trains</a>.
       Map &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
     </p>
     <!--

@@ -2055,7 +2055,8 @@ html.dark-mode .filter-chip.active {
 .panel-mode { display: none; }
 body[data-view="live"]         .panel-mode[data-mode="live"],
 body[data-view="improvements"] .panel-mode[data-mode="improvements"],
-body[data-view="tickets"]      .panel-mode[data-mode="tickets"] { display: flex; }
+body[data-view="tickets"]      .panel-mode[data-mode="tickets"],
+body[data-view="network"]      .panel-mode[data-mode="network"] { display: flex; }
 
 /* In the non-live network views stops stay visible but inert (no clicks, no
    popup). Vehicle markers are removed from the map entirely by JS. */
@@ -2305,6 +2306,105 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 
 .proposal-link:hover {
   text-decoration: underline;
+}
+
+/* ── Network plan view: objectives + community ideas ── */
+/* Objectives list reuses the proposal-card visuals; container matches
+   .proposals-list (scroll + padding + gap). */
+.objectives-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Title + status badge share the top row of an objective card. */
+.objective-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.status-badge {
+  flex: none;
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.status-badge.status-not-considered { color: var(--color-text-muted); }
+.status-badge.status-discussed      { color: var(--color-early, var(--color-primary)); }
+.status-badge.status-in-progress    { color: var(--color-accent, var(--color-primary)); }
+.status-badge.status-delivered      { color: var(--color-on-time); }
+
+/* Community idea cards are read-only — drop the button affordances. */
+.idea-card { cursor: default; }
+.idea-card:hover { transform: none; background: var(--color-surface-2); }
+.idea-card-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+.community-ideas {
+  padding: 0 var(--space-md) var(--space-md);
+}
+
+/* The Ideas tab stacks intro + form + ideas with no single flex:1 child, so
+   (unlike the Objectives/Proposals lists) let the whole tab scroll rather than
+   clip against .panel-tab-content's overflow:hidden on a short panel. */
+#tab-content-ideas { overflow-y: auto; }
+#tab-content-ideas > * { flex: 0 0 auto; }
+
+/* Suggestion form — reuses .editor-field for labels/inputs; add select +
+   email styling (the editor only styled text + textarea) and layout. */
+.suggest-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+.suggest-form .editor-field input[type="email"],
+.suggest-form .editor-field select {
+  appearance: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  width: 100%;
+}
+.suggest-form .editor-field input[type="email"]:focus,
+.suggest-form .editor-field select:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -1px;
+  border-color: var(--color-primary);
+}
+.suggest-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-2xs);
+}
+.suggest-actions .editor-status.is-error { color: var(--color-late); }
+
+/* Honeypot: keep it in the DOM + focusable order for bots, invisible to humans
+   and assistive tech (the wrapper is aria-hidden). */
+.suggest-honeypot {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
 }
 
 /* ── Ticket view: fare-zone cards (reuse .proposal-card visuals) ── */

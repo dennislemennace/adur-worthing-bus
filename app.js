@@ -30,6 +30,15 @@ const CONFIG = {
 
   // How many departures to request from the API
   DEPARTURES_COUNT: 10,
+
+  // ─── Community suggestions (Network plan → Ideas) ────────────────────────
+  // Web3Forms relays the no-account suggestion form + the proposal editor's
+  // "Submit" button straight to the maintainer's inbox — no backend, no DB.
+  // The access key is PUBLIC by design (it only authorises sending mail to the
+  // account that owns it). Get a free key at https://web3forms.com and paste it
+  // here. Until it's set, the form shows a friendly "not configured" message.
+  WEB3FORMS_ACCESS_KEY: "82d34479-eb99-49df-9e0b-c33c54ff2137",
+  WEB3FORMS_ENDPOINT:   "https://api.web3forms.com/submit",
 };
 
 // ============================================================
@@ -118,6 +127,13 @@ const state = {
   expandedOperators:       null,    // Set of operator codes whose ticket sub-cards are revealed
   _ticketZonesPromise:     null,
 
+  // ── Network plan view (objectives + community ideas) ──
+  networkTab:              "objectives", // "objectives" | "ideas"
+  objectives:              null,    // data/objectives.json (array); null = not loaded
+  suggestions:             null,    // data/suggestions.json (array); null = not loaded
+  selectedObjectiveId:     null,    // expanded objective card in the list
+  _networkPromise:         null,
+
   // ── Proposal editor ──
   editor:              null,      // active draft object; null = editor closed
   editorMode:          "addStop", // "move" | "addStop" — stops-only routing
@@ -188,6 +204,18 @@ const dom = {
   ticketZonesList:        document.getElementById("ticket-zones-list"),
   mapOverlayControls:     document.getElementById("map-overlay-controls"),
 
+  // ── Network plan view ──
+  tabObjectives:          document.getElementById("tab-objectives"),
+  tabIdeas:               document.getElementById("tab-ideas"),
+  tabContentObjectives:   document.getElementById("tab-content-objectives"),
+  tabContentIdeas:        document.getElementById("tab-content-ideas"),
+  objectivesList:         document.getElementById("objectives-list"),
+  communityIdeasList:     document.getElementById("community-ideas-list"),
+  suggestForm:            document.getElementById("suggest-form"),
+  suggestObjective:       document.getElementById("sg-objective"),
+  suggestStatus:          document.getElementById("sg-status"),
+  suggestSubmit:          document.getElementById("sg-submit"),
+
   // ── Proposal editor ──
   proposalsView:          document.getElementById("proposals-view"),
   newProposalBtn:         document.getElementById("new-proposal-btn"),
@@ -224,6 +252,7 @@ function buildUrlHash() {
   const parts = [];
   if (state.viewMode === "improvements") parts.push("view=i");
   else if (state.viewMode === "tickets") parts.push("view=t");
+  else if (state.viewMode === "network") parts.push("view=n");
   if (state.serviceMode === "night")     parts.push("svc=n");
   if (state.viewMode === "live") {
     if (state.selectedStop && state.selectedStop.atcoCode) {
@@ -261,6 +290,7 @@ async function applyUrlState(parsed) {
 
     const view = parsed.view === "i" ? "improvements"
                : parsed.view === "t" ? "tickets"
+               : parsed.view === "n" ? "network"
                : "live";
     if (state.viewMode !== view) setViewMode(view);
 
@@ -1670,6 +1700,16 @@ function bindUIEvents() {
   dom.tabProposals.addEventListener("click", () => setImprovementsTab("proposals"));
   dom.closePanelBtnImprovements.addEventListener("click", closePanel);
 
+  // Network plan panel: Objectives / Ideas tab switching + suggestion form
+  if (dom.tabObjectives) dom.tabObjectives.addEventListener("click", () => setNetworkTab("objectives"));
+  if (dom.tabIdeas)      dom.tabIdeas.addEventListener("click",      () => setNetworkTab("ideas"));
+  if (dom.suggestForm) {
+    dom.suggestForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      submitSuggestion();
+    });
+  }
+
   // Route filter bulk actions
   dom.routesAllBtn.addEventListener("click",  () => setAllRoutesVisible(true));
   dom.routesNoneBtn.addEventListener("click", () => setAllRoutesVisible(false));
@@ -1821,6 +1861,21 @@ function setImprovementsTab(tab) {
   if (state.proposals) reconcileProposalLayers();
 }
 
+/** Switch between the Objectives and Ideas tabs in Network plan mode.
+ *  Mirrors setActiveTab() so the same ARIA (aria-selected) + .active/.hidden
+ *  contract the rest of the panel relies on is preserved. */
+function setNetworkTab(tab) {
+  const objectivesActive = (tab !== "ideas");
+  state.networkTab = objectivesActive ? "objectives" : "ideas";
+  if (!dom.tabObjectives || !dom.tabIdeas) return;
+  dom.tabObjectives.classList.toggle("active", objectivesActive);
+  dom.tabIdeas.classList.toggle("active", !objectivesActive);
+  dom.tabObjectives.setAttribute("aria-selected", String(objectivesActive));
+  dom.tabIdeas.setAttribute("aria-selected", String(!objectivesActive));
+  dom.tabContentObjectives.classList.toggle("hidden", !objectivesActive);
+  dom.tabContentIdeas.classList.toggle("hidden", objectivesActive);
+}
+
 // ============================================================
 // VIEW MODE (Live ↔ Improvements)
 // ============================================================
@@ -1833,7 +1888,7 @@ function setImprovementsTab(tab) {
  * visible but don't react to clicks.
  */
 function setViewMode(mode) {
-  if (mode !== "live" && mode !== "improvements" && mode !== "tickets") return;
+  if (mode !== "live" && mode !== "improvements" && mode !== "tickets" && mode !== "network") return;
   if (state.viewMode === mode) return;
   state.viewMode = mode;
 
@@ -1966,6 +2021,18 @@ async function applyViewMode() {
     } catch (err) {
       console.warn("Ticket view data fetch failed:", err);
       showToast("Could not load ticket data. Try again later.");
+    }
+  } else if (state.viewMode === "network") {
+    // Network plan is panel-only (objectives + ideas); no map overlays.
+    if (state.editor) closeEditor({ skipSave: false });
+    hideRouteLines();
+    hideAllProposalLayers();
+    hideTicketZones();
+    try {
+      await loadNetworkData();
+    } catch (err) {
+      console.warn("Network plan data fetch failed:", err);
+      showToast("Could not load network plan data. Try again later.");
     }
   } else {
     // Live: tear down all network-view layers and restore the live map.
@@ -3391,9 +3458,13 @@ function renderEditor() {
               aria-label="How to contribute" title="How to contribute">
         <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
       </button>
-      <button class="editor-action-btn primary editor-action-btn--focal" id="ed-github-btn" type="button" ${canExport ? "" : "disabled"}>
+      <button class="editor-action-btn" id="ed-github-btn" type="button" ${canExport ? "" : "disabled"}>
         <svg class="icon" aria-hidden="true"><use href="#i-github"/></svg>
-        <span>Contribute</span>
+        <span>Via GitHub</span>
+      </button>
+      <button class="editor-action-btn primary editor-action-btn--focal" id="ed-submit-noaccount" type="button" ${canExport ? "" : "disabled"}>
+        <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
+        <span>Submit</span>
       </button>
       <span class="editor-status" id="ed-status"></span>
 
@@ -3405,23 +3476,18 @@ function renderEditor() {
         </button>
         <h4 class="editor-help-title" id="ed-help-title">Submitting your proposal</h4>
         <p class="editor-help-blurb">
-          Contribute opens a GitHub page with your route already filled in.
-          The maintainers review submissions and turn the good ones into
-          live route lines on the map.
+          Two ways to send your route to the maintainers, who review submissions
+          and turn the good ones into live route lines on the map.
         </p>
         <ol class="editor-help-steps">
           <li>
-            <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-github"/></svg>
-            <span><strong>Need a GitHub account.</strong>
-              <a href="https://github.com/signup" target="_blank" rel="noopener noreferrer">Sign up free</a> if you don't have one — takes about 30 seconds.</span>
-          </li>
-          <li>
-            <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-pin"/></svg>
-            <span><strong>Click Contribute</strong> — a GitHub page opens with the title and details of your proposal already filled in.</span>
-          </li>
-          <li>
             <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-plus"/></svg>
-            <span><strong>Scroll down and click the green button at the bottom of the page.</strong> That's it — you're done.</span>
+            <span><strong>Submit</strong> sends your route straight to us — <strong>no account needed.</strong> The easiest option.</span>
+          </li>
+          <li>
+            <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-github"/></svg>
+            <span><strong>Via GitHub</strong> opens a pre-filled issue instead. Needs a free
+              <a href="https://github.com/signup" target="_blank" rel="noopener noreferrer">GitHub account</a> — best if you'd like to discuss it in the open.</span>
           </li>
         </ol>
       </div>
@@ -3491,6 +3557,7 @@ function renderEditor() {
   dom.proposalEditor.querySelector("#ed-copy-btn").addEventListener("click", copyDraftJson);
   dom.proposalEditor.querySelector("#ed-download-btn").addEventListener("click", downloadDraftJson);
   dom.proposalEditor.querySelector("#ed-github-btn").addEventListener("click", openGitHubIssue);
+  dom.proposalEditor.querySelector("#ed-submit-noaccount").addEventListener("click", submitProposalNoAccount);
 
   syncEditorModeButtons();
   renderPointList();
@@ -3543,7 +3610,7 @@ function renderPointList() {
 
   // Update export button enabled state
   const canExport = stops.length >= 2;
-  ["#ed-copy-btn", "#ed-download-btn", "#ed-github-btn"].forEach(sel => {
+  ["#ed-copy-btn", "#ed-download-btn", "#ed-github-btn", "#ed-submit-noaccount"].forEach(sel => {
     const btn = dom.proposalEditor.querySelector(sel);
     if (btn) btn.disabled = !canExport;
   });
@@ -3907,6 +3974,276 @@ function openGitHubIssue() {
     `&body=${encodeURIComponent(stubBody)}`;
   window.open(stubUrl, "_blank", "noopener");
   setEditorStatus("JSON copied; paste it into the issue.");
+}
+
+/** No-account proposal submit: relays the same draft JSON the GitHub path
+ *  uses, but straight to the maintainer's inbox via Web3Forms — no account
+ *  needed. Sibling of openGitHubIssue(); the GitHub path stays available. */
+async function submitProposalNoAccount() {
+  if (!state.editor) return;
+  const obj = draftToProposalJson(state.editor);
+  setEditorStatus("Sending…");
+  const result = await postToWeb3Forms({
+    subject:     `Route proposal: ${obj.name || obj.id}`,
+    from_name:   "Adur & Worthing bus site",
+    kind:        "route-proposal",
+    name:        obj.name || obj.id,
+    summary:     obj.summary || "",
+    description: obj.description || "",
+    // Compacted JSON (no pretty-print) keeps a polyline-heavy draft small.
+    proposal_json: JSON.stringify(obj),
+  });
+  if (result.ok) {
+    setEditorStatus("Sent — thank you!");
+  } else if (result.reason === "unconfigured") {
+    setEditorStatus("No-account submit isn't set up yet — use Via GitHub.");
+  } else {
+    setEditorStatus("Couldn't send — try Via GitHub instead.");
+  }
+}
+
+// ============================================================
+// NETWORK PLAN (objectives + community ideas)
+// ============================================================
+
+// Status tracks how far those who run the buses (councils + operators) have got
+// with each objective — this site reports on delivery, it doesn't run services.
+const OBJECTIVE_STATUS = {
+  not_considered: { label: "Not considered", cls: "not-considered" },
+  discussed:      { label: "Discussed",      cls: "discussed"      },
+  in_progress:    { label: "In progress",    cls: "in-progress"    },
+  delivered:      { label: "Delivered",      cls: "delivered"      },
+};
+
+/** Load objectives + community ideas once, the first time the Network plan
+ *  view is opened. Memoized like loadProposals so a prefetch + view-open
+ *  don't double-fetch. */
+function loadNetworkData() {
+  if (!state._networkPromise) {
+    state._networkPromise = Promise.all([loadObjectives(), loadCommunityIdeas()])
+      .catch(err => { state._networkPromise = null; throw err; });
+  }
+  return state._networkPromise;
+}
+
+async function loadObjectives() {
+  if (state.objectives) return;
+  try {
+    const res = await fetch("data/objectives.json");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    state.objectives = Array.isArray(data.objectives) ? data.objectives : [];
+  } catch (err) {
+    console.warn("Objectives load failed:", err);
+    state.objectives = [];
+  }
+  renderObjectivesList();
+  populateObjectiveSelect();
+}
+
+async function loadCommunityIdeas() {
+  if (state.suggestions) return;
+  try {
+    const res = await fetch("data/suggestions.json");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    state.suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+  } catch (err) {
+    console.warn("Suggestions load failed:", err);
+    state.suggestions = [];
+  }
+  renderCommunityIdeas();
+}
+
+function objectiveStatusMeta(status) {
+  return OBJECTIVE_STATUS[status] || { label: status || "", cls: "not-considered" };
+}
+
+function objectiveCardHtml(o) {
+  const sel = (o.id === state.selectedObjectiveId);
+  const st  = objectiveStatusMeta(o.status);
+  const hasLinks = Array.isArray(o.links) && o.links.length > 0;
+  const detail = sel ? `
+    <div class="proposal-detail">
+      ${o.description ? `
+        <p class="proposal-detail-heading">Why this matters</p>
+        <p class="proposal-detail-body">${escapeHtml(o.description)}</p>
+      ` : ""}
+      ${hasLinks ? `
+        <p class="proposal-detail-heading">Links</p>
+        <ul class="proposal-links">
+          ${o.links.map(l => `
+            <li><a class="proposal-link" href="${escapeAttr(l.url)}"
+                   target="_blank" rel="noopener noreferrer">${escapeHtml(l.label || l.url)}</a></li>
+          `).join("")}
+        </ul>
+      ` : ""}
+    </div>` : "";
+  return `
+    <button type="button"
+            class="proposal-card ${sel ? "selected" : ""}"
+            data-objective-id="${escapeAttr(o.id)}"
+            style="border-left-color:${escapeAttr(o.color || "#444")}">
+      <span class="objective-card-head">
+        <span class="proposal-card-name">${escapeHtml(o.title || o.id)}</span>
+        <span class="status-badge status-${st.cls}">${escapeHtml(st.label)}</span>
+      </span>
+      <span class="proposal-card-summary">${escapeHtml(o.summary || "")}</span>
+      ${detail}
+    </button>`;
+}
+
+function renderObjectivesList() {
+  if (!dom.objectivesList) return;
+  const objectives = state.objectives || [];
+  if (objectives.length === 0) {
+    dom.objectivesList.innerHTML = `<p class="proposals-empty">No objectives published yet.</p>`;
+    return;
+  }
+  dom.objectivesList.innerHTML = objectives.map(objectiveCardHtml).join("");
+  dom.objectivesList.querySelectorAll(".proposal-card").forEach(card => {
+    card.addEventListener("click", () => {
+      const id = card.dataset.objectiveId;
+      state.selectedObjectiveId = (id === state.selectedObjectiveId) ? null : id;
+      renderObjectivesList();
+    });
+  });
+}
+
+function formatIdeaDate(iso) {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  } catch { return iso; }
+}
+
+function ideaCardHtml(s) {
+  const bits = [];
+  if (s.area) bits.push(escapeHtml(s.area));
+  if (s.name) bits.push(escapeHtml(s.name));
+  if (s.date) bits.push(escapeHtml(formatIdeaDate(s.date)));
+  const meta = bits.length ? `<span class="idea-card-meta">${bits.join(" · ")}</span>` : "";
+  return `
+    <div class="proposal-card idea-card">
+      <span class="proposal-card-name">${escapeHtml(s.title || "Idea")}</span>
+      ${meta}
+      <span class="proposal-card-summary">${escapeHtml(s.body || "")}</span>
+    </div>`;
+}
+
+function renderCommunityIdeas() {
+  if (!dom.communityIdeasList) return;
+  const ideas = (state.suggestions || []).filter(s => (s.status || "published") === "published");
+  if (ideas.length === 0) {
+    dom.communityIdeasList.innerHTML =
+      `<p class="proposals-empty">No published ideas yet — yours could be the first.</p>`;
+    return;
+  }
+  dom.communityIdeasList.innerHTML = ideas.map(ideaCardHtml).join("");
+}
+
+/** Fill the "Related objective" select from loaded objectives, preserving any
+ *  current selection. */
+function populateObjectiveSelect() {
+  const sel = dom.suggestObjective;
+  if (!sel) return;
+  const current = sel.value;
+  const opts = ['<option value="">— none in particular —</option>'];
+  for (const o of state.objectives || []) {
+    const label = o.title || o.id;
+    opts.push(`<option value="${escapeAttr(label)}">${escapeHtml(label)}</option>`);
+  }
+  sel.innerHTML = opts.join("");
+  if (current) sel.value = current;
+}
+
+function setSuggestStatus(msg, isError = false) {
+  if (!dom.suggestStatus) return;
+  dom.suggestStatus.textContent = msg;
+  dom.suggestStatus.classList.toggle("is-error", !!isError);
+}
+
+function setSuggestBusy(busy) {
+  if (dom.suggestSubmit) dom.suggestSubmit.disabled = busy;
+}
+
+/** POST a set of fields to Web3Forms. Returns {ok, reason}. The access key is
+ *  public by design; it only authorises sending mail to the owning account. */
+async function postToWeb3Forms(fields) {
+  const key = CONFIG.WEB3FORMS_ACCESS_KEY;
+  if (!key || key.includes("YOUR-WEB3FORMS")) {
+    return { ok: false, reason: "unconfigured" };
+  }
+  try {
+    const res = await fetch(CONFIG.WEB3FORMS_ENDPOINT, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body:    JSON.stringify({ access_key: key, ...fields }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok && data.success === true, reason: data.message || `HTTP ${res.status}` };
+  } catch (err) {
+    return { ok: false, reason: err.message || "Network error" };
+  }
+}
+
+/** Validate + send a community suggestion via Web3Forms. */
+async function submitSuggestion() {
+  const form = dom.suggestForm;
+  if (!form) return;
+
+  // Honeypot: bots tick the visually-hidden checkbox. Pretend success, drop it.
+  const botcheck = form.querySelector("#sg-botcheck");
+  if (botcheck && botcheck.checked) {
+    setSuggestStatus("Thanks!");
+    form.reset();
+    return;
+  }
+
+  const title   = form.querySelector("#sg-title").value.trim();
+  const details = form.querySelector("#sg-details").value.trim();
+  if (!title) {
+    setSuggestStatus("Please add a one-line summary.", true);
+    form.querySelector("#sg-title").focus();
+    return;
+  }
+  if (!details) {
+    setSuggestStatus("Please add a few more details.", true);
+    form.querySelector("#sg-details").focus();
+    return;
+  }
+
+  const area      = form.querySelector("#sg-area").value;
+  const objective = form.querySelector("#sg-objective").value;
+  const name      = form.querySelector("#sg-name").value.trim();
+  const email     = form.querySelector("#sg-email").value.trim();
+
+  const fields = {
+    subject:           `New idea: ${title}`,
+    from_name:         name || "Adur & Worthing bus site",
+    kind:              "idea",
+    title,
+    area,
+    related_objective: objective || "(none)",
+    details,
+    name:              name || "(not given)",
+  };
+  if (email) fields.email = email; // Web3Forms treats `email` as reply-to.
+
+  setSuggestBusy(true);
+  setSuggestStatus("Sending…");
+  const result = await postToWeb3Forms(fields);
+  setSuggestBusy(false);
+
+  if (result.ok) {
+    setSuggestStatus("Thanks! Your idea has been sent.");
+    form.reset();
+  } else if (result.reason === "unconfigured") {
+    setSuggestStatus("Suggestions aren't switched on yet — please try again later.", true);
+  } else {
+    setSuggestStatus("Couldn't send — please try again.", true);
+  }
 }
 
 // ============================================================

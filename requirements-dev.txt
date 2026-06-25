@@ -1,0 +1,11 @@
+# Development-only dependencies (not installed on Render).
+#
+# Install with:
+#   pip install -r requirements-dev.txt
+#
+# Run the tests with:
+#   pytest
+
+-r requirements.txt
+
+pytest==8.2.2   # curated-data integrity checks in tests/

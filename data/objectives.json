@@ -1,0 +1,76 @@
+{
+  "objectives": [
+    {
+      "id": "connect-adur-to-brighton",
+      "title": "Connect Adur directly to Brighton",
+      "summary": "Direct links to Brighton for under-served areas like North Shoreham & Lancing",
+      "description": "Adur sits right on the edge of Brighton's network yet is barely connected to it. The goal is direct services into Brighton from under-served areas — North Shoreham along the Old Shoreham Road, and Lancing — and bringing Brighton & Hove services back west, as they once served Lancing and Worthing. Travel north and east of Brighton enjoys far more frequent, express and night service (reaching Tunbridge Wells or Eastbourne on a single 24-hour ticket) than travel west; closing that gap is the priority.",
+      "status": "not_considered",
+      "color": "#1a4b82",
+      "links": []
+    },
+    {
+      "id": "express-commuter-routes",
+      "title": "Express routes to the job centres",
+      "summary": "Faster peak-time commuter links to Brighton & Worthing",
+      "description": "Give commuters quicker access to the main business centres in Brighton and Worthing. This can be done simply and cheaply by splitting a frequent service so that, at peak times, every other journey runs as an express.",
+      "status": "not_considered",
+      "color": "#1a70b5",
+      "links": []
+    },
+    {
+      "id": "night-service-west",
+      "title": "Night service that goes west",
+      "summary": "Affordable late-night travel westward from Brighton, beyond the N700",
+      "description": "Westbound night travel is currently served only by the N700 — expensive and limited to a narrow coastal corridor. The goal is additional, affordable night-time services running west from Brighton into Adur.",
+      "status": "not_considered",
+      "color": "#6a4ea3",
+      "links": []
+    },
+    {
+      "id": "extend-existing-routes",
+      "title": "More hours on the routes we already have",
+      "summary": "Earlier mornings and later evenings on limited-frequency routes",
+      "description": "Many routes stop too early or start too late. Adding earlier-morning and later-evening journeys on existing limited-frequency routes is a low-cost way to expand connectivity without major new investment.",
+      "status": "not_considered",
+      "color": "#c07808",
+      "links": []
+    },
+    {
+      "id": "accessible-buses-stops",
+      "title": "Accessible buses and stops for everyone",
+      "summary": "Audio-visual next-stop information on every bus",
+      "description": "Every bus should meet current accessibility requirements — in particular, audio and visual next-stop information — so the network works for everyone.",
+      "status": "in_progress",
+      "color": "#1c7844",
+      "links": []
+    },
+    {
+      "id": "fairer-ticketing-zones",
+      "title": "Fairer, simpler ticketing",
+      "summary": "End the zone boundary that makes Lancing overpay to reach Brighton",
+      "description": "Stagecoach's zone boundary splits Lancing between the Worthing and Brighton zones, leaving people in the middle paying more than they should to reach Brighton — often forced to buy two operators' tickets, or take the train and a Brighton & Hove day ticket. The goal is fairer, simpler ticketing that doesn't penalise those caught between zones.",
+      "status": "not_considered",
+      "color": "#bc3220",
+      "links": []
+    },
+    {
+      "id": "integrated-sussex-plan",
+      "title": "A joined-up plan with our neighbours",
+      "summary": "An integrated Bus Service Improvement Plan across Sussex",
+      "description": "Work far more closely with Brighton & Hove City Council and East Sussex County Council on an integrated Bus Service Improvement Plan for Sussex, so the network is planned as one rather than stopping at council boundaries.",
+      "status": "not_considered",
+      "color": "#0e7c86",
+      "links": []
+    },
+    {
+      "id": "real-time-info-everywhere",
+      "title": "Clear, real-time information everywhere",
+      "summary": "E-Ink live displays at every stop and one real-time app across operators",
+      "description": "Roll out affordable, eco-friendly E-Ink displays — already popular elsewhere in West Sussex, with accessibility built in — to as many stops as possible. Alongside that, a single real-time tracking app covering every operator, with correct ticket information pre-loaded and clear service-disruption updates. This site is an early step.",
+      "status": "in_progress",
+      "color": "#455a9e",
+      "links": []
+    }
+  ]
+}
