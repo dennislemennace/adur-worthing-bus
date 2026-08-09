@@ -4,7 +4,12 @@
 #   pip install -r requirements-dev.txt
 #
 # Run the tests with:
-#   pytest
+#   pytest                          # curated data + /api/journey
+#   node --test "tests/*.mjs"       # ticket-boundary calculator (no deps)
+#   cd worker && npm test           # submission Worker (no deps)
+#
+# The two JS suites need Node 18+ and no package installs — they use the
+# built-in test runner.
 
 -r requirements.txt
 

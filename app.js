@@ -31,15 +31,40 @@ const CONFIG = {
   // How many departures to request from the API
   DEPARTURES_COUNT: 10,
 
-  // ─── Community suggestions (Network plan → Ideas) ────────────────────────
-  // Web3Forms relays the no-account suggestion form + the proposal editor's
-  // "Submit" button straight to the maintainer's inbox — no backend, no DB.
-  // The access key is PUBLIC by design (it only authorises sending mail to the
-  // account that owns it). Get a free key at https://web3forms.com and paste it
-  // here. Until it's set, the form shows a friendly "not configured" message.
-  WEB3FORMS_ACCESS_KEY: "82d34479-eb99-49df-9e0b-c33c54ff2137",
-  WEB3FORMS_ENDPOINT:   "https://api.web3forms.com/submit",
+  // ─── Community submissions (ideas, proposals, stop issues) ───────────────
+  // A small Cloudflare Worker takes submissions and files them as GitHub
+  // issues, so nothing needs an account on the sender's side and every
+  // submission gets a public, followable home. See worker/README.md for
+  // deployment. Until SUBMIT_ENDPOINT is set, the forms say so politely.
+  SUBMIT_ENDPOINT: "https://adur-worthing-submissions.workers.dev/submit",
+
+  // Turnstile SITE key — public by design (the secret half lives in the
+  // Worker). Empty means the widget is skipped, which the Worker will
+  // reject, so this must be set for submissions to work in production.
+  TURNSTILE_SITE_KEY: "",
 };
+
+// Local development: point the page at a backend you're running yourself with
+//   ?api=http://localhost:8000
+// Only honoured when the page itself is served from localhost, so a link
+// pasted to a real user can never redirect their traffic somewhere else.
+(function applyApiOverride() {
+  try {
+    const host = location.hostname;
+    const isLocal = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+    if (!isLocal) return;
+    const override = new URLSearchParams(location.search).get("api");
+    if (!override) return;
+    if (!/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(override.replace(/\/$/, ""))) {
+      console.warn("Ignoring ?api= override — only local backends are allowed.");
+      return;
+    }
+    CONFIG.API_BASE_URL = override.replace(/\/$/, "");
+    console.info("Using local API:", CONFIG.API_BASE_URL);
+  } catch (err) {
+    console.warn("API override failed:", err);
+  }
+})();
 
 // ============================================================
 // ICON HELPER
@@ -125,7 +150,9 @@ const state = {
   ticketReachLayers:       {},     // zone id → [L.marker] reach pills (networkSAVER-style)
   selectedZoneId:          null,
   expandedOperators:       null,    // Set of operator codes whose ticket sub-cards are revealed
+  ticketFaresMeta:         null,    // fares_meta: commute basis + unified-fare comparator
   _ticketZonesPromise:     null,
+  _stopIndex:              null,    // stop picker: one entry per place, not per pole
 
   // ── Network plan view (objectives + community ideas) ──
   networkTab:              "objectives", // "objectives" | "ideas"
@@ -165,6 +192,11 @@ const dom = {
   departuresCount:    document.getElementById("departures-count"),
   departuresNotice:   document.getElementById("departures-notice"),
   refreshStopBtn:     document.getElementById("refresh-stop-btn"),
+  reportStopBtn:      document.getElementById("report-stop-btn"),
+  reportStopForm:     document.getElementById("report-stop-form"),
+  reportStopStatus:   document.getElementById("rs-status"),
+  reportStopSubmit:   document.getElementById("rs-submit"),
+  reportStopTurnstile: document.getElementById("rs-turnstile"),
   toast:              document.getElementById("toast"),
   toggleRailBtn:      document.getElementById("toggle-rail-btn"),
   railBoardHost:      document.getElementById("rail-board-host"),
@@ -215,6 +247,16 @@ const dom = {
   suggestObjective:       document.getElementById("sg-objective"),
   suggestStatus:          document.getElementById("sg-status"),
   suggestSubmit:          document.getElementById("sg-submit"),
+  suggestTurnstile:       document.getElementById("sg-turnstile"),
+
+  // ── Ticket view: boundary penalty calculator ──
+  jcFrom:                 document.getElementById("jc-from"),
+  jcTo:                   document.getElementById("jc-to"),
+  jcFromList:             document.getElementById("jc-from-list"),
+  jcToList:               document.getElementById("jc-to-list"),
+  jcCheck:                document.getElementById("jc-check"),
+  jcStatus:               document.getElementById("jc-status"),
+  jcResult:               document.getElementById("jc-result"),
 
   // ── Proposal editor ──
   proposalsView:          document.getElementById("proposals-view"),
@@ -931,8 +973,16 @@ window.openDepartures = async function(atcoCode, stopName) {
   // Close any open Leaflet popup to avoid clutter
   state.map.closePopup();
 
+  const changedStop = !state.selectedStop || state.selectedStop.atcoCode !== atcoCode;
   state.selectedStop = { atcoCode, stopName };
   pushUrlState();
+
+  // A report form left open from the previous stop would submit against the
+  // new one — close it, and clear anything half-typed with it.
+  if (changedStop && dom.reportStopForm) {
+    dom.reportStopForm.reset();
+    toggleReportStopForm(false);
+  }
 
   // Update panel header
   dom.panelStopName.textContent = stopName;
@@ -1515,6 +1565,9 @@ function showPanelState(stateKey, errorMsg) {
   dom.panelPrompt.classList.add("hidden");
   dom.departuresContainer.classList.add("hidden");
   if (dom.railBoardHost) dom.railBoardHost.classList.add("hidden");
+  // The report form lives inside the departures container, so it's hidden
+  // with it — collapse it properly so aria-expanded doesn't go stale.
+  if (stateKey !== "results") toggleReportStopForm(false);
 
   switch (stateKey) {
     case "loading": dom.panelLoading.classList.remove("hidden"); break;
@@ -1626,6 +1679,19 @@ function bindUIEvents() {
     }
   });
 
+  // Report an issue at this stop
+  if (dom.reportStopBtn) {
+    dom.reportStopBtn.addEventListener("click", () => toggleReportStopForm());
+  }
+  if (dom.reportStopForm) {
+    dom.reportStopForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      submitStopIssue();
+    });
+    const cancel = dom.reportStopForm.querySelector("#rs-cancel");
+    if (cancel) cancel.addEventListener("click", () => toggleReportStopForm(false));
+  }
+
   // Click a departure row → open the matching live vehicle in the Bus tab
   dom.departuresTbody.addEventListener("click", (e) => {
     const tr = e.target.closest("tr.departure-row");
@@ -1709,6 +1775,31 @@ function bindUIEvents() {
       submitSuggestion();
     });
   }
+
+  // Ticket view: boundary penalty calculator
+  if (dom.jcFrom) {
+    dom.jcFrom.addEventListener("input", () => fillStopDatalist(dom.jcFromList, dom.jcFrom.value));
+  }
+  if (dom.jcTo) {
+    dom.jcTo.addEventListener("input", () => fillStopDatalist(dom.jcToList, dom.jcTo.value));
+  }
+  if (dom.jcCheck) dom.jcCheck.addEventListener("click", checkJourney);
+  // Delegated: the result panel is rebuilt on every check, so the "see what
+  // we're asking for" button can't be bound directly.
+  if (dom.jcResult) {
+    dom.jcResult.addEventListener("click", (e) => {
+      if (!e.target.closest("[data-goto-objectives]")) return;
+      setViewMode("network");
+      setNetworkTab("objectives");
+    });
+  }
+  // Enter in either box runs the check, rather than doing nothing.
+  [dom.jcFrom, dom.jcTo].forEach(el => {
+    if (!el) return;
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); checkJourney(); }
+    });
+  });
 
   // Route filter bulk actions
   dom.routesAllBtn.addEventListener("click",  () => setAllRoutesVisible(true));
@@ -1874,6 +1965,9 @@ function setNetworkTab(tab) {
   dom.tabIdeas.setAttribute("aria-selected", String(!objectivesActive));
   dom.tabContentObjectives.classList.toggle("hidden", !objectivesActive);
   dom.tabContentIdeas.classList.toggle("hidden", objectivesActive);
+
+  // Fetch the Turnstile script only once someone actually opens the form.
+  if (!objectivesActive) mountTurnstile(dom.suggestTurnstile);
 }
 
 // ============================================================
@@ -2837,6 +2931,10 @@ async function loadTicketZonesImpl() {
   state.ticketZones = Array.isArray(data.zones) ? data.zones : [];
   state.ticketOperatorNotes = (data.operator_notes && typeof data.operator_notes === "object")
     ? data.operator_notes : {};
+  // Fare basis for the boundary calculator: commute assumptions and the
+  // hypothetical unified fare the saving is measured against.
+  state.ticketFaresMeta = (data.fares_meta && typeof data.fares_meta === "object")
+    ? data.fares_meta : {};
 
   if (!state.map.getPane("ticketZonePane")) {
     const pane = state.map.createPane("ticketZonePane");
@@ -2996,7 +3094,12 @@ function renderTicketZonesList() {
     const hasGeo   = !!state.ticketZoneLayers[z.id];
     const hasReach = !!(state.ticketReachLayers[z.id] || []).length;
     const border   = getOperatorBorderColour(z.operator);
-    const meta     = z.price || "";
+    // Prefer a sourced fare over the free-text `price` blurb, and date it so a
+    // stale figure is visibly stale rather than quietly wrong.
+    const day      = z.fares && z.fares.adult_day;
+    const meta     = (day && typeof day.price_pence === "number")
+      ? `${formatGbp(day.price_pence)}${z.fares.checked_on ? ` · checked ${z.fares.checked_on}` : ""}`
+      : (z.price || "");
     // Reach-aware note: a reach zone IS shown (as tags), so don't say "not drawn".
     // A card may also carry its own `note`; intentional card-only tickets (those
     // with a `coverage` blurb, e.g. Gold) shouldn't get the "not drawn" fallback.
@@ -3109,6 +3212,766 @@ function renderTicketZonesList() {
 }
 
 // ============================================================
+// BOUNDARY PENALTY CALCULATOR (Ticket view)
+// ============================================================
+//
+// Answers "does this journey need more than one ticket, and what does that
+// cost me?" — the question the zone map implies but can't answer.
+//
+// The path matters, not just the endpoints: a bus can dip through a third
+// operator's zone on the way, so a journey that looks intra-zone at both ends
+// can still need two tickets. /api/journey returns the real ordered stop list;
+// every stop on it is tested against every zone.
+//
+// Money is only ever shown when it can be sourced. If any zone on the path has
+// no fare data, the boundary warning still renders but the £ figures do not —
+// an advocacy claim with an invented number in it is worse than no number.
+
+/** Ray-casting point-in-polygon. `ring` is [[lat, lon], ...], unclosed. */
+function pointInRing(lat, lon, ring) {
+  if (!Array.isArray(ring) || ring.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const yi = ring[i][0], xi = ring[i][1];
+    const yj = ring[j][0], xj = ring[j][1];
+    // Ring is treated as implicitly closed (Leaflet does the same), so the
+    // i/j pair wraps from last back to first.
+    const straddles = (yi > lat) !== (yj > lat);
+    if (!straddles) continue;
+    if (lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Every geometry ring belonging to a zone, following `polygons_from` refs. */
+function zoneRings(zone, byId) {
+  const rings = [];
+  for (const refId of zone.polygons_from || []) {
+    const ref = byId[refId];
+    if (ref && Array.isArray(ref.polygon)) rings.push(ref.polygon);
+  }
+  for (const ring of zone.polygons || []) {
+    if (Array.isArray(ring)) rings.push(ring);
+  }
+  if (Array.isArray(zone.polygon)) rings.push(zone.polygon);
+  return rings.filter(r => r.length >= 3);
+}
+
+/**
+ * Is this ticket accepted on `operator`'s buses?
+ *
+ * Geography isn't enough — a ticket is only valid on the operators that accept
+ * it. Mostly that's just its own (Stagecoach tickets are explicitly not valid
+ * on Metrobus or Brighton & Hove), but two cross over: networkSAVER is accepted
+ * on Metrobus inside the zone, and Metrovoyager on Brighton & Hove.
+ *
+ * With no operator known (no direct bus, so we're comparing endpoints only) we
+ * can't filter, and the caller labels the answer as the less certain one.
+ */
+function ticketValidOn(zone, operator) {
+  if (!operator) return true;
+  const accepted = zone.valid_on_operators;
+  if (Array.isArray(accepted) && accepted.length) return accepted.includes(operator);
+  return !zone.operator || zone.operator === operator;
+}
+
+/** "HH:MM" to minutes past midnight, or null. */
+function hhmmToMinutes(hhmm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || "").trim());
+  if (!m) return null;
+  return (parseInt(m[1], 10) % 24) * 60 + parseInt(m[2], 10);
+}
+
+/**
+ * Is this ticket usable at the journey's departure time?
+ *
+ * The Gold Nightrider is £4 against the DayRider's £9, but only from 19:30 —
+ * offering it for a midday commute would quote less than half the real fare.
+ * The window wraps past midnight (19:30 to 04:00 is one night), which matters
+ * because the N700 runs in the small hours.
+ *
+ * When a ticket is time-restricted and we don't know the departure time, it's
+ * excluded: we can't assert it's usable, and quoting it might be wrong.
+ */
+function ticketValidAtTime(zone, departHhmm) {
+  const from = zone.valid_from_time;
+  const to   = zone.valid_to_time;
+  if (!from && !to) return true;              // no restriction
+  const now = hhmmToMinutes(departHhmm);
+  if (now === null) return false;             // restricted, and unverifiable
+  const f = from ? hhmmToMinutes(from) : 0;
+  const t = to   ? hhmmToMinutes(to)   : 24 * 60;
+  if (f === null || t === null) return true;
+  return (f <= t) ? (now >= f && now < t) : (now >= f || now < t);
+}
+
+/** Cheap bbox pre-filter so the ray-cast only runs on plausible candidates. */
+function ringBounds(ring) {
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  for (const [lat, lon] of ring) {
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lon < minLon) minLon = lon;
+    if (lon > maxLon) maxLon = lon;
+  }
+  return { minLat, maxLat, minLon, maxLon };
+}
+
+/**
+ * Which zones cover a given stop, for a journey run by `operatorOfStop`.
+ *
+ * `coverage_rule` decides how the geographic test works, because three of the
+ * seven zones have no geometry at all: networkSAVER and the two Gold tickets
+ * mean "this operator's whole network round here", which no polygon expresses.
+ *
+ * Geography is necessary but not sufficient. A ticket is only valid on its own
+ * operator's buses, so a Metrobus Metrovoyager doesn't cover a Stagecoach 700
+ * journey however neatly its zone contains both stops. When the operator is
+ * unknown (no direct bus, so we're comparing endpoints only) the operator test
+ * is skipped and the caller labels the result as the less certain answer.
+ */
+function zonesForStop(stop, zones, byId, operatorOfStop) {
+  const covering = [];
+  for (const z of zones) {
+    const rule = z.coverage_rule || "polygon";
+    // A ticket is only valid on the operators it says it is. Mostly that's
+    // just its own (Stagecoach tickets are explicitly not valid on Metrobus
+    // or B&H), but some cross over: networkSAVER covers Metrobus inside the
+    // zone, and Metrovoyager covers Brighton & Hove.
+    if (operatorOfStop && !ticketValidOn(z, operatorOfStop)) continue;
+
+    if (rule === "operator_network") {
+      // No geometry to test — validity is exactly "this operator's network".
+      if (operatorOfStop && ticketValidOn(z, operatorOfStop)) covering.push(z.id);
+      continue;
+    }
+    if (rule === "reach_points") {
+      continue;   // illustrative markers only — never load-bearing for fares
+    }
+    const rings = z._rings || (z._rings = zoneRings(z, byId));
+    const boxes = z._boxes || (z._boxes = rings.map(ringBounds));
+    for (let i = 0; i < rings.length; i++) {
+      const b = boxes[i];
+      if (stop.lat < b.minLat || stop.lat > b.maxLat
+          || stop.lon < b.minLon || stop.lon > b.maxLon) continue;
+      if (pointInRing(stop.lat, stop.lon, rings[i])) { covering.push(z.id); break; }
+    }
+  }
+  return covering;
+}
+
+/**
+ * Cheapest set of zones covering every stop on the path.
+ *
+ * Brute force over all subsets — with seven zones that's 128 combinations, so
+ * there's nothing to optimise. Returns null when no combination covers the
+ * whole path (a gap in our zone data, not a fare fact), and marks the result
+ * `priced: false` when any chosen zone has no sourced fare.
+ *
+ * `zones` is the candidate set, which the caller narrows deliberately: see
+ * splitZonesByRule() for why operator-wide tickets are considered separately.
+ */
+function cheapestCover(coverPerStop, zones) {
+  const ids = zones.map(z => z.id);
+  const n = ids.length;
+  const byId = Object.fromEntries(zones.map(z => [z.id, z]));
+
+  let best = null;
+  for (let mask = 1; mask < (1 << n); mask++) {
+    const chosen = [];
+    for (let i = 0; i < n; i++) if (mask & (1 << i)) chosen.push(ids[i]);
+
+    // Must cover every stop.
+    const covers = coverPerStop.every(set => chosen.some(id => set.includes(id)));
+    if (!covers) continue;
+
+    let total = 0;
+    let priced = true;
+    for (const id of chosen) {
+      const day = byId[id] && byId[id].fares && byId[id].fares.adult_day;
+      if (!day || typeof day.price_pence !== "number") { priced = false; break; }
+      total += day.price_pence;
+    }
+
+    // Prefer fewest tickets, then cheapest. An unpriced combination still
+    // counts for the "how many tickets" answer.
+    if (best === null
+        || chosen.length < best.zones.length
+        || (chosen.length === best.zones.length && priced && best.priced && total < best.total)) {
+      best = { zones: chosen, total, priced };
+    }
+  }
+  return best;
+}
+
+/**
+ * Split zones into the two things a passenger actually chooses between.
+ *
+ * `zonal` are the geographic day tickets (Worthing Dayrider, citySAVER…).
+ * `network` are the operator-wide ones (Stagecoach Gold, networkSAVER), which
+ * cover any stop that operator serves.
+ *
+ * They have to be judged separately. An operator-wide ticket covers *every*
+ * all-Stagecoach journey by definition, so folding it into the same search
+ * makes almost every journey come back "one ticket, no problem" — which hides
+ * the boundary this whole feature exists to show. The real choice on a
+ * Worthing-to-Brighton run is "two zone tickets, or one premium network
+ * ticket", and both halves of that are worth showing.
+ */
+function splitZonesByRule(zones) {
+  const zonal = [], network = [];
+  for (const z of zones) {
+    ((z.coverage_rule === "operator_network") ? network : zonal).push(z);
+  }
+  return { zonal, network };
+}
+
+/** The cheapest single operator-wide ticket covering the whole path, if any. */
+function bestNetworkTicket(coverPerStop, networkZones) {
+  let best = null;
+  for (const z of networkZones) {
+    if (!coverPerStop.every(set => set.includes(z.id))) continue;
+    const day = z.fares && z.fares.adult_day;
+    const pence = day && typeof day.price_pence === "number" ? day.price_pence : null;
+    if (best === null || (pence !== null && (best.pence === null || pence < best.pence))) {
+      best = { zone: z, pence };
+    }
+  }
+  return best;
+}
+
+// ─── Stop picker index ──────────────────────────────────────
+// There are ~1,500 stops but only ~800 distinct names: most names are a pair of
+// poles on opposite sides of one road. Listing both is noise — "Tesco · 4400WO0013"
+// twice tells a passenger nothing. So stops are grouped into one entry per
+// physical place, and only genuinely different places sharing a name get a
+// district suffix to tell them apart.
+//
+// The district comes from the NaPTAN administrative-area code at the front of
+// the ATCO, which is real data rather than a guess from coordinates.
+
+const ATCO_DISTRICTS = {
+  "149000": "Brighton & Hove",
+  "149010": "Brighton & Hove",
+  "4400AD": "Adur",
+  "4400WO": "Worthing",
+  "4400LH": "Arun",
+  "4400HR": "Horsham",
+};
+
+function districtForAtco(atco) {
+  return ATCO_DISTRICTS[String(atco || "").slice(0, 6)] || "";
+}
+
+/** Rough metric distance in km — fine at this scale, and cheap. */
+function roughKm(aLat, aLon, bLat, bLon) {
+  const dy = (aLat - bLat) * 111;
+  const dx = (aLon - bLon) * 111 * Math.cos((aLat * Math.PI) / 180);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+const STOP_CLUSTER_KM = 0.4;   // opposite poles are metres apart, not hundreds
+
+/**
+ * Group stops into one entry per place: same name, within STOP_CLUSTER_KM.
+ * Memoized — it only depends on the stop list, which is loaded once.
+ */
+function stopPickerIndex() {
+  if (state._stopIndex) return state._stopIndex;
+
+  const byName = new Map();
+  for (const [atco, s] of Object.entries(state.stopData)) {
+    if (!s.name) continue;
+    if (!byName.has(s.name)) byName.set(s.name, []);
+    byName.get(s.name).push({ atco, ...s });
+  }
+
+  const clusters = [];
+  for (const [name, stops] of byName) {
+    const groups = [];
+    for (const stop of stops) {
+      const near = groups.find(g =>
+        roughKm(g.lat, g.lon, stop.lat, stop.lon) <= STOP_CLUSTER_KM);
+      if (near) {
+        near.atcos.push(stop.atco);
+      } else {
+        groups.push({ name, lat: stop.lat, lon: stop.lon, atcos: [stop.atco] });
+      }
+    }
+    // Only ambiguous names need a district to tell them apart; the rest stay clean.
+    const ambiguous = groups.length > 1;
+    for (const g of groups) {
+      const district = ambiguous ? districtForAtco(g.atcos[0]) : "";
+      g.label = district ? `${name}, ${district}` : name;
+      clusters.push(g);
+    }
+  }
+
+  // Distinct labels can still collide (two "Marine Parade" in one district).
+  // Fall back to the ATCO for those rather than offering two identical rows.
+  const seen = new Map();
+  for (const c of clusters) {
+    const n = (seen.get(c.label) || 0) + 1;
+    seen.set(c.label, n);
+    c._dupIndex = n;
+  }
+  for (const c of clusters) {
+    if (seen.get(c.label) > 1) c.label = `${c.label} (${c.atcos[0]})`;
+  }
+
+  state._stopIndex = clusters.sort((a, b) => a.label.localeCompare(b.label));
+  return state._stopIndex;
+}
+
+/** Rebuild a datalist with the places matching what's been typed so far. */
+function fillStopDatalist(listEl, query) {
+  if (!listEl) return;
+  const q = (query || "").trim().toLowerCase();
+  const out = [];
+  if (q.length >= 2) {
+    for (const c of stopPickerIndex()) {
+      if (!c.label.toLowerCase().includes(q)) continue;
+      out.push(`<option value="${escapeAttr(c.label)}"></option>`);
+      if (out.length >= 50) break;   // an 800-option datalist helps nobody
+    }
+  }
+  listEl.innerHTML = out.join("");
+}
+
+/**
+ * Resolve what the user typed to a stop. Returns the cluster's primary ATCO —
+ * the backend widens the search to the other poles at the same place, so it
+ * doesn't matter which side of the road this one is.
+ */
+function atcoFromPickerValue(value) {
+  const raw = (value || "").trim();
+  if (!raw) return "";
+  const lower = raw.toLowerCase();
+  const index = stopPickerIndex();
+
+  const exact = index.find(c => c.label.toLowerCase() === lower);
+  if (exact) return exact.atcos[0];
+
+  // Typed a bare name without picking from the list.
+  const byName = index.find(c => c.name.toLowerCase() === lower);
+  if (byName) return byName.atcos[0];
+
+  // Or pasted a raw ATCO code.
+  if (state.stopData[raw]) return raw;
+  return "";
+}
+
+function setJourneyStatus(msg, isError = false) {
+  if (!dom.jcStatus) return;
+  dom.jcStatus.textContent = msg;
+  dom.jcStatus.classList.toggle("is-error", !!isError);
+}
+
+/** Run the calculator for whatever's in the two pickers. */
+async function checkJourney() {
+  const fromAtco = atcoFromPickerValue(dom.jcFrom && dom.jcFrom.value);
+  const toAtco   = atcoFromPickerValue(dom.jcTo && dom.jcTo.value);
+  if (dom.jcResult) dom.jcResult.innerHTML = "";
+
+  if (!fromAtco || !toAtco) {
+    setJourneyStatus("Pick both stops from the suggestions.", true);
+    return;
+  }
+  if (fromAtco === toAtco) {
+    setJourneyStatus("Those are the same stop.", true);
+    return;
+  }
+
+  setJourneyStatus("Checking…");
+  await loadTicketZones();
+
+  let journey;
+  try {
+    journey = await apiFetch(
+      `/api/journey?from=${encodeURIComponent(fromAtco)}&to=${encodeURIComponent(toAtco)}`);
+  } catch (err) {
+    setJourneyStatus("Couldn't look up that journey — please try again.", true);
+    return;
+  }
+  setJourneyStatus("");
+  renderJourneyResult(journey, fromAtco, toAtco);
+}
+
+function renderJourneyResult(journey, fromAtco, toAtco) {
+  const host = dom.jcResult;
+  if (!host) return;
+
+  const allZones = state.ticketZones || [];
+  const byId  = Object.fromEntries(allZones.map(z => [z.id, z]));
+  const meta  = state.ticketFaresMeta || {};
+
+  // Path-aware when a direct bus exists; endpoints-only otherwise, and we say
+  // which of the two we did.
+  const option = (journey.options && journey.options[0]) || null;
+  const pathStops = option ? option.stops : [
+    Object.assign({ atco: fromAtco }, state.stopData[fromAtco] || {}),
+    Object.assign({ atco: toAtco },   state.stopData[toAtco]   || {}),
+  ];
+  const operator = option ? option.operator : "";
+
+  const usable = pathStops.filter(s => typeof s.lat === "number" && typeof s.lon === "number");
+  if (usable.length < 2) {
+    host.innerHTML = `<p class="journey-note">We don't have locations for those stops, so we can't check the zones.</p>`;
+    return;
+  }
+
+  // Evening-only tickets are dropped unless the bus actually leaves in their
+  // window — a Gold Nightrider at £4 would otherwise undercut every quote.
+  const departAt = option ? option.depart : "";
+  // Evening-only products are left out of the costing entirely: a £4 Nightrider
+  // is cheap because it's restricted, and letting it set the headline would
+  // understate what an ordinary commuter actually pays.
+  const zones = allZones.filter(z =>
+    isStandardFareZone(z) && ticketValidAtTime(z, departAt));
+
+  const coverPerStop = usable.map(s => zonesForStop(s, zones, byId, operator));
+  const uncovered = coverPerStop.filter(c => c.length === 0).length;
+
+  // Zone tickets answer "how many tickets does this journey need?"; an
+  // operator-wide ticket is shown alongside as the alternative, not folded in.
+  const { zonal, network } = splitZonesByRule(zones);
+  const best = cheapestCover(coverPerStop, zonal);
+  const networkOption = bestNetworkTicket(coverPerStop, network);
+
+  // Night services charge on top of whichever ticket you hold.
+  const service = option ? option.service : "";
+  const supplement = serviceSupplement(meta, service, operator);
+  // The all-operator ticket competes on price like any other option.
+  const unifiedOption = unifiedTicketOption(meta, service);
+
+  const routeLine = option
+    ? `<p class="journey-note">Following the ${escapeHtml(option.service)} — ${option.stop_count} stops, ${escapeHtml(option.depart)} to ${escapeHtml(option.arrive)}.</p>`
+    : `<p class="journey-note">${escapeHtml(journey.note || "No direct bus found.")}</p>`;
+
+  const header = `
+    <p class="journey-endpoints">
+      <strong>${escapeHtml(journey.from.name || fromAtco)}</strong> →
+      <strong>${escapeHtml(journey.to.name || toAtco)}</strong>
+    </p>${routeLine}`;
+
+  // ── No zonal ticket spans the journey, but a network one does ──
+  // This is a boundary penalty in its own right: the zone tickets stop short,
+  // so the passenger is pushed onto the operator's pricier network ticket.
+  if (!best && networkOption && uncovered === 0) {
+    const only = cheapestRealOption(null, networkOption, supplement, unifiedOption);
+    host.innerHTML = header + `
+      <div class="journey-alert journey-alert--penalty">
+        <p><strong>No zone day ticket covers this whole journey</strong> — the
+        zones stop short of it.</p>
+        ${only ? penaltyMoneyHtml(only, meta, service)
+               : `<p class="journey-basis">The only ticket that covers it is
+                  ${escapeHtml(networkOption.zone.name)}, but we don't have a
+                  current price for it.</p>`}
+        ${reformComparisonHtml(only, meta)}
+      </div>` + zoneListHtml(coverPerStop, byId);
+    return;
+  }
+
+  // ── No zone data covers part of the path ──────────────────
+  if (!best || uncovered > 0) {
+    host.innerHTML = header + `
+      <div class="journey-alert journey-alert--unknown">
+        <p>We don't have ticket-zone coverage for every stop on this journey, so
+        we can't say for certain how many tickets it needs.</p>
+      </div>` + zoneListHtml(coverPerStop, byId);
+    return;
+  }
+
+  // ── One ticket covers it ──────────────────────────────────
+  if (best.zones.length === 1) {
+    const z = byId[best.zones[0]];
+    host.innerHTML = header + `
+      <div class="journey-alert journey-alert--ok">
+        <p>Good news — one ticket covers this journey:
+        <strong>${escapeHtml(z.name)}</strong> (${escapeHtml(z.operator)}).</p>
+      </div>`;
+    return;
+  }
+
+  // ── Multiple zone tickets needed ──────────────────────────
+  //
+  // Careful with the money here. The headline has to describe what a passenger
+  // would really pay, which is the cheapest option open to them — not the zone
+  // combination. On a Worthing-to-Brighton Stagecoach run the two zone tickets
+  // come to £12, but a Gold DayRider covers the same journey for £9, so
+  // claiming £12 would be plainly wrong and would discredit the point.
+  const cheapest = cheapestRealOption(best, networkOption, supplement, unifiedOption);
+  const money = cheapest
+    ? penaltyMoneyHtml(cheapest, meta, service)
+    : `<p class="journey-basis">We don't have current prices for all of these
+       tickets, so we're not showing a total. The boundary is real even though
+       the figure isn't published here.</p>`;
+
+  host.innerHTML = header + `
+    <div class="journey-alert journey-alert--penalty">
+      <p><strong>No single zone ticket covers this journey.</strong>
+      It crosses ${best.zones.length} ticket zones:</p>
+      ${zoneCostHtml(best, byId)}
+      ${money}
+      ${reformComparisonHtml(cheapest, best.zones, byId, meta)}
+    </div>` + zoneListHtml(coverPerStop, byId) + faresProvenanceHtml(best.zones, byId);
+}
+
+/** The zones this journey crosses, itemised with what each ticket costs. */
+function zoneCostHtml(best, byId) {
+  const rows = best.zones.map(id => {
+    const z = byId[id] || {};
+    const fare = zoneDayFare(z);
+    return `
+      <li>
+        <span class="journey-cost-name">${escapeHtml(z.name || id)}
+          <span class="journey-zone-op">${escapeHtml(z.operator || "")}</span></span>
+        <span class="journey-cost-price">${fare === null ? "—" : formatGbp(fare)}</span>
+      </li>`;
+  }).join("");
+
+  const total = best.priced
+    ? `<li class="journey-cost-total">
+         <span class="journey-cost-name">Buying all ${best.zones.length}</span>
+         <span class="journey-cost-price">${formatGbp(best.total)}</span>
+       </li>`
+    : "";
+
+  return `<ul class="journey-costs">${rows}${total}</ul>`;
+}
+
+/**
+ * What a night service adds to the fare.
+ *
+ * The N700 needs a £2 add-on on any Stagecoach Day/Night Rider. Ignoring it
+ * under-prices exactly the journeys the boundary hurts most, so it's added to
+ * every priced option for the operators it applies to.
+ */
+function serviceSupplement(meta, service, operator) {
+  const table = meta && meta.service_supplements;
+  const rule = table && table[service];
+  if (!rule || typeof rule.price_pence !== "number") return null;
+  const ops = rule.applies_to_operators;
+  if (Array.isArray(ops) && ops.length && operator && !ops.includes(operator)) return null;
+  return rule;
+}
+
+/**
+ * The all-operator day ticket, as a buyable option, when it applies.
+ *
+ * The South Downs Discovery Ticket is the only ticket today that crosses
+ * operators, so on a journey needing two operators' tickets it can genuinely be
+ * the cheapest thing to buy. It's offered on price like anything else — but
+ * never on a service it isn't valid for.
+ */
+function unifiedTicketOption(meta, service) {
+  const u = meta && meta.unified_ticket;
+  if (!u || u.recommend === false) return null;
+  if (typeof u.price_pence !== "number") return null;
+  if (Array.isArray(u.not_valid_on_services) && service
+      && u.not_valid_on_services.includes(service)) return null;
+  return { name: u.name || "all-operator day ticket", pence: u.price_pence, meta: u };
+}
+
+/**
+ * The cheapest thing a passenger could actually buy for this journey: the
+ * combination of zone tickets, a single operator-wide ticket, or the
+ * all-operator ticket — whichever costs least. Returns null when nothing is
+ * priced.
+ *
+ * `supplement` is added to the operator tickets, since it's charged on top of
+ * whichever one you hold. It is not added to the all-operator ticket, which is
+ * excluded from the services that carry a supplement rather than surcharged.
+ */
+function cheapestRealOption(zonalBest, networkOption, supplement, unifiedOption) {
+  const extra = supplement ? supplement.price_pence : 0;
+  const options = [];
+  if (zonalBest && zonalBest.priced) {
+    options.push({
+      kind: "zonal", total: zonalBest.total + extra,
+      tickets: zonalBest.zones.length, zone: null, supplement,
+    });
+  }
+  if (networkOption && networkOption.pence !== null) {
+    options.push({
+      kind: "network", total: networkOption.pence + extra,
+      tickets: 1, zone: networkOption.zone, supplement,
+    });
+  }
+  if (unifiedOption) {
+    options.push({
+      kind: "unified", total: unifiedOption.pence,
+      tickets: 1, zone: { name: unifiedOption.name }, supplement: null,
+      unified: unifiedOption.meta,
+    });
+  }
+  if (!options.length) return null;
+  return options.reduce((a, b) => (b.total < a.total ? b : a));
+}
+
+/** Headline cost + the unified-ticket comparison, when it genuinely saves. */
+function penaltyMoneyHtml(cheapest, meta, service) {
+  const parts = [];
+
+  if (cheapest.kind === "unified") {
+    // The one ticket that already crosses operators — and it costs more than
+    // the local day tickets it stands in for, which is the argument.
+    const src = cheapest.unified && cheapest.unified.source_url;
+    const name = escapeHtml(cheapest.zone.name);
+    parts.push(`<p class="journey-headline">
+      The cheapest ticket covering it is the
+      <strong>${src ? `<a href="${escapeAttr(src)}" target="_blank" rel="noopener noreferrer">${name}</a>` : name}</strong>
+      at ${formatGbp(cheapest.total)} — the only day ticket that's valid on every
+      operator, priced as a day-out rover rather than a local fare.</p>`);
+  } else if (cheapest.kind === "network") {
+    parts.push(`<p class="journey-headline">
+      The cheapest ticket covering it is a
+      <strong>${escapeHtml(cheapest.zone.name)}</strong> at ${formatGbp(cheapest.total)} —
+      an operator-wide ticket you have to buy just to cross the boundary.</p>`);
+  } else {
+    parts.push(`<p class="journey-headline">
+      This journey requires multiple tickets costing ${formatGbp(cheapest.total)}.</p>`);
+  }
+
+  if (cheapest.supplement) {
+    parts.push(`<p class="journey-basis">Includes the
+      ${escapeHtml(cheapest.supplement.label || "night-service add-on")}
+      (${formatGbp(cheapest.supplement.price_pence)}).
+      ${escapeHtml(meta.supplement_basis || "")}</p>`);
+  }
+
+  return parts.join("");
+}
+
+/**
+ * A ticket that's usable for an ordinary all-day journey.
+ *
+ * Evening-only products (the £4 Gold Nightrider) are excluded from the costing.
+ * They're cheap because they're restricted, so letting one set the headline
+ * would compare a commuter's real fare against a ticket most journeys can't
+ * use, and would understate the boundary rather than describe it.
+ */
+function isStandardFareZone(zone) {
+  return !zone.valid_from_time && !zone.valid_to_time;
+}
+
+/** The day fare for a zone in pence, or null when we don't have one. */
+function zoneDayFare(zone) {
+  const day = zone && zone.fares && zone.fares.adult_day;
+  return day && typeof day.price_pence === "number" ? day.price_pence : null;
+}
+
+/**
+ * Which of the campaign's asks would help on this particular journey, and by
+ * how much.
+ *
+ * Two are computable from the zones the journey actually crosses:
+ *
+ *  - **Merging zones** applies when the journey needs two tickets from the same
+ *    operator — the Worthing/Brighton DayRider case. The asked-for price is
+ *    fixed (£6, what each already costs).
+ *  - **Cross-operator acceptance** applies when the tickets come from different
+ *    operators. Here the price isn't invented: it's the cheapest day ticket
+ *    already covering part of the route, because that's what one accepted
+ *    ticket would cost.
+ */
+function reformsForJourney(zoneIds, byId, meta) {
+  const reforms = (meta && meta.reforms) || [];
+  if (!zoneIds || zoneIds.length < 2) return [];
+
+  const operators = new Set(zoneIds.map(id => (byId[id] || {}).operator).filter(Boolean));
+  const fares = zoneIds.map(id => zoneDayFare(byId[id])).filter(p => p !== null);
+  const cheapestSingle = fares.length ? Math.min(...fares) : null;
+
+  const out = [];
+  for (const r of reforms) {
+    let price = null;
+    if (r.applies === "same_operator_multi_zone") {
+      if (operators.size !== 1) continue;
+      price = typeof r.price_pence === "number" ? r.price_pence : cheapestSingle;
+    } else if (r.applies === "multi_operator") {
+      if (operators.size < 2) continue;
+      price = typeof r.price_pence === "number" ? r.price_pence : cheapestSingle;
+    } else {
+      continue;
+    }
+    if (price === null) continue;
+    out.push({ ...r, price_pence: price });
+  }
+  return out;
+}
+
+/**
+ * What this journey would cost under the changes the site campaigns for.
+ *
+ * This is what turns the boundary from an assertion into something a reader can
+ * test on their own commute. Each ask is only shown when it would actually make
+ * this journey cheaper.
+ */
+function reformComparisonHtml(cheapest, zoneIds, byId, meta) {
+  if (!cheapest) return "";
+  const days = meta && meta.commute_days_per_week;
+  const applicable = reformsForJourney(zoneIds, byId, meta)
+    .filter(r => cheapest.total - r.price_pence > 0);
+  if (!applicable.length) return "";
+
+  const rows = applicable.map(r => {
+    const saving = cheapest.total - r.price_pence;
+    const perWeek = typeof days === "number" ? saving * days : null;
+    return `
+      <li>
+        <span class="journey-reform-head">${escapeHtml(r.headline)}, this journey
+        would cost <strong>${formatGbp(r.price_pence)}</strong>${
+          perWeek !== null ? ` — saving ${formatGbp(perWeek)} a week` : ""
+        }.</span>
+        <span class="journey-basis">${escapeHtml(r.detail || "")}</span>
+      </li>`;
+  }).join("");
+
+  return `
+    <div class="journey-reform">
+      <p class="journey-zones-title">What we're asking for</p>
+      <ul class="journey-reform-list">${rows}</ul>
+      <button type="button" class="btn-text journey-reform-link" data-goto-objectives>
+        See what we're asking for →
+      </button>
+    </div>`;
+}
+
+/** Which zones the journey actually passed through, for transparency. */
+function zoneListHtml(coverPerStop, byId) {
+  const seen = [];
+  for (const set of coverPerStop) {
+    for (const id of set) if (!seen.includes(id)) seen.push(id);
+  }
+  if (!seen.length) return "";
+  const items = seen.map(id =>
+    `<li>${escapeHtml(byId[id].name)} <span class="journey-zone-op">${escapeHtml(byId[id].operator)}</span></li>`
+  ).join("");
+  return `<div class="journey-zones"><p class="journey-zones-title">Zones along the way</p><ul>${items}</ul></div>`;
+}
+
+/** Every price shown must carry its source and the date it was checked. */
+function faresProvenanceHtml(zoneIds, byId) {
+  const rows = [];
+  for (const id of zoneIds) {
+    const f = byId[id] && byId[id].fares;
+    if (!f || !f.source_url) continue;
+    rows.push(
+      `<li>${escapeHtml(byId[id].name)}: <a href="${escapeAttr(f.source_url)}" ` +
+      `target="_blank" rel="noopener noreferrer">published fare</a>, ` +
+      `checked ${escapeHtml(f.checked_on || "—")}</li>`);
+  }
+  if (!rows.length) return "";
+  return `<div class="journey-sources"><p class="journey-zones-title">Where these prices come from</p><ul>${rows.join("")}</ul></div>`;
+}
+
+function formatGbp(pence) {
+  const pounds = Math.round(pence) / 100;
+  return "£" + pounds.toFixed(2);
+}
+
+// ============================================================
 // VEHICLE MARKER VISIBILITY (toggled by view mode)
 // ============================================================
 
@@ -3142,7 +4005,6 @@ function showVehicleMarkers() {
 
 const EDITOR_STORAGE_KEY = "proposalDrafts";
 const EDITOR_AUTOSAVE_MS = 400;
-const EDITOR_REPO = "dennislemennace/adur-worthing-bus";
 
 function newDraftId() {
   return "d_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
@@ -3458,15 +4320,12 @@ function renderEditor() {
               aria-label="How to contribute" title="How to contribute">
         <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
       </button>
-      <button class="editor-action-btn" id="ed-github-btn" type="button" ${canExport ? "" : "disabled"}>
-        <svg class="icon" aria-hidden="true"><use href="#i-github"/></svg>
-        <span>Via GitHub</span>
-      </button>
-      <button class="editor-action-btn primary editor-action-btn--focal" id="ed-submit-noaccount" type="button" ${canExport ? "" : "disabled"}>
+      <button class="editor-action-btn primary editor-action-btn--focal" id="ed-submit" type="button" ${canExport ? "" : "disabled"}>
         <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
         <span>Submit</span>
       </button>
       <span class="editor-status" id="ed-status"></span>
+      <div class="suggest-turnstile" id="ed-turnstile"></div>
 
       <div class="editor-help-popover hidden" id="ed-help-popover" role="dialog"
            aria-labelledby="ed-help-title" aria-modal="false">
@@ -3476,18 +4335,20 @@ function renderEditor() {
         </button>
         <h4 class="editor-help-title" id="ed-help-title">Submitting your proposal</h4>
         <p class="editor-help-blurb">
-          Two ways to send your route to the maintainers, who review submissions
-          and turn the good ones into live route lines on the map.
+          Sending your route to the maintainers, who review submissions and turn
+          the good ones into live route lines on the map.
         </p>
         <ol class="editor-help-steps">
           <li>
             <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-plus"/></svg>
-            <span><strong>Submit</strong> sends your route straight to us — <strong>no account needed.</strong> The easiest option.</span>
+            <span><strong>Submit</strong> posts your route to the project's public issue
+              tracker — <strong>no account needed.</strong> We'll open your proposal in a new
+              tab so you can follow what happens to it.</span>
           </li>
           <li>
-            <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-github"/></svg>
-            <span><strong>Via GitHub</strong> opens a pre-filled issue instead. Needs a free
-              <a href="https://github.com/signup" target="_blank" rel="noopener noreferrer">GitHub account</a> — best if you'd like to discuss it in the open.</span>
+            <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-copy"/></svg>
+            <span><strong>Copy JSON</strong> or the download button give you the raw file, if
+              you'd rather open a pull request yourself.</span>
           </li>
         </ol>
       </div>
@@ -3556,8 +4417,11 @@ function renderEditor() {
   // Export actions
   dom.proposalEditor.querySelector("#ed-copy-btn").addEventListener("click", copyDraftJson);
   dom.proposalEditor.querySelector("#ed-download-btn").addEventListener("click", downloadDraftJson);
-  dom.proposalEditor.querySelector("#ed-github-btn").addEventListener("click", openGitHubIssue);
-  dom.proposalEditor.querySelector("#ed-submit-noaccount").addEventListener("click", submitProposalNoAccount);
+  dom.proposalEditor.querySelector("#ed-submit").addEventListener("click", submitProposal);
+
+  // The editor's markup is rebuilt on open, so the widget mounts here rather
+  // than once at boot.
+  mountTurnstile(dom.proposalEditor.querySelector("#ed-turnstile"));
 
   syncEditorModeButtons();
   renderPointList();
@@ -3610,7 +4474,7 @@ function renderPointList() {
 
   // Update export button enabled state
   const canExport = stops.length >= 2;
-  ["#ed-copy-btn", "#ed-download-btn", "#ed-github-btn", "#ed-submit-noaccount"].forEach(sel => {
+  ["#ed-copy-btn", "#ed-download-btn", "#ed-submit"].forEach(sel => {
     const btn = dom.proposalEditor.querySelector(sel);
     if (btn) btn.disabled = !canExport;
   });
@@ -3938,67 +4802,40 @@ function downloadDraftJson() {
   setEditorStatus("Downloaded.");
 }
 
-function openGitHubIssue() {
+/**
+ * Submit the current draft as a public GitHub issue, via the Worker.
+ *
+ * This used to be two buttons: a "Via GitHub" path that opened a pre-filled
+ * issue URL (and so needed a GitHub account) and a no-account Web3Forms path
+ * that emailed the maintainer. The Worker files the issue server-side, so one
+ * button now covers both — no account, and still a public, followable record.
+ */
+async function submitProposal() {
   if (!state.editor) return;
   const obj = draftToProposalJson(state.editor);
-  const title = `Proposal: ${obj.name || obj.id}`;
-  const fullBody =
-    `Submitted from the in-app proposal editor. ` +
-    `Please paste the JSON below into \`data/proposals.json\` and open a PR.\n\n` +
-    "```json\n" +
-    JSON.stringify(obj, null, 2) +
-    "\n```\n";
-  const fullUrl = `https://github.com/${EDITOR_REPO}/issues/new` +
-    `?title=${encodeURIComponent(title)}` +
-    `&body=${encodeURIComponent(fullBody)}`;
-
-  // GitHub silently truncates pre-filled issue URLs around 8 KB. For large
-  // proposals, copy the JSON to the clipboard and open a stub body asking
-  // the author to paste it in.
-  if (fullUrl.length <= 7000) {
-    window.open(fullUrl, "_blank", "noopener");
-    setEditorStatus("Opening GitHub…");
-    return;
-  }
-
-  copyDraftJson(); // fire-and-forget — clipboard on most browsers
-  const stubBody =
-    `Submitted from the in-app proposal editor. The proposal JSON was too ` +
-    `large to pre-fill here — it's on your clipboard. **Please paste the ` +
-    `JSON into a fenced \`\`\`json block below**, then either paste the ` +
-    `same JSON into \`data/proposals.json\` and open a PR, or leave it in ` +
-    `this issue for someone else to pick up.\n\n` +
-    "```json\n(paste here)\n```\n";
-  const stubUrl = `https://github.com/${EDITOR_REPO}/issues/new` +
-    `?title=${encodeURIComponent(title)}` +
-    `&body=${encodeURIComponent(stubBody)}`;
-  window.open(stubUrl, "_blank", "noopener");
-  setEditorStatus("JSON copied; paste it into the issue.");
-}
-
-/** No-account proposal submit: relays the same draft JSON the GitHub path
- *  uses, but straight to the maintainer's inbox via Web3Forms — no account
- *  needed. Sibling of openGitHubIssue(); the GitHub path stays available. */
-async function submitProposalNoAccount() {
-  if (!state.editor) return;
-  const obj = draftToProposalJson(state.editor);
+  const widget = dom.proposalEditor
+    ? dom.proposalEditor.querySelector("#ed-turnstile") : null;
   setEditorStatus("Sending…");
-  const result = await postToWeb3Forms({
-    subject:     `Route proposal: ${obj.name || obj.id}`,
-    from_name:   "Adur & Worthing bus site",
-    kind:        "route-proposal",
-    name:        obj.name || obj.id,
-    summary:     obj.summary || "",
-    description: obj.description || "",
-    // Compacted JSON (no pretty-print) keeps a polyline-heavy draft small.
-    proposal_json: JSON.stringify(obj),
-  });
+
+  const result = await postSubmission("proposal", {
+    title: obj.name || obj.id,
+    name:  obj.author || "",
+    // Compacted JSON (no pretty-print) keeps a polyline-heavy draft under the
+    // Worker's body cap; it re-formats before writing the issue.
+    proposalJson: JSON.stringify(obj),
+  }, widget);
+  resetTurnstile(widget);
+
   if (result.ok) {
-    setEditorStatus("Sent — thank you!");
+    setEditorStatus(result.url ? "Sent — opening your proposal…" : "Sent — thank you!");
+    if (result.url) window.open(result.url, "_blank", "noopener");
   } else if (result.reason === "unconfigured") {
-    setEditorStatus("No-account submit isn't set up yet — use Via GitHub.");
+    setEditorStatus("Submissions aren't switched on yet — use Copy JSON for now.");
   } else {
-    setEditorStatus("Couldn't send — try Via GitHub instead.");
+    const msg = /^HTTP \d+$/.test(result.reason || "")
+      ? "Couldn't send — try Copy JSON instead."
+      : result.reason;
+    setEditorStatus(msg);
   }
 }
 
@@ -4168,27 +5005,82 @@ function setSuggestBusy(busy) {
   if (dom.suggestSubmit) dom.suggestSubmit.disabled = busy;
 }
 
-/** POST a set of fields to Web3Forms. Returns {ok, reason}. The access key is
- *  public by design; it only authorises sending mail to the owning account. */
-async function postToWeb3Forms(fields) {
-  const key = CONFIG.WEB3FORMS_ACCESS_KEY;
-  if (!key || key.includes("YOUR-WEB3FORMS")) {
+// ─── Turnstile ──────────────────────────────────────────────
+// Loaded on demand, the first time a form that needs it becomes visible, so
+// the script isn't fetched for the majority of visitors who only use the map.
+
+let _turnstileLoading = null;
+
+function loadTurnstile() {
+  if (!CONFIG.TURNSTILE_SITE_KEY) return Promise.resolve(false);
+  if (window.turnstile) return Promise.resolve(true);
+  if (_turnstileLoading) return _turnstileLoading;
+
+  _turnstileLoading = new Promise((resolve) => {
+    const s = document.createElement("script");
+    s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    s.async = true;
+    s.defer = true;
+    s.onload  = () => resolve(true);
+    s.onerror = () => { _turnstileLoading = null; resolve(false); };
+    document.head.appendChild(s);
+  });
+  return _turnstileLoading;
+}
+
+/** Render the widget into a container once. Safe to call repeatedly. */
+async function mountTurnstile(container) {
+  if (!container || container.dataset.rendered === "1") return;
+  const ready = await loadTurnstile();
+  if (!ready || !window.turnstile) return;
+  window.turnstile.render(container, { sitekey: CONFIG.TURNSTILE_SITE_KEY });
+  container.dataset.rendered = "1";
+}
+
+/** Read the current token, if the widget is present and solved. */
+function turnstileToken(container) {
+  if (!container || !window.turnstile) return "";
+  try {
+    return window.turnstile.getResponse(container) || "";
+  } catch { return ""; }
+}
+
+/** Reset the widget so a second submission gets a fresh token. */
+function resetTurnstile(container) {
+  if (!container || !window.turnstile) return;
+  try { window.turnstile.reset(container); } catch { /* nothing to reset */ }
+}
+
+/**
+ * POST a submission to the Worker, which files it as a GitHub issue.
+ * Returns {ok, reason, url, number} — `url` links the sender to their issue.
+ */
+async function postSubmission(kind, fields, turnstileContainer) {
+  const endpoint = CONFIG.SUBMIT_ENDPOINT;
+  if (!endpoint || endpoint.includes("YOUR-WORKER")) {
     return { ok: false, reason: "unconfigured" };
   }
   try {
-    const res = await fetch(CONFIG.WEB3FORMS_ENDPOINT, {
+    const res = await fetch(endpoint, {
       method:  "POST",
       headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      body:    JSON.stringify({ access_key: key, ...fields }),
+      body:    JSON.stringify({
+        kind,
+        turnstileToken: turnstileToken(turnstileContainer),
+        ...fields,
+      }),
     });
     const data = await res.json().catch(() => ({}));
-    return { ok: res.ok && data.success === true, reason: data.message || `HTTP ${res.status}` };
+    if (res.ok && data.ok === true) {
+      return { ok: true, url: data.url, number: data.number };
+    }
+    return { ok: false, reason: data.error || `HTTP ${res.status}` };
   } catch (err) {
     return { ok: false, reason: err.message || "Network error" };
   }
 }
 
-/** Validate + send a community suggestion via Web3Forms. */
+/** Validate + file a community suggestion as a public GitHub issue. */
 async function submitSuggestion() {
   const form = dom.suggestForm;
   if (!form) return;
@@ -4217,47 +5109,137 @@ async function submitSuggestion() {
   const area      = form.querySelector("#sg-area").value;
   const objective = form.querySelector("#sg-objective").value;
   const name      = form.querySelector("#sg-name").value.trim();
-  const email     = form.querySelector("#sg-email").value.trim();
 
-  // Ready-to-publish object, matching data/suggestions.json's schema, so the
-  // approval email carries a copy-paste blob (scripts/add_suggestion.py reads
-  // it). Deliberately excludes the submitter's email — that's private.
-  const publish = {
-    id:     `${slugify(title)}-${Date.now().toString(36).slice(-4)}`,
-    title,
-    body:   details,
-    area,
-    name:   name || "",
-    date:   new Date().toISOString().slice(0, 10), // YYYY-MM-DD
-    status: "published",
-  };
-
-  const fields = {
-    subject:           `New idea: ${title}`,
-    from_name:         name || "Adur & Worthing bus site",
-    kind:              "idea",
-    title,
-    area,
-    related_objective: objective || "(none)",
-    details,
-    name:              name || "(not given)",
-    // Paste this line into data/suggestions.json (or feed to add_suggestion.py):
-    suggestion_json:   JSON.stringify(publish),
-  };
-  if (email) fields.email = email; // Web3Forms treats `email` as reply-to.
+  // The Worker builds the ready-to-publish JSON itself rather than trusting a
+  // blob from the browser, and files the issue. No email is collected: the
+  // issue is public, so an address here would be published with it.
+  const fields = { title, details, area, objective, name };
 
   setSuggestBusy(true);
   setSuggestStatus("Sending…");
-  const result = await postToWeb3Forms(fields);
+  const result = await postSubmission("idea", fields, dom.suggestTurnstile);
   setSuggestBusy(false);
+  resetTurnstile(dom.suggestTurnstile);
 
   if (result.ok) {
-    setSuggestStatus("Thanks! Your idea has been sent.");
+    setSuggestStatus("");
+    renderSuggestSuccess(result.url);
     form.reset();
   } else if (result.reason === "unconfigured") {
     setSuggestStatus("Suggestions aren't switched on yet — please try again later.", true);
   } else {
-    setSuggestStatus("Couldn't send — please try again.", true);
+    // The Worker's rejections are already written for humans ("please try
+    // again later", "couldn't verify you're human"), so pass them through.
+    // Anything that looks like a bare status code gets the generic line.
+    const msg = /^HTTP \d+$/.test(result.reason || "")
+      ? "Couldn't send — please try again."
+      : result.reason;
+    setSuggestStatus(msg, true);
+  }
+}
+
+// ============================================================
+// STOP ISSUE REPORTING (departure board → GitHub issue)
+// ============================================================
+
+/** Show/hide the report form under the departure board. */
+function toggleReportStopForm(show) {
+  const form = dom.reportStopForm;
+  if (!form) return;
+  const open = (show === undefined) ? form.classList.contains("hidden") : show;
+  form.classList.toggle("hidden", !open);
+  if (dom.reportStopBtn) dom.reportStopBtn.setAttribute("aria-expanded", String(open));
+  if (open) {
+    setReportStopStatus("");
+    mountTurnstile(dom.reportStopTurnstile);
+    const details = form.querySelector("#rs-details");
+    if (details) details.focus();
+  }
+}
+
+function setReportStopStatus(msg, isError = false) {
+  if (!dom.reportStopStatus) return;
+  dom.reportStopStatus.textContent = msg;
+  dom.reportStopStatus.classList.toggle("is-error", !!isError);
+}
+
+/** Validate + file a stop fault as a public GitHub issue. */
+async function submitStopIssue() {
+  const form = dom.reportStopForm;
+  if (!form) return;
+
+  const botcheck = form.querySelector("#rs-botcheck");
+  if (botcheck && botcheck.checked) {
+    setReportStopStatus("Thanks!");
+    form.reset();
+    return;
+  }
+
+  // The board can only be open on a selected stop, but guard anyway — a
+  // report with no stop attached would be useless to whoever picks it up.
+  const selected = state.selectedStop;
+  if (!selected || !selected.atcoCode) {
+    setReportStopStatus("Select a stop first.", true);
+    return;
+  }
+
+  const details = form.querySelector("#rs-details").value.trim();
+  if (!details) {
+    setReportStopStatus("Please describe the problem.", true);
+    form.querySelector("#rs-details").focus();
+    return;
+  }
+
+  // Coordinates come from the stop index we already hold, so the report
+  // carries a location without another round-trip.
+  const pos = state.stopData[selected.atcoCode] || {};
+
+  const fields = {
+    stopName: selected.stopName || pos.name || selected.atcoCode,
+    atco:     selected.atcoCode,
+    category: form.querySelector("#rs-category").value,
+    details,
+    name:     form.querySelector("#rs-name").value.trim(),
+    lat:      pos.lat,
+    lon:      pos.lon,
+  };
+
+  if (dom.reportStopSubmit) dom.reportStopSubmit.disabled = true;
+  setReportStopStatus("Sending…");
+  const result = await postSubmission("stop_issue", fields, dom.reportStopTurnstile);
+  if (dom.reportStopSubmit) dom.reportStopSubmit.disabled = false;
+  resetTurnstile(dom.reportStopTurnstile);
+
+  if (result.ok) {
+    form.reset();
+    if (result.url) {
+      dom.reportStopStatus.classList.remove("is-error");
+      dom.reportStopStatus.innerHTML =
+        `Thanks! <a href="${escapeAttr(result.url)}" target="_blank" ` +
+        `rel="noopener noreferrer">Track it here</a>.`;
+    } else {
+      setReportStopStatus("Thanks — your report has been sent.");
+    }
+  } else if (result.reason === "unconfigured") {
+    setReportStopStatus("Reporting isn't switched on yet — please try later.", true);
+  } else {
+    const msg = /^HTTP \d+$/.test(result.reason || "")
+      ? "Couldn't send — please try again."
+      : result.reason;
+    setReportStopStatus(msg, true);
+  }
+}
+
+/** Replace the form status line with a link to the issue that was just filed. */
+function renderSuggestSuccess(url) {
+  if (!dom.suggestStatus) return;
+  dom.suggestStatus.classList.remove("is-error");
+  if (url) {
+    dom.suggestStatus.innerHTML =
+      `Thanks! Your idea is now <a href="${escapeAttr(url)}" target="_blank" ` +
+      `rel="noopener noreferrer">on the tracker</a> — follow it there.`;
+  } else {
+    dom.suggestStatus.textContent = "Thanks! Your idea has been sent.";
   }
 }
 

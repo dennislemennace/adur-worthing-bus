@@ -297,11 +297,70 @@
         <div class="departures-container hidden" id="departures-container">
           <div class="departures-meta">
             <span id="departures-count"></span>
+            <button class="btn-text" id="report-stop-btn" aria-expanded="false"
+                    aria-controls="report-stop-form"
+                    aria-label="Report a problem at this stop">
+              <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+              <span>Report an issue</span>
+            </button>
             <button class="btn-text" id="refresh-stop-btn" aria-label="Refresh departures">
               <svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>
               <span>Refresh</span>
             </button>
           </div>
+
+          <!-- Stop fault reporting. Posts to the same Worker as the Ideas
+               form; the stop's ATCO code becomes the issue title so repeat
+               reports about one stop fold into a single thread. -->
+          <form class="report-stop-form hidden" id="report-stop-form" novalidate>
+            <div class="editor-field">
+              <label for="rs-category">What's wrong?</label>
+              <select id="rs-category" name="category">
+                <option value="shelter">Shelter damaged or dirty</option>
+                <option value="timetable-case">Timetable missing or out of date</option>
+                <option value="rtpi-display">Live departure screen faulty</option>
+                <option value="accessibility">Access problem (kerb, ramp, obstruction)</option>
+                <option value="lighting">Lighting out</option>
+                <option value="other">Something else</option>
+              </select>
+            </div>
+            <div class="editor-field">
+              <label for="rs-details">Tell us more</label>
+              <textarea id="rs-details" name="details" maxlength="1000" required
+                        placeholder="What's the problem, and roughly how long has it been like that?"></textarea>
+            </div>
+            <div class="editor-field">
+              <label for="rs-name">Your name (optional)</label>
+              <input id="rs-name" name="name" type="text" maxlength="60">
+            </div>
+
+            <!-- Honeypot -->
+            <div class="suggest-honeypot" aria-hidden="true">
+              <label for="rs-botcheck">Leave this field empty</label>
+              <input id="rs-botcheck" name="botcheck" type="checkbox" tabindex="-1" autocomplete="off">
+            </div>
+
+            <div class="suggest-turnstile" id="rs-turnstile"></div>
+
+            <p class="suggest-privacy">
+              Stops are looked after by the councils, not the bus operators — this
+              posts a public record to the project's issue tracker so it can be
+              chased, but it doesn't raise a repair job. For anything urgent or
+              unsafe, report it to
+              <a href="https://www.westsussex.gov.uk/roads-and-travel/report-a-problem-on-the-road/"
+                 target="_blank" rel="noopener noreferrer">West Sussex County Council</a>
+              directly as well.
+            </p>
+
+            <div class="suggest-actions">
+              <button class="editor-action-btn primary" id="rs-submit" type="submit">
+                <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
+                <span>Send report</span>
+              </button>
+              <button class="editor-action-btn" id="rs-cancel" type="button">Cancel</button>
+              <span class="editor-status" id="rs-status" role="status" aria-live="polite"></span>
+            </div>
+          </form>
           <div class="departures-notice hidden" id="departures-notice" role="status" aria-live="polite"></div>
           <table class="departures-table" aria-label="Upcoming departures">
             <thead>
@@ -433,9 +492,10 @@
               This site is <strong>open source</strong>. It's built and shared on
               <a href="https://github.com/dennislemennace/adur-worthing-bus"
                  target="_blank" rel="noopener noreferrer">GitHub</a> — the platform
-              that hosts the code and collects community proposals. That's why
-              contributing a proposal needs a free GitHub account: your idea is
-              submitted as a GitHub issue for the maintainers to review.
+              that hosts the code and collects community proposals. You don't need
+              an account to contribute: hit <strong>Submit</strong> in the editor and
+              your proposal is posted to the public issue tracker for the maintainers
+              to review, with a link back so you can follow it.
             </p>
             <p class="improvements-note">
               Tip: turning on <strong>“Show limited services”</strong> reveals
@@ -513,6 +573,42 @@
               before you travel.
             </p>
           </div>
+          <!-- Boundary penalty calculator: pick two stops, find out whether
+               the journey between them needs more than one ticket. -->
+          <section class="journey-calc" aria-labelledby="journey-calc-title">
+            <h3 class="proposals-section-title" id="journey-calc-title">
+              What does your journey cost?
+            </h3>
+            <p class="proposals-section-blurb">
+              Pick where you get on and off. We follow the actual route between
+              them and check it against each operator's ticket zones.
+            </p>
+
+            <div class="editor-field">
+              <label for="jc-from">From this stop</label>
+              <input id="jc-from" type="text" list="jc-from-list" autocomplete="off"
+                     placeholder="Start typing a stop name…">
+              <datalist id="jc-from-list"></datalist>
+            </div>
+
+            <div class="editor-field">
+              <label for="jc-to">To this stop</label>
+              <input id="jc-to" type="text" list="jc-to-list" autocomplete="off"
+                     placeholder="Start typing a stop name…">
+              <datalist id="jc-to-list"></datalist>
+            </div>
+
+            <div class="suggest-actions">
+              <button class="editor-action-btn primary" id="jc-check" type="button">
+                <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
+                <span>Check this journey</span>
+              </button>
+              <span class="editor-status" id="jc-status" role="status" aria-live="polite"></span>
+            </div>
+
+            <div class="journey-result" id="jc-result" aria-live="polite"></div>
+          </section>
+
           <div class="ticket-zones-list" id="ticket-zones-list" aria-live="polite">
             <p class="proposals-empty">Loading ticket zones…</p>
           </div>
@@ -609,17 +705,25 @@
                      placeholder="Shown next to your idea if we publish it">
             </div>
 
-            <div class="editor-field">
-              <label for="sg-email">Email (optional)</label>
-              <input id="sg-email" name="email" type="email" maxlength="120"
-                     placeholder="Only if you're happy for us to follow up">
-            </div>
-
             <!-- Honeypot: hidden from humans; bots that fill it are dropped. -->
             <div class="suggest-honeypot" aria-hidden="true">
               <label for="sg-botcheck">Leave this field empty</label>
               <input id="sg-botcheck" name="botcheck" type="checkbox" tabindex="-1" autocomplete="off">
             </div>
+
+            <!-- Turnstile renders here. Loaded lazily by app.js the first time
+                 the Ideas tab is opened, so the script isn't fetched for the
+                 majority of visitors who only ever look at the map. -->
+            <div class="suggest-turnstile" id="sg-turnstile"></div>
+
+            <p class="suggest-privacy">
+              Your idea is posted publicly to the project's
+              <a href="https://github.com/dennislemennace/adur-worthing-bus/issues"
+                 target="_blank" rel="noopener noreferrer">issue tracker</a>, where you
+              can follow what happens to it — we'll link you straight to it. Don't
+              include anything you wouldn't want published. We don't ask for your
+              email, so please don't put one in the box above.
+            </p>
 
             <div class="suggest-actions">
               <button class="editor-action-btn primary" id="sg-submit" type="submit">

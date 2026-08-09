@@ -80,6 +80,38 @@ fits within the existing envelope.
 - Per-stop caching is load-bearing — don't remove it. The site must continue
   to work when the daily quota is exhausted (timetable-only fallback exists).
 
+## Cloudflare Workers + KV — community submission relay
+
+(`worker/` — takes idea / proposal / stop-issue submissions and files them as
+GitHub issues. Replaced the Web3Forms email relay.)
+
+- Workers free plan: **100,000 requests / day**, 10 ms CPU per request.
+- Workers KV free plan: **100,000 reads / day, 1,000 writes / day.**
+- Turnstile: free, unlimited.
+- Each submission costs 3 KV reads + 3 KV writes (hour, day and global
+  counters), so **the KV write budget caps out around 300 submissions/day** —
+  the binding constraint, well before the request limit.
+
+**Implications**
+
+- The Worker enforces its own global cap of **200 submissions/day**, deliberately
+  under the ~300/day KV write ceiling. Don't raise it without recalculating
+  against the write budget.
+- Per-client limits are 5/hour and 20/day, keyed on a salted hash of the IP.
+- Rate-limit counters use read-modify-write and can undercount under
+  concurrency. That's accepted: these are coarse abuse bounds, not accounting.
+- If the Worker is unreachable the forms fail with a visible message and nothing
+  is lost silently — but submissions are simply not accepted until it returns.
+  There is no queue and no fallback path.
+
+## GitHub REST API — issue creation
+
+- 5,000 authenticated requests / hour for the fine-grained PAT.
+- One submission = 1 call, or 2 when stop-issue dedupe search runs.
+- At the Worker's own 200/day cap this is ~400 calls/day against a 120,000/day
+  allowance — not a constraint, but don't add per-submission API chatter
+  (label lookups, project-board moves) without rechecking.
+
 ## OpenStreetMap — `tile.openstreetmap.org` (light theme)
 
 - Tile usage policy: https://operations.osmfoundation.org/policies/tiles/

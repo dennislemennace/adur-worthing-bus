@@ -5,8 +5,8 @@
       "operator": "BHBC",
       "name": "citySAVER",
       "category": "current",
-      "price": "Day ticket \u2014 buy on bus/app",
-      "coverage": "Brighton & Hove urban area \u2014 Old Shoreham/Red Lion (W) along the coast to Saltdean/Bannings Vale (E), bounded north by the A27/Downs through Tongdean Lane, Patcham (Black Lion), Old Boat Corner and Falmer.",
+      "price": "Day ticket — buy on bus/app",
+      "coverage": "Brighton & Hove urban area — Old Shoreham/Red Lion (W) along the coast to Saltdean/Bannings Vale (E), bounded north by the A27/Downs through Tongdean Lane, Patcham (Black Lion), Old Boat Corner and Falmer.",
       "restrictions": "Not valid on night (N) buses.",
       "color": "#e30613",
       "official_map_url": "https://www.buses.co.uk/fare-zones",
@@ -1243,6 +1243,22 @@
           50.836,
           -0.282
         ]
+      ],
+      "coverage_rule": "polygon",
+      "fares": {
+        "adult_day": {
+          "price_pence": 630,
+          "label": "citySAVER day (app/Key online)"
+        },
+        "adult_day_cash": {
+          "price_pence": 680,
+          "label": "Cash on bus"
+        },
+        "source_url": "https://www.buses.co.uk/saver-ticket",
+        "checked_on": "2026-08-09"
+      },
+      "valid_on_operators": [
+        "BHBC"
       ]
     },
     {
@@ -1250,8 +1266,8 @@
       "operator": "BHBC",
       "name": "networkSAVER",
       "category": "current",
-      "price": "Day ticket \u2014 buy on bus/app",
-      "coverage": "Valid on the entire Brighton & Hove network including night buses \u2014 far beyond citySAVER: east to Newhaven, Seaford & Eastbourne, north to Lewes, Uckfield & Tunbridge Wells, west to Steyning.",
+      "price": "Day ticket — buy on bus/app",
+      "coverage": "Valid on the entire Brighton & Hove network including night buses — far beyond citySAVER: east to Newhaven, Seaford & Eastbourne, north to Lewes, Uckfield & Tunbridge Wells, west to Steyning.",
       "restrictions": "",
       "color": "#e30613",
       "official_map_url": "https://www.buses.co.uk/fare-zones",
@@ -1304,6 +1320,23 @@
           "lon": 0.2637,
           "routes": "29"
         }
+      ],
+      "coverage_rule": "operator_network",
+      "fares": {
+        "adult_day": {
+          "price_pence": 730,
+          "label": "networkSAVER day (app/Key online)"
+        },
+        "adult_day_cash": {
+          "price_pence": 830,
+          "label": "Cash on bus"
+        },
+        "source_url": "https://www.buses.co.uk/saver-ticket",
+        "checked_on": "2026-08-09"
+      },
+      "valid_on_operators": [
+        "BHBC",
+        "METR"
       ]
     },
     {
@@ -2056,6 +2089,19 @@
           50.800666,
           -0.466151
         ]
+      ],
+      "coverage_rule": "polygon",
+      "fares": {
+        "adult_day": {
+          "price_pence": 600,
+          "label": "Worthing DayRider"
+        },
+        "adult_day_cash": null,
+        "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Worthing%20Network%20Map%200425.pdf",
+        "checked_on": "2026-08-09"
+      },
+      "valid_on_operators": [
+        "SCSO"
       ]
     },
     {
@@ -3656,6 +3702,19 @@
           50.84161,
           -0.2964
         ]
+      ],
+      "coverage_rule": "polygon",
+      "fares": {
+        "adult_day": {
+          "price_pence": 600,
+          "label": "Brighton DayRider"
+        },
+        "adult_day_cash": null,
+        "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Brighton%20Network%20Map%200424.pdf",
+        "checked_on": "2026-08-09"
+      },
+      "valid_on_operators": [
+        "SCSO"
       ]
     },
     {
@@ -3909,6 +3968,23 @@
             -0.3653
           ]
         ]
+      ],
+      "coverage_rule": "polygon",
+      "fares": {
+        "adult_day": {
+          "price_pence": 920,
+          "label": "Metrovoyager (app/Key online)"
+        },
+        "adult_day_cash": {
+          "price_pence": 1000,
+          "label": "Cash on bus"
+        },
+        "source_url": "https://www.metrobus.co.uk/tickets",
+        "checked_on": "2026-08-09"
+      },
+      "valid_on_operators": [
+        "METR",
+        "BHBC"
       ]
     },
     {
@@ -3916,20 +3992,96 @@
       "operator": "SCSO",
       "name": "Gold Dayrider",
       "category": "current",
-      "subgroup": "Gold tickets \u2014 all Stagecoach buses in the area",
-      "coverage": "All day on every Stagecoach bus across Surrey, Hampshire & West Sussex \u2014 the whole network."
+      "subgroup": "Gold tickets — all Stagecoach buses in the area",
+      "coverage": "All day on every Stagecoach bus across Surrey, Hampshire & West Sussex — the whole network.",
+      "coverage_rule": "operator_network",
+      "fares": {
+        "adult_day": {
+          "price_pence": 900,
+          "label": "Gold DayRider"
+        },
+        "adult_day_cash": null,
+        "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Gold%20Network%20Map%20Aug%2023.pdf",
+        "checked_on": "2026-08-09"
+      },
+      "valid_on_operators": [
+        "SCSO"
+      ]
     },
     {
       "id": "sc-gold-nightrider",
       "operator": "SCSO",
       "name": "Gold Nightrider",
       "category": "current",
-      "subgroup": "Gold tickets \u2014 all Stagecoach buses in the area",
+      "subgroup": "Gold tickets — all Stagecoach buses in the area",
       "coverage": "Same network-wide validity as Gold Dayrider.",
-      "restrictions": "After 19:30 only; cheaper than the Dayrider."
+      "restrictions": "After 19:30 only; cheaper than the Dayrider.",
+      "coverage_rule": "operator_network",
+      "fares": {
+        "adult_day": {
+          "price_pence": 400,
+          "label": "Gold Nightrider (evenings only)"
+        },
+        "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Gold%20Network%20Map%20Aug%2023.pdf",
+        "checked_on": "2026-08-09",
+        "note": "Same coverage as the Gold DayRider, valid from 19:30."
+      },
+      "valid_on_operators": [
+        "SCSO"
+      ],
+      "valid_from_time": "19:30",
+      "valid_to_time": "04:00"
     }
   ],
   "operator_notes": {
-    "SCSO": "N700 needs a \u00a32 supplement on any Day/Night Rider, or \u00a35 single."
+    "SCSO": "N700 needs a £2 supplement on any Day/Night Rider, or £5 single."
+  },
+  "fares_meta": {
+    "currency": "GBP",
+    "commute_days_per_week": 5,
+    "basis_note": "Based on a five-day commute, buying a day ticket each day.",
+    "checked_on": "2026-08-09",
+    "unified_ticket": {
+      "price_pence": 1000,
+      "name": "South Downs Discovery Ticket",
+      "basis": "An all-operator day ticket valid across West Sussex, East Sussex and Brighton & Hove. Not valid on the N700 or N1 night services. Priced as a day-out rover rather than a local commuter fare, which is the point: it is the only ticket that crosses operators, and it costs more than the local day tickets it replaces.",
+      "source_url": "https://www.southdowns.gov.uk/travelling-around/south-downs-discovery-ticket/",
+      "is_hypothetical": false,
+      "not_valid_on_services": [
+        "N700",
+        "N1"
+      ],
+      "recommend": true
+    },
+    "service_supplements": {
+      "N700": {
+        "price_pence": 200,
+        "applies_to_operators": [
+          "SCSO"
+        ],
+        "label": "N700 night-bus add-on",
+        "note": "£2 add-on to any Stagecoach Day/Night Rider; a single is £5.",
+        "source_url": "https://www.stagecoachbus.com/regionaltickets/south/worthing-and-brighton/dayrider"
+      }
+    },
+    "supplement_basis": "Night-service add-ons are counted once per journey.",
+    "reforms": [
+      {
+        "id": "merge-stagecoach-zones",
+        "objective_id": "fairer-ticketing-zones",
+        "applies": "same_operator_multi_zone",
+        "headline": "If the Worthing and Brighton DayRider zones were merged",
+        "detail": "One DayRider covering both zones, at the £6 each already costs.",
+        "price_pence": 600
+      },
+      {
+        "id": "cross-operator-acceptance",
+        "objective_id": "cross-operator-tickets",
+        "applies": "multi_operator",
+        "headline": "If your ticket were valid on every operator on this route",
+        "detail": "One day ticket, accepted on whichever operator's bus turns up.",
+        "price_pence": null
+      }
+    ]
   }
 }

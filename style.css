@@ -2362,8 +2362,9 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 #tab-content-ideas { overflow-y: auto; }
 #tab-content-ideas > * { flex: 0 0 auto; }
 
-/* Suggestion form — reuses .editor-field for labels/inputs; add select +
-   email styling (the editor only styled text + textarea) and layout. */
+/* Suggestion form — reuses .editor-field for labels/inputs; adds select
+   styling (the editor only styled text + textarea) and layout. The select
+   rules also cover the stop-report form, which uses the same field markup. */
 .suggest-form {
   display: flex;
   flex-direction: column;
@@ -2371,8 +2372,8 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   padding: var(--space-md);
   border-bottom: 1px solid var(--color-border);
 }
-.suggest-form .editor-field input[type="email"],
-.suggest-form .editor-field select {
+.suggest-form .editor-field select,
+.report-stop-form .editor-field select {
   appearance: none;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -2383,8 +2384,8 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   color: var(--color-text);
   width: 100%;
 }
-.suggest-form .editor-field input[type="email"]:focus,
-.suggest-form .editor-field select:focus {
+.suggest-form .editor-field select:focus,
+.report-stop-form .editor-field select:focus {
   outline: 2px solid var(--color-primary);
   outline-offset: -1px;
   border-color: var(--color-primary);
@@ -2406,6 +2407,172 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   height: 1px;
   overflow: hidden;
 }
+
+/* Stop fault reporting, folded out under the departure board. Reuses the
+   suggestion form's field styling; the tinted panel separates it from the
+   departures table above it. */
+.report-stop-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin: var(--space-xs) 0;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+.report-stop-form.hidden { display: none; }
+
+/* Turnstile mount point. Collapses to nothing until the widget renders, so an
+   unconfigured or blocked script leaves no empty gap in the form. */
+.suggest-turnstile:empty { display: none; }
+.suggest-turnstile {
+  margin-top: var(--space-2xs);
+  min-height: 0;
+}
+
+/* Submissions are posted publicly — say so next to the form, not in a
+   tooltip. */
+.suggest-privacy {
+  margin: var(--space-2xs) 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.suggest-privacy a { color: var(--color-primary); }
+
+/* ── Ticket view: boundary penalty calculator ── */
+.journey-calc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+.journey-calc .editor-field input[type="text"] {
+  appearance: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  width: 100%;
+}
+.journey-calc .editor-status.is-error { color: var(--color-late); }
+
+.journey-result:empty { display: none; }
+.journey-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.journey-endpoints { margin: 0; font-size: var(--font-size-md); }
+.journey-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.journey-alert {
+  padding: var(--space-sm);
+  border-radius: var(--radius-md);
+  border-left: 4px solid var(--color-border);
+  background: var(--color-surface-2);
+}
+.journey-alert p { margin: 0 0 var(--space-2xs); }
+.journey-alert p:last-child { margin-bottom: 0; }
+
+/* One ticket covers it — the good outcome. */
+.journey-alert--ok { border-left-color: var(--color-on-time); }
+/* Multiple tickets needed — the campaigning case. */
+.journey-alert--penalty { border-left-color: var(--color-late); }
+/* We can't tell, and say so rather than guessing. */
+.journey-alert--unknown { border-left-color: var(--color-text-muted); }
+
+.journey-headline {
+  font-weight: 600;
+  line-height: 1.45;
+}
+.journey-basis {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+/* Itemised zone tickets, so the total is shown as arithmetic rather than
+   asserted — a reader can check it against the operator's own price list. */
+.journey-costs {
+  list-style: none;
+  margin: 0 0 var(--space-xs);
+  padding: 0;
+  font-size: var(--font-size-sm);
+}
+.journey-costs li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 2px 0;
+}
+.journey-cost-price { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.journey-cost-total {
+  margin-top: 2px;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border);
+  font-weight: 600;
+}
+
+.journey-reform-list {
+  list-style: none;
+  margin: 0 0 var(--space-2xs);
+  padding: 0;
+}
+.journey-reform-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2xs) 0;
+}
+.journey-reform-list li + li { border-top: 1px dotted var(--color-border); }
+
+/* The campaign's counterfactual: same journey, asked-for price. Visually
+   distinct from the factual sections above it so it can't be mistaken for a
+   fare you can buy today. */
+.journey-reform {
+  margin-top: var(--space-xs);
+  padding: var(--space-sm);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--color-primary);
+  background: var(--color-primary-light);
+}
+html.dark-mode .journey-reform { background: transparent; }
+.journey-reform p { margin: 0 0 var(--space-2xs); }
+.journey-reform-head { font-weight: 600; line-height: 1.45; }
+.journey-reform-link {
+  padding: 0;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+html.dark-mode .journey-reform-link { color: var(--color-text); }
+
+.journey-alternative {
+  font-size: 0.82rem;
+  padding-top: var(--space-2xs);
+  border-top: 1px dashed var(--color-border);
+}
+.journey-zones, .journey-sources { font-size: 0.78rem; }
+.journey-zones-title {
+  margin: 0 0 var(--space-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.journey-zones ul, .journey-sources ul {
+  margin: 0;
+  padding-left: 1.1em;
+}
+.journey-zone-op { color: var(--color-text-muted); }
 
 /* ── Ticket view: fare-zone cards (reuse .proposal-card visuals) ── */
 .ticket-zones-list {
