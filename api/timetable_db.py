@@ -53,6 +53,51 @@ def _split_long_chords(pts: list, threshold_km: float = 2.0) -> list:
             out.append(seg)
     return out if out else [pts]
 
+# ~1.2% of trips (460 of 39,528 as of the 2026-06 build) have their stop times
+# wrapped around midnight. GTFS represents a stop at 00:06 on a trip that began
+# the previous evening as 24:06:00 (86760s); the builder instead wraps it to
+# 360s and the trip's stops then sort with the post-midnight tail at the front.
+# The result reads as a bus teleporting across the county with a 23-hour gap
+# between consecutive stops.
+#
+# Left alone this poisons any A-to-B path — you get a plausible-looking
+# two-stop "journey" from Worthing to Brighton that skips every stop between,
+# and the ticket-zone classifier then sees none of the zones actually crossed.
+# So spans are sanity-checked before being offered as journey options.
+#
+# The real fix belongs in scripts/build_timetable.py (keep times past 24:00:00
+# rather than wrapping them). Until then these night trips are excluded here.
+MAX_SECS_PER_STOP  = 1_800    # 30 min average between stops — generous for rural
+MAX_LEG_GAP_SECS   = 7_200    # 2 h between two consecutive stops is never real
+MAX_JOURNEY_SECS   = 21_600   # 6 h end to end
+
+
+def _plausible_span(trip: dict) -> bool:
+    """Reject A-to-B spans whose timings can't describe one real journey."""
+    span_secs = trip["arrive_secs"] - trip["depart_secs"]
+    stops_apart = max(1, trip["to_seq"] - trip["from_seq"])
+    if span_secs <= 0:
+        return False
+    if span_secs > MAX_JOURNEY_SECS:
+        return False
+    return (span_secs / stops_apart) <= MAX_SECS_PER_STOP
+
+
+def path_has_time_gap(stops: list) -> bool:
+    """True if any consecutive pair of stops is implausibly far apart in time.
+
+    Catches stitched trips whose break lands inside the requested span, which
+    the span-level check can't see.
+    """
+    for prev, cur in zip(stops, stops[1:]):
+        a, b = prev.get("dep_secs"), cur.get("dep_secs")
+        if a is None or b is None:
+            continue
+        if b - a > MAX_LEG_GAP_SECS:
+            return True
+    return False
+
+
 TIMETABLE_URL = os.environ.get(
     "TIMETABLE_URL",
     "https://github.com/dennislemennace/adur-worthing-bus/releases/download/timetable-latest/timetable.sqlite",
@@ -82,6 +127,10 @@ class Timetable:
         # Reverse: surrogate sid/tid/rid -> text id. Used to decode query rows.
         self._sid_to_stop: dict = {}
         self._tid_to_trip: dict = {}
+        # Lazily built {short_name: noc}; see noc_for_short_name().
+        self._noc_map: Optional[dict] = None
+        # Lazily built {stop name: [stop_id, ...]}; see sibling_stops().
+        self._stops_by_name: Optional[dict] = None
         self.loaded_at: float = 0.0
         self._open_and_preload()
 
@@ -183,6 +232,9 @@ class Timetable:
 
     def _open_and_preload(self) -> None:
         self._ensure_fresh()
+        # Drop memoized derivations — reload() lands here with a new DB file.
+        self._noc_map = None
+        self._stops_by_name = None
         if not self.db_path.exists():
             log.error("Timetable DB missing: %s", self.db_path)
             self._con = None
@@ -331,6 +383,152 @@ class Timetable:
                 (tid,),
             )
         ]
+
+    def trips_connecting(self, from_stop: str, to_stop: str,
+                         limit: int = 40) -> list:
+        """Trips that serve `from_stop` and later `to_stop`, in that order.
+
+        Returns [{trip_id, route_id, short_name, headsign, service_id,
+                  depart_secs, arrive_secs, from_seq, to_seq}, ...]
+        earliest departure first.
+
+        This backs the ticket-boundary calculator, which needs the stops a
+        passenger actually travels through — the endpoints alone can't tell you
+        whether a journey dips through a third zone on the way.
+
+        Only direct trips are considered: no interchange, no walking legs. A
+        journey needing a change comes back empty, and the caller says so.
+
+        The `idx_stop_times_stop` index on (sid, dep_secs) makes both lookups
+        covering-index scans. The intersection is cheap even for the busiest
+        pair of stops in the network; the per-candidate ordering check below is
+        what `limit` is guarding.
+        """
+        if self._con is None:
+            return []
+        a = self.stops.get(from_stop)
+        b = self.stops.get(to_stop)
+        if not a or not b or from_stop == to_stop:
+            return []
+
+        con = self._con
+        # (tid -> seq/dep) for each end, then intersect on tid.
+        from_rows = {
+            tid: (seq, dep) for tid, seq, dep in con.execute(
+                "SELECT tid, seq, dep_secs FROM stop_times WHERE sid=?", (a["_sid"],))
+        }
+        if not from_rows:
+            return []
+        to_rows = {
+            tid: (seq, dep) for tid, seq, dep in con.execute(
+                "SELECT tid, seq, dep_secs FROM stop_times WHERE sid=?", (b["_sid"],))
+        }
+
+        tid_to_trip = self._tid_to_trip
+        out = []
+        for tid, (from_seq, from_dep) in from_rows.items():
+            hit = to_rows.get(tid)
+            if hit is None:
+                continue
+            to_seq, to_dep = hit
+            if to_seq <= from_seq:
+                continue          # wrong direction on this trip
+            trip_id = tid_to_trip.get(tid)
+            if trip_id is None:
+                continue
+            trip = self.trips.get(trip_id) or {}
+            route = self.routes.get(trip.get("route_id", "")) or {}
+            out.append({
+                "trip_id":     trip_id,
+                "route_id":    trip.get("route_id", ""),
+                "short_name":  route.get("short_name", ""),
+                "headsign":    trip.get("headsign", ""),
+                "service_id":  trip.get("service_id", ""),
+                "depart_secs": from_dep,
+                "arrive_secs": to_dep,
+                "from_seq":    from_seq,
+                "to_seq":      to_seq,
+            })
+
+        out = [t for t in out if _plausible_span(t)]
+        out.sort(key=lambda t: t["depart_secs"])
+        return out[:limit] if limit else out
+
+    def sibling_stops(self, stop_id: str, max_km: float = 0.4) -> list:
+        """Stops that are the same physical place as `stop_id`.
+
+        Most stops are one of a pair of poles on opposite sides of a road, with
+        the same name a few metres apart. Only one of them is served by a bus
+        going the passenger's way, so a journey search that fixes on the pole
+        the user happened to pick finds nothing half the time.
+
+        Returns `stop_id` first, then its siblings.
+        """
+        stop = self.stops.get(stop_id)
+        if not stop:
+            return [stop_id]
+        name = stop.get("name")
+        if not name:
+            return [stop_id]
+
+        if self._stops_by_name is None:
+            index: dict = {}
+            for sid, s in self.stops.items():
+                index.setdefault(s.get("name", ""), []).append(sid)
+            self._stops_by_name = index
+
+        out = [stop_id]
+        for other in self._stops_by_name.get(name, ()):
+            if other == stop_id:
+                continue
+            o = self.stops.get(other) or {}
+            if o.get("lat") is None or o.get("lon") is None:
+                continue
+            if _haversine_km((stop["lat"], stop["lon"]), (o["lat"], o["lon"])) <= max_km:
+                out.append(other)
+        return out
+
+    def noc_for_short_name(self, short_name: str) -> str:
+        """Operator NOC for a route short_name, or "" if unknown.
+
+        Memoized — `_noc_by_short_name` runs a query and builds the whole map
+        each call, which is fine once but not once per journey option.
+        """
+        if self._noc_map is None:
+            self._noc_map = self._noc_by_short_name()
+        return self._noc_map.get(short_name, "")
+
+    def stops_between(self, trip_id: str, from_seq: int, to_seq: int) -> list:
+        """Ordered stops on `trip_id` from `from_seq` to `to_seq` inclusive.
+
+        Returns [{atco, name, lat, lon, seq, dep_secs}, ...] — everything the
+        zone classifier needs, with no follow-up lookups.
+        """
+        if self._con is None:
+            return []
+        trip = self.trips.get(trip_id)
+        if not trip:
+            return []
+        sid_to_stop = self._sid_to_stop
+        out = []
+        for seq, sid, dep_secs in self._con.execute(
+            "SELECT seq, sid, dep_secs FROM stop_times "
+            "WHERE tid=? AND seq BETWEEN ? AND ? ORDER BY seq",
+            (trip["_tid"], from_seq, to_seq),
+        ):
+            atco = sid_to_stop.get(sid)
+            if atco is None:
+                continue
+            s = self.stops.get(atco) or {}
+            out.append({
+                "atco":     atco,
+                "name":     s.get("name", ""),
+                "lat":      s.get("lat"),
+                "lon":      s.get("lon"),
+                "seq":      seq,
+                "dep_secs": dep_secs,
+            })
+        return out
 
     def service_endpoints(self, short_name: str) -> Iterator[tuple]:
         """Yield (trip_id, first_stop_id, last_stop_id, first_secs) for every

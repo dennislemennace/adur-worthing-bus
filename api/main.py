@@ -31,7 +31,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.timetable_db import Timetable
+from api.timetable_db import Timetable, path_has_time_gap
 
 # ── Logging ──────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO,
@@ -1155,6 +1155,128 @@ async def get_departures(
         cache_set(cache_key, base, 60)
 
     return await _apply_live_overlay(base, resolved)
+
+
+@app.get("/api/journey")
+async def get_journey(
+    fromStop: str = Query(..., alias="from"),
+    toStop:   str = Query(..., alias="to"),
+    limit:    int = Query(3, ge=1, le=10),
+):
+    """
+    The ordered stops a passenger passes through travelling from one stop to
+    another on a direct bus.
+
+    This exists for the Ticket view's boundary calculator: to know whether a
+    journey crosses a ticket boundary you need the path, not just the two
+    endpoints — a bus can dip through a third zone on the way, and a journey
+    that looks intra-zone at its ends can still need two tickets.
+
+    Direct trips only. Interchange journeys return `direct: false` with no
+    options, and the caller degrades to comparing the endpoints alone.
+
+    Purely local SQLite reads — no upstream calls, so no quota implications.
+    Cached 1 h per (from, to, date): the schedule only changes when a new
+    timetable is published.
+    """
+    if not fromStop or not toStop or len(fromStop) > 30 or len(toStop) > 30:
+        raise HTTPException(status_code=400, detail="Invalid stop id.")
+
+    tt = await _get_timetable()
+    a = _resolve_stop_id(tt, fromStop, None, None)
+    b = _resolve_stop_id(tt, toStop, None, None)
+
+    if a == b:
+        raise HTTPException(status_code=400, detail="Start and end stops are the same.")
+
+    # Distinguish "we don't know this stop" from "no direct bus runs" — the
+    # caller shows very different copy for the two, and conflating them makes
+    # a typo look like a gap in the network.
+    missing = [s for s in (a, b) if s not in tt.stops]
+    if missing:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown stop id(s): {', '.join(missing)}")
+
+    today     = date.today()
+    today_str = today.strftime("%Y%m%d")
+    cache_key = f"journey:{a}:{b}:{today_str}:{limit}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    dow = today.weekday()
+
+    # Widen to the other poles of the same stop. A passenger picks a place, not
+    # a side of the road, and only one pole carries the bus going their way.
+    candidates = []
+    seen_trips = set()
+    for a2 in tt.sibling_stops(a):
+        for b2 in tt.sibling_stops(b):
+            if a2 == b2:
+                continue
+            for trip in tt.trips_connecting(a2, b2):
+                if trip["trip_id"] in seen_trips:
+                    continue
+                seen_trips.add(trip["trip_id"])
+                candidates.append(trip)
+    candidates.sort(key=lambda t: t["depart_secs"])
+
+    running = [
+        t for t in candidates
+        if _runs_today(t["service_id"], today, today_str, dow,
+                       tt.calendar, tt.calendar_dates)
+    ]
+
+    options = []
+    seen_shapes = set()
+    for trip in running:
+        # One option per (route, stop-path). Dozens of trips a day run the
+        # same road; the zones they cross are identical, so the extra rows
+        # would just be noise to the classifier.
+        stops = tt.stops_between(trip["trip_id"], trip["from_seq"], trip["to_seq"])
+        if len(stops) < 2:
+            continue
+        # Second line of defence against stitched trips, for breaks that fall
+        # inside the requested span rather than across its ends.
+        if path_has_time_gap(stops):
+            continue
+        path_key = (trip["short_name"], tuple(s["atco"] for s in stops))
+        if path_key in seen_shapes:
+            continue
+        seen_shapes.add(path_key)
+
+        options.append({
+            "service":     trip["short_name"],
+            "headsign":    trip["headsign"],
+            "trip_id":     trip["trip_id"],
+            "operator":    tt.noc_for_short_name(trip["short_name"]),
+            "depart":      _secs_to_hhmm(trip["depart_secs"]),
+            "arrive":      _secs_to_hhmm(trip["arrive_secs"]),
+            "stop_count":  len(stops),
+            "stops":       stops,
+        })
+        if len(options) >= limit:
+            break
+
+    result = {
+        "from":    {"atco": a, "name": (tt.stops.get(a) or {}).get("name", "")},
+        "to":      {"atco": b, "name": (tt.stops.get(b) or {}).get("name", "")},
+        "direct":  bool(options),
+        "options": options,
+        "note": "" if options else
+                "No direct bus found between these stops today — this journey "
+                "needs a change, so only the start and end zones are compared.",
+    }
+    cache_set(cache_key, result, 3600)
+    return result
+
+
+def _secs_to_hhmm(secs: Optional[int]) -> str:
+    """GTFS seconds-past-midnight to HH:MM, wrapping past-midnight times."""
+    if secs is None:
+        return ""
+    return f"{(secs // 3600) % 24:02d}:{(secs % 3600) // 60:02d}"
 
 
 async def _get_vehicles_or_empty() -> list:
