@@ -1,0 +1,33 @@
+# Cloudflare Worker — community submission relay.
+#
+# Deploy:  cd worker && npx wrangler deploy
+# Local:   cd worker && npx wrangler dev
+#
+# See README.md for the full first-time setup (KV namespace, secrets, PAT
+# scoping, Turnstile keys).
+
+name = "adur-worthing-submissions"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# Non-secret config. Secrets go in via `wrangler secret put` — never here.
+[vars]
+# The repo issues are filed against.
+GITHUB_REPO = "dennislemennace/adur-worthing-bus"
+
+# Comma-separated origin allowlist. This is the check that stops the endpoint
+# being driven from anywhere but the site — keep it tight. Add a localhost
+# entry only while testing locally, and take it out again before deploying.
+ALLOWED_ORIGINS = "https://dennislemennace.github.io"
+
+# Rate-limit counters. Create with:
+#   npx wrangler kv namespace create RATE_LIMIT
+# then paste the returned id below.
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# Keeps request logs available in the dashboard for debugging failed
+# submissions (the sender only ever sees a generic error).
+[observability]
+enabled = true

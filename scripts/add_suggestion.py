@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 """Approve a community idea by adding it to data/suggestions.json.
 
-Each idea submitted through the site's "Ideas" form is emailed to you by
-Web3Forms. That email includes a `suggestion_json` line — a ready-to-publish
-JSON object. This script takes that blob (or individual fields), guarantees a
-unique id, fills the date, forces status="published", appends it to
-data/suggestions.json, and re-validates the file.
+Each idea submitted through the site's "Ideas" form is filed as a GitHub issue
+by the submission Worker (see worker/README.md). The issue body carries a
+ready-to-publish JSON object. This script takes that blob (or an issue number,
+or individual fields), guarantees a unique id, fills the date, forces
+status="published", appends it to data/suggestions.json, and re-validates.
+
+This is the moderation gate: submissions sit as issues until someone runs this.
 
 Usage
 -----
-  # 1) Paste the suggestion_json blob from the approval email:
+  # 1) Straight from the issue (needs the `gh` CLI, authenticated):
+  python scripts/add_suggestion.py --from-issue 42
+
+  # 2) Paste the JSON blob out of the issue body:
   python scripts/add_suggestion.py '{"id":"...","title":"...","body":"..."}'
 
-  # 2) Or pipe it in:
+  # 3) Or pipe it in:
   pbpaste | python scripts/add_suggestion.py        # macOS
   wl-paste | python scripts/add_suggestion.py       # Wayland
 
-  # 3) Or build one interactively (no email blob handy):
+  # 4) Or build one interactively:
   python scripts/add_suggestion.py
 
 Then review the diff and publish:
@@ -28,6 +33,7 @@ Pass --commit to stage + commit automatically (it never pushes for you).
 import argparse
 import json
 import re
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -81,6 +87,56 @@ def read_blob(arg: str | None) -> dict | None:
     return obj
 
 
+def read_issue(number: int) -> dict:
+    """Pull the publishable JSON out of a submission issue, via the gh CLI.
+
+    The Worker writes the blob inside a ```json fence in a <details> block, so
+    we take the last fenced json block in the body — the idea's own JSON is the
+    only one there, but "last" is the safer pick if a commenter ever pastes
+    another into the description.
+    """
+    try:
+        out = subprocess.run(
+            ["gh", "issue", "view", str(number), "--json", "body,title,state"],
+            cwd=ROOT, check=True, capture_output=True, text=True,
+        ).stdout
+    except FileNotFoundError:
+        sys.exit("The `gh` CLI isn't installed — see https://cli.github.com")
+    except subprocess.CalledProcessError as exc:
+        sys.exit(f"Could not read issue #{number}:\n{exc.stderr.strip()}")
+
+    issue = json.loads(out)
+    if issue.get("state") == "CLOSED":
+        print(f"Note: issue #{number} is already closed.")
+
+    blocks = re.findall(r"```json\s*\n(.*?)\n```", issue.get("body") or "", re.S)
+    if not blocks:
+        sys.exit(f"Issue #{number} has no ```json block — publish it by hand, "
+                 f"or paste the fields with no arguments.")
+    try:
+        obj = json.loads(blocks[-1])
+    except json.JSONDecodeError as exc:
+        sys.exit(f"The JSON block in issue #{number} didn't parse: {exc}")
+    if not isinstance(obj, dict):
+        sys.exit(f"Issue #{number} JSON block is not a single object.")
+    return obj
+
+
+def close_issue(number: int, entry_id: str) -> None:
+    """Close a published issue. Never fatal — the idea is already saved."""
+    try:
+        subprocess.run(
+            ["gh", "issue", "close", str(number),
+             "--comment", f"Published to the site as `{entry_id}`. Thanks!"],
+            cwd=ROOT, check=True, capture_output=True, text=True,
+        )
+        print(f"Closed issue #{number}.")
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        detail = getattr(exc, "stderr", "") or str(exc)
+        print(f"Note: couldn't close issue #{number} ({detail.strip()}). "
+              f"The idea was still added — close it by hand.")
+
+
 def prompt_fields() -> dict:
     print("No JSON given — enter the idea (Ctrl-C to cancel).\n")
     title = input("Title (one line): ").strip()
@@ -125,14 +181,22 @@ def validate(data: dict) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Approve a community idea into data/suggestions.json")
-    ap.add_argument("blob", nargs="?", help="suggestion_json from the approval email")
+    ap.add_argument("blob", nargs="?", help="publishable JSON from the issue body")
+    ap.add_argument("--from-issue", type=int, metavar="N",
+                    help="read the idea straight from GitHub issue N (needs the gh CLI), "
+                         "and close it once published")
+    ap.add_argument("--no-close", action="store_true",
+                    help="with --from-issue, leave the issue open")
     ap.add_argument("--commit", action="store_true", help="git add + commit (does not push)")
     args = ap.parse_args()
 
     data = load()
     existing = {s.get("id") for s in data["suggestions"]}
 
-    obj = read_blob(args.blob) or prompt_fields()
+    if args.from_issue is not None:
+        obj = read_issue(args.from_issue)
+    else:
+        obj = read_blob(args.blob) or prompt_fields()
     entry = normalise(obj, existing)
     data["suggestions"].append(entry)
     validate(data)
@@ -141,8 +205,12 @@ def main() -> None:
     print(f"\nAdded idea '{entry['id']}' — {SUGGESTIONS.relative_to(ROOT)} now has "
           f"{len(data['suggestions'])} published idea(s).")
 
+    # Close only after the file is safely written — a failed close must never
+    # cost us the idea.
+    if args.from_issue is not None and not args.no_close:
+        close_issue(args.from_issue, entry["id"])
+
     if args.commit:
-        import subprocess
         subprocess.run(["git", "add", str(SUGGESTIONS)], cwd=ROOT, check=True)
         subprocess.run(["git", "commit", "-m", f"Publish community idea: {entry['title']}"],
                        cwd=ROOT, check=True)
