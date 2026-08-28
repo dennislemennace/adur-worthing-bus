@@ -24,6 +24,21 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 # Anything outside this set renders without a styled badge.
 OBJECTIVE_STATUSES = {"not_considered", "discussed", "in_progress", "delivered"}
 
+# Themes an objective can be filed under. Kept small on purpose: a long list of
+# near-synonyms makes the grouped view useless.
+OBJECTIVE_CATEGORIES = {
+    "Network & coverage",
+    "Frequency & hours",
+    "Ticketing & fares",
+    "Accessibility",
+    "Information",
+    "Planning & governance",
+}
+
+# Who an objective is directed at. Real NOCs, plus two pseudo-codes: ALL for
+# every operator, COUNCILS for the highway/transport authorities.
+OBJECTIVE_AUDIENCES = {"SCSO", "BHBC", "METR", "COMT", "ALL", "COUNCILS"}
+
 
 def _load(name):
     path = DATA_DIR / name
@@ -65,6 +80,30 @@ def test_objectives_schema():
             f"objectives.json: '{o['id']}' has status {o['status']!r}; "
             f"expected one of {sorted(OBJECTIVE_STATUSES)}"
         )
+        # Grouping metadata. `category` is the theme the objective is filed
+        # under; `operators` is who the ask is actually directed at, which is
+        # not always an operator — several are the councils' to fix.
+        assert o["category"] in OBJECTIVE_CATEGORIES, (
+            f"objectives.json: '{o['id']}' has category {o.get('category')!r}; "
+            f"expected one of {sorted(OBJECTIVE_CATEGORIES)}"
+        )
+        audiences = o.get("operators")
+        assert isinstance(audiences, list) and audiences, (
+            f"objectives.json: '{o['id']}' needs a non-empty operators list "
+            f"(use ['COUNCILS'] for asks that aren't an operator's to fix)"
+        )
+        for code in audiences:
+            assert code in OBJECTIVE_AUDIENCES, (
+                f"objectives.json: '{o['id']}' is directed at {code!r}; "
+                f"expected one of {sorted(OBJECTIVE_AUDIENCES)}"
+            )
+        # "ALL" already means every operator, so naming one alongside it is
+        # contradictory and would file the objective under both.
+        assert not ("ALL" in audiences and
+                    any(c not in ("ALL", "COUNCILS") for c in audiences)), (
+            f"objectives.json: '{o['id']}' lists ALL alongside a specific operator"
+        )
+
         links = o.get("links", [])
         assert isinstance(links, list), f"objectives.json: '{o['id']}' links must be a list"
         for link in links:

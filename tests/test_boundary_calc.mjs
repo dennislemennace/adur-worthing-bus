@@ -590,3 +590,71 @@ test("atcoFromPickerValue returns empty for junk", () => {
   assert.equal(app.atcoFromPickerValue("not a stop"), "");
   assert.equal(app.atcoFromPickerValue(""), "");
 });
+
+// ── Objectives grouping (Network Objectives tab) ────────────
+
+const objectivesData = JSON.parse(
+  readFileSync(join(ROOT, "data/objectives.json"), "utf8"));
+const OBJECTIVES = objectivesData.objectives;
+
+test("every objective carries a category and an audience", () => {
+  for (const o of OBJECTIVES) {
+    assert.ok(o.category, `${o.id} has no category`);
+    assert.ok(Array.isArray(o.operators) && o.operators.length,
+      `${o.id} has no operators`);
+  }
+});
+
+test("grouping by theme files each objective exactly once", () => {
+  const groups = app.groupObjectives(OBJECTIVES, "category");
+  const total = groups.reduce((n, g) => n + g.items.length, 0);
+  assert.equal(total, OBJECTIVES.length, "no objective duplicated or dropped");
+  const names = groups.map(g => g.label);
+  assert.equal(new Set(plain(names)).size, names.length, "group labels unique");
+});
+
+test("grouping by operator files an ask under everyone it's aimed at", () => {
+  // "Express routes to the job centres" is aimed at Stagecoach and B&H, so it
+  // belongs in both groups — that's the point of the view.
+  const groups = app.groupObjectives(OBJECTIVES, "operator");
+  const find = (k) => groups.find(g => g.key === k);
+  assert.ok(find("SCSO"), "expected a Stagecoach group");
+  assert.ok(find("BHBC"), "expected a Brighton & Hove group");
+  const inBoth = find("SCSO").items.filter(
+    o => find("BHBC").items.some(b => b.id === o.id));
+  assert.ok(inBoth.length >= 1, "expected at least one shared objective");
+});
+
+test("operator groups are named, with the catch-alls last", () => {
+  const keys = app.groupObjectives(OBJECTIVES, "operator").map(g => g.key);
+  const named = keys.filter(k => k !== "ALL" && k !== "COUNCILS");
+  const tail = keys.slice(named.length);
+  assert.ok(named.length > 0, "expected named operator groups");
+  assert.ok(tail.every(k => k === "ALL" || k === "COUNCILS"),
+    `catch-alls should sort last, got ${JSON.stringify(plain(keys))}`);
+});
+
+test("audience codes resolve to readable names", () => {
+  assert.equal(app.audienceName("ALL"), "All operators");
+  assert.equal(app.audienceName("COUNCILS"), "Councils & authorities");
+  assert.equal(app.audienceName("SCSO"), "Stagecoach South");
+  assert.equal(app.audienceName("BHBC"), "Brighton & Hove Buses");
+});
+
+test("an objective with no audience falls back to councils, not a blank group", () => {
+  const groups = app.groupObjectives(
+    [{ id: "x", category: "Information", operators: [] }], "operator");
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].key, "COUNCILS");
+});
+
+test("only real operators get a brand-coloured chip", () => {
+  // A council ask must never be badged as though an operator owns it.
+  const operatorChip = app.objectiveAudienceChips({ operators: ["SCSO"] });
+  assert.ok(/objective-chip--operator/.test(operatorChip));
+  assert.ok(/--chip-bg:/.test(operatorChip));
+
+  const councilChip = app.objectiveAudienceChips({ operators: ["COUNCILS"] });
+  assert.ok(!/objective-chip--operator/.test(councilChip));
+  assert.ok(/Councils &amp; authorities/.test(councilChip), councilChip);
+});

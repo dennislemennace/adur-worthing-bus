@@ -7,7 +7,11 @@
       "description": "Brighton & Hove Buses stop dead at Shoreham. Across the Adur and Worthing corridor they serve 576 stops, but not a single one in Lancing or Worthing. Their westernmost stop is Dacre Gardens, and the 28 stops they reach beyond Shoreham are all on routes 2, 2B, 59 and 59A running north up the Adur valley towards Steyning and Upper Beeding — not west along the coast.\n\nWest of Shoreham there are 736 stops with a bus service. Compass reaches 395 of them and Stagecoach 386. Brighton & Hove reaches 28, all of them in the valley. Lancing and Worthing sit on the edge of Brighton's network and are served by everyone except the operator whose network they most need to reach, which is why a Worthing passenger has no B&H option at all and no competitive alternative on the corridor.\n\nB&H served Lancing and Worthing within living memory. Bringing those services back west gives the coast a second operator, a genuine choice of bus, and a direct link into the Brighton network that today requires a change and a second ticket.",
       "status": "not_considered",
       "color": "#1a4b82",
-      "links": []
+      "links": [],
+      "operators": [
+        "BHBC"
+      ],
+      "category": "Network & coverage"
     },
     {
       "id": "express-commuter-routes",
@@ -16,7 +20,12 @@
       "description": "Give commuters quicker access to the main business centres in Brighton and Worthing. This can be done simply and cheaply by splitting a frequent service so that, at peak times, every other journey runs as an express.",
       "status": "not_considered",
       "color": "#1a70b5",
-      "links": []
+      "links": [],
+      "operators": [
+        "SCSO",
+        "BHBC"
+      ],
+      "category": "Network & coverage"
     },
     {
       "id": "night-service-west",
@@ -25,7 +34,12 @@
       "description": "Westbound night travel is currently served only by the N700 — expensive and limited to a narrow coastal corridor. The goal is additional, affordable night-time services running west from Brighton into Adur.",
       "status": "not_considered",
       "color": "#6a4ea3",
-      "links": []
+      "links": [],
+      "operators": [
+        "SCSO",
+        "BHBC"
+      ],
+      "category": "Frequency & hours"
     },
     {
       "id": "extend-existing-routes",
@@ -34,7 +48,11 @@
       "description": "Many routes stop too early or start too late. Adding earlier-morning and later-evening journeys on existing limited-frequency routes is a low-cost way to expand connectivity without major new investment.",
       "status": "not_considered",
       "color": "#c07808",
-      "links": []
+      "links": [],
+      "operators": [
+        "ALL"
+      ],
+      "category": "Frequency & hours"
     },
     {
       "id": "accessible-buses-stops",
@@ -43,7 +61,12 @@
       "description": "Every bus should meet current accessibility requirements — in particular, audio and visual next-stop information — so the network works for everyone.",
       "status": "in_progress",
       "color": "#1c7844",
-      "links": []
+      "links": [],
+      "operators": [
+        "ALL",
+        "COUNCILS"
+      ],
+      "category": "Accessibility"
     },
     {
       "id": "fairer-ticketing-zones",
@@ -61,7 +84,11 @@
           "label": "Brighton DayRider zone map",
           "url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Brighton%20Network%20Map%200424.pdf"
         }
-      ]
+      ],
+      "operators": [
+        "SCSO"
+      ],
+      "category": "Ticketing & fares"
     },
     {
       "id": "integrated-sussex-plan",
@@ -70,7 +97,11 @@
       "description": "Work far more closely with Brighton & Hove City Council and East Sussex County Council on an integrated Bus Service Improvement Plan for Sussex, so the network is planned as one rather than stopping at council boundaries.",
       "status": "not_considered",
       "color": "#0e7c86",
-      "links": []
+      "links": [],
+      "operators": [
+        "COUNCILS"
+      ],
+      "category": "Planning & governance"
     },
     {
       "id": "real-time-info-everywhere",
@@ -79,7 +110,12 @@
       "description": "Roll out affordable, eco-friendly E-Ink displays — already popular elsewhere in West Sussex, with accessibility built in — to as many stops as possible. Alongside that, a single real-time tracking app covering every operator, with correct ticket information pre-loaded and clear service-disruption updates. This site is an early step.",
       "status": "in_progress",
       "color": "#455a9e",
-      "links": []
+      "links": [],
+      "operators": [
+        "ALL",
+        "COUNCILS"
+      ],
+      "category": "Information"
     },
     {
       "id": "cross-operator-tickets",
@@ -93,7 +129,11 @@
           "label": "South Downs Discovery Ticket",
           "url": "https://www.southdowns.gov.uk/travelling-around/south-downs-discovery-ticket/"
         }
-      ]
+      ],
+      "operators": [
+        "ALL"
+      ],
+      "category": "Ticketing & fares"
     }
   ]
 }

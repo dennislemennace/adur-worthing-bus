@@ -159,6 +159,7 @@ const state = {
 
   // ── Network plan view (objectives + community ideas) ──
   networkTab:              "objectives", // "objectives" | "ideas"
+  objectivesGroupBy:       "category",   // "category" | "operator"
   objectives:              null,    // data/objectives.json (array); null = not loaded
   suggestions:             null,    // data/suggestions.json (array); null = not loaded
   selectedObjectiveId:     null,    // expanded objective card in the list
@@ -245,6 +246,7 @@ const dom = {
   tabContentObjectives:   document.getElementById("tab-content-objectives"),
   tabContentIdeas:        document.getElementById("tab-content-ideas"),
   objectivesList:         document.getElementById("objectives-list"),
+  objectivesGroupBy:      document.querySelector(".objectives-groupby"),
   communityIdeasList:     document.getElementById("community-ideas-list"),
   suggestForm:            document.getElementById("suggest-form"),
   suggestObjective:       document.getElementById("sg-objective"),
@@ -1760,6 +1762,12 @@ function bindUIEvents() {
   dom.closePanelBtnImprovements.addEventListener("click", closePanel);
 
   // Network plan panel: Objectives / Ideas tab switching + suggestion form
+  if (dom.objectivesGroupBy) {
+    dom.objectivesGroupBy.addEventListener("click", (e) => {
+      const btn = e.target.closest(".objectives-groupby-btn");
+      if (btn) setObjectivesGroupBy(btn.dataset.groupBy);
+    });
+  }
   if (dom.tabObjectives) dom.tabObjectives.addEventListener("click", () => setNetworkTab("objectives"));
   if (dom.tabIdeas)      dom.tabIdeas.addEventListener("click",      () => setNetworkTab("ideas"));
   if (dom.suggestForm) {
@@ -4919,8 +4927,76 @@ function objectiveCardHtml(o) {
         <span class="status-badge status-${st.cls}">${escapeHtml(st.label)}</span>
       </span>
       <span class="proposal-card-summary">${escapeHtml(o.summary || "")}</span>
+      <span class="objective-chips">${objectiveAudienceChips(o)}</span>
       ${detail}
     </button>`;
+}
+
+// Who an objective is aimed at. Real NOCs group under the operator's name;
+// these two pseudo-codes carry the asks that aren't one operator's to fix.
+const OBJECTIVE_AUDIENCES = {
+  ALL:      "All operators",
+  COUNCILS: "Councils & authorities",
+};
+
+/** Display name for an audience code, whether it's a NOC or a pseudo-code. */
+function audienceName(code) {
+  return OBJECTIVE_AUDIENCES[code] || getOperatorName(code) || code;
+}
+
+/**
+ * Group objectives for display.
+ *
+ * `by: "category"` puts each objective in exactly one theme. `by: "operator"`
+ * files it under everyone it's directed at, so an ask aimed at two operators
+ * appears under both — that's the point of the view, not duplication to
+ * apologise for.
+ *
+ * Group order is stable and meaningful rather than alphabetical: themes follow
+ * the order they first appear in the curated file, and operator groups put the
+ * named operators first with the network-wide and council asks last, because
+ * those read as the catch-all.
+ */
+function groupObjectives(objectives, by) {
+  const groups = new Map();
+  const push = (key, o) => {
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(o);
+  };
+
+  for (const o of objectives) {
+    if (by === "operator") {
+      const audiences = (o.operators && o.operators.length) ? o.operators : ["COUNCILS"];
+      for (const code of audiences) push(code, o);
+    } else {
+      push(o.category || "Everything else", o);
+    }
+  }
+
+  let keys = [...groups.keys()];
+  if (by === "operator") {
+    const rank = (k) => (k === "ALL" ? 1 : k === "COUNCILS" ? 2 : 0);
+    keys.sort((a, b) => rank(a) - rank(b) || audienceName(a).localeCompare(audienceName(b)));
+  }
+  return keys.map(key => ({
+    key,
+    label: by === "operator" ? audienceName(key) : key,
+    items: groups.get(key),
+  }));
+}
+
+/** Small chips on a card showing who the ask is aimed at. */
+function objectiveAudienceChips(o) {
+  const codes = (o.operators && o.operators.length) ? o.operators : ["COUNCILS"];
+  return codes.map(code => {
+    const fill = OPERATOR_COLOURS[code];
+    // Only real operators get their brand colour; the pseudo-codes stay neutral
+    // so a council ask never looks like it's been badged to an operator.
+    const style = fill
+      ? ` style="--chip-bg:${escapeAttr(fill)};--chip-fg:${pickTextOn(fill) === "dark" ? "#1a1a1a" : "#ffffff"}"`
+      : "";
+    return `<span class="objective-chip${fill ? " objective-chip--operator" : ""}"${style}>${escapeHtml(audienceName(code))}</span>`;
+  }).join("");
 }
 
 function renderObjectivesList() {
@@ -4930,7 +5006,22 @@ function renderObjectivesList() {
     dom.objectivesList.innerHTML = `<p class="proposals-empty">No objectives published yet.</p>`;
     return;
   }
-  dom.objectivesList.innerHTML = objectives.map(objectiveCardHtml).join("");
+
+  const by = state.objectivesGroupBy || "category";
+  const groups = groupObjectives(objectives, by);
+
+  dom.objectivesList.innerHTML = groups.map(g => {
+    const n = g.items.length;
+    return `
+      <section class="objective-group">
+        <h3 class="objective-group-head">
+          <span class="objective-group-name">${escapeHtml(g.label)}</span>
+          <span class="objective-group-count">${n} ${n === 1 ? "objective" : "objectives"}</span>
+        </h3>
+        ${g.items.map(objectiveCardHtml).join("")}
+      </section>`;
+  }).join("");
+
   dom.objectivesList.querySelectorAll(".proposal-card").forEach(card => {
     card.addEventListener("click", () => {
       const id = card.dataset.objectiveId;
@@ -4938,6 +5029,19 @@ function renderObjectivesList() {
       renderObjectivesList();
     });
   });
+}
+
+/** Switch how the objectives list is grouped. */
+function setObjectivesGroupBy(by) {
+  state.objectivesGroupBy = (by === "operator") ? "operator" : "category";
+  if (dom.objectivesGroupBy) {
+    dom.objectivesGroupBy.querySelectorAll(".objectives-groupby-btn").forEach(btn => {
+      const on = btn.dataset.groupBy === state.objectivesGroupBy;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", String(on));
+    });
+  }
+  renderObjectivesList();
 }
 
 function formatIdeaDate(iso) {
@@ -4970,7 +5074,29 @@ function renderCommunityIdeas() {
       `<p class="proposals-empty">No published ideas yet — yours could be the first.</p>`;
     return;
   }
-  dom.communityIdeasList.innerHTML = ideas.map(ideaCardHtml).join("");
+
+  // Grouped by the same "what's it about?" areas the submission form offers,
+  // so related suggestions read together instead of as a flat stream. Order
+  // follows first appearance, which keeps the busiest areas near the top
+  // without re-sorting the curated file.
+  const byArea = new Map();
+  for (const idea of ideas) {
+    const area = (idea.area || "").trim() || "Other";
+    if (!byArea.has(area)) byArea.set(area, []);
+    byArea.get(area).push(idea);
+  }
+
+  dom.communityIdeasList.innerHTML = [...byArea.entries()].map(([area, items]) => {
+    const n = items.length;
+    return `
+      <section class="objective-group">
+        <h4 class="objective-group-head">
+          <span class="objective-group-name">${escapeHtml(area)}</span>
+          <span class="objective-group-count">${n} ${n === 1 ? "idea" : "ideas"}</span>
+        </h4>
+        ${items.map(ideaCardHtml).join("")}
+      </section>`;
+  }).join("");
 }
 
 /** Fill the "Related objective" select from loaded objectives, preserving any

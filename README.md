@@ -64,10 +64,27 @@ redeploys and the idea appears in the **Ideas** tab after a page reload.
 
 Network goals (`data/objectives.json`) are maintainer-authored — edit them by
 hand and change a `status` (`not_considered` → `discussed` → `in_progress` →
-`delivered`) as delivery progresses. Route proposals submitted via the editor's
-**Submit** button arrive as issues labelled `proposal`, carrying a JSON block you
-paste into `data/proposals.json`. Run `pytest` (see `requirements-dev.txt`) to
-validate any of these files before committing.
+`delivered`) as delivery progresses.
+
+Each goal also carries two fields that drive the grouped view in the
+**Objectives** tab, and `pytest` rejects unknown values in either:
+
+- `category` — the theme it's filed under (`Network & coverage`,
+  `Frequency & hours`, `Ticketing & fares`, `Accessibility`, `Information`,
+  `Planning & governance`). Deliberately a short list: a long tail of
+  near-synonyms makes a grouped view useless.
+- `operators` — who the ask is actually directed at, as a list. Real NOCs
+  (`SCSO`, `BHBC`, `METR`, `COMT`) plus two pseudo-codes: `ALL` for every
+  operator, and `COUNCILS` for the highway and transport authorities. Several
+  asks are genuinely both — stop infrastructure is council-owned while the
+  buses serving it aren't — and an ask aimed at two operators appears under
+  both when grouped by operator. Only real operators get a brand-coloured chip,
+  so a council ask is never badged as though an operator owns it.
+
+Route proposals submitted via the editor's **Submit** button arrive as issues
+labelled `proposal`, carrying a JSON block you paste into `data/proposals.json`.
+Run `pytest` (see `requirements-dev.txt`) to validate any of these files before
+committing.
 
 Stop faults reported from a departure board arrive labelled `stop-issue`, with
 the stop's ATCO code in the title so repeat reports about the same stop fold
