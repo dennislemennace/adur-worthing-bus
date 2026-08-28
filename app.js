@@ -36,7 +36,14 @@ const CONFIG = {
   // issues, so nothing needs an account on the sender's side and every
   // submission gets a public, followable home. See worker/README.md for
   // deployment. Until SUBMIT_ENDPOINT is set, the forms say so politely.
-  SUBMIT_ENDPOINT: "https://adur-worthing-submissions.workers.dev/submit",
+  //
+  // This must keep the YOUR-WORKER marker until the Worker is actually
+  // deployed. postSubmission() checks for it and shows "not switched on yet";
+  // a real-looking URL that doesn't resolve instead produces a network error
+  // and tells people to try again, which they can do forever without it
+  // working. Replace the whole string with the deployed URL, e.g.
+  //   https://adur-worthing-submissions.<subdomain>.workers.dev/submit
+  SUBMIT_ENDPOINT: "https://YOUR-WORKER.workers.dev/submit",
 
   // Turnstile SITE key — public by design (the secret half lives in the
   // Worker). Empty means the widget is skipped, which the Worker will
