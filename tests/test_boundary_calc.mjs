@@ -591,70 +591,111 @@ test("atcoFromPickerValue returns empty for junk", () => {
   assert.equal(app.atcoFromPickerValue(""), "");
 });
 
-// ── Objectives grouping (Network Objectives tab) ────────────
+// ── Objectives grouped by responsible body ──────────────────
 
 const objectivesData = JSON.parse(
   readFileSync(join(ROOT, "data/objectives.json"), "utf8"));
 const OBJECTIVES = objectivesData.objectives;
 
-test("every objective carries a category and an audience", () => {
+test("every objective names at least one body that would have to act", () => {
   for (const o of OBJECTIVES) {
-    assert.ok(o.category, `${o.id} has no category`);
-    assert.ok(Array.isArray(o.operators) && o.operators.length,
-      `${o.id} has no operators`);
+    assert.ok(Array.isArray(o.lead) && o.lead.length, `${o.id} has no lead`);
+    assert.ok(Array.isArray(o.shared), `${o.id} has no shared array`);
   }
 });
 
-test("grouping by theme files each objective exactly once", () => {
-  const groups = app.groupObjectives(OBJECTIVES, "category");
-  const total = groups.reduce((n, g) => n + g.items.length, 0);
-  assert.equal(total, OBJECTIVES.length, "no objective duplicated or dropped");
-  const names = groups.map(g => g.label);
-  assert.equal(new Set(plain(names)).size, names.length, "group labels unique");
+test("a body is never both leading and merely involved", () => {
+  for (const o of OBJECTIVES) {
+    const both = o.lead.filter(c => o.shared.includes(c));
+    assert.deepEqual(plain(both), [], `${o.id} lists ${both} twice`);
+  }
 });
 
-test("grouping by operator files an ask under everyone it's aimed at", () => {
-  // "Express routes to the job centres" is aimed at Stagecoach and B&H, so it
-  // belongs in both groups — that's the point of the view.
-  const groups = app.groupObjectives(OBJECTIVES, "operator");
-  const find = (k) => groups.find(g => g.key === k);
-  assert.ok(find("SCSO"), "expected a Stagecoach group");
-  assert.ok(find("BHBC"), "expected a Brighton & Hove group");
-  const inBoth = find("SCSO").items.filter(
-    o => find("BHBC").items.some(b => b.id === o.id));
-  assert.ok(inBoth.length >= 1, "expected at least one shared objective");
+test("every objective reaches a group, as lead or as shared", () => {
+  const groups = app.groupObjectivesByBody(OBJECTIVES);
+  const seen = new Set();
+  for (const g of groups) for (const o of [...g.lead, ...g.shared]) seen.add(o.id);
+  assert.equal(seen.size, OBJECTIVES.length, "an objective fell out of every group");
 });
 
-test("operator groups are named, with the catch-alls last", () => {
-  const keys = app.groupObjectives(OBJECTIVES, "operator").map(g => g.key);
-  const named = keys.filter(k => k !== "ALL" && k !== "COUNCILS");
-  const tail = keys.slice(named.length);
-  assert.ok(named.length > 0, "expected named operator groups");
-  assert.ok(tail.every(k => k === "ALL" || k === "COUNCILS"),
-    `catch-alls should sort last, got ${JSON.stringify(plain(keys))}`);
+test("a group separates what a body leads from what it only supports", () => {
+  // Stagecoach leads the DayRider zone merge; it is only a supporting party on
+  // the county's real-time information programme.
+  const scso = app.groupObjectivesByBody(OBJECTIVES).find(g => g.key === "SCSO");
+  assert.ok(scso, "expected a Stagecoach group");
+  assert.ok(scso.lead.some(o => o.id === "fairer-ticketing-zones"),
+    "zone merge should be led by Stagecoach");
+  assert.ok(scso.shared.some(o => o.id === "real-time-info-everywhere"),
+    "RTPI should show as shared, not led, for an operator");
+  assert.equal(scso.total, scso.lead.length + scso.shared.length);
 });
 
-test("audience codes resolve to readable names", () => {
-  assert.equal(app.audienceName("ALL"), "All operators");
-  assert.equal(app.audienceName("COUNCILS"), "Councils & authorities");
-  assert.equal(app.audienceName("SCSO"), "Stagecoach South");
-  assert.equal(app.audienceName("BHBC"), "Brighton & Hove Buses");
+test("an ask with no single owner leads in every operator's group", () => {
+  // Audio-visual announcements are every operator's job; naming one would be
+  // arbitrary and would let the others off.
+  const groups = app.groupObjectivesByBody(OBJECTIVES);
+  for (const code of ["SCSO", "BHBC", "METR", "COMT"]) {
+    const g = groups.find(x => x.key === code);
+    assert.ok(g && g.lead.some(o => o.id === "accessible-buses-stops"),
+      `${code} should lead accessible-buses-stops`);
+  }
 });
 
-test("an objective with no audience falls back to councils, not a blank group", () => {
-  const groups = app.groupObjectives(
-    [{ id: "x", category: "Information", operators: [] }], "operator");
-  assert.equal(groups.length, 1);
-  assert.equal(groups[0].key, "COUNCILS");
+test("councils appear as groups in their own right", () => {
+  const keys = app.groupObjectivesByBody(OBJECTIVES).map(g => g.key);
+  for (const code of ["WSCC", "BHCC", "ADUR_WORTHING", "ESCC"]) {
+    assert.ok(keys.includes(code), `expected a ${code} group`);
+  }
 });
 
-test("only real operators get a brand-coloured chip", () => {
-  // A council ask must never be badged as though an operator owns it.
-  const operatorChip = app.objectiveAudienceChips({ operators: ["SCSO"] });
-  assert.ok(/objective-chip--operator/.test(operatorChip));
-  assert.ok(/--chip-bg:/.test(operatorChip));
+test("operators are listed before authorities", () => {
+  const groups = app.groupObjectivesByBody(OBJECTIVES);
+  const kindOf = (k) => (k === "SCSO" || k === "BHBC" || k === "METR" || k === "COMT") ? 0 : 1;
+  const kinds = groups.map(g => kindOf(g.key));
+  assert.deepEqual(plain(kinds), plain([...kinds].sort((a, b) => a - b)),
+    "operator groups should all precede authority groups");
+});
 
-  const councilChip = app.objectiveAudienceChips({ operators: ["COUNCILS"] });
-  assert.ok(!/objective-chip--operator/.test(councilChip));
-  assert.ok(/Councils &amp; authorities/.test(councilChip), councilChip);
+test("body codes resolve to the real organisation names", () => {
+  assert.equal(app.bodyName("WSCC"), "West Sussex County Council");
+  assert.equal(app.bodyName("ESCC"), "East Sussex County Council");
+  assert.equal(app.bodyName("BHCC"), "Brighton & Hove City Council");
+  assert.equal(app.bodyName("ADUR_WORTHING"), "Adur & Worthing Councils");
+  assert.equal(app.bodyName("BHBC"), "Brighton & Hove Buses");
+  assert.equal(app.bodyName("SCSO"), "Stagecoach South");
+});
+
+test("every body carries a contact link, so an ask is actionable", () => {
+  // `const` declarations never land on the vm context object — same reason
+  // `state` is reached this way at the top of this file.
+  const bodies = vm.runInContext("RESPONSIBLE_BODIES", app);
+  for (const [code, b] of Object.entries(bodies)) {
+    assert.ok(/^https:\/\//.test(b.url || ""), `${code} has no contact URL`);
+    assert.ok(b.name && b.kind, `${code} is missing name or kind`);
+  }
+});
+
+test("only the lead gets a filled chip", () => {
+  // A body that merely has to agree must not look like the one to write to.
+  const html = app.objectiveBodyChips({ lead: ["SCSO"], shared: ["WSCC"] });
+  const leadChips = (html.match(/objective-chip--lead/g) || []).length;
+  assert.equal(leadChips, 1, "exactly one filled chip expected");
+  assert.ok(/Stagecoach South/.test(html));
+  assert.ok(/West Sussex County Council/.test(html));
+});
+
+test("authorities get a palette colour, never an operator's brand colour", () => {
+  const operatorColour = app.bodyColour("BHBC");
+  for (const code of ["WSCC", "ESCC", "BHCC", "ADUR_WORTHING"]) {
+    const c = app.bodyColour(code);
+    assert.ok(/^#[0-9a-f]{6}$/i.test(c), `${code} colour looks wrong: ${c}`);
+    assert.notEqual(c, operatorColour, `${code} reuses an operator's brand colour`);
+  }
+});
+
+test("the featured asks are the live campaign ones", () => {
+  const featured = OBJECTIVES.filter(o => o.featured).map(o => o.id);
+  assert.ok(featured.includes("fairer-ticketing-zones"));
+  assert.ok(featured.includes("cross-operator-tickets"));
+  assert.ok(featured.includes("connect-adur-to-brighton"));
 });

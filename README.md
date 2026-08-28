@@ -66,20 +66,44 @@ Network goals (`data/objectives.json`) are maintainer-authored — edit them by
 hand and change a `status` (`not_considered` → `discussed` → `in_progress` →
 `delivered`) as delivery progresses.
 
-Each goal also carries two fields that drive the grouped view in the
-**Objectives** tab, and `pytest` rejects unknown values in either:
+Each goal also records **who would have to act on it**, which is what the
+Objectives tab groups by — "which body do I write to about this?" is the
+question that makes an objective useful. `pytest` rejects unknown values:
 
-- `category` — the theme it's filed under (`Network & coverage`,
-  `Frequency & hours`, `Ticketing & fares`, `Accessibility`, `Information`,
-  `Planning & governance`). Deliberately a short list: a long tail of
-  near-synonyms makes a grouped view useless.
-- `operators` — who the ask is actually directed at, as a list. Real NOCs
-  (`SCSO`, `BHBC`, `METR`, `COMT`) plus two pseudo-codes: `ALL` for every
-  operator, and `COUNCILS` for the highway and transport authorities. Several
-  asks are genuinely both — stop infrastructure is council-owned while the
-  buses serving it aren't — and an ask aimed at two operators appears under
-  both when grouped by operator. Only real operators get a brand-coloured chip,
-  so a council ask is never badged as though an operator owns it.
+- `lead` — the bodies that would have to do it. A **list**, because some asks
+  have no single owner: fitting audio-visual announcements is every operator's
+  job, not one nominated operator's.
+- `shared` — bodies without whom it won't happen: the authority that funds or
+  brokers it, or the council that owns the pavement. No body may appear in both.
+- `category` — the theme, still shown on the card.
+- `featured` — pins the objective open at the top of the tab. The live campaign
+  asks are featured; everything else sits behind a collapsed body heading.
+
+Responsibility here is genuinely split, and the data says so rather than
+rounding to one owner. **West Sussex County Council** is the transport and
+highway authority and holds the Bus Service Improvement Plan, but **Adur &
+Worthing Councils** own and maintain many of the shelters — 53 of the 108 in
+Worthing — and **Brighton & Hove City Council** is a unitary authority at the
+other end of the route with its own Enhanced Partnership. Getting this wrong
+sends someone to the wrong place, so each body carries a contact link shown
+inside its group.
+
+The recognised codes are `SCSO`, `BHBC`, `METR`, `COMT` (operators) and `WSCC`,
+`ESCC`, `BHCC`, `ADUR_WORTHING` (authorities), defined once in
+`RESPONSIBLE_BODIES` in `app.js` and mirrored in the tests and
+`scripts/add_suggestion.py`.
+
+Community ideas are grouped the same way. The submitter picks an *area*
+("Fares", "Stops & shelters") — they can't be expected to know which body owns
+the problem — so responsibility is assigned when the idea is published:
+
+```sh
+python scripts/add_suggestion.py --from-issue 42 --responsible WSCC
+```
+
+Omit `--responsible` and the script prompts, offering a default derived from the
+area. That default is never applied silently, and an idea left unassigned is
+grouped under "Not yet assigned" rather than filed against a guess.
 
 Route proposals submitted via the editor's **Submit** button arrive as issues
 labelled `proposal`, carrying a JSON block you paste into `data/proposals.json`.

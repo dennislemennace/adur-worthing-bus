@@ -35,9 +35,13 @@ OBJECTIVE_CATEGORIES = {
     "Planning & governance",
 }
 
-# Who an objective is directed at. Real NOCs, plus two pseudo-codes: ALL for
-# every operator, COUNCILS for the highway/transport authorities.
-OBJECTIVE_AUDIENCES = {"SCSO", "BHBC", "METR", "COMT", "ALL", "COUNCILS"}
+# Bodies an objective can be assigned to. Operators make commercial decisions;
+# authorities own the infrastructure, the funding and the partnerships. Kept in
+# sync with RESPONSIBLE_BODIES in app.js.
+RESPONSIBLE_BODIES = {
+    "SCSO", "BHBC", "METR", "COMT",                 # operators
+    "WSCC", "ESCC", "BHCC", "ADUR_WORTHING",        # authorities
+}
 
 
 def _load(name):
@@ -80,29 +84,36 @@ def test_objectives_schema():
             f"objectives.json: '{o['id']}' has status {o['status']!r}; "
             f"expected one of {sorted(OBJECTIVE_STATUSES)}"
         )
-        # Grouping metadata. `category` is the theme the objective is filed
-        # under; `operators` is who the ask is actually directed at, which is
-        # not always an operator — several are the councils' to fix.
         assert o["category"] in OBJECTIVE_CATEGORIES, (
             f"objectives.json: '{o['id']}' has category {o.get('category')!r}; "
             f"expected one of {sorted(OBJECTIVE_CATEGORIES)}"
         )
-        audiences = o.get("operators")
-        assert isinstance(audiences, list) and audiences, (
-            f"objectives.json: '{o['id']}' needs a non-empty operators list "
-            f"(use ['COUNCILS'] for asks that aren't an operator's to fix)"
+
+        # Who would have to act. `lead` is a list because some asks have no
+        # single owner — fitting audio-visual announcements is every operator's
+        # job, not one nominated operator's. `shared` is everyone else without
+        # whom it won't happen.
+        lead = o.get("lead")
+        assert isinstance(lead, list) and lead, (
+            f"objectives.json: '{o['id']}' needs a non-empty 'lead' list — "
+            f"an objective nobody leads can't be acted on"
         )
-        for code in audiences:
-            assert code in OBJECTIVE_AUDIENCES, (
-                f"objectives.json: '{o['id']}' is directed at {code!r}; "
-                f"expected one of {sorted(OBJECTIVE_AUDIENCES)}"
+        shared = o.get("shared", [])
+        assert isinstance(shared, list), f"objectives.json: '{o['id']}' 'shared' must be a list"
+
+        for code in lead + shared:
+            assert code in RESPONSIBLE_BODIES, (
+                f"objectives.json: '{o['id']}' names body {code!r}; "
+                f"expected one of {sorted(RESPONSIBLE_BODIES)}"
             )
-        # "ALL" already means every operator, so naming one alongside it is
-        # contradictory and would file the objective under both.
-        assert not ("ALL" in audiences and
-                    any(c not in ("ALL", "COUNCILS") for c in audiences)), (
-            f"objectives.json: '{o['id']}' lists ALL alongside a specific operator"
+        # A body is either responsible for doing it or needed alongside whoever
+        # is — being listed as both would file the same objective twice in one
+        # group, once under each heading.
+        overlap = set(lead) & set(shared)
+        assert not overlap, (
+            f"objectives.json: '{o['id']}' lists {sorted(overlap)} as both lead and shared"
         )
+        assert len(set(lead)) == len(lead), f"objectives.json: '{o['id']}' repeats a lead body"
 
         links = o.get("links", [])
         assert isinstance(links, list), f"objectives.json: '{o['id']}' links must be a list"
@@ -121,6 +132,15 @@ def test_suggestions_schema():
         assert isinstance(s, dict), "suggestions.json: each entry must be an object"
         for key in ("id", "title", "body", "status"):
             assert _nonempty_str(s.get(key)), f"suggestions.json: entry missing '{key}': {s.get('id')!r}"
+        # Optional: who would have to act on it. Assigned when the idea is
+        # published, not by the submitter — they pick an "area", not a body.
+        # Unassigned ideas are grouped under "Not yet assigned" rather than
+        # being guessed at.
+        if s.get("responsible") is not None:
+            assert s["responsible"] in RESPONSIBLE_BODIES, (
+                f"suggestions.json: '{s['id']}' is assigned to {s['responsible']!r}; "
+                f"expected one of {sorted(RESPONSIBLE_BODIES)}"
+            )
         # Only published ideas should ever be committed to the curated feed.
         assert s["status"] == "published", (
             f"suggestions.json: '{s['id']}' has status {s['status']!r}; expected 'published'"

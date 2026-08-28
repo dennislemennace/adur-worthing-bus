@@ -3610,44 +3610,25 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 }
 
 /* ============================================================
-   NETWORK OBJECTIVES — grouping by theme or by operator
+   NETWORK OBJECTIVES — grouped by who is responsible
    ============================================================ */
 
-/* Segmented control above the objectives list. */
-.objectives-groupby {
-  display: flex;
-  gap: 2px;
-  margin: 0 var(--space-md) var(--space-xs);
-  padding: 2px;
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-.objectives-groupby-btn {
-  flex: 1;
-  padding: 5px 10px;
-  border: 0;
-  border-radius: calc(var(--radius-md) - 2px);
-  background: transparent;
-  color: var(--color-text-muted);
-  font: inherit;
+/* The body groups reuse the Ticket view's operator accordion wholesale
+   (.ticket-operator-group / -card / -name / -count / -chevron / -zones,
+   .ticket-subgroup-heading, .ticket-operator-footnote, .ticket-zone-link),
+   so there is deliberately no duplicate styling here — only the pieces the
+   ticket list has no equivalent for. If you restyle that accordion, this
+   follows automatically, which is the point. */
+
+/* Pinned campaign asks, above the collapsed body groups. */
+.objective-featured { margin-bottom: var(--space-md); }
+.objective-bodies-intro {
+  margin: 0 0 var(--space-xs);
   font-size: var(--font-size-sm);
-  font-weight: 600;
-  cursor: pointer;
-}
-.objectives-groupby-btn:hover { color: var(--color-text); }
-.objectives-groupby-btn.active {
-  background: var(--color-surface);
-  color: var(--color-text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-}
-.objectives-groupby-btn:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: -2px;
+  color: var(--color-text-muted);
 }
 
-/* Group heading. Shared by the objectives list and the community ideas feed,
-   so the two read as the same kind of grouping. */
+/* Group heading, used by the pinned section and the ideas feed. */
 .objective-group + .objective-group { margin-top: var(--space-md); }
 .objective-group-head {
   display: flex;
@@ -3671,9 +3652,9 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   white-space: nowrap;
 }
 
-/* Chips naming who an ask is directed at. Operators carry their brand colour;
-   "All operators" and "Councils & authorities" stay neutral so a council ask
-   is never mistaken for one badged to an operator. */
+/* Chips naming who is responsible. Only the lead gets a filled, brand- or
+   palette-coloured chip: a body that merely has to agree shouldn't look like
+   the one you write to first. */
 .objective-chips {
   display: flex;
   flex-wrap: wrap;
@@ -3691,8 +3672,17 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
-.objective-chip--operator {
+.objective-chip--lead {
   background: var(--chip-bg);
   color: var(--chip-fg);
   border-color: transparent;
+}
+
+/* The objective cards are <button>s, so they need the block layout the ticket
+   sub-cards get from being <div>s. */
+.body-group .proposal-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
 }

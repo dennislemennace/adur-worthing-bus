@@ -8,10 +8,14 @@
       "status": "not_considered",
       "color": "#1a4b82",
       "links": [],
-      "operators": [
+      "category": "Network & coverage",
+      "lead": [
         "BHBC"
       ],
-      "category": "Network & coverage"
+      "shared": [
+        "WSCC"
+      ],
+      "featured": true
     },
     {
       "id": "express-commuter-routes",
@@ -21,11 +25,14 @@
       "status": "not_considered",
       "color": "#1a70b5",
       "links": [],
-      "operators": [
+      "category": "Network & coverage",
+      "lead": [
         "SCSO",
         "BHBC"
       ],
-      "category": "Network & coverage"
+      "shared": [
+        "WSCC"
+      ]
     },
     {
       "id": "night-service-west",
@@ -35,11 +42,14 @@
       "status": "not_considered",
       "color": "#6a4ea3",
       "links": [],
-      "operators": [
+      "category": "Frequency & hours",
+      "lead": [
         "SCSO",
         "BHBC"
       ],
-      "category": "Frequency & hours"
+      "shared": [
+        "WSCC"
+      ]
     },
     {
       "id": "extend-existing-routes",
@@ -49,10 +59,15 @@
       "status": "not_considered",
       "color": "#c07808",
       "links": [],
-      "operators": [
-        "ALL"
+      "category": "Frequency & hours",
+      "lead": [
+        "WSCC"
       ],
-      "category": "Frequency & hours"
+      "shared": [
+        "SCSO",
+        "BHBC",
+        "COMT"
+      ]
     },
     {
       "id": "accessible-buses-stops",
@@ -62,11 +77,18 @@
       "status": "in_progress",
       "color": "#1c7844",
       "links": [],
-      "operators": [
-        "ALL",
-        "COUNCILS"
+      "category": "Accessibility",
+      "lead": [
+        "SCSO",
+        "BHBC",
+        "METR",
+        "COMT"
       ],
-      "category": "Accessibility"
+      "shared": [
+        "WSCC",
+        "ADUR_WORTHING",
+        "BHCC"
+      ]
     },
     {
       "id": "fairer-ticketing-zones",
@@ -85,10 +107,12 @@
           "url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Brighton%20Network%20Map%200424.pdf"
         }
       ],
-      "operators": [
+      "category": "Ticketing & fares",
+      "lead": [
         "SCSO"
       ],
-      "category": "Ticketing & fares"
+      "shared": [],
+      "featured": true
     },
     {
       "id": "integrated-sussex-plan",
@@ -98,10 +122,14 @@
       "status": "not_considered",
       "color": "#0e7c86",
       "links": [],
-      "operators": [
-        "COUNCILS"
+      "category": "Planning & governance",
+      "lead": [
+        "WSCC"
       ],
-      "category": "Planning & governance"
+      "shared": [
+        "BHCC",
+        "ESCC"
+      ]
     },
     {
       "id": "real-time-info-everywhere",
@@ -111,11 +139,15 @@
       "status": "in_progress",
       "color": "#455a9e",
       "links": [],
-      "operators": [
-        "ALL",
-        "COUNCILS"
+      "category": "Information",
+      "lead": [
+        "WSCC"
       ],
-      "category": "Information"
+      "shared": [
+        "BHCC",
+        "SCSO",
+        "BHBC"
+      ]
     },
     {
       "id": "cross-operator-tickets",
@@ -130,10 +162,18 @@
           "url": "https://www.southdowns.gov.uk/travelling-around/south-downs-discovery-ticket/"
         }
       ],
-      "operators": [
-        "ALL"
+      "category": "Ticketing & fares",
+      "lead": [
+        "SCSO",
+        "BHBC",
+        "METR",
+        "COMT"
       ],
-      "category": "Ticketing & fares"
+      "shared": [
+        "WSCC",
+        "BHCC"
+      ],
+      "featured": true
     }
   ]
 }

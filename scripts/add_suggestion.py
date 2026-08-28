@@ -45,6 +45,28 @@ SUGGESTIONS = ROOT / "data" / "suggestions.json"
 AREAS = ["New route", "More frequency", "Stops & shelters",
          "Accessibility", "Fares", "Other"]
 
+# Who would have to act. Kept in sync with RESPONSIBLE_BODIES in app.js.
+BODIES = {
+    "SCSO": "Stagecoach South",
+    "BHBC": "Brighton & Hove Buses",
+    "METR": "Metrobus",
+    "COMT": "Compass Travel",
+    "WSCC": "West Sussex County Council",
+    "ESCC": "East Sussex County Council",
+    "BHCC": "Brighton & Hove City Council",
+    "ADUR_WORTHING": "Adur & Worthing Councils",
+}
+
+# The area a submitter picked hints at who owns the problem, but only hints:
+# a "New route" could be a commercial decision or a council-supported service.
+# So this is offered as a default to accept or override, never applied silently
+# — an idea filed against the wrong body sends someone to the wrong place.
+AREA_HINTS = {
+    "Stops & shelters": "WSCC",
+    "Accessibility":    "WSCC",
+    "Fares":            "SCSO",
+}
+
 
 def slugify(text: str) -> str:
     """Mirror of slugify() in app.js: lowercase, non-alphanumerics to hyphens."""
@@ -147,6 +169,28 @@ def prompt_fields() -> dict:
     return {"title": title, "body": body, "area": area, "name": name}
 
 
+def choose_body(obj: dict) -> str | None:
+    """Ask who would have to act on this idea, defaulting to the area's hint."""
+    given = (obj.get("responsible") or "").strip().upper()
+    if given in BODIES:
+        return given
+    suggested = AREA_HINTS.get((obj.get("area") or "").strip())
+    print("\nWho would have to act on this? Leave blank to file it as "
+          "'Not yet assigned'.")
+    for code, name in BODIES.items():
+        print(f"  {code:14} {name}")
+    prompt = f"Body [{suggested}]: " if suggested else "Body: "
+    try:
+        choice = input(prompt).strip().upper() or (suggested or "")
+    except EOFError:
+        choice = suggested or ""
+    if not choice:
+        return None
+    if choice not in BODIES:
+        sys.exit(f"Unknown body {choice!r}. Expected one of: {', '.join(BODIES)}")
+    return choice
+
+
 def normalise(obj: dict, existing_ids: set) -> dict:
     title = (obj.get("title") or "").strip()
     body = (obj.get("body") or obj.get("details") or "").strip()
@@ -163,6 +207,9 @@ def normalise(obj: dict, existing_ids: set) -> dict:
         "date": (obj.get("date") or date.today().isoformat()).strip(),
         "status": "published",  # only published ideas belong in the feed
     }
+    body = obj.get("_responsible")
+    if body:
+        entry["responsible"] = body
     return entry
 
 
@@ -187,6 +234,9 @@ def main() -> None:
                          "and close it once published")
     ap.add_argument("--no-close", action="store_true",
                     help="with --from-issue, leave the issue open")
+    ap.add_argument("--responsible", metavar="CODE",
+                    help=f"who would have to act ({', '.join(BODIES)}); "
+                         f"prompts if omitted")
     ap.add_argument("--commit", action="store_true", help="git add + commit (does not push)")
     args = ap.parse_args()
 
@@ -197,6 +247,14 @@ def main() -> None:
         obj = read_issue(args.from_issue)
     else:
         obj = read_blob(args.blob) or prompt_fields()
+    if args.responsible:
+        code = args.responsible.strip().upper()
+        if code not in BODIES:
+            sys.exit(f"Unknown body {code!r}. Expected one of: {', '.join(BODIES)}")
+        obj["_responsible"] = code
+    else:
+        obj["_responsible"] = choose_body(obj)
+
     entry = normalise(obj, existing)
     data["suggestions"].append(entry)
     validate(data)

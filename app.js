@@ -159,7 +159,7 @@ const state = {
 
   // ── Network plan view (objectives + community ideas) ──
   networkTab:              "objectives", // "objectives" | "ideas"
-  objectivesGroupBy:       "category",   // "category" | "operator"
+  expandedBodies:          null,        // Set of responsible-body codes expanded
   objectives:              null,    // data/objectives.json (array); null = not loaded
   suggestions:             null,    // data/suggestions.json (array); null = not loaded
   selectedObjectiveId:     null,    // expanded objective card in the list
@@ -246,7 +246,6 @@ const dom = {
   tabContentObjectives:   document.getElementById("tab-content-objectives"),
   tabContentIdeas:        document.getElementById("tab-content-ideas"),
   objectivesList:         document.getElementById("objectives-list"),
-  objectivesGroupBy:      document.querySelector(".objectives-groupby"),
   communityIdeasList:     document.getElementById("community-ideas-list"),
   suggestForm:            document.getElementById("suggest-form"),
   suggestObjective:       document.getElementById("sg-objective"),
@@ -1762,12 +1761,6 @@ function bindUIEvents() {
   dom.closePanelBtnImprovements.addEventListener("click", closePanel);
 
   // Network plan panel: Objectives / Ideas tab switching + suggestion form
-  if (dom.objectivesGroupBy) {
-    dom.objectivesGroupBy.addEventListener("click", (e) => {
-      const btn = e.target.closest(".objectives-groupby-btn");
-      if (btn) setObjectivesGroupBy(btn.dataset.groupBy);
-    });
-  }
   if (dom.tabObjectives) dom.tabObjectives.addEventListener("click", () => setNetworkTab("objectives"));
   if (dom.tabIdeas)      dom.tabIdeas.addEventListener("click",      () => setNetworkTab("ideas"));
   if (dom.suggestForm) {
@@ -4927,76 +4920,175 @@ function objectiveCardHtml(o) {
         <span class="status-badge status-${st.cls}">${escapeHtml(st.label)}</span>
       </span>
       <span class="proposal-card-summary">${escapeHtml(o.summary || "")}</span>
-      <span class="objective-chips">${objectiveAudienceChips(o)}</span>
+      <span class="objective-chips">${objectiveBodyChips(o)}</span>
       ${detail}
     </button>`;
 }
 
-// Who an objective is aimed at. Real NOCs group under the operator's name;
-// these two pseudo-codes carry the asks that aren't one operator's to fix.
-const OBJECTIVE_AUDIENCES = {
-  ALL:      "All operators",
-  COUNCILS: "Councils & authorities",
+// ── Who is responsible ──────────────────────────────────────
+//
+// The objectives are grouped by who would actually have to act, because
+// "which body do I write to about this?" is the question that makes an
+// objective actionable. Responsibility here is genuinely split, and the data
+// says so rather than rounding to a single owner:
+//
+//   lead   — has to do the thing. A list, because some asks have no single
+//            owner: fitting audio-visual announcements is every operator's job,
+//            not one nominated operator's.
+//   shared — can't be done without them. The authority that funds or brokers
+//            it, or the council that owns the pavement the stop stands on.
+//
+// Operators make commercial decisions (routes, timetables, fares, on-bus kit).
+// Authorities own the infrastructure and the funding, and broker anything that
+// needs more than one operator to agree.
+const RESPONSIBLE_BODIES = {
+  BHBC: { name: "Brighton & Hove Buses",       kind: "operator",
+          url: "https://www.buses.co.uk/contact-us" },
+  SCSO: { name: "Stagecoach South",            kind: "operator",
+          url: "https://www.stagecoachbus.com/help-and-contact" },
+  METR: { name: "Metrobus",                    kind: "operator",
+          url: "https://www.metrobus.co.uk/" },
+  COMT: { name: "Compass Travel",              kind: "operator",
+          url: "https://compass-travel.co.uk/contact-us/" },
+
+  WSCC: { name: "West Sussex County Council",  kind: "authority", colour: "#1a4b82",
+          note: "Transport and highway authority for Adur & Worthing, and holder of the Bus Service Improvement Plan.",
+          url: "https://www.westsussex.gov.uk/roads-and-travel/travel-and-public-transport/bus-travel/" },
+  ADUR_WORTHING: { name: "Adur & Worthing Councils", kind: "authority", colour: "#c07808",
+          note: "Owns and maintains many of the bus shelters in the boroughs — 53 of the 108 in Worthing.",
+          url: "https://www.adur-worthing.gov.uk/streets-and-travel/report-a-problem/bus-shelters/" },
+  BHCC: { name: "Brighton & Hove City Council", kind: "authority", colour: "#6a4ea3",
+          note: "Unitary authority at the Brighton end, with its own Enhanced Partnership with the bus company.",
+          url: "https://www.brighton-hove.gov.uk/travel-and-road-safety/travel-transport-and-road-safety/brighton-hove-bus-service-improvement-plan-bsip" },
+  ESCC: { name: "East Sussex County Council",  kind: "authority", colour: "#0e7c86",
+          note: "Neighbouring authority — relevant to anything crossing the county boundary eastwards.",
+          url: "https://www.eastsussex.gov.uk/roads-transport/public" },
 };
 
-/** Display name for an audience code, whether it's a NOC or a pseudo-code. */
-function audienceName(code) {
-  return OBJECTIVE_AUDIENCES[code] || getOperatorName(code) || code;
+/** Display name for a body code. */
+function bodyName(code) {
+  const b = RESPONSIBLE_BODIES[code];
+  if (b) return b.name;
+  return getOperatorName(code) || code;
+}
+
+/** Brand colour for an operator, palette colour for an authority. */
+function bodyColour(code) {
+  const b = RESPONSIBLE_BODIES[code] || {};
+  return b.colour || OPERATOR_COLOURS[code] || "#444";
 }
 
 /**
- * Group objectives for display.
+ * Group objectives by responsible body.
  *
- * `by: "category"` puts each objective in exactly one theme. `by: "operator"`
- * files it under everyone it's directed at, so an ask aimed at two operators
- * appears under both — that's the point of the view, not duplication to
- * apologise for.
+ * Each body's group lists the objectives it leads first, then the ones where
+ * it's needed but isn't the one who has to act. An objective therefore appears
+ * in several groups — once as a lead, again as shared — which is the honest
+ * shape of the thing rather than duplication to apologise for.
  *
- * Group order is stable and meaningful rather than alphabetical: themes follow
- * the order they first appear in the curated file, and operator groups put the
- * named operators first with the network-wide and council asks last, because
- * those read as the catch-all.
+ * Operators come before authorities so the list reads "who runs the buses,
+ * then who funds and builds around them".
  */
-function groupObjectives(objectives, by) {
+function groupObjectivesByBody(objectives) {
   const groups = new Map();
-  const push = (key, o) => {
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(o);
+  const slot = (code) => {
+    if (!groups.has(code)) groups.set(code, { key: code, lead: [], shared: [] });
+    return groups.get(code);
   };
 
   for (const o of objectives) {
-    if (by === "operator") {
-      const audiences = (o.operators && o.operators.length) ? o.operators : ["COUNCILS"];
-      for (const code of audiences) push(code, o);
-    } else {
-      push(o.category || "Everything else", o);
-    }
+    for (const code of o.lead || []) slot(code).lead.push(o);
+    for (const code of o.shared || []) slot(code).shared.push(o);
   }
 
-  let keys = [...groups.keys()];
-  if (by === "operator") {
-    const rank = (k) => (k === "ALL" ? 1 : k === "COUNCILS" ? 2 : 0);
-    keys.sort((a, b) => rank(a) - rank(b) || audienceName(a).localeCompare(audienceName(b)));
-  }
-  return keys.map(key => ({
-    key,
-    label: by === "operator" ? audienceName(key) : key,
-    items: groups.get(key),
-  }));
+  const kind = (c) => (RESPONSIBLE_BODIES[c] || {}).kind || "operator";
+  return [...groups.values()]
+    .sort((a, b) => {
+      const ka = kind(a.key) === "operator" ? 0 : 1;
+      const kb = kind(b.key) === "operator" ? 0 : 1;
+      // Within a kind, the body carrying the most work comes first.
+      return ka - kb
+        || (b.lead.length - a.lead.length)
+        || bodyName(a.key).localeCompare(bodyName(b.key));
+    })
+    .map(g => ({ ...g, label: bodyName(g.key), total: g.lead.length + g.shared.length }));
 }
 
-/** Small chips on a card showing who the ask is aimed at. */
-function objectiveAudienceChips(o) {
-  const codes = (o.operators && o.operators.length) ? o.operators : ["COUNCILS"];
-  return codes.map(code => {
-    const fill = OPERATOR_COLOURS[code];
-    // Only real operators get their brand colour; the pseudo-codes stay neutral
-    // so a council ask never looks like it's been badged to an operator.
-    const style = fill
-      ? ` style="--chip-bg:${escapeAttr(fill)};--chip-fg:${pickTextOn(fill) === "dark" ? "#1a1a1a" : "#ffffff"}"`
-      : "";
-    return `<span class="objective-chip${fill ? " objective-chip--operator" : ""}"${style}>${escapeHtml(audienceName(code))}</span>`;
-  }).join("");
+/** Chips on a card naming who leads and who else is involved. */
+function objectiveBodyChips(o) {
+  const chip = (code, isLead) => {
+    const fill = bodyColour(code);
+    const fg   = pickTextOn(fill) === "dark" ? "#1a1a1a" : "#ffffff";
+    // Only the lead carries a filled chip. A body that merely has to agree
+    // shouldn't look like the one you write to first.
+    return isLead
+      ? `<span class="objective-chip objective-chip--lead" style="--chip-bg:${escapeAttr(fill)};--chip-fg:${fg}">${escapeHtml(bodyName(code))}</span>`
+      : `<span class="objective-chip">${escapeHtml(bodyName(code))}</span>`;
+  };
+  return [
+    ...(o.lead || []).map(c => chip(c, true)),
+    ...(o.shared || []).map(c => chip(c, false)),
+  ].join("");
+}
+
+/**
+ * One collapsible group per responsible body, styled as the Ticket view's
+ * operator accordion. Unlike that one, expansion is not exclusive: there are
+ * no map layers to collide, and comparing two bodies side by side is the
+ * point.
+ */
+function bodyGroupHtml(g, itemHtml, noun) {
+  if (!state.expandedBodies) state.expandedBodies = new Set();
+  const open   = state.expandedBodies.has(g.key);
+  const fill   = bodyColour(g.key);
+  const fg     = pickTextOn(fill) === "dark" ? "#1a1a1a" : "#ffffff";
+  const body   = RESPONSIBLE_BODIES[g.key] || {};
+  const n      = g.total;
+
+  let inner = g.lead.map(itemHtml).join("");
+  if (g.shared.length) {
+    inner += `<p class="ticket-subgroup-heading">Also needs them on board</p>`
+           + g.shared.map(itemHtml).join("");
+  }
+  if (body.note) {
+    inner += `<p class="ticket-operator-footnote">${escapeHtml(body.note)}</p>`;
+  }
+  if (body.url) {
+    inner += `<a class="ticket-zone-link" href="${escapeAttr(body.url)}"
+                 target="_blank" rel="noopener noreferrer">Contact ${escapeHtml(g.label)} ↗</a>`;
+  }
+
+  return `
+    <section class="ticket-operator-group body-group">
+      <div class="ticket-operator-card" role="button" tabindex="0"
+           data-body="${escapeAttr(g.key)}" aria-expanded="${open ? "true" : "false"}"
+           style="--op-bg:${escapeAttr(fill)};--op-fg:${fg}">
+        <span class="ticket-operator-name">${escapeHtml(g.label)}</span>
+        <span class="ticket-operator-count">${n} ${n === 1 ? noun : noun + "s"}</span>
+        <svg class="icon ticket-operator-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+      </div>
+      <div class="ticket-operator-zones ${open ? "expanded" : ""}">
+        ${inner}
+      </div>
+    </section>`;
+}
+
+/** Wire up the body accordion headers inside a container. */
+function bindBodyGroups(container, rerender) {
+  if (!state.expandedBodies) state.expandedBodies = new Set();
+  container.querySelectorAll(".ticket-operator-card").forEach(card => {
+    const toggle = () => {
+      const code = card.dataset.body;
+      // Additive, not exclusive: several bodies can be open at once.
+      if (state.expandedBodies.has(code)) state.expandedBodies.delete(code);
+      else state.expandedBodies.add(code);
+      rerender();
+    };
+    card.addEventListener("click", toggle);
+    card.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+    });
+  });
 }
 
 function renderObjectivesList() {
@@ -5007,21 +5099,24 @@ function renderObjectivesList() {
     return;
   }
 
-  const by = state.objectivesGroupBy || "category";
-  const groups = groupObjectives(objectives, by);
+  // The live campaign asks sit open at the top. Everything else is behind a
+  // body heading, so the tab opens on what we're actually pushing for rather
+  // than on a wall of collapsed headers.
+  const featured = objectives.filter(o => o.featured);
+  const featuredHtml = featured.length ? `
+    <section class="objective-featured">
+      <h3 class="objective-group-head">
+        <span class="objective-group-name">What we're pushing for now</span>
+        <span class="objective-group-count">${featured.length}</span>
+      </h3>
+      ${featured.map(objectiveCardHtml).join("")}
+    </section>
+    <p class="objective-bodies-intro">Every objective below, grouped by who would have to act on it.</p>` : "";
 
-  dom.objectivesList.innerHTML = groups.map(g => {
-    const n = g.items.length;
-    return `
-      <section class="objective-group">
-        <h3 class="objective-group-head">
-          <span class="objective-group-name">${escapeHtml(g.label)}</span>
-          <span class="objective-group-count">${n} ${n === 1 ? "objective" : "objectives"}</span>
-        </h3>
-        ${g.items.map(objectiveCardHtml).join("")}
-      </section>`;
-  }).join("");
+  dom.objectivesList.innerHTML = featuredHtml + groupObjectivesByBody(objectives)
+    .map(g => bodyGroupHtml(g, objectiveCardHtml, "objective")).join("");
 
+  bindBodyGroups(dom.objectivesList, renderObjectivesList);
   dom.objectivesList.querySelectorAll(".proposal-card").forEach(card => {
     card.addEventListener("click", () => {
       const id = card.dataset.objectiveId;
@@ -5029,19 +5124,6 @@ function renderObjectivesList() {
       renderObjectivesList();
     });
   });
-}
-
-/** Switch how the objectives list is grouped. */
-function setObjectivesGroupBy(by) {
-  state.objectivesGroupBy = (by === "operator") ? "operator" : "category";
-  if (dom.objectivesGroupBy) {
-    dom.objectivesGroupBy.querySelectorAll(".objectives-groupby-btn").forEach(btn => {
-      const on = btn.dataset.groupBy === state.objectivesGroupBy;
-      btn.classList.toggle("active", on);
-      btn.setAttribute("aria-selected", String(on));
-    });
-  }
-  renderObjectivesList();
 }
 
 function formatIdeaDate(iso) {
@@ -5075,28 +5157,34 @@ function renderCommunityIdeas() {
     return;
   }
 
-  // Grouped by the same "what's it about?" areas the submission form offers,
-  // so related suggestions read together instead of as a flat stream. Order
-  // follows first appearance, which keeps the busiest areas near the top
-  // without re-sorting the curated file.
-  const byArea = new Map();
+  // Grouped the same way as the objectives: by who would have to act. The
+  // submitter picks an area ("Fares", "Stops & shelters") which stays on the
+  // card, but they can't be expected to know which body owns the problem —
+  // that's assigned when the idea is published.
+  const groups = new Map();
   for (const idea of ideas) {
-    const area = (idea.area || "").trim() || "Other";
-    if (!byArea.has(area)) byArea.set(area, []);
-    byArea.get(area).push(idea);
+    const code = idea.responsible || "UNASSIGNED";
+    if (!groups.has(code)) groups.set(code, { key: code, lead: [], shared: [] });
+    groups.get(code).lead.push(idea);
   }
 
-  dom.communityIdeasList.innerHTML = [...byArea.entries()].map(([area, items]) => {
-    const n = items.length;
-    return `
-      <section class="objective-group">
-        <h4 class="objective-group-head">
-          <span class="objective-group-name">${escapeHtml(area)}</span>
-          <span class="objective-group-count">${n} ${n === 1 ? "idea" : "ideas"}</span>
-        </h4>
-        ${items.map(ideaCardHtml).join("")}
-      </section>`;
-  }).join("");
+  const kind = (c) => (RESPONSIBLE_BODIES[c] || {}).kind || "operator";
+  const ordered = [...groups.values()]
+    .sort((a, b) => {
+      // Anything not yet assigned sorts last rather than leading the list.
+      const ra = a.key === "UNASSIGNED" ? 2 : (kind(a.key) === "operator" ? 0 : 1);
+      const rb = b.key === "UNASSIGNED" ? 2 : (kind(b.key) === "operator" ? 0 : 1);
+      return ra - rb || b.lead.length - a.lead.length;
+    })
+    .map(g => ({
+      ...g,
+      label: g.key === "UNASSIGNED" ? "Not yet assigned" : bodyName(g.key),
+      total: g.lead.length,
+    }));
+
+  dom.communityIdeasList.innerHTML =
+    ordered.map(g => bodyGroupHtml(g, ideaCardHtml, "idea")).join("");
+  bindBodyGroups(dom.communityIdeasList, renderCommunityIdeas);
 }
 
 /** Fill the "Related objective" select from loaded objectives, preserving any
