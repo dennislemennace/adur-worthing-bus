@@ -76,17 +76,20 @@ function svgIcon(id) {
 // ============================================================
 // STATE
 // ============================================================
+// One raster source for both themes. Dark mode is a CSS filter over these same
+// tiles (see `html.dark-mode .leaflet-tile-pane` in style.css) rather than a
+// second tile provider.
+//
+// CARTO's free dark basemap used to serve this and was withdrawn in August
+// 2026 — it began stamping "API KEY REQUIRED" across every tile while still
+// returning HTTP 200, so nothing detected it and dark mode quietly broke for
+// everyone. Filtering tiles we already fetch can't be withdrawn, needs no key,
+// and makes no extra requests: switching theme re-renders rather than
+// re-downloading, which is also kinder to the OSM tile usage policy.
 const TILES = {
-  light: {
-    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
-  },
-  dark: {
-    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    maxZoom: 19,
-  },
+  url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 19,
 };
 
 const state = {
@@ -463,11 +466,10 @@ function initMap() {
     zoomControl: true,
   });
 
-  // Tile layer — swapped when dark mode toggles
-  const t = state.darkMode ? TILES.dark : TILES.light;
-  state.tileLayer = L.tileLayer(t.url, {
-    attribution: t.attribution,
-    maxZoom: t.maxZoom,
+  // Tile layer — one source for both themes; dark mode is a CSS filter.
+  state.tileLayer = L.tileLayer(TILES.url, {
+    attribution: TILES.attribution,
+    maxZoom: TILES.maxZoom,
   }).addTo(state.map);
 
   // Shrink stop dots slightly when zoomed out a lot (≤ z12) so ~1400
@@ -1590,17 +1592,8 @@ function toggleDarkMode() {
   dom.darkModeBtn.innerHTML = svgIcon(state.darkMode ? "i-sun" : "i-moon");
   dom.darkModeBtn.title = state.darkMode ? "Switch to light mode" : "Toggle dark mode";
 
-  // Swap the map tile layer
-  if (state.tileLayer) {
-    state.map.removeLayer(state.tileLayer);
-  }
-  const t = state.darkMode ? TILES.dark : TILES.light;
-  state.tileLayer = L.tileLayer(t.url, {
-    attribution: t.attribution,
-    maxZoom: t.maxZoom,
-  }).addTo(state.map);
-  // Ensure tiles sit below markers
-  state.tileLayer.bringToBack();
+  // No tile swap needed: both themes render the same tiles, and the
+  // `dark-mode` class on <html> drives the CSS filter that darkens them.
 }
 
 /** Toggle the mobile collapsed state — keeps the tab strip visible but

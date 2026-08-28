@@ -112,7 +112,7 @@ GitHub issues. Replaced the Web3Forms email relay.)
   allowance — not a constraint, but don't add per-submission API chatter
   (label lookups, project-board moves) without rechecking.
 
-## OpenStreetMap — `tile.openstreetmap.org` (light theme)
+## OpenStreetMap — `tile.openstreetmap.org` (both themes)
 
 - Tile usage policy: https://operations.osmfoundation.org/policies/tiles/
 - No per-key limit, but expects moderate non-commercial use, correct
@@ -120,10 +120,26 @@ GitHub issues. Replaced the Web3Forms email relay.)
 - If traffic ever grows past hobbyist scale, move to a self-hosted /
   CDN-fronted tile source rather than hammering the OSMF tile servers.
 
-## CARTO — `basemaps.cartocdn.com` (dark theme)
+## Dark theme — no second tile provider
 
-- Free for non-commercial use with attribution (preserved in `app.js`).
-- Soft fair-use; no hard cap published.
+Dark mode is a CSS filter over the same OpenStreetMap tiles the light theme
+loads (`html.dark-mode .leaflet-tile-pane` in `style.css`). It is **not** a
+separate basemap, so it adds no requests, no key and no third-party cap.
+
+**This replaced CARTO in August 2026, and the reason is worth keeping.**
+`basemaps.cartocdn.com` was free-for-non-commercial-use with attribution, and
+then started requiring an API key: every tile came back stamped "API KEY
+REQUIRED" — but with **HTTP 200**, so no error handling anywhere caught it and
+dark mode broke silently for every user until someone happened to look.
+
+**Implications**
+
+- Prefer rendering over fetching. A filter over tiles already being requested
+  cannot be withdrawn, rate-limited or keyed by a third party.
+- If a dark basemap provider is ever adopted again, monitor the *content* of a
+  tile, not just its status code. A 200 proves nothing.
+- Switching theme no longer refetches tiles, which is also kinder to the OSM
+  tile policy below.
 
 ---
 

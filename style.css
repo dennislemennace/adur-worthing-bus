@@ -1866,12 +1866,24 @@ html.dark-mode .departures-table tr.departure-row:hover td {
 /* ---- Small spinner polish ---- */
 .spinner { border-top-color: var(--color-accent); }
 
-/* ---- Dark-mode map: coastal-navy tint over CARTO Dark Matter ---- */
-/* Leaves the tile source untouched; layers a subtle navy multiply
-   on the tile pane so the map integrates with the coastal palette
-   instead of reading as generic grey-black. */
+/* ---- Dark-mode map: the dark basemap itself ---- */
+/* There is no second tile provider any more. CARTO's free dark basemap was
+   withdrawn in August 2026 (it started stamping "API KEY REQUIRED" over every
+   tile while still returning HTTP 200, so dark mode broke silently), so dark
+   mode is now produced here, from the same OpenStreetMap tiles the light theme
+   loads.
+
+   invert + hue-rotate is the standard pairing: inverting alone would leave
+   every colour as its complement, and rotating ~180deg puts them back. The
+   angle is 174deg rather than 180deg to keep the slight navy lean the coastal
+   palette was designed around, and saturation is pulled well down so the
+   route liveries and bus markers drawn on top stay the brightest thing on
+   screen.
+
+   Scoped to the tile pane deliberately: markers, route polylines, ticket-zone
+   polygons and reach pills live in sibling panes and keep their true colours. */
 html.dark-mode .leaflet-tile-pane {
-  filter: hue-rotate(-6deg) saturate(1.08) contrast(1.04);
+  filter: invert(1) hue-rotate(174deg) brightness(0.88) contrast(0.95) saturate(0.35);
 }
 html.dark-mode #map::after {
   content: "";
