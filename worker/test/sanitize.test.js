@@ -223,3 +223,67 @@ test("origin allowlist admits only listed origins", () => {
 test("an empty allowlist is permissive, for local dev only", () => {
   assert.equal(isAllowedOrigin("https://anything.example", []), true);
 });
+
+// ── fileIssue: 422 fallback ─────────────────────────────────
+//
+// GitHub 422s the whole request if a label doesn't exist; it does not create
+// them. A label renamed later would otherwise turn every submission into a
+// 502 with no obvious cause. Dropping the labels is recoverable by hand.
+
+const { fileIssue } = _internals;
+
+/** Stub global fetch with a queue of [status, body] responses, recording calls. */
+function stubFetch(responses) {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), body: init.body ? JSON.parse(init.body) : null });
+    const [status, body] = responses.shift() ?? [500, {}];
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    };
+  };
+  return { calls, restore: () => { globalThis.fetch = original; } };
+}
+
+const ENV = { GITHUB_TOKEN: "t", GITHUB_REPO: "o/r" };
+const BUILT = { title: "T", body: "B", labels: ["idea", "unverified"] };
+
+test("a labelled issue is filed in one call when the labels exist", async () => {
+  const { calls, restore } = stubFetch([[201, { number: 7 }]]);
+  try {
+    const res = await fileIssue(ENV, BUILT);
+    assert.equal(res.number, 7);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].body.labels, ["idea", "unverified"]);
+  } finally { restore(); }
+});
+
+test("a 422 retries without labels rather than losing the submission", async () => {
+  const { calls, restore } = stubFetch([
+    [422, { message: "Validation Failed" }],
+    [201, { number: 9 }],
+  ]);
+  try {
+    const res = await fileIssue(ENV, BUILT);
+    assert.equal(res.number, 9, "the submission must still land");
+    assert.equal(res.labelsDropped, true);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0].body.labels, ["idea", "unverified"]);
+    assert.ok(!("labels" in calls[1].body), "the retry must omit labels entirely");
+    assert.equal(calls[1].body.title, "T");
+  } finally { restore(); }
+});
+
+test("a non-422 error is not retried and still fails", async () => {
+  // 401 means the token is wrong. Retrying without labels would not help and
+  // would double the damage against the rate limit.
+  const { calls, restore } = stubFetch([[401, { message: "Bad credentials" }]]);
+  try {
+    await assert.rejects(() => fileIssue(ENV, BUILT), /401/);
+    assert.equal(calls.length, 1, "must not retry");
+  } finally { restore(); }
+});

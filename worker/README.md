@@ -16,16 +16,55 @@ gate is deliberate — this is a public endpoint writing to a public tracker.
 You need a Cloudflare account (free) and the `wrangler` CLI (`npx wrangler`
 works without installing anything globally).
 
-### 1. Create the KV namespace for rate-limit counters
+### 1. Create the GitHub labels — do this first
+
+**GitHub does not create labels on demand.** Posting an issue with a label that
+doesn't exist fails the whole request with **422**, which the Worker surfaces as
+a 502. The first real submission would look like a broken Worker.
+
+These eleven are already created on `dennislemennace/adur-worthing-bus`. Run
+this against any other repo, including the scratch repo you test with before
+pointing `GITHUB_REPO` at the real one:
+
+```sh
+gh label create community-submission --color 1a4b82 --force \
+  --description "Filed by the site's submission Worker, not by a maintainer"
+gh label create unverified           --color 6b7280 --force \
+  --description "Not yet reviewed. Nothing reaches the site until a maintainer publishes it"
+gh label create idea                 --color c07808 --force \
+  --description "A network idea from the Ideas form"
+gh label create proposal             --color 0e7490 --force \
+  --description "A route proposal from the map editor, carrying a JSON block"
+gh label create stop-issue           --color b45309 --force \
+  --description "A fault reported at a specific stop, keyed by ATCO code"
+gh label create stop-issue:shelter        --color fed7aa --force --description "Shelter damaged or dirty"
+gh label create stop-issue:timetable-case --color fde68a --force --description "Timetable missing or out of date"
+gh label create stop-issue:rtpi-display   --color bfdbfe --force --description "Real-time display broken or wrong"
+gh label create stop-issue:accessibility  --color ddd6fe --force --description "Kerb, ramp, or step-free access problem"
+gh label create stop-issue:lighting       --color fef08a --force --description "Lighting out or inadequate"
+gh label create stop-issue:other          --color e5e7eb --force --description "Anything else about this stop"
+```
+
+The set is derived from `buildIssue` and `STOP_ISSUE_CATEGORIES` in
+`src/index.js` — if you add a stop-issue category there, add its label here too.
+
+If a label is renamed or deleted later the Worker no longer breaks: a 422 on
+issue creation is retried once without labels, so the submission still lands and
+only the labelling is lost. Don't rely on that — it's a safety net, not a plan.
+
+### 2. Create the KV namespace for rate-limit counters
 
 ```sh
 cd worker
 npx wrangler kv namespace create RATE_LIMIT
 ```
 
+(`kv namespace` with a space needs Wrangler 3.60.0 or later; older
+versions use the deprecated `kv:namespace` form.)
+
 Paste the returned id into `wrangler.toml` under `[[kv_namespaces]]`.
 
-### 2. Create the GitHub token
+### 3. Create the GitHub token
 
 Use a **fine-grained** personal access token, not a classic one:
 
@@ -39,13 +78,13 @@ Use a **fine-grained** personal access token, not a classic one:
 > PAT: tokens rotate automatically and there's no expiry cliff. Worth doing if
 > the endpoint ever handles more than hobby volume.
 
-### 3. Create the Turnstile keys
+### 4. Create the Turnstile keys
 
 Cloudflare dashboard → Turnstile → Add site. Use the **Managed** widget.
 Keep the *site key* (public, goes in `app.js`) and the *secret key* (goes in
 `wrangler secret`).
 
-### 4. Push the secrets
+### 5. Push the secrets
 
 ```sh
 npx wrangler secret put GITHUB_TOKEN       # the fine-grained PAT
@@ -56,7 +95,7 @@ npx wrangler secret put IP_SALT            # any long random string
 `IP_SALT` salts the hashed client IP used for rate limiting, so the KV store
 never holds a raw address. Generate one with `openssl rand -hex 32`.
 
-### 5. Deploy
+### 6. Deploy
 
 ```sh
 npx wrangler deploy

@@ -466,15 +466,23 @@ async function fileIssue(env, built) {
     }
   }
 
-  const res = await ghFetch(env, `${GITHUB_API}/repos/${repo}/issues`, {
-    method: "POST",
-    body: JSON.stringify({
-      title:  built.title,
-      body:   built.body,
-      labels: built.labels,
-    }),
-  });
-  return res;
+  const url     = `${GITHUB_API}/repos/${repo}/issues`;
+  const payload = { title: built.title, body: built.body, labels: built.labels };
+
+  try {
+    return await ghFetch(env, url, { method: "POST", body: JSON.stringify(payload) });
+  } catch (err) {
+    // GitHub rejects the whole request with 422 if any label doesn't exist —
+    // it does not create them. So a label renamed or deleted months from now
+    // would turn every submission into a 502 with no obvious cause. Losing the
+    // labels is recoverable by hand; losing someone's submission is not.
+    if (err.status !== 422) throw err;
+    console.error("Issue create returned 422, retrying without labels:", err.message);
+    const { labels, ...unlabelled } = payload;
+    const res = await ghFetch(env, url, { method: "POST", body: JSON.stringify(unlabelled) });
+    res.labelsDropped = true;
+    return res;
+  }
 }
 
 /** Find an open stop-issue thread already covering this ATCO code. */
@@ -509,7 +517,9 @@ async function ghFetch(env, url, init = {}) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`GitHub ${res.status}: ${text.slice(0, 300)}`);
+    const err = new Error(`GitHub ${res.status}: ${text.slice(0, 300)}`);
+    err.status = res.status;   // callers branch on this; see fileIssue's 422 path
+    throw err;
   }
   return res.json();
 }
@@ -567,5 +577,5 @@ async function readCapped(request, max) {
 
 // Exported for tests.
 export const _internals = {
-  sanitize, slugify, buildIssue, blockquote, isAllowedOrigin,
+  sanitize, slugify, buildIssue, blockquote, isAllowedOrigin, fileIssue,
 };
