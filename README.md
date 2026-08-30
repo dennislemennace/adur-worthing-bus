@@ -167,6 +167,11 @@ python -m http.server 8765                       # the site
 uvicorn api.main:app --port 8000                 # the API (needs BODS_API_KEY)
 ```
 
+The API allows any `localhost` origin, so the preview flow works without
+setting anything. Add `DEBUG_ENABLED=1` if you want `/docs` and the
+`/api/debug/*` diagnostics, which are off by default and should stay off in
+production.
+
 Then open <http://127.0.0.1:8765/?api=http://localhost:8000>. Without the `?api=`
 parameter the page talks to the deployed Render API, so anything not yet
 deployed (a new endpoint, say) will 404. The override is ignored unless the page

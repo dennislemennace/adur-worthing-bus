@@ -16,6 +16,17 @@
 #      Add:
 #        BODS_API_KEY   = <your BODS API key>
 #        ALLOWED_ORIGIN = https://yourusername.github.io   (your GitHub Pages URL)
+#
+#      ALLOWED_ORIGIN is the CORS allowlist and IS read by api/main.py.
+#      Comma-separate to add a second origin. Unset defaults to the published
+#      Pages URL rather than a wildcard, so a missing value fails closed. Any
+#      localhost port is always allowed, for the local preview flow.
+#
+#      Optional:
+#        DEBUG_ENABLED  = 1   exposes /api/debug/* and /docs. LEAVE UNSET in
+#                             production — those routes re-expose the raw BODS
+#                             and TransportAPI feeds and can spend metered
+#                             quota. Set it only while diagnosing, then unset.
 #   6. Copy the deploy hook URL from Settings → Deploy Hook and add it
 #      to the GitHub repo as secret RENDER_DEPLOY_HOOK so the weekly
 #      workflow can trigger a redeploy after publishing fresh data.
@@ -32,4 +43,8 @@ services:
       - key: BODS_API_KEY
         sync: false
       - key: ALLOWED_ORIGIN
+        sync: false
+      # Diagnostics stay off unless this is set. Deliberately has no
+      # default: a fresh deploy should be closed.
+      - key: DEBUG_ENABLED
         sync: false

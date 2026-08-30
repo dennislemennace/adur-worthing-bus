@@ -79,6 +79,11 @@ fits within the existing envelope.
   it.
 - Per-stop caching is load-bearing — don't remove it. The site must continue
   to work when the daily quota is exhausted (timetable-only fallback exists).
+- **Every path that calls upstream must go through the quota gate.**
+  `/api/debug/live-raw` did not: it called TransportAPI directly with no cache
+  and no counter, so it bypassed `NEXTBUSES_DAILY_LIMIT` *and* spent the real
+  upstream allowance, unauthenticated. It now shares the cache and gate. A
+  diagnostic is still a caller.
 
 ## Cloudflare Workers + KV — community submission relay
 
@@ -103,6 +108,20 @@ GitHub issues. Replaced the Web3Forms email relay.)
 - If the Worker is unreachable the forms fail with a visible message and nothing
   is lost silently — but submissions are simply not accepted until it returns.
   There is no queue and no fallback path.
+
+## Diagnostics — `/api/debug/*`
+
+Gated behind `DEBUG_ENABLED` (off unless set) via a router-level dependency in
+`api/main.py`, so a diagnostic added later is gated by construction rather than
+by remembering. `/docs`, `/redoc` and `/openapi.json` are gated by the same
+flag — the schema is a map of the surface.
+
+**Implications**
+
+- Add new diagnostics to `debug_router`, never to `app`. A test walks the
+  routes and fails if one is missing the gate.
+- The gate raises **404, not 403** — a 403 confirms the route exists.
+- Leave `DEBUG_ENABLED` unset in Render. Turn it on to diagnose, then off.
 
 ## GitHub REST API — issue creation
 

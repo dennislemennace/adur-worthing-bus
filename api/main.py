@@ -14,6 +14,8 @@ Environment variables:
   NEXTBUSES_APP_ID    — transportapi.com app id (legacy var name)
   NEXTBUSES_APP_KEY   — transportapi.com app key (legacy var name)
   RTT_BEARER_TOKEN    — Realtime Trains (data.rtt.io) bearer token
+  DEBUG_ENABLED       — exposes /api/debug/* and the OpenAPI docs. Off by
+                        default; set it only while diagnosing something.
 """
 
 import json
@@ -28,7 +30,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.timetable_db import Timetable, path_has_time_gap
@@ -183,13 +185,65 @@ def cache_set(key: str, data, ttl: int) -> None:
 _timetable: Optional[Timetable] = None
 
 # ── App ───────────────────────────────────────────────────────
-app = FastAPI(title="Adur & Worthing Bus API", version="2.0.0")
+# Diagnostics switch. Off unless explicitly set, so the default posture of a
+# fresh deploy is closed — the /api/debug/* routes below re-expose upstream
+# feeds and can spend metered quota, and they were reachable in production
+# for months because each one had to remember to check a flag.
+DEBUG_ENABLED = os.environ.get("DEBUG_ENABLED", "").lower() in ("1", "true", "yes")
+
+# Where the site is served from. render.yaml has always documented this var;
+# until now nothing read it and CORS was an unconditional wildcard.
+DEFAULT_ALLOWED_ORIGIN = "https://dennislemennace.github.io"
+
+app = FastAPI(
+    title="Adur & Worthing Bus API",
+    version="2.0.0",
+    # The OpenAPI schema enumerates every route with its parameters, which
+    # is a map of the diagnostics surface. Gate it with the same flag.
+    docs_url="/docs" if DEBUG_ENABLED else None,
+    redoc_url="/redoc" if DEBUG_ENABLED else None,
+    openapi_url="/openapi.json" if DEBUG_ENABLED else None,
+)
+
+# Comma-separated, so a preview deployment can be added without a code change.
+_allowed_origins = [
+    o.strip() for o in os.environ.get("ALLOWED_ORIGIN", "").split(",") if o.strip()
+]
+if not _allowed_origins:
+    _allowed_origins = [DEFAULT_ALLOWED_ORIGIN]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
+    # Any localhost port stays allowed so the README's local preview flow
+    # (python -m http.server 8765 + ?api=http://localhost:8000) keeps working
+    # without setting env vars. This is not a hole: a browser sets Origin
+    # itself, so a page on evil.example cannot claim to be localhost.
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_methods=["GET"],
     allow_headers=["*"],
+)
+
+
+def require_debug() -> None:
+    """Gate for every /api/debug/* route.
+
+    Applied once at router level rather than per-endpoint, so a diagnostic
+    added later is gated by construction. That is the actual fix: the
+    previous arrangement needed each of nine endpoints to remember, and
+    seven of them did not.
+
+    Raises 404 rather than 403 — a 403 confirms the route exists, which is
+    precisely the reconnaissance these endpoints should not hand out.
+    """
+    if not DEBUG_ENABLED:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+
+debug_router = APIRouter(
+    prefix="/api/debug",
+    dependencies=[Depends(require_debug)],
+    include_in_schema=False,
 )
 # ── Health ────────────────────────────────────────────────────
 @app.api_route("/", methods=["GET", "HEAD"])
@@ -206,8 +260,10 @@ async def root():
         "trips_loaded":        len(t.trips)  if t else 0,
     }
 
-# ── Debug endpoint (remove once departures are confirmed working)
-@app.get("/api/debug/stop")
+# ── Diagnostics ───────────────────────────────────────────────
+# Everything below hangs off debug_router, so it is unreachable unless
+# DEBUG_ENABLED is set. Add new diagnostics here, never on `app`.
+@debug_router.get("/stop")
 async def debug_stop(stopId: str = Query(...)):
     _check_api_key()
     tt        = await _get_timetable()
@@ -527,7 +583,7 @@ def _project_service_location(loc: dict) -> dict:
         "pass":        _temporal(td, "pass"),
     }
 
-@app.get("/api/debug/rail-raw")
+@debug_router.get("/rail-raw")
 async def debug_rail_raw(crs: str = Query(..., min_length=3, max_length=3)):
     """Raw RTT location response — for projection field-name debugging. Gated
     behind RTT_DEBUG_ENABLED so the upstream feed isn't trivially re-exposed
@@ -550,7 +606,7 @@ async def debug_rail_raw(crs: str = Query(..., min_length=3, max_length=3)):
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-@app.get("/api/debug/rail-raw-service")
+@debug_router.get("/rail-raw-service")
 async def debug_rail_raw_service(
     uid:  str = Query(..., min_length=1, max_length=16),
     date: str = Query(..., regex=r"^\d{4}-\d{2}-\d{2}$"),
@@ -572,7 +628,7 @@ async def debug_rail_raw_service(
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-@app.get("/api/debug/rail-token")
+@debug_router.get("/rail-token")
 async def debug_rail_token():
     """Returns just the access-token validity window so we can confirm the
     UUID → access-token swap is working. Never returns the token itself."""
@@ -716,7 +772,7 @@ async def get_route_lines():
     return result
 
 # ── Debug: raw SIRI-VM dump with no stale filter
-@app.get("/api/debug/vehicles-raw")
+@debug_router.get("/vehicles-raw")
 async def debug_vehicles_raw(q: str = Query("")):
     """
     Fetches raw BODS SIRI-VM and returns every VehicleActivity — including
@@ -800,7 +856,7 @@ async def get_vehicles():
     return {"vehicles": public, "count": len(public)}
 
 
-@app.get("/api/debug/siri-sample")
+@debug_router.get("/siri-sample")
 async def debug_siri_sample():
     """Dump raw XML structure of first 2 VehicleActivity elements."""
     _check_api_key()
@@ -865,7 +921,7 @@ async def debug_siri_sample():
             "journey_ref_total": len(journey_refs),
             "samples": journey_refs[:15]}
 
-@app.get("/api/debug/match-stats")
+@debug_router.get("/match-stats")
 async def debug_match_stats():
     """Diagnostics: how many vehicles have calls, trip matches, etc."""
     _check_api_key()
@@ -907,7 +963,7 @@ async def debug_match_stats():
         "unmatched_samples": unmatched,
     }
 
-@app.get("/api/debug/nb-quota")
+@debug_router.get("/nb-quota")
 async def debug_nb_quota():
     """Diagnostics: current NextBuses daily quota usage."""
     _check_api_key()
@@ -922,23 +978,42 @@ async def debug_nb_quota():
     }
 
 
-@app.get("/api/debug/live-raw")
+@debug_router.get("/live-raw")
 async def debug_live_raw(stopId: str = Query(...)):
-    """Diagnostics: raw Transport API response + parsed predictions for a stop."""
+    """Diagnostics: raw Transport API response + parsed predictions for a stop.
+
+    Shares the cache and quota gate with /api/departures. This route used to
+    call upstream on every request with neither, so it both bypassed
+    NEXTBUSES_DAILY_LIMIT and spent the real TransportAPI allowance. The
+    router gate now hides it, but a diagnostic should not be the one path
+    that can drain the quota even when deliberately switched on.
+    """
     _check_api_key()
     if not NEXTBUSES_APP_ID or not NEXTBUSES_APP_KEY:
         return {"error": "Transport API credentials not configured"}
-    url = f"{NEXTBUSES_BASE_URL}/{stopId}/live.json"
-    try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            resp = await client.get(url, params={
-                "app_id": NEXTBUSES_APP_ID, "app_key": NEXTBUSES_APP_KEY,
-                "group": "no", "nextbuses": "yes",
-            })
-        resp.raise_for_status()
-        raw = resp.json()
-    except Exception as exc:
-        return {"error": str(exc)}
+
+    cache_key = f"nb-raw:{stopId}"
+    raw = cache_get(cache_key)
+    if raw is None:
+        _nb_quota_rollover()
+        if _nb_quota["count"] >= NEXTBUSES_DAILY_LIMIT:
+            return {"error": "quota exhausted",
+                    "count": _nb_quota["count"],
+                    "limit": NEXTBUSES_DAILY_LIMIT}
+        _nb_quota_bump(1)
+        url = f"{NEXTBUSES_BASE_URL}/{stopId}/live.json"
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+                resp = await client.get(url, params={
+                    "app_id": NEXTBUSES_APP_ID, "app_key": NEXTBUSES_APP_KEY,
+                    "group": "no", "nextbuses": "yes",
+                })
+            resp.raise_for_status()
+            raw = resp.json()
+        except Exception as exc:
+            _nb_quota_bump(-1)   # don't burn quota on a broken/unreachable API
+            return {"error": str(exc)}
+        cache_set(cache_key, raw, NEXTBUSES_CACHE_TTL)
     predictions = _parse_transportapi_json(raw)
     return {
         "raw_keys":   list(raw.keys()),
@@ -2222,3 +2297,8 @@ def _parse_iso_duration(duration: str) -> Optional[int]:
                 pass
             t = t[idx + 1:]
     return -secs if negative else secs
+
+
+# Registered last: include_router copies the routes that exist at call time,
+# so every @debug_router.get above must already have run.
+app.include_router(debug_router)
