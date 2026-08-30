@@ -144,9 +144,11 @@
      the fallback for engines without svh — later declaration wins where it
      is understood.
 
-     peek is sized to clear the handle, the tab strip and the stop name, so
-     the sheet always says *what* it is showing even at its smallest. */
-  --sheet-peek: 200px;
+     peek is measured, not guessed: the chrome above the board (handle, tab
+     strip, stop header, meta row) comes to 197px and a departure row is
+     45px, so 248 shows the stop name and the next departure — which is the
+     whole question someone glances at a bus app to answer. */
+  --sheet-peek: 248px;
   --sheet-half: 48vh;
   --sheet-half: 48svh;
   --sheet-full: 88vh;
@@ -682,6 +684,85 @@ html.dark-mode .map-loading {
      easing towards it. */
   body.sheet-dragging .departure-panel { transition: none; }
   body.sheet-dragging { cursor: grabbing; user-select: none; }
+}
+
+/* ===== DEPARTURE BOARD ON NARROW SCREENS =====
+   Four columns do not fit a 390px phone. With table-layout:fixed at
+   54/auto/82/86 the status chip landed 6px past the right edge on every
+   single row, so the column a passenger most needs — is it on time — was
+   the one getting clipped.
+
+   Below the breakpoint the row becomes a grid and the chip moves underneath
+   the destination, where there is room to read it. The badge and the due
+   time span both rows, so the eye still runs service -> where -> when.
+
+   Scoped to #departures-tbody on purpose: the rail board reuses
+   .departures-table with five columns of its own. */
+@media (max-width: 900px) {
+  #departures-container .departures-table,
+  #departures-tbody,
+  #departures-tbody tr,
+  #departures-tbody td {
+    display: block;
+    width: auto;
+  }
+
+  /* The header labelled a column order that no longer exists here. */
+  #departures-container .departures-table thead { display: none; }
+
+  #departures-tbody .departure-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "badge dest due"
+      "badge status due";
+    align-items: center;
+    column-gap: var(--space-sm);
+    row-gap: 2px;
+    padding: var(--space-2xs) var(--space-sm);
+    border-bottom: 1px solid var(--color-border);
+  }
+  #departures-tbody .departure-row td {
+    border-bottom: none;
+    padding: 0;
+  }
+  #departures-tbody .departure-row td:nth-child(1) { grid-area: badge; }
+  #departures-tbody .departure-row td:nth-child(2) { grid-area: dest;   min-width: 0; }
+  #departures-tbody .departure-row td:nth-child(3) { grid-area: due;    text-align: right; }
+  #departures-tbody .departure-row td:nth-child(4) { grid-area: status; }
+
+  /* The chip is a qualifier on the destination now, not a column heading. */
+  #departures-tbody .status-chip { padding: 1px 6px; }
+}
+
+/* ===== SHEET SPACE BUDGET =====
+   On a 405px sheet the chrome above the first departure came to 246px:
+   handle, tab strip, a two-line stop header and a meta row. The board is
+   what people opened the panel for, so the chrome gives ground. */
+@media (max-width: 900px) {
+  /* The ATCO code is worth keeping — it is what a stop-fault report is keyed
+     on — but it does not deserve its own line directly under the name. It
+     goes beside it, right-aligned and quiet. */
+  .panel-mode[data-mode="live"] .panel-header-text {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-sm);
+  }
+  .panel-mode[data-mode="live"] .panel-stop-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .panel-mode[data-mode="live"] .panel-stop-id {
+    margin-top: 0;
+    flex-shrink: 0;
+    font-size: var(--font-size-2xs);
+  }
+
+  .panel-header   { padding: var(--space-sm) var(--space-md); }
+  .departures-meta { padding: 2px var(--space-sm); }
 }
 
 /* ===== SHEET HANDLE =====
