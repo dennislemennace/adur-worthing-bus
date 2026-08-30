@@ -123,12 +123,35 @@
 
   /* Focus ring — see the :focus-visible rule. Named so components that need
      to opt out of the offset (map controls, flush-edge buttons) can. */
+  /* WCAG 2.5.8 sets the AA floor at 24x24. 44 is the AAA criterion and
+     Apple's number, and it is what the controls here aim for — the site is
+     lobbying bodies that are themselves legally bound to AA, so arriving
+     under the usability numbers is a free reason to dismiss it. */
+  --target-min: 44px;
+
   --focus-ring-width:  2px;
   --focus-ring-offset: 2px;
   --focus-ring-color:  var(--color-accent);
 
   --header-height: 60px;
   --panel-width:   360px;
+
+  /* Bottom-sheet detents (mobile only).
+
+     svh rather than dvh, deliberately: dvh recalculates as the browser's own
+     chrome collapses and expands, which shifts the layout mid-scroll. svh is
+     the small-viewport height and stays put. The plain vh line above each is
+     the fallback for engines without svh — later declaration wins where it
+     is understood.
+
+     peek is sized to clear the handle, the tab strip and the stop name, so
+     the sheet always says *what* it is showing even at its smallest. */
+  --sheet-peek: 200px;
+  --sheet-half: 48vh;
+  --sheet-half: 48svh;
+  --sheet-full: 88vh;
+  --sheet-full: 88svh;
+  --sheet-handle-height: 44px;
 
   /* Match native UI (scrollbars, form controls, caret) to the theme. */
   color-scheme: light;
@@ -201,6 +224,19 @@ html.dark-mode {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+/* The UA stylesheet's [hidden] { display: none } is a plain author-level-zero
+   rule, so ANY author `display` beats it. .btn-icon sets display:flex, which
+   meant `el.hidden = true` did nothing: the bus and rail layer toggles have
+   been sitting in the header in every view, including the three where they
+   do nothing. Every reset worth the name carries this rule for that reason. */
+[hidden] { display: none !important; }
+
+/* Suppress the grey flash Android paints over any tapped element. The site
+   has its own :active states, and the two together read as a glitch. */
+button, a, [role="option"], [role="button"], input, select, textarea, summary {
+  -webkit-tap-highlight-color: transparent;
 }
 
 html, body {
@@ -319,8 +355,8 @@ html.dark-mode .status-pill {
   border-color: var(--color-border);
 }
 .status-pill .btn-icon.status-pill-toggle {
-  width: 24px;
-  height: 24px;
+  width: var(--target-min);
+  height: var(--target-min);
   border-radius: calc(var(--radius-md) - 4px);
   background: transparent;
   border: none;
@@ -328,12 +364,16 @@ html.dark-mode .status-pill {
 .status-pill .btn-icon.status-pill-toggle .icon {
   width: 14px;
   height: 14px;
-}
+}@media (hover: hover) {
+
 .status-pill .btn-icon.status-pill-toggle:hover {
   background: rgba(var(--color-on-fill-rgb), 0.18);
 }
+}@media (hover: hover) {
+
 html.dark-mode .status-pill .btn-icon.status-pill-toggle:hover {
   background: var(--color-border);
+}
 }
 
 /* Cascading "., .., ..." loading dots — width-reveal in 4 discrete steps so
@@ -383,6 +423,7 @@ html.dark-mode .last-updated.is-error .loading-dots { color: #ffb84d; }
   border: 1px solid rgba(var(--color-on-fill-rgb), 0.25);
   border-radius: var(--radius-md);
   color: var(--color-on-fill);
+  min-height: var(--target-min);
   font-family: inherit;
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -391,8 +432,10 @@ html.dark-mode .last-updated.is-error .loading-dots { color: #ffb84d; }
   cursor: pointer;
   transition: background var(--transition);
   white-space: nowrap;
-}
+}@media (hover: hover) {
+
 .section-nav-trigger:hover { background: rgba(var(--color-on-fill-rgb), 0.25); }
+}
 .section-nav-chevron { width: 12px; height: 12px; transition: transform var(--transition); }
 .section-nav-trigger[aria-expanded="true"] .section-nav-chevron { transform: rotate(180deg); }
 
@@ -422,7 +465,6 @@ html.dark-mode .last-updated.is-error .loading-dots { color: #ffb84d; }
   cursor: pointer;
   user-select: none;
 }
-.section-nav-menu [role="option"]:hover,
 .section-nav-menu [role="option"]:focus {
   background: var(--color-surface-2);
   outline: none;
@@ -439,26 +481,30 @@ html.dark-mode .section-nav-trigger {
   background: var(--color-surface-2);
   border-color: var(--color-border);
   color: var(--color-text);
-}
+}@media (hover: hover) {
+
 html.dark-mode .section-nav-trigger:hover { background: var(--color-border); }
+}
 
 .btn-icon {
   background: rgba(var(--color-on-fill-rgb), 0.15);
   border: 1px solid rgba(var(--color-on-fill-rgb), 0.25);
   border-radius: var(--radius-md);
   color: rgba(var(--color-on-fill-rgb), 0.9);
-  width: 38px;
-  height: 38px;
+  width: var(--target-min);
+  height: var(--target-min);
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: var(--font-size-md);
   transition: background var(--transition), border-color var(--transition);
-}
+}@media (hover: hover) {
+
 
 .btn-icon:hover {
   background: rgba(var(--color-on-fill-rgb), 0.25);
+}
 }
 /* "Off" state for toggle buttons (e.g. buses hidden) — dimmed so the
    current state reads at a glance. */
@@ -470,11 +516,13 @@ html.dark-mode .btn-icon {
   background: var(--color-surface-2);
   border-color: var(--color-border);
   color: var(--color-text-muted);
-}
+}@media (hover: hover) {
+
 
 html.dark-mode .btn-icon:hover {
   background: var(--color-border);
   color: var(--color-text);
+}
 }
 
 /* Dark-mode toggle — circular, warm-tinted disc in light mode, cool disc in
@@ -488,11 +536,13 @@ html.dark-mode .btn-icon:hover {
   border: 1px solid rgba(255,210,140,0.60);
   color: #fff8e6;
   box-shadow: 0 0 0 2px rgba(255,210,140,0.10);
-}
+}@media (hover: hover) {
+
 .btn-icon.btn-theme:hover {
   background: linear-gradient(135deg,
               rgba(255,210,140,0.45),
               rgba(var(--color-on-fill-rgb), 0.10));
+}
 }
 html.dark-mode .btn-icon.btn-theme {
   background: linear-gradient(135deg,
@@ -501,11 +551,13 @@ html.dark-mode .btn-icon.btn-theme {
   border-color: rgba(150,195,255,0.55);
   color: #e6f0ff;
   box-shadow: 0 0 0 2px rgba(120,180,255,0.10);
-}
+}@media (hover: hover) {
+
 html.dark-mode .btn-icon.btn-theme:hover {
   background: linear-gradient(135deg,
               rgba(120,180,255,0.32),
               rgba(var(--color-on-fill-rgb), 0.06));
+}
 }
 
 /* ===== MAIN LAYOUT ===== */
@@ -595,17 +647,79 @@ html.dark-mode .map-loading {
   flex-shrink: 0;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 900px) {
   .main-layout {
     flex-direction: column;
   }
+  /* min-height:0 lets the map actually shrink; without it a flex item
+     refuses to go below its content size and the sheet cannot grow. */
+  .map-section {
+    min-height: 0;
+  }
+
+  /* The panel becomes a bottom sheet with three detents. It replaces a fixed
+     45vh slab that could show 5 of 10 departures and had no way to show
+     more. */
   .departure-panel {
     width: 100%;
     border-left: none;
     border-top: 1px solid var(--color-border);
-    max-height: 45vh;
-    min-height: 0;
+    height: var(--sheet-h, var(--sheet-half));
+    min-height: var(--sheet-peek);
+    max-height: var(--sheet-full);
     flex-shrink: 0;
+    /* Keeps the last row clear of the home indicator. Non-zero only because
+       of viewport-fit=cover on the viewport meta. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    transition: height var(--transition);
+  }
+
+  body[data-sheet="peek"] .departure-panel { --sheet-h: var(--sheet-peek); }
+  body[data-sheet="half"] .departure-panel { --sheet-h: var(--sheet-half); }
+  body[data-sheet="full"] .departure-panel { --sheet-h: var(--sheet-full); }
+
+  /* During a drag the height follows the pointer, so it must not also be
+     easing towards it. */
+  body.sheet-dragging .departure-panel { transition: none; }
+  body.sheet-dragging { cursor: grabbing; user-select: none; }
+}
+
+/* ===== SHEET HANDLE =====
+   Desktop has no sheet, so no handle. On mobile it is the primary way to
+   resize the panel: drag for a continuous gesture, or click / Enter / Space
+   to cycle peek -> half -> full, because the sheet has to be operable
+   without a pointer. */
+.sheet-handle { display: none; }
+
+@media (max-width: 900px) {
+  .sheet-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: var(--sheet-handle-height);
+    min-height: var(--sheet-handle-height);
+    flex-shrink: 0;
+    padding: 0;
+    background: var(--color-surface);
+    border: none;
+    border-bottom: 1px solid var(--color-border);
+    cursor: grab;
+    /* The gesture is ours; without this the browser scrolls the page instead
+       of giving us pointermove. */
+    touch-action: none;
+  }
+  .sheet-handle-grip {
+    width: 44px;
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: var(--color-border);
+    transition: background var(--transition);
+  }
+  .sheet-handle:active { cursor: grabbing; }
+  .sheet-handle:active .sheet-handle-grip,
+  .sheet-handle:focus-visible .sheet-handle-grip {
+    background: var(--color-text-muted);
   }
 }
 
@@ -629,6 +743,7 @@ html.dark-mode .map-loading {
   background: transparent;
   border: none;
   padding: 10px var(--space-md);
+  min-height: var(--target-min);
   color: var(--color-text-muted);
   font-family: var(--font-family);
   font-size: var(--font-size-sm);
@@ -640,10 +755,12 @@ html.dark-mode .map-loading {
   border-bottom: 2px solid transparent;
   transition: color var(--transition), border-color var(--transition);
   letter-spacing: 0.03em;
-}
+}@media (hover: hover) {
+
 
 .panel-tab:hover {
   color: var(--color-text);
+}
 }
 
 .panel-tab.active {
@@ -661,8 +778,9 @@ html.dark-mode .map-loading {
   border: none;
   border-left: 1px solid var(--color-border);
   border-radius: 0;
-  width: 42px;
+  width: var(--target-min);
   height: auto;
+  min-height: var(--target-min);
   align-self: stretch;
   padding: 0;
   font-size: var(--font-size-md);
@@ -672,12 +790,14 @@ html.dark-mode .map-loading {
   display: flex;
   align-items: center;
   justify-content: center;
-}
+}@media (hover: hover) {
+
 
 .panel-tabs-bar .btn-close:hover,
 .panel-tabs-bar .btn-collapse-panel:hover {
   background: var(--color-surface-2);
   color: var(--color-text);
+}
 }
 
 /* Ticket view's strip is a label, not a control — there is only one view to
@@ -698,18 +818,23 @@ html.dark-mode .map-loading {
   transition: transform var(--transition);
 }
 
-@media (max-width: 700px) {
+@media (max-width: 900px) {
   .panel-tabs-bar .btn-collapse-panel { display: flex; }
 }
 
-/* Collapsed state: hide the tab content panels so the strip can act as a
-   re-expand affordance. In Improvements mode we deliberately keep the
-   service-mode toggle + filter strip visible so the user can still tweak
-   filters with the content collapsed; Live mode has nothing above the
-   tab strip, so the rule is mode-scoped. */
-body.panel-collapsed .panel-mode > .panel-tab-content,
-body.panel-collapsed .panel-mode[data-mode="live"] > :not(.panel-tabs-bar) {
-  display: none !important;
+/* "Collapsed" now means the sheet is at its peek detent, not that the content
+   is display:none. That distinction is the whole Phase 1b bug: hiding the
+   content left Ticket view with nothing on screen to bring it back, and only
+   a reload recovered it. A sheet at peek is still a sheet — the handle and
+   the tab strip are always there, so the state cannot strand anyone.
+
+   The rule is kept (rather than deleted) because the collapsed panel still
+   needs to shrink on desktop, where there is no sheet and no handle. */
+@media (min-width: 901px) {
+  body.panel-collapsed .panel-mode > .panel-tab-content,
+  body.panel-collapsed .panel-mode[data-mode="live"] > :not(.panel-tabs-bar) {
+    display: none;
+  }
 }
 
 /* Flip the chevron when collapsed so it visually invites re-expansion. */
@@ -717,11 +842,9 @@ body.panel-collapsed .btn-collapse-panel .icon {
   transform: rotate(180deg);
 }
 
-@media (max-width: 700px) {
-  body.panel-collapsed .departure-panel {
-    max-height: none;
-    min-height: 0;
-  }
+@media (max-width: 900px) {
+  /* Collapsed is the peek detent; the height rules above already say so. */
+  body.panel-collapsed .departure-panel { --sheet-h: var(--sheet-peek); }
 }
 
 .panel-tab-content {
@@ -803,10 +926,12 @@ body.panel-collapsed .btn-collapse-panel .icon {
   font-size: var(--font-size-sm);
   font-weight: 600;
   transition: background var(--transition);
-}
+}@media (hover: hover) {
+
 
 .btn-retry:hover {
   background: var(--color-primary-dark);
+}
 }
 
 /* ===== DEPARTURES CONTAINER ===== */
@@ -848,10 +973,12 @@ body.panel-collapsed .btn-collapse-panel .icon {
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   transition: background var(--transition);
-}
+}@media (hover: hover) {
+
 
 .btn-text:hover {
   background: var(--color-surface-2);
+}
 }
 
 html.dark-mode .btn-text {
@@ -908,10 +1035,12 @@ html.dark-mode .btn-text {
 .departures-table tr.departure-row {
   cursor: pointer;
   transition: background var(--transition);
-}
+}@media (hover: hover) {
+
 
 .departures-table tr.departure-row:hover td {
   background: var(--color-surface-2);
+}
 }
 
 /* ===== SERVICE BADGE ===== */
@@ -1050,6 +1179,7 @@ html.dark-mode .btn-text {
   text-align: center;
   flex-shrink: 0;
   z-index: 100;
+  padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ===== STOP MARKERS ===== */
@@ -1060,10 +1190,12 @@ html.dark-mode .btn-text {
   width: 12px !important;
   height: 12px !important;
   transition: transform 0.15s;
-}
+}@media (hover: hover) {
+
 
 .stop-marker-icon:hover {
   transform: scale(1.4);
+}
 }
 
 /* ===== BUS VEHICLE MARKERS ===== */
@@ -1176,20 +1308,55 @@ html.dark-mode .btn-text {
   font-weight: 600;
   width: 100%;
   transition: background var(--transition);
-}
+}@media (hover: hover) {
+
 
 .popup-btn:hover {
   background: var(--color-primary-dark);
+}
 }
 
 .leaflet-bar a {
   background: var(--color-surface) !important;
   color: var(--color-text) !important;
   border-color: var(--color-border) !important;
-}
+}@media (hover: hover) {
+
 
 .leaflet-bar a:hover {
   background: var(--color-surface-2) !important;
+}
+}
+
+/* Text buttons are still buttons: "Report an issue" and "Refresh" sat at
+   19px tall. Padding rather than a fixed height, so they stay inline. */
+.btn-text {
+  min-height: var(--target-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Leaflet's own controls ship at 30x30. */
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  width: var(--target-min) !important;
+  height: var(--target-min) !important;
+  line-height: var(--target-min) !important;
+}
+
+/* Stop markers are 12px dots and must stay that size — they mark a position,
+   and a 44px dot would cover the street it sits on. Instead the dot keeps a
+   transparent hit area around it, which is what a finger actually needs.
+   (WCAG 2.5.8 exempts targets whose presentation is essential; the enlarged
+   hit area means the exemption is not being leaned on.) */
+.stop-marker-icon::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--target-min);
+  height: var(--target-min);
+  transform: translate(-50%, -50%);
 }
 
 /* ===== TABBED PANEL ===== */
@@ -1296,10 +1463,12 @@ html.dark-mode .btn-text {
   color: var(--color-text);
   font-weight: 600;
   transition: background var(--transition), border-color var(--transition);
-}
+}@media (hover: hover) {
+
 
 .follow-bus-toggle:hover {
   background: var(--color-border);
+}
 }
 
 .follow-bus-toggle input[type="checkbox"] {
@@ -1464,10 +1633,12 @@ html.dark-mode .btn-text {
 .ticket-value a {
   color: var(--color-accent-text);
   text-decoration: none;
-}
+}@media (hover: hover) {
+
 
 .ticket-value a:hover {
   text-decoration: underline;
+}
 }
 
 .ticket-more-link {
@@ -1476,10 +1647,12 @@ html.dark-mode .btn-text {
   text-decoration: none;
   margin-top: var(--space-2xs);
   align-self: flex-start;
-}
+}@media (hover: hover) {
+
 
 .ticket-more-link:hover {
   text-decoration: underline;
+}
 }
 
 .bus-info-lost {
@@ -1553,11 +1726,13 @@ html.dark-mode .bus-info-lost {
   transition: background var(--transition), color var(--transition);
   flex-shrink: 0;
   margin-left: var(--space-sm);
-}
+}@media (hover: hover) {
+
 
 .btn-close:hover {
   background: var(--color-surface-2);
   color: var(--color-text);
+}
 }
 
 /* ================================================================
@@ -1646,9 +1821,11 @@ html.dark-mode .header-icon {
 
 .header-title {
   font-family: var(--font-brand);
-  /* Fluid scale: ~1.25rem on tablet up to 1.9rem on wide desktop, so the
-     title never crowds the controls in the 700–1024 range. */
-  font-size: clamp(1.25rem, 0.95rem + 1.4vw, 1.9rem);
+  /* Fluid scale, capped at the same 1.9rem as before so wide desktop is
+     unchanged. The slope is shallower than it was because the old one put
+     the title at 26px on a 768px tablet, where it needed 431px of a 390px
+     brand column and rendered 80% of itself. */
+  font-size: clamp(1.05rem, 0.35rem + 1.85vw, 1.9rem);
   font-weight: 800;
   line-height: 1.05;
   letter-spacing: -0.015em;
@@ -1679,27 +1856,52 @@ html.dark-mode .header-icon {
   .last-updated { display: none; }
 }
 
+/* Below 700px the header cannot hold everything: measured at 390px, the
+   controls took 302 of it and left 64px for a title needing 137. Rather than
+   shrink the title into illegibility, the bus and rail *layer* toggles move
+   onto the map, which is what they act on. They keep their ids and their
+   bindings; only their position and their skin change, because on the map
+   they can no longer borrow the header's white-on-navy. */
 @media (max-width: 700px) {
   :root { --header-height: 52px; }
+
+  .status-pill {
+    position: fixed;
+    top: calc(var(--header-height) + var(--space-sm));
+    right: var(--space-sm);
+    z-index: 850;
+    padding: 3px;
+    gap: 2px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    box-shadow: var(--shadow-md);
+  }
+  .status-pill .btn-icon.status-pill-toggle {
+    color: var(--color-text-muted);
+  }
+  .status-pill .btn-icon.status-pill-toggle[aria-pressed="true"] {
+    color: var(--color-accent-text);
+    background: var(--color-surface-2);
+  }
+  /* Shorten the brand to a lockup rather than clipping it: below this width
+     the controls do not leave room for the full phrase, and "Adur &
+     Worthing" is the half that tells you where you are. The icon and
+     strapline go with it — the title is what has to survive. */
+  .header-title-lead { display: none; }
+  .header-icon       { display: none; }
+  .header-subtitle   { display: none; }
   /* Panel stacks below the map on mobile, so the wave spans full width. */
   .header-wave { width: 100%; height: 16px; }
   .header-inner { gap: var(--space-sm); padding: 0 var(--space-md); }
   .header-brand { gap: 10px; flex: 1; min-width: 0; }
   .header-brand > div { min-width: 0; }
-  .header-icon { width: 34px; height: 34px; flex-shrink: 0; }
-  .header-icon .icon { width: 19px; height: 19px; }
   .header-controls { flex-shrink: 0; gap: var(--space-sm); }
   .section-nav-trigger { padding: 5px 9px; font-size: var(--font-size-xs); }
-  .header-title    { font-size: clamp(1.05rem, 3.6vw, 1.35rem); }
-  .header-subtitle { font-size: var(--font-size-2xs); }
+  .header-title    { font-size: clamp(1rem, 3.4vw, 1.35rem); }
 }
 @media (max-width: 480px) {
-  .header-subtitle { display: none; }
-  .header-title    { font-size: 1.1rem; }
-  /* Drop the bus icon at the smallest widths — the dropdown carries the
-     brand context, and freeing this 40px lets the full title fit. */
-  .header-icon     { display: none; }
-  .header-inner    { padding: 0 var(--space-sm); }
+  /* The icon, strapline and "Better buses for" are already gone by 700px. */
+  .header-inner { padding: 0 var(--space-sm); }
 }
 
 /* ---- Header controls: icon buttons hold svgs ---- */
@@ -1798,12 +2000,14 @@ html.dark-mode .header-icon {
     0 2px 4px rgba(10, 18, 32, 0.35);
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.18s;
-}
+}@media (hover: hover) {
+
 .stop-marker-icon:hover {
   transform: scale(1.6);
   box-shadow:
     0 0 0 3px rgba(var(--color-accent-rgb), 0.35),
     0 3px 6px rgba(10, 18, 32, 0.45);
+}
 }
 /* Zoomed out a lot (≤ z12): nudge the dots a touch smaller so ~1400 markers
    don't crowd the map. Size-based (not transform) to stay clear of Leaflet's
@@ -1859,13 +2063,17 @@ body.editor-mode-add-stop .leaflet-marker-icon.stop-marker-icon {
 html.dark-mode .departures-table td {
   border-bottom-color: rgba(200, 216, 236, 0.06);
 }
-.departures-table tr:last-child td { border-bottom: none; }
+.departures-table tr:last-child td { border-bottom: none; }@media (hover: hover) {
+
 
 .departures-table tr.departure-row:hover td {
   background: rgba(var(--color-accent-rgb), 0.05);
 }
+}@media (hover: hover) {
+
 html.dark-mode .departures-table tr.departure-row:hover td {
   background: rgba(var(--color-accent-rgb), 0.06);
+}
 }
 
 .departures-table td:nth-child(3),
@@ -2009,11 +2217,13 @@ html.dark-mode #map::after {
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
 
-.service-mode-btn .icon { width: 14px; height: 14px; }
+.service-mode-btn .icon { width: 14px; height: 14px; }@media (hover: hover) {
+
 
 .service-mode-btn:hover {
   color: var(--color-text);
   background: var(--color-surface);
+}
 }
 
 .service-mode-btn.active {
@@ -2104,11 +2314,13 @@ html.dark-mode .route-endpoint-pill {
   padding: 3px 10px;
   cursor: pointer;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
-}
+}@media (hover: hover) {
+
 
 .filter-chip:hover {
   color: var(--color-text);
   background: var(--color-surface);
+}
 }
 
 .filter-chip.active {
@@ -2273,9 +2485,11 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   background: var(--color-surface-2);
   color: var(--color-text-muted);
   border-color: var(--color-border);
-}
+}@media (hover: hover) {
+
 
 .route-chip:hover { transform: translateY(-1px); }
+}
 .route-chip:active { transform: translateY(0); }
 
 /* ── Proposals tab ── */
@@ -2315,9 +2529,11 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   font-family: inherit;
   color: inherit;
   transition: background var(--transition), transform var(--transition);
-}
+}@media (hover: hover) {
+
 
 .proposal-card:hover { background: var(--color-surface); transform: translateY(-1px); }
+}
 
 .proposal-card.selected {
   background: var(--color-surface);
@@ -2377,10 +2593,12 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   color: var(--color-primary);
   text-decoration: none;
   word-break: break-all;
-}
+}@media (hover: hover) {
+
 
 .proposal-link:hover {
   text-decoration: underline;
+}
 }
 
 /* ── Network plan view: objectives + community ideas ── */
@@ -2420,8 +2638,10 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 .status-badge.status-delivered      { color: var(--color-on-time); }
 
 /* Community idea cards are read-only — drop the button affordances. */
-.idea-card { cursor: default; }
+.idea-card { cursor: default; }@media (hover: hover) {
+
 .idea-card:hover { transform: none; background: var(--color-surface-2); }
+}
 .idea-card-meta {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
@@ -2669,8 +2889,10 @@ html.dark-mode .journey-reform-link { color: var(--color-text); }
   text-decoration: none;
   font-weight: 600;
   align-self: flex-start;
-}
+}@media (hover: hover) {
+
 .ticket-zone-link:hover { text-decoration: underline; }
+}
 .ticket-zone-note {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
@@ -2693,8 +2915,10 @@ html.dark-mode .journey-reform-link { color: var(--color-text); }
   cursor: pointer;
   user-select: none;
   transition: background var(--transition), transform var(--transition);
-}
+}@media (hover: hover) {
+
 .ticket-operator-card:hover { background: var(--color-surface); transform: translateY(-1px); }
+}
 .ticket-operator-card[aria-expanded="true"] { background: var(--color-surface); }
 /* Small brand-colour swatch keeps the operator's identity without a loud fill. */
 .ticket-operator-card::before {
@@ -2812,9 +3036,11 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
   align-items: center;
   gap: var(--space-xs);
   transition: background var(--transition), border-color var(--transition);
-}
+}@media (hover: hover) {
+
 
 .map-overlay-btn:hover { background: var(--color-surface-2); }
+}
 
 /* Active/selected state uses accent across the app (tabs, Day/Night, selected
    proposal). Dark text in dark mode keeps contrast on the lighter gold —
@@ -2823,9 +3049,11 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
   background: var(--color-accent);
   color: var(--color-on-accent);
   border-color: var(--color-accent);
-}
+}@media (hover: hover) {
+
 .map-overlay-btn[aria-pressed="true"]:hover {
   background: var(--color-accent);
+}
 }
 
 /* ============================================================
@@ -2849,8 +3077,10 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
   padding: 6px 12px;
   cursor: pointer;
   transition: background var(--transition), transform var(--transition);
-}
+}@media (hover: hover) {
+
 .new-proposal-btn:hover { transform: translateY(-1px); background: var(--color-primary-dark, var(--color-primary)); }
+}
 .new-proposal-btn .icon { width: 14px; height: 14px; }
 
 /* Drafts section in the Proposals tab */
@@ -2888,8 +3118,10 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
   font-family: inherit;
   color: inherit;
   transition: background var(--transition);
-}
+}@media (hover: hover) {
+
 .draft-card:hover { background: var(--color-surface); }
+}
 .draft-card-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .draft-card-name {
   font-weight: 600;
@@ -2914,8 +3146,10 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
+}@media (hover: hover) {
+
 .draft-card-delete:hover { color: var(--color-danger); background: var(--color-danger-tint); }
+}
 .draft-card-delete .icon { width: 14px; height: 14px; }
 
 /* Editor view — same panel, different content */
@@ -2959,9 +3193,13 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
   align-items: center;
   gap: var(--space-2xs);
   transition: background var(--transition);
-}
+}@media (hover: hover) {
+
 .editor-back-btn:hover { background: var(--color-surface); }
+}@media (hover: hover) {
+
 .editor-delete-btn:hover { background: var(--color-danger-tint); color: var(--color-danger); border-color: var(--color-danger); }
+}
 .editor-back-btn .icon, .editor-delete-btn .icon { width: 13px; height: 13px; }
 
 .editor-scroll {
@@ -3055,8 +3293,10 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
   gap: var(--space-2xs);
   transition: background var(--transition), border-color var(--transition);
 }
-.editor-mode-btn .icon { width: 16px; height: 16px; }
+.editor-mode-btn .icon { width: 16px; height: 16px; }@media (hover: hover) {
+
 .editor-mode-btn:hover { background: var(--color-surface); }
+}
 .editor-mode-btn.active {
   background: var(--color-accent);
   color: var(--color-on-accent);
@@ -3114,8 +3354,10 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
   border-radius: var(--radius-sm, 4px);
   font-size: var(--font-size-sm);
   color: var(--color-text);
-}
+}@media (hover: hover) {
+
 .editor-point-row:hover { background: var(--color-surface-2); }
+}
 .editor-point-row .icon { width: 13px; height: 13px; flex-shrink: 0; }
 .editor-point-row-index {
   width: 22px;
@@ -3141,8 +3383,10 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
   line-height: 1;
   font-size: var(--font-size-base);
   border-radius: var(--radius-sm, 4px);
-}
+}@media (hover: hover) {
+
 .editor-point-row-remove:hover { color: var(--color-danger); background: var(--color-danger-tint); }
+}
 
 .editor-drag-handle {
   cursor: grab;
@@ -3201,8 +3445,10 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
   gap: 5px;
   transition: background var(--transition), border-color var(--transition);
 }
-.editor-action-btn .icon { width: 13px; height: 13px; }
+.editor-action-btn .icon { width: 13px; height: 13px; }@media (hover: hover) {
+
 .editor-action-btn:hover { background: var(--color-surface-2); }
+}
 .editor-action-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -3211,8 +3457,10 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
   background: var(--color-primary);
   color: var(--color-on-fill);
   border-color: var(--color-primary);
-}
+}@media (hover: hover) {
+
 .editor-action-btn.primary:hover { background: var(--color-primary-dark, var(--color-primary)); }
+}
 
 /* Info icon next to Contribute — opens a friendly walkthrough popover */
 .editor-help-btn { padding: var(--space-xs); }
@@ -3262,10 +3510,11 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
    row + tabs above it. Pin to the viewport (no ancestor uses transform/
    filter, so position:fixed escapes cleanly) so the popover can be
    tall + scrollable without being clipped by the panel container. */
-@media (max-width: 700px) {
+@media (max-width: 900px) {
   .editor-help-popover {
     position: fixed;
-    bottom: 72px;
+    /* Clear of the home indicator as well as the sheet's own bottom edge. */
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
     left: 12px;
     right: 12px;
     max-width: none;
@@ -3284,8 +3533,10 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
   padding: var(--space-2xs);
   border-radius: var(--radius-sm);
   line-height: 0;
-}
+}@media (hover: hover) {
+
 .editor-help-close:hover { background: var(--color-surface-2); color: var(--color-text); }
+}
 .editor-help-close .icon { width: 12px; height: 12px; }
 .editor-help-title {
   margin: 0 24px 6px 0;
@@ -3386,7 +3637,7 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
    Inner overflow:auto blocks (proposals-list, route-filter-chips) are
    flattened so we don't get nested scroll regions on a phone.
    ============================================================ */
-@media (max-width: 700px) {
+@media (max-width: 900px) {
   .panel-tab-content { overflow-y: auto; }
 
   .proposals-view {
@@ -3422,8 +3673,10 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   display: flex; align-items: center; justify-content: center;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
   transition: transform 120ms ease;
-}
+}@media (hover: hover) {
+
 .rail-station-icon:hover { transform: scale(1.18); }
+}
 .rail-station-icon svg { width: 100%; height: 100%; }
 
 /* Wrapper houses the pulse ring behind the pill. No bearing rotation —
@@ -3605,8 +3858,10 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   text-transform: uppercase;
   padding: 4px 8px;
   cursor: pointer;
-}
+}@media (hover: hover) {
+
 .rail-track-btn:hover { background: var(--color-border); }
+}
 .rail-track-btn--on {
   background: var(--color-primary);
   color: var(--color-on-fill);

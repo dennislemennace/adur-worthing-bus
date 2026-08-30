@@ -137,7 +137,8 @@ const state = {
   railFreezeNoticed:       false,  // shown once if the rail panel is opened with rail hidden
 
   // ── Improvements view (network/proposals mode) ──
-  viewMode:                "live", // "live" | "improvements"
+  viewMode:                "live", // "live" | "improvements" | "tickets" | "network"
+  sheetDetent:             "half", // "peek" | "half" | "full" — the mobile sheet
   improvementsTab:         "about",// "about" | "proposals" — official proposal lines only show on the Proposals tab
   serviceMode:             "day",  // "day" | "night" — splits chips, route lines, proposals
   visibleCategories:       null,   // Set holding the active type-filter key: "all" | "express" | "standard"
@@ -189,6 +190,8 @@ const dom = {
   toggleBusesBtn:     document.getElementById("toggle-buses-btn"),
   darkModeBtn:        document.getElementById("dark-mode-btn"),
   departurePanel:     document.getElementById("departure-panel"),
+  sheetHandle:        document.getElementById("sheet-handle"),
+  liveStatusPill:     document.getElementById("live-status-pill"),
   panelStopName:      document.getElementById("panel-stop-name"),
   panelStopId:        document.getElementById("panel-stop-id"),
   closePanelBtn:      document.getElementById("close-panel-btn"),
@@ -1603,29 +1606,159 @@ function toggleDarkMode() {
   // `dark-mode` class on <html> drives the CSS filter that darkens them.
 }
 
-/** Toggle the mobile collapsed state — keeps the tab strip visible but
- *  hides everything below it so the map can take the rest of the
- *  viewport. Updates aria-pressed + aria-label on each collapse button
- *  so a screen reader follows along. */
-function setPanelCollapsed(collapsed) {
-  document.body.classList.toggle("panel-collapsed", collapsed);
+/* ============================================================
+ * THE BOTTOM SHEET
+ *
+ * Below MOBILE_BREAKPOINT the panel is a sheet with three detents rather
+ * than a fixed 45vh slab. The slab could show 5 of 10 departures with no
+ * way to show more, and "collapsed" meant display:none — which is how
+ * Ticket view became unreachable, since it had no control to undo it.
+ *
+ * A sheet cannot reproduce that: its smallest state is still a sheet, with
+ * a handle and a tab strip on screen. `panel-collapsed` is kept as the name
+ * for the peek detent so existing controls, tests and the desktop rules
+ * carry on working unchanged.
+ * ============================================================ */
+
+/* Where the layout stops being side-by-side. 900, not 700: a 768px portrait
+   tablet was getting a squeezed map beside a half-width panel of mostly
+   whitespace. Must stay in step with the media queries in style.css. */
+const MOBILE_BREAKPOINT = 900;
+
+const SHEET_DETENTS = ["peek", "half", "full"];
+
+function isSheetLayout() {
+  return window.innerWidth <= MOBILE_BREAKPOINT;
+}
+
+/** Resolve the CSS detents to pixels, so a drag can snap to them. */
+function sheetDetentPixels() {
+  const cs = getComputedStyle(document.documentElement);
+  const read = (name, fallback) => {
+    const v = cs.getPropertyValue(name).trim();
+    const n = parseFloat(v);
+    if (!isFinite(n)) return fallback;
+    if (v.endsWith("px")) return n;
+    // svh and vh both resolve against innerHeight closely enough for snapping.
+    if (v.endsWith("svh") || v.endsWith("vh") || v.endsWith("dvh")) {
+      return window.innerHeight * n / 100;
+    }
+    return fallback;
+  };
+  return {
+    peek: read("--sheet-peek", 200),
+    half: read("--sheet-half", window.innerHeight * 0.48),
+    full: read("--sheet-full", window.innerHeight * 0.88),
+  };
+}
+
+function syncCollapseButtons(collapsed) {
   document.querySelectorAll(".btn-collapse-panel").forEach(btn => {
     btn.setAttribute("aria-pressed", collapsed ? "true" : "false");
     btn.setAttribute("aria-label", collapsed ? "Show panel" : "Hide panel");
   });
 }
 
+/** Move the sheet to a named detent and tell everything else about it. */
+function setSheetDetent(detent) {
+  if (!SHEET_DETENTS.includes(detent)) return;
+  state.sheetDetent = detent;
+  document.body.dataset.sheet = detent;
+
+  const collapsed = detent === "peek";
+  document.body.classList.toggle("panel-collapsed", collapsed);
+  syncCollapseButtons(collapsed);
+  if (dom.sheetHandle) {
+    dom.sheetHandle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  }
+}
+
+function cycleSheetDetent() {
+  const i = SHEET_DETENTS.indexOf(state.sheetDetent);
+  setSheetDetent(SHEET_DETENTS[(i + 1) % SHEET_DETENTS.length]);
+  if (state.map) state.map.invalidateSize();
+}
+
+/** Collapsed is the peek detent; expanded returns to half. */
+function setPanelCollapsed(collapsed) {
+  setSheetDetent(collapsed ? "peek" : "half");
+}
+
 function togglePanelCollapsed() {
   setPanelCollapsed(!document.body.classList.contains("panel-collapsed"));
 }
 
-/** The collapse control is only rendered under 700px. Crossing back above it
- *  while collapsed used to strand the panel hidden with no way to reopen it,
- *  because the button that would undo it had gone. Clear the state instead. */
+/** The collapse control is only rendered below the breakpoint. Crossing back
+ *  above it while collapsed used to strand the panel hidden with no way to
+ *  reopen it, because the button that would undo it had gone. */
 function syncPanelCollapsedToWidth() {
-  if (window.innerWidth > 700 && document.body.classList.contains("panel-collapsed")) {
+  if (window.innerWidth > MOBILE_BREAKPOINT &&
+      document.body.classList.contains("panel-collapsed")) {
     setPanelCollapsed(false);
   }
+}
+
+/**
+ * Drag the handle to resize; tap, Enter or Space to cycle the detents.
+ *
+ * The keyboard path is not a nicety — the sheet is the only way to see more
+ * than a few departures, so it cannot be pointer-only. That is also why the
+ * handle is a <button> rather than a styled div.
+ */
+function initSheet() {
+  const handle = dom.sheetHandle;
+  const panel  = dom.departurePanel;
+  if (!handle || !panel) return;
+
+  const TAP_SLOP = 6;          // px of movement still counted as a tap
+  let dragging = false, startY = 0, startH = 0, moved = 0, wasDrag = false;
+
+  handle.addEventListener("pointerdown", (e) => {
+    if (!isSheetLayout()) return;
+    dragging = true;
+    moved    = 0;
+    startY   = e.clientY;
+    startH   = panel.getBoundingClientRect().height;
+    try { handle.setPointerCapture(e.pointerId); } catch { /* not fatal */ }
+    document.body.classList.add("sheet-dragging");
+  });
+
+  handle.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const dy = startY - e.clientY;            // dragging up grows the sheet
+    moved = Math.max(moved, Math.abs(dy));
+    const d = sheetDetentPixels();
+    const h = Math.min(d.full, Math.max(d.peek, startH + dy));
+    panel.style.setProperty("--sheet-h", `${h}px`);
+  });
+
+  const endDrag = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove("sheet-dragging");
+    try { handle.releasePointerCapture(e.pointerId); } catch { /* fine */ }
+
+    const height = panel.getBoundingClientRect().height;
+    panel.style.removeProperty("--sheet-h");
+
+    wasDrag = moved >= TAP_SLOP;
+    if (!wasDrag) return;                     // a tap: the click handler has it
+
+    const d = sheetDetentPixels();
+    const nearest = SHEET_DETENTS.reduce((best, name) =>
+      Math.abs(d[name] - height) < Math.abs(d[best] - height) ? name : best);
+    setSheetDetent(nearest);
+    if (state.map) state.map.invalidateSize();
+  };
+  handle.addEventListener("pointerup", endDrag);
+  handle.addEventListener("pointercancel", endDrag);
+
+  // Fires for a tap and for Enter/Space on the focused button. A click that
+  // merely ends a drag would otherwise advance the detent a second time.
+  handle.addEventListener("click", () => {
+    if (wasDrag) { wasDrag = false; return; }
+    cycleSheetDetent();
+  });
 }
 
 function closePanel() {
@@ -1773,6 +1906,8 @@ function bindUIEvents() {
   document.querySelectorAll(".btn-collapse-panel").forEach(btn => {
     btn.addEventListener("click", togglePanelCollapsed);
   });
+  initSheet();
+  setSheetDetent(state.sheetDetent);   // publish the initial detent to the DOM
   window.addEventListener("resize", syncPanelCollapsedToWidth);
 
   // Improvements panel: tab switching + close
@@ -2101,6 +2236,11 @@ async function applyViewMode() {
   // The "show buses" toggle only does anything in Live view.
   if (dom.toggleBusesBtn) dom.toggleBusesBtn.hidden = !live;
   if (dom.toggleRailBtn)  dom.toggleRailBtn.hidden  = !live;
+  // ...and hide the pill that holds them, not just its contents. On mobile it
+  // is positioned over the map with its own background, so an empty one reads
+  // as a stray box. The timestamp it also carries describes the vehicle feed,
+  // which is paused outside Live view anyway.
+  if (dom.liveStatusPill) dom.liveStatusPill.hidden = !live;
 
   // Any non-live section is a static network view: pause the live refresh,
   // hide vehicles, and dismiss the live stop/bus panel + popups.

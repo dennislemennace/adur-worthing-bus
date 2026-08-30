@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- viewport-fit=cover is what makes env(safe-area-inset-*) non-zero; without
+       it the sheet sits under the home indicator on a notched phone. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#1a4b82" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#090e1a" media="(prefers-color-scheme: dark)" />
   <title>Adur &amp; Worthing Live Bus Tracker</title>
   <meta name="description" content="Live bus departure boards and vehicle tracking for Adur and Worthing, West Sussex." />
 
@@ -146,7 +150,11 @@
           <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
         </span>
         <div>
-          <h1 class="header-title">Better buses for Adur &amp; Worthing</h1>
+          <!-- Split so the brand can shorten rather than truncate. At 390px
+               the controls leave about 110px here, and "Better buses for Adur
+               & Worthing" was rendering 22% of itself — a clipped word says
+               less than a shorter phrase does. -->
+          <h1 class="header-title"><span class="header-title-lead">Better buses for </span>Adur &amp; Worthing</h1>
           <p class="header-subtitle">Let's connect Adur, Worthing, Brighton &amp; beyond</p>
         </div>
       </div>
@@ -236,6 +244,15 @@
 
     <!-- ── Right: Departure / Bus Info Panel ── -->
     <aside class="departure-panel" id="departure-panel" aria-label="Information panel">
+
+      <!-- Sheet handle. Mobile-only, and shared by all four modes because it
+           belongs to the panel rather than to any view. It is a real button:
+           dragging is the fast path, but the panel must be resizable without
+           a pointer, so clicking (or Enter/Space) cycles the detents. -->
+      <button class="sheet-handle" id="sheet-handle" type="button"
+              aria-label="Resize panel" aria-expanded="true">
+        <span class="sheet-handle-grip" aria-hidden="true"></span>
+      </button>
 
       <!-- === LIVE MODE PANELS (Stop / Bus) === -->
       <div class="panel-mode" data-mode="live">

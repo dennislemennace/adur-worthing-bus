@@ -167,8 +167,8 @@ test("switching view clears a collapsed panel", async () => {
 });
 
 test("crossing above the mobile breakpoint clears a collapsed panel", () => {
-  // The control is display:none over 700px, so staying collapsed past the
-  // breakpoint strands the panel with nothing on screen to reopen it.
+  // The control is display:none above the breakpoint, so staying collapsed
+  // past it strands the panel with nothing on screen to reopen it.
   const { ctx, bodyClasses } = loadApp();
   ctx.setPanelCollapsed(true);
 
@@ -186,5 +186,72 @@ test("staying under the breakpoint leaves the panel collapsed", () => {
   ctx.window.innerWidth = 390;
   ctx.syncPanelCollapsedToWidth();
 
-  assert.ok(bodyClasses.has(COLLAPSED), "resize below 700px must not undo the user");
+  assert.ok(bodyClasses.has(COLLAPSED), "resizing on a phone must not undo the user");
+});
+
+
+/* `state` is a const in app.js, so it never becomes a property of the vm
+   global — it has to be read from inside the context, not off `ctx`. */
+const detentOf = (ctx) => vm.runInContext("state.sheetDetent", ctx);
+
+// ── The bottom sheet ────────────────────────────────────────
+//
+// The panel is now a sheet with three detents rather than a fixed slab, and
+// "collapsed" is the name of its smallest one. The point of the change is
+// that the smallest state is still a sheet: content stays in the layout, so
+// no state can leave a view unreachable the way display:none did.
+
+test("a detent publishes itself to the body and to state", () => {
+  const { ctx } = loadApp();
+  ctx.setSheetDetent("full");
+  assert.equal(detentOf(ctx), "full");
+  assert.equal(ctx.document.body.dataset.sheet, "full");
+});
+
+test("peek is the collapsed detent, and nothing else is", () => {
+  const { ctx, bodyClasses } = loadApp();
+  ctx.setSheetDetent("peek");
+  assert.ok(bodyClasses.has(COLLAPSED), "peek must read as collapsed");
+  for (const d of ["half", "full"]) {
+    ctx.setSheetDetent(d);
+    assert.ok(!bodyClasses.has(COLLAPSED), `${d} must not read as collapsed`);
+  }
+});
+
+test("collapsing and expanding map onto detents", () => {
+  const { ctx } = loadApp();
+  ctx.setPanelCollapsed(true);
+  assert.equal(detentOf(ctx), "peek");
+  ctx.setPanelCollapsed(false);
+  assert.equal(detentOf(ctx), "half");
+});
+
+test("cycling walks peek -> half -> full and wraps", () => {
+  // This is the keyboard path: the handle is a button precisely so the sheet
+  // is not pointer-only, and cycling is what Enter and Space do.
+  const { ctx } = loadApp();
+  ctx.setSheetDetent("peek");
+  const seen = [];
+  for (let i = 0; i < 4; i++) {
+    ctx.cycleSheetDetent();
+    seen.push(detentOf(ctx));
+  }
+  assert.deepEqual(seen, ["half", "full", "peek", "half"]);
+});
+
+test("an unknown detent is ignored rather than applied", () => {
+  const { ctx } = loadApp();
+  ctx.setSheetDetent("half");
+  ctx.setSheetDetent("enormous");
+  assert.equal(detentOf(ctx), "half", "must not accept a name it cannot render");
+});
+
+test("the collapse buttons still describe the state to a screen reader", () => {
+  // Previously driven from setPanelCollapsed; now from the detent, so the
+  // handle and the chevron cannot disagree about what the sheet is doing.
+  const { ctx, buttons } = loadApp();
+  ctx.setSheetDetent("peek");
+  for (const b of buttons) assert.equal(b.getAttribute("aria-label"), "Show panel");
+  ctx.setSheetDetent("full");
+  for (const b of buttons) assert.equal(b.getAttribute("aria-label"), "Hide panel");
 });

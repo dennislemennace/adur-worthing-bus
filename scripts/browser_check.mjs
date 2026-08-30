@@ -259,12 +259,17 @@ const TARGET_SCAN = `(() => {
         : el.tagName.toLowerCase());
   const sel = 'button, [role="option"], [role="button"], select,' +
               ' input:not([type=hidden]), .panel-tab';
+  // Map pins are excluded: a 12px dot marks a position on a street, and a
+  // 44px one would cover the street. They carry a transparent 44px hit area
+  // via .stop-marker-icon::after instead, which a bounding rect cannot see.
+  const EXEMPT = /leaflet-marker-icon|leaflet-div-icon/;
   const bad = [];
   for (const el of document.querySelectorAll(sel)) {
     const cs = getComputedStyle(el);
     if (cs.display === "none" || cs.visibility === "hidden") continue;
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) continue;
+    if (EXEMPT.test(el.className || "")) continue;
     if (r.width < 44 || r.height < 44) {
       bad.push(named(el) + " " + Math.round(r.width) + "x" + Math.round(r.height));
     }
