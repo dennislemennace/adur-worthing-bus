@@ -2,9 +2,35 @@
 
 **Written:** 2026-08-29 · **Against:** `main` @ `f498865`
 
-**Status:** Phase 1 and Phase 1b are **built and verified** (2026-08-29, uncommitted).
-Phase 2 is blocked on your accounts. Phase 3 not started.
-Test count 121 → 140, plus 12 browser checks.
+**Status:** Phases 1, 1b and 2 are **done, merged and live**. Phase 3 not started.
+Test count 121 → 144, plus 12 browser checks.
+
+Submissions went live 2026-08-30 and are proven end to end: issue #1 arrived
+through the Worker with the right labels and was published to the site with
+`scripts/add_suggestion.py`.
+
+**Two things bit during Phase 2 that the plan had not anticipated** — both now
+fixed in `worker/README.md` and in code:
+
+1. `wrangler secret put` fails until the Worker exists, so the first deploy has
+   to come *before* the secrets, not after.
+2. The first deploy prints a `workers.dev` URL that does not work until a
+   subdomain is registered on the account. The symptom is
+   `curl: (35) TLS connect error`, which suggests nothing about the cause.
+
+**And one self-inflicted outage worth remembering.** Phase 1 made the API
+honour `ALLOWED_ORIGIN`, which `render.yaml` had documented from the beginning
+while nothing read it. The variable was already set in Render to a stale value,
+so the first deploy that respected it dropped the real Pages origin and the
+live site lost access to its own API. `curl` kept returning 200 throughout,
+because curl does not enforce CORS — the same shape of trap as the CARTO
+basemap returning 200 while serving "API KEY REQUIRED" tiles. `ALLOWED_ORIGIN`
+now adds to the canonical origin instead of replacing it.
+
+The final failure was a `403 Resource not accessible by personal access token`:
+GitHub's current fine-grained-PAT UI starts with **zero** repository
+permissions and requires an explicit "Add permissions" step, which is easy to
+miss because there is no list of permissions to scroll through.
 
 Three phases, in this order: **secure the endpoints → switch submissions on →
 restyle for mobile**. Each phase is independently shippable; nothing here needs
@@ -186,7 +212,7 @@ visible.
 
 ---
 
-## Phase 2 — switching submissions on  ◐ PARTLY DONE, BLOCKED ON ACCOUNTS
+## Phase 2 — switching submissions on  ✅ DONE, LIVE 2026-08-30
 
 Mostly account work that cannot be done on your behalf. The Worker itself is
 built, tested (26 tests) and deployed-ready.
