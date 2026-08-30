@@ -206,11 +206,18 @@ app = FastAPI(
 )
 
 # Comma-separated, so a preview deployment can be added without a code change.
+#
+# ALLOWED_ORIGIN *adds to* the canonical site origin rather than replacing it.
+# Replacing it is what shipped first, and it took the live site off its own API
+# within a minute: the var had been set in the Render dashboard long before
+# anything read it, to a value that no longer matched, and the moment the code
+# started honouring it the real origin fell out of the allowlist. A stale
+# dashboard value should not be able to do that.
 _allowed_origins = [
     o.strip() for o in os.environ.get("ALLOWED_ORIGIN", "").split(",") if o.strip()
 ]
-if not _allowed_origins:
-    _allowed_origins = [DEFAULT_ALLOWED_ORIGIN]
+if DEFAULT_ALLOWED_ORIGIN not in _allowed_origins:
+    _allowed_origins.append(DEFAULT_ALLOWED_ORIGIN)
 
 app.add_middleware(
     CORSMiddleware,

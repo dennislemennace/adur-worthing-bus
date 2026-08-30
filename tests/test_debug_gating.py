@@ -146,7 +146,11 @@ def test_allowed_origin_env_var_is_honoured(monkeypatch):
     monkeypatch.setenv("ALLOWED_ORIGIN", "https://example.test,https://other.test")
     reloaded = importlib.reload(main)
     try:
-        assert reloaded._allowed_origins == ["https://example.test", "https://other.test"]
+        # Configured origins are added to the canonical site origin, not
+        # swapped for it — see test_site_origin_survives_a_stale_allowed_origin.
+        assert "https://example.test" in reloaded._allowed_origins
+        assert "https://other.test" in reloaded._allowed_origins
+        assert SITE_ORIGIN in reloaded._allowed_origins
         resp = TestClient(reloaded.app).get("/", headers={"Origin": "https://other.test"})
         assert resp.headers.get("access-control-allow-origin") == "https://other.test"
     finally:
@@ -176,3 +180,25 @@ def test_live_raw_respects_the_daily_quota(debug_on, monkeypatch):
     resp = TestClient(debug_on.app).get("/api/debug/live-raw", params={"stopId": "1490001"})
     assert resp.status_code == 200
     assert resp.json()["error"] == "quota exhausted"
+
+
+def test_site_origin_survives_a_stale_allowed_origin(monkeypatch):
+    """A wrong ALLOWED_ORIGIN must not take the live site off its own API.
+
+    This is a regression test for a real outage: ALLOWED_ORIGIN had been set in
+    the Render dashboard long before any code read it, and the first deploy
+    that honoured it dropped the real Pages origin from the allowlist.
+    """
+    monkeypatch.setenv("ALLOWED_ORIGIN", "https://something-stale.example")
+    reloaded = importlib.reload(main)
+    try:
+        assert SITE_ORIGIN in reloaded._allowed_origins
+        resp = TestClient(reloaded.app).get("/", headers={"Origin": SITE_ORIGIN})
+        assert resp.headers.get("access-control-allow-origin") == SITE_ORIGIN
+        # the configured value still works too
+        resp2 = TestClient(reloaded.app).get(
+            "/", headers={"Origin": "https://something-stale.example"})
+        assert resp2.headers.get("access-control-allow-origin") == "https://something-stale.example"
+    finally:
+        monkeypatch.delenv("ALLOWED_ORIGIN", raising=False)
+        importlib.reload(main)
