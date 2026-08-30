@@ -16,3 +16,6 @@ data/timetable.sqlite-wal
 data/timetable.sqlite-shm
 data/timetable.sqlite.sha256.local
 data/.nb_quota.json
+
+# Wrangler's local account/build cache — machine-specific, never committed.
+worker/.wrangler/

@@ -43,12 +43,12 @@ const CONFIG = {
   // and tells people to try again, which they can do forever without it
   // working. Replace the whole string with the deployed URL, e.g.
   //   https://adur-worthing-submissions.<subdomain>.workers.dev/submit
-  SUBMIT_ENDPOINT: "https://YOUR-WORKER.workers.dev/submit",
+  SUBMIT_ENDPOINT: "https://adur-worthing-submissions.dennislemennace.workers.dev/submit",
 
   // Turnstile SITE key — public by design (the secret half lives in the
   // Worker). Empty means the widget is skipped, which the Worker will
   // reject, so this must be set for submissions to work in production.
-  TURNSTILE_SITE_KEY: "",
+  TURNSTILE_SITE_KEY: "0x4AAAAAAEh6f3QF6heuoWww",
 };
 
 // Local development: point the page at a backend you're running yourself with
