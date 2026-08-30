@@ -178,6 +178,22 @@ deployed (a new endpoint, say) will 404. The override is ignored unless the page
 itself is served from localhost and the target is a local address, so a link
 can't be used to redirect someone else's traffic.
 
+### Checking it in a real browser
+
+Unit tests never look at the rendered page, which is how a basemap that
+returned HTTP 200 while stamping "API KEY REQUIRED" on every tile stayed broken.
+`scripts/browser_check.mjs` drives the real site over the Chrome DevTools
+Protocol — no Playwright install, no dependencies:
+
+```sh
+python -m http.server 8765 &
+uvicorn api.main:app --port 8000 &
+google-chrome --headless=new --remote-debugging-port=9222 about:blank &
+node scripts/browser_check.mjs --shots ./shots
+```
+
+It exits non-zero on failure. See the header comment for flatpak Chrome.
+
 Pull requests are welcome — please keep the code plain HTML/CSS/JS on the frontend and pure FastAPI on the backend (no heavy frameworks) so it stays easy to maintain.
 
 The site runs entirely on free tiers. Before adding new external calls, scheduled jobs, or polling changes, check [`LIMITS.md`](./LIMITS.md) for the caps on Render, GitHub, BODS, TransportAPI, and the tile providers.
