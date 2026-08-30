@@ -9,6 +9,16 @@
       "date": "2026-06-25",
       "status": "published",
       "responsible": "BHBC"
+    },
+    {
+      "id": "merge-worthing-brighton-dayrider-zones-1syo",
+      "title": "Merge Worthing/Brighton DayRider Zones",
+      "body": "Merge the Worthing and Brighton DayRider tickets on Stagecoach South. There is an unfair boundary placed in Shoreham. This disconnects people in Worthing and Lancing from people in Portslade and Brighton.",
+      "area": "Fares",
+      "name": "Connor R",
+      "date": "2026-08-30",
+      "status": "published",
+      "responsible": "SCSO"
     }
   ]
 }
