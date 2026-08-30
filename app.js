@@ -35,14 +35,13 @@ const CONFIG = {
   // A small Cloudflare Worker takes submissions and files them as GitHub
   // issues, so nothing needs an account on the sender's side and every
   // submission gets a public, followable home. See worker/README.md for
-  // deployment. Until SUBMIT_ENDPOINT is set, the forms say so politely.
+  // deployment. Live since 2026-08-30.
   //
-  // This must keep the YOUR-WORKER marker until the Worker is actually
-  // deployed. postSubmission() checks for it and shows "not switched on yet";
-  // a real-looking URL that doesn't resolve instead produces a network error
-  // and tells people to try again, which they can do forever without it
-  // working. Replace the whole string with the deployed URL, e.g.
-  //   https://adur-worthing-submissions.<subdomain>.workers.dev/submit
+  // If you ever unset this, put the YOUR-WORKER marker back rather than
+  // blanking it or leaving a plausible-looking URL. postSubmission() checks
+  // for that marker and shows "not switched on yet"; a URL that merely fails
+  // to resolve produces a network error instead, which tells people to try
+  // again — something they can do forever without it ever working.
   SUBMIT_ENDPOINT: "https://adur-worthing-submissions.dennislemennace.workers.dev/submit",
 
   // Turnstile SITE key — public by design (the secret half lives in the
