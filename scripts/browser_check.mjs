@@ -118,6 +118,11 @@ async function openPage(viewport) {
   const page = await connect(SITE);
   await page.send("Page.enable");
   await page.send("Runtime.enable");
+  // Without this the harness happily validates the *previous* build: Chrome
+  // serves style.css and app.js from cache, every check passes, and none of
+  // them looked at the code you just wrote.
+  await page.send("Network.enable");
+  await page.send("Network.setCacheDisabled", { cacheDisabled: true });
   await page.send("Emulation.setDeviceMetricsOverride", {
     width: viewport.width, height: viewport.height,
     deviceScaleFactor: 2, mobile: viewport.mobile,
@@ -127,7 +132,26 @@ async function openPage(viewport) {
     await sleep(250);
   }
   await sleep(2500);   // Leaflet + the first data fetches
+  await freezeMotion(page);
   return page;
+}
+
+/**
+ * Kill transitions and animations for the duration of the run.
+ *
+ * Not cosmetic: getComputedStyle during a transition returns the interpolated
+ * value, so the contrast pass was reading a half-faded colour and reporting
+ * 3.31:1 for a pair that settles at 5.02:1. It also stops screenshots landing
+ * mid-animation, which made baselines impossible to compare.
+ */
+async function freezeMotion(page) {
+  await page.evaluate(`(() => {
+    const s = document.createElement("style");
+    s.textContent = "*, *::before, *::after { transition: none !important;" +
+                    " animation: none !important; }";
+    document.head.appendChild(s);
+    return 1;
+  })()`);
 }
 
 async function screenshot(page, name) {
@@ -209,8 +233,9 @@ const TRUNCATION_SCAN = `(() => {
               " .panel-tab-label, h1, h2, h3, button";
   const bad = [];
   for (const el of document.querySelectorAll(sel)) {
+    if (el.getClientRects().length === 0) continue;
     const cs = getComputedStyle(el);
-    if (cs.display === "none" || cs.visibility === "hidden") continue;
+    if (cs.visibility === "hidden") continue;
     if (!el.textContent.trim()) continue;
     if (el.clientWidth === 0 || el.scrollWidth <= el.clientWidth + 1) continue;
     const shown = el.clientWidth / el.scrollWidth;
@@ -247,6 +272,74 @@ const TARGET_SCAN = `(() => {
   return [...new Set(bad)].slice(0, 8);
 })()`;
 
+/**
+ * Real rendered contrast, not token pairs in the abstract: walk visible text,
+ * find the nearest ancestor that actually paints a background, and measure.
+ * Token-pair maths cannot see which combinations the page truly produces.
+ *
+ * WCAG 1.4.3 AA is 4.5:1, relaxed to 3:1 for large text (>=24px, or >=18.66px
+ * bold). Text drawn over the map is skipped — its backdrop is imagery, and no
+ * static computation describes it honestly.
+ */
+const CONTRAST_SCAN = `(() => {
+  const parse = (c) => {
+    const m = c.match(/rgba?\\(([^)]+)\\)/);
+    if (!m) return null;
+    const p = m[1].split(",").map(Number);
+    return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+  };
+  const lum = (c) => {
+    const f = (x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); };
+    return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+  };
+  const over = (fg, bg) => ({
+    r: fg.r * fg.a + bg.r * (1 - fg.a),
+    g: fg.g * fg.a + bg.g * (1 - fg.a),
+    b: fg.b * fg.a + bg.b * (1 - fg.a), a: 1 });
+  const ratio = (a, b) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const named = (el) =>
+    (el.id ? "#" + el.id
+      : (typeof el.className === "string" && el.className.trim())
+        ? "." + el.className.trim().split(/\\s+/)[0]
+        : el.tagName.toLowerCase());
+
+  const bad = [];
+  for (const el of document.querySelectorAll("*")) {
+    if (el.closest("#map")) continue;              // backdrop is imagery
+    if (el.getClientRects().length === 0) continue;   // not rendered at all
+    const cs = getComputedStyle(el);
+    if (cs.visibility === "hidden" || cs.opacity === "0") continue;
+    const own = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+    if (!own) continue;
+    const fg = parse(cs.color);
+    if (!fg || fg.a === 0) continue;
+
+    let bg = null, node = el;
+    while (node && node.nodeType === 1) {
+      const c = parse(getComputedStyle(node).backgroundColor);
+      if (c && c.a === 1) { bg = c; break; }
+      node = node.parentElement;
+    }
+    if (!bg) continue;
+
+    const px = parseFloat(cs.fontSize);
+    const w = parseInt(cs.fontWeight, 10) || 400;
+    const large = px >= 24 || (px >= 18.66 && w >= 700);
+    const need = large ? 3 : 4.5;
+    const r = ratio(over(fg, bg), bg);
+    if (r < need) bad.push(named(el) + " " + r.toFixed(2) + ":1 (need " + need + ")");
+  }
+  return [...new Set(bad)].sort().slice(0, 12);
+})()`;
+
+async function checkContrast(page, where) {
+  const bad = await page.evaluate(CONTRAST_SCAN);
+  check(`text meets WCAG AA contrast — ${where}`, bad.length === 0, bad.join(", "));
+}
+
 async function checkLayout(page, where) {
   const over = await page.evaluate(OVERFLOW_SCAN);
   check(`nothing overflows the viewport — ${where}`, over.length === 0, over.join(", "));
@@ -256,6 +349,18 @@ async function checkLayout(page, where) {
 
   const small = await page.evaluate(TARGET_SCAN);
   check(`touch targets are at least 44px — ${where}`, small.length === 0, small.join(", "));
+
+}
+
+/** Contrast is theme-specific — muted text fails in dark, accent text in
+ *  light — so a single-theme pass finds half the problem. */
+async function checkContrastBothThemes(page, where) {
+  const restore = await page.evaluate("state.darkMode");
+  for (const theme of ["light", "dark"]) {
+    await setTheme(page, theme);
+    await checkContrast(page, `${where}, ${theme}`);
+  }
+  await setTheme(page, restore ? "dark" : "light");
 }
 
 /**
@@ -319,6 +424,10 @@ async function checkViews(page) {
     check(`view "${mode}" activates`,
       (await page.evaluate("document.body.dataset.view")) === mode, label);
     await screenshot(page, `${mode}`);
+    // Contrast is measured here, not in one pass up front: a panel that is
+    // not the active view is display:none, and its contents cannot be
+    // meaningfully measured until the view that owns them is showing.
+    await checkContrastBothThemes(page, `${mode} view`);
   }
 }
 
@@ -398,13 +507,15 @@ await checkViews(page);
 await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
 
-if (SHOTS) {
-  for (const vp of VIEWPORTS.slice(1)) {
-    const p = await openPage(vp);
-    await screenshot(p, `live-${vp.name}`);
-    await checkLayout(p, vp.name);
-    p.ws.close();
-  }
+// The other two viewports get the layout assertions whether or not
+// screenshots were asked for — an assertion that only runs with --shots is
+// one that will not run in CI.
+for (const vp of VIEWPORTS.slice(1)) {
+  const p = await openPage(vp);
+  await screenshot(p, `live-${vp.name}`);
+  await checkLayout(p, vp.name);
+  await checkContrastBothThemes(p, vp.name);
+  p.ws.close();
 }
 
 const jsErrors = page.consoleErrors.filter((e) => JS_ERROR.test(e));

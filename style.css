@@ -17,11 +17,53 @@
   --color-primary-light:  #e4edf7;
   --color-accent:         #c07808;
 
+  /* Same two colours as bare channels, for translucent overlays and glows.
+     Written out because rgba() cannot take a hex, and a glow that hardcodes
+     its own copy of the accent stops following the token — which is exactly
+     what had happened: four pulses kept the light ochre in dark mode while
+     the thing they surrounded had turned bright amber. */
+  --color-primary-rgb:    26, 75, 130;
+  --color-accent-rgb:     192, 120, 8;
+
+  /* The accent is a fill colour first. As *text* on a light surface it only
+     reaches 3.23:1, so light mode needs a darker draw of the same hue; dark
+     mode already clears AA comfortably and just reuses the accent. Measured
+     against --color-bg rather than --color-surface, because the tab bar sits
+     on the darker of the two and that is where it is tightest. */
+  --color-accent-text:    #8a5808;
+
+  /* ...and white on an accent fill is 3.54:1 here, 2.10:1 in dark mode. Dark
+     text is the fix, which the codebase had already worked out for two of the
+     five places it happens — this generalises it to all of them. */
+  --color-on-accent:      #18202e;
+
+  /* Link text. In light mode this is just the primary; in dark mode the
+     primary sits at 3.4-3.7:1 on the panel and footer surfaces, so links get
+     a lighter draw of it there. */
+  --color-link:           #1a4b82;
+
+  /* Destructive actions. */
+  --color-danger:         #c0392b;
+  --color-danger-tint:    rgba(192, 57, 43, 0.08);
+
   /* Status */
   --color-on-time:        #1c7844;
   --color-early:          #1a70b5;
   --color-late:           #bc3220;
   --color-unknown:        #6a5e58;
+
+  /* Status chip fills. Light mode uses hand-picked opaque tints, dark mode
+     lays the status colour over the surface at low alpha — the two are not
+     interconvertible, so both are named here and the chip rules no longer
+     need to know which technique is in play. */
+  --tint-on-time-bg:       #ebf7f1;
+  --tint-on-time-border:   #c2e8d5;
+  --tint-early-bg:         #e3f3f9;
+  --tint-early-border:     #b5d8ec;
+  --tint-late-bg:          #fbecea;
+  --tint-late-border:      #f2c0ba;
+  --tint-scheduled-bg:     var(--color-surface-2);
+  --tint-scheduled-border: var(--color-border);
 
   /* Neutrals — warm sandy palette */
   --color-bg:             #edeae3;
@@ -30,7 +72,18 @@
   --color-border:         #cfc9be;
   --color-text:           #18202e;
   --color-text-muted:     #6a625a;
-  --color-text-inverse:   #ffffff;
+
+  /* Text and iconography sitting on a saturated fill — the header bar, a
+     service badge, an operator chip. White in BOTH themes, because those
+     fills stay dark in both.
+
+     There used to be a --color-text-inverse here, and it was the trap: it
+     flips to the page background in dark mode, so anything reaching for it
+     to label a badge would have gone black. Nothing ever used it — twenty
+     sites hardcoded #fff instead, which is the tell. Removed, and replaced
+     with a token that means what those sites needed. */
+  --color-on-fill:        #ffffff;
+  --color-on-fill-rgb:    255, 255, 255;
 
   /* Font sizes — 7-step scale. Components must use these, not one-off rems,
      so type lines up to a shared rhythm. Each step maps a cluster of the
@@ -43,9 +96,11 @@
   --font-size-lg:         1.125rem;  /* panel + section titles */
   --font-size-xl:         1.35rem;
 
-  /* Spacing */
-  --space-2xs: 0.375rem;  /* 6px — most common un-tokenised gap */
-  --space-xs:  0.25rem;
+  /* Spacing. 2xs was 6px and xs was 4px, so the scale ran backwards and
+     anyone reaching for a name got the wrong one. The names swapped; every
+     usage kept the value it already rendered. */
+  --space-2xs: 0.25rem;   /* 4px */
+  --space-xs:  0.375rem;  /* 6px — the most common gap in the UI */
   --space-sm:  0.5rem;
   --space-md:  1rem;
   --space-lg:  1.5rem;
@@ -62,7 +117,15 @@
   --shadow-md: 0 4px 14px rgba(10,18,32,0.12);
   --shadow-lg: 0 8px 28px rgba(10,18,32,0.16);
 
-  --transition: 180ms ease;
+  --transition:      180ms ease;
+  --transition-fast: 110ms ease;
+  --transition-slow: 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Focus ring — see the :focus-visible rule. Named so components that need
+     to opt out of the offset (map controls, flush-edge buttons) can. */
+  --focus-ring-width:  2px;
+  --focus-ring-offset: 2px;
+  --focus-ring-color:  var(--color-accent);
 
   --header-height: 60px;
   --panel-width:   360px;
@@ -78,19 +141,39 @@ html.dark-mode {
   --color-primary-dark:   #1a508e;
   --color-primary-light:  #091523;
   --color-accent:         #e6a820;
+  --color-primary-rgb:    40, 114, 194;
+  --color-accent-rgb:     230, 168, 32;
+  --color-accent-text:    #e6a820;   /* 8.7:1 on the dark surface — no adjustment needed */
+  --color-on-accent:      #090e1a;
+  --color-link:           #4a8fd0;   /* --color-primary is 3.4:1 here */
+
+  /* #c0392b measures 3.4:1 against the dark surface — under AA. This is the
+     same red the "late" status already uses here, at 4.9:1. */
+  --color-danger:         #e84e3c;
+  --color-danger-tint:    rgba(232, 78, 60, 0.12);
 
   --color-on-time:        #34c06a;
   --color-early:          #28b4c4;
-  --color-late:           #e84e3c;
-  --color-unknown:        #5a7488;
+  --color-late:           #ee5f4d;   /* was #e84e3c — 4.36:1 on its own tint */
+  --color-unknown:        #748ca2;   /* was #5a7488 — 3.40:1 on the scheduled chip */
+
+  --tint-on-time-bg:       rgba(52, 192, 106, 0.12);
+  --tint-on-time-border:   rgba(52, 192, 106, 0.28);
+  --tint-early-bg:         rgba(40, 180, 196, 0.12);
+  --tint-early-border:     rgba(40, 180, 196, 0.28);
+  --tint-late-bg:          rgba(232, 78, 60, 0.12);
+  --tint-late-border:      rgba(232, 78, 60, 0.28);
+  --tint-scheduled-bg:     rgba(90, 116, 136, 0.1);
+  --tint-scheduled-border: rgba(90, 116, 136, 0.22);
 
   --color-bg:             #090e1a;
   --color-surface:        #0d1525;
   --color-surface-2:      #111e30;
   --color-border:         #1a2c44;
   --color-text:           #c8d8ec;
-  --color-text-muted:     #5a7898;
-  --color-text-inverse:   #090e1a;
+  --color-text-muted:     #748ba9;   /* was #5a7898 — 3.97:1 on the surface, and this
+                                        token carries 80 usages, so it was most of the
+                                        dark-mode contrast failures on its own */
 
   --shadow-sm: 0 1px 4px rgba(0,0,0,0.45);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.55);
@@ -135,7 +218,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-a { color: var(--color-primary); }
+a { color: var(--color-link); }
 button { font-family: inherit; cursor: pointer; }
 
 /* ===== HEADER ===== */
@@ -178,7 +261,7 @@ html.dark-mode .site-header {
   font-size: 1.2rem;
   font-weight: 700;
   line-height: 1;
-  color: #ffffff;
+  color: var(--color-on-fill);
   letter-spacing: -0.01em;
 }
 
@@ -188,7 +271,8 @@ html.dark-mode .header-title {
 
 .header-subtitle {
   font-size: var(--font-size-xs);
-  color: rgba(255,255,255,0.6);
+  /* 0.6 measured 4.31:1 on the light-mode header — just under AA. */
+  color: rgba(var(--color-on-fill-rgb), 0.7);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-top: 2px;
@@ -208,7 +292,7 @@ html.dark-mode .header-subtitle {
   font-family: var(--font-mono);
   font-size: var(--font-size-2xs);
   font-weight: 600;
-  color: rgba(255,255,255,0.92);
+  color: rgba(var(--color-on-fill-rgb), 0.92);
   white-space: nowrap;
   display: inline-flex;
   align-items: baseline;
@@ -224,10 +308,10 @@ html.dark-mode .last-updated {
 .status-pill {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
   padding: 3px 4px 3px 10px;
-  background: rgba(255,255,255,0.15);
-  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(var(--color-on-fill-rgb), 0.15);
+  border: 1px solid rgba(var(--color-on-fill-rgb), 0.25);
   border-radius: var(--radius-md);
 }
 html.dark-mode .status-pill {
@@ -246,7 +330,7 @@ html.dark-mode .status-pill {
   height: 14px;
 }
 .status-pill .btn-icon.status-pill-toggle:hover {
-  background: rgba(255,255,255,0.18);
+  background: rgba(var(--color-on-fill-rgb), 0.18);
 }
 html.dark-mode .status-pill .btn-icon.status-pill-toggle:hover {
   background: var(--color-border);
@@ -294,11 +378,11 @@ html.dark-mode .last-updated.is-error .loading-dots { color: #ffb84d; }
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2xs);
-  background: rgba(255,255,255,0.15);
-  border: 1px solid rgba(255,255,255,0.25);
+  gap: var(--space-xs);
+  background: rgba(var(--color-on-fill-rgb), 0.15);
+  border: 1px solid rgba(var(--color-on-fill-rgb), 0.25);
   border-radius: var(--radius-md);
-  color: #fff;
+  color: var(--color-on-fill);
   font-family: inherit;
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -308,7 +392,7 @@ html.dark-mode .last-updated.is-error .loading-dots { color: #ffb84d; }
   transition: background var(--transition);
   white-space: nowrap;
 }
-.section-nav-trigger:hover { background: rgba(255,255,255,0.25); }
+.section-nav-trigger:hover { background: rgba(var(--color-on-fill-rgb), 0.25); }
 .section-nav-chevron { width: 12px; height: 12px; transition: transform var(--transition); }
 .section-nav-trigger[aria-expanded="true"] .section-nav-chevron { transform: rotate(180deg); }
 
@@ -317,7 +401,7 @@ html.dark-mode .last-updated.is-error .loading-dots { color: #ffb84d; }
   top: calc(100% + 6px);
   right: 0;
   margin: 0;
-  padding: var(--space-xs);
+  padding: var(--space-2xs);
   list-style: none;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -359,10 +443,10 @@ html.dark-mode .section-nav-trigger {
 html.dark-mode .section-nav-trigger:hover { background: var(--color-border); }
 
 .btn-icon {
-  background: rgba(255,255,255,0.15);
-  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(var(--color-on-fill-rgb), 0.15);
+  border: 1px solid rgba(var(--color-on-fill-rgb), 0.25);
   border-radius: var(--radius-md);
-  color: rgba(255,255,255,0.9);
+  color: rgba(var(--color-on-fill-rgb), 0.9);
   width: 38px;
   height: 38px;
   flex-shrink: 0;
@@ -374,7 +458,7 @@ html.dark-mode .section-nav-trigger:hover { background: var(--color-border); }
 }
 
 .btn-icon:hover {
-  background: rgba(255,255,255,0.25);
+  background: rgba(var(--color-on-fill-rgb), 0.25);
 }
 /* "Off" state for toggle buttons (e.g. buses hidden) — dimmed so the
    current state reads at a glance. */
@@ -400,7 +484,7 @@ html.dark-mode .btn-icon:hover {
   border-radius: 50%;
   background: linear-gradient(135deg,
               rgba(255,210,140,0.30),
-              rgba(255,255,255,0.05));
+              rgba(var(--color-on-fill-rgb), 0.05));
   border: 1px solid rgba(255,210,140,0.60);
   color: #fff8e6;
   box-shadow: 0 0 0 2px rgba(255,210,140,0.10);
@@ -408,12 +492,12 @@ html.dark-mode .btn-icon:hover {
 .btn-icon.btn-theme:hover {
   background: linear-gradient(135deg,
               rgba(255,210,140,0.45),
-              rgba(255,255,255,0.10));
+              rgba(var(--color-on-fill-rgb), 0.10));
 }
 html.dark-mode .btn-icon.btn-theme {
   background: linear-gradient(135deg,
               rgba(120,180,255,0.22),
-              rgba(255,255,255,0.03));
+              rgba(var(--color-on-fill-rgb), 0.03));
   border-color: rgba(150,195,255,0.55);
   color: #e6f0ff;
   box-shadow: 0 0 0 2px rgba(120,180,255,0.10);
@@ -421,7 +505,7 @@ html.dark-mode .btn-icon.btn-theme {
 html.dark-mode .btn-icon.btn-theme:hover {
   background: linear-gradient(135deg,
               rgba(120,180,255,0.32),
-              rgba(255,255,255,0.06));
+              rgba(var(--color-on-fill-rgb), 0.06));
 }
 
 /* ===== MAIN LAYOUT ===== */
@@ -552,7 +636,7 @@ html.dark-mode .map-loading {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
   border-bottom: 2px solid transparent;
   transition: color var(--transition), border-color var(--transition);
   letter-spacing: 0.03em;
@@ -563,7 +647,7 @@ html.dark-mode .map-loading {
 }
 
 .panel-tab.active {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   border-bottom-color: var(--color-accent);
 }
 
@@ -711,7 +795,7 @@ body.panel-collapsed .btn-collapse-panel .icon {
 
 .btn-retry {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-fill);
   border: none;
   padding: var(--space-sm) var(--space-lg);
   border-radius: var(--radius-md);
@@ -836,7 +920,7 @@ html.dark-mode .btn-text {
   align-items: center;
   justify-content: center;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-fill);
   font-family: var(--font-family);
   font-weight: 700;
   font-size: var(--font-size-xs);
@@ -869,7 +953,7 @@ html.dark-mode .btn-text {
 }
 
 .due-time.due-imminent {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 /* ===== STATUS CHIPS ===== */
@@ -886,54 +970,31 @@ html.dark-mode .btn-text {
   border: 1px solid transparent;
 }
 
-/* Light mode chips */
+/* One set of rules for both themes — the tints themselves are theme tokens,
+   because light mode uses opaque hand-picked colours and dark mode lays the
+   status colour over the surface at low alpha. */
 .status-on-time {
-  background: #ebf7f1;
+  background: var(--tint-on-time-bg);
   color: var(--color-on-time);
-  border-color: #c2e8d5;
+  border-color: var(--tint-on-time-border);
 }
 
 .status-early {
-  background: #e3f3f9;
+  background: var(--tint-early-bg);
   color: var(--color-early);
-  border-color: #b5d8ec;
+  border-color: var(--tint-early-border);
 }
 
 .status-late {
-  background: #fbecea;
+  background: var(--tint-late-bg);
   color: var(--color-late);
-  border-color: #f2c0ba;
+  border-color: var(--tint-late-border);
 }
 
 .status-scheduled {
-  background: var(--color-surface-2);
+  background: var(--tint-scheduled-bg);
   color: var(--color-unknown);
-  border-color: var(--color-border);
-}
-
-/* Dark mode chips */
-html.dark-mode .status-on-time {
-  background: rgba(52, 192, 106, 0.12);
-  color: var(--color-on-time);
-  border-color: rgba(52, 192, 106, 0.28);
-}
-
-html.dark-mode .status-early {
-  background: rgba(40, 180, 196, 0.12);
-  color: var(--color-early);
-  border-color: rgba(40, 180, 196, 0.28);
-}
-
-html.dark-mode .status-late {
-  background: rgba(232, 78, 60, 0.12);
-  color: var(--color-late);
-  border-color: rgba(232, 78, 60, 0.28);
-}
-
-html.dark-mode .status-scheduled {
-  background: rgba(90, 116, 136, 0.1);
-  color: var(--color-unknown);
-  border-color: rgba(90, 116, 136, 0.22);
+  border-color: var(--tint-scheduled-border);
 }
 
 .departures-footer {
@@ -1036,7 +1097,7 @@ html.dark-mode .status-scheduled {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  color: #fff;
+  color: var(--color-on-fill);
   font-family: var(--font-family);
   font-size: 13px;
   font-weight: 800;
@@ -1056,7 +1117,7 @@ html.dark-mode .status-scheduled {
   background: var(--color-accent);
   border: 2px solid rgba(0,0,0,0.2);
   border-radius: var(--radius-sm);
-  color: #fff;
+  color: var(--color-on-accent);
   font-size: 10px;
   font-weight: 700;
   display: flex;
@@ -1106,7 +1167,7 @@ html.dark-mode .status-scheduled {
 
 .popup-btn {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-fill);
   border: none;
   padding: 6px 14px;
   border-radius: var(--radius-md);
@@ -1168,7 +1229,7 @@ html.dark-mode .status-scheduled {
 .bus-info-hero-text {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
   min-width: 0;
 }
 
@@ -1188,7 +1249,7 @@ html.dark-mode .status-scheduled {
 .bus-info-grid {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
   padding: var(--space-sm) 0;
   border-bottom: 1px solid var(--color-border);
   margin: 0;
@@ -1269,7 +1330,7 @@ html.dark-mode .status-scheduled {
 .upcoming-stops {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
 }
 
 .upcoming-stops-title {
@@ -1280,7 +1341,7 @@ html.dark-mode .status-scheduled {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   margin: 0;
-  padding-bottom: var(--space-xs);
+  padding-bottom: var(--space-2xs);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -1338,7 +1399,7 @@ html.dark-mode .status-scheduled {
 .upcoming-stops-note {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
-  margin-top: var(--space-xs);
+  margin-top: var(--space-2xs);
   font-style: italic;
 }
 
@@ -1364,7 +1425,7 @@ html.dark-mode .status-scheduled {
   background: var(--color-surface-2);
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
 }
 
 .ticket-info-title {
@@ -1380,13 +1441,13 @@ html.dark-mode .status-scheduled {
 .ticket-rows {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
 }
 
 .ticket-row {
   display: grid;
   grid-template-columns: 64px 1fr;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
   font-size: var(--font-size-xs);
   align-items: baseline;
 }
@@ -1401,7 +1462,7 @@ html.dark-mode .status-scheduled {
 }
 
 .ticket-value a {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   text-decoration: none;
 }
 
@@ -1411,9 +1472,9 @@ html.dark-mode .status-scheduled {
 
 .ticket-more-link {
   font-size: var(--font-size-xs);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   text-decoration: none;
-  margin-top: var(--space-xs);
+  margin-top: var(--space-2xs);
   align-self: flex-start;
 }
 
@@ -1433,16 +1494,16 @@ html.dark-mode .status-scheduled {
 }
 
 html.dark-mode .bus-info-lost {
-  background: rgba(230, 168, 32, 0.1);
+  background: rgba(var(--color-accent-rgb), 0.1);
   color: var(--color-accent);
-  border-color: rgba(230, 168, 32, 0.25);
+  border-color: rgba(var(--color-accent-rgb), 0.25);
 }
 
 /* ===== BUS POPUP ===== */
 .bus-popup {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
   min-width: 160px;
 }
 
@@ -1487,7 +1548,7 @@ html.dark-mode .bus-info-lost {
   border: none;
   font-size: var(--font-size-base);
   color: var(--color-text-muted);
-  padding: var(--space-xs);
+  padding: var(--space-2xs);
   border-radius: var(--radius-sm);
   transition: background var(--transition), color var(--transition);
   flex-shrink: 0;
@@ -1569,17 +1630,17 @@ html.dark-mode .header-wave-front { fill: var(--color-surface); }
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: rgba(255,255,255,0.12);
-  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(var(--color-on-fill-rgb), 0.12);
+  border: 1px solid rgba(var(--color-on-fill-rgb), 0.18);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--color-on-fill);
 }
 .header-icon .icon { width: 22px; height: 22px; }
 html.dark-mode .header-icon {
-  background: rgba(230,168,32,0.12);
-  border-color: rgba(230,168,32,0.28);
+  background: rgba(var(--color-accent-rgb), 0.12);
+  border-color: rgba(var(--color-accent-rgb), 0.28);
   color: var(--color-accent);
 }
 
@@ -1591,7 +1652,7 @@ html.dark-mode .header-icon {
   font-weight: 800;
   line-height: 1.05;
   letter-spacing: -0.015em;
-  color: #ffffff;
+  color: var(--color-on-fill);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1673,7 +1734,7 @@ html.dark-mode .header-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
 }
 .popup-btn .icon { width: 13px; height: 13px; }
 .btn-text .icon { width: 13px; height: 13px; }
@@ -1689,11 +1750,10 @@ html.dark-mode .header-icon {
 
 /* ---- Focus ring: visible, brand-coloured ---- */
 :focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
   border-radius: var(--radius-sm);
 }
-html.dark-mode :focus-visible { outline-color: var(--color-accent); }
 .leaflet-bar a:focus-visible { outline-offset: 0; }
 
 /* ---- Loading dialog: illustrated pier + bus, centered card ---- */
@@ -1734,7 +1794,7 @@ html.dark-mode :focus-visible { outline-color: var(--color-accent); }
   width: 12px !important;
   height: 12px !important;
   box-shadow:
-    0 0 0 2px rgba(192, 120, 8, 0.25),
+    0 0 0 2px rgba(var(--color-accent-rgb), 0.25),
     0 2px 4px rgba(10, 18, 32, 0.35);
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.18s;
@@ -1742,7 +1802,7 @@ html.dark-mode :focus-visible { outline-color: var(--color-accent); }
 .stop-marker-icon:hover {
   transform: scale(1.6);
   box-shadow:
-    0 0 0 3px rgba(192, 120, 8, 0.35),
+    0 0 0 3px rgba(var(--color-accent-rgb), 0.35),
     0 3px 6px rgba(10, 18, 32, 0.45);
 }
 /* Zoomed out a lot (≤ z12): nudge the dots a touch smaller so ~1400 markers
@@ -1756,7 +1816,7 @@ html.dark-mode :focus-visible { outline-color: var(--color-accent); }
 html.dark-mode .stop-marker-icon {
   border-color: rgba(9, 14, 26, 0.85) !important;
   box-shadow:
-    0 0 0 2px rgba(230, 168, 32, 0.28),
+    0 0 0 2px rgba(var(--color-accent-rgb), 0.28),
     0 1px 3px rgba(0, 0, 0, 0.6);
 }
 /* In the proposal editor's Add-stop mode, hint that markers are click targets. */
@@ -1768,9 +1828,9 @@ body.editor-mode-add-stop .leaflet-marker-icon.stop-marker-icon {
   animation: stop-add-pulse 320ms ease-out;
 }
 @keyframes stop-add-pulse {
-  0%   { transform: scale(1);   box-shadow: 0 0 0 0   rgba(192, 120, 8, 0.55); }
-  50%  { transform: scale(1.7); box-shadow: 0 0 0 10px rgba(192, 120, 8, 0);   }
-  100% { transform: scale(1);   box-shadow: 0 0 0 0   rgba(192, 120, 8, 0);    }
+  0%   { transform: scale(1);   box-shadow: 0 0 0 0   rgba(var(--color-accent-rgb), 0.55); }
+  50%  { transform: scale(1.7); box-shadow: 0 0 0 10px rgba(var(--color-accent-rgb), 0);   }
+  100% { transform: scale(1);   box-shadow: 0 0 0 0   rgba(var(--color-accent-rgb), 0);    }
 }
 
 /* ---- Service badge: livery-coloured variants ---- */
@@ -1782,7 +1842,7 @@ body.editor-mode-add-stop .leaflet-marker-icon.stop-marker-icon {
   box-shadow: inset 0 -1px 0 rgba(0,0,0,0.15);
   border: 1px solid rgba(0,0,0,0.1);
 }
-.service-badge--light-text { color: #ffffff; }
+.service-badge--light-text { color: var(--color-on-fill); }
 .service-badge--dark-text  { color: #0f1726; }
 
 /* ---- Departure board: editorial upgrade ---- */
@@ -1802,10 +1862,10 @@ html.dark-mode .departures-table td {
 .departures-table tr:last-child td { border-bottom: none; }
 
 .departures-table tr.departure-row:hover td {
-  background: rgba(192, 120, 8, 0.05);
+  background: rgba(var(--color-accent-rgb), 0.05);
 }
 html.dark-mode .departures-table tr.departure-row:hover td {
-  background: rgba(230, 168, 32, 0.06);
+  background: rgba(var(--color-accent-rgb), 0.06);
 }
 
 .departures-table td:nth-child(3),
@@ -1822,20 +1882,20 @@ html.dark-mode .departures-table tr.departure-row:hover td {
   gap: 5px;
   justify-content: flex-end;
 }
-.due-time.due-imminent { color: var(--color-accent); }
+.due-time.due-imminent { color: var(--color-accent-text); }
 .due-time.due-imminent::before {
   content: "";
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--color-accent);
-  box-shadow: 0 0 0 0 rgba(192, 120, 8, 0.55);
+  box-shadow: 0 0 0 0 rgba(var(--color-accent-rgb), 0.55);
   animation: pulse-dot 1.6s ease-out infinite;
 }
 @keyframes pulse-dot {
-  0%   { box-shadow: 0 0 0 0   rgba(192, 120, 8, 0.55); }
-  70%  { box-shadow: 0 0 0 8px rgba(192, 120, 8, 0);    }
-  100% { box-shadow: 0 0 0 0   rgba(192, 120, 8, 0);    }
+  0%   { box-shadow: 0 0 0 0   rgba(var(--color-accent-rgb), 0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(var(--color-accent-rgb), 0);    }
+  100% { box-shadow: 0 0 0 0   rgba(var(--color-accent-rgb), 0);    }
 }
 @media (prefers-reduced-motion: reduce) {
   .due-time.due-imminent::before { animation: none; }
@@ -1848,7 +1908,7 @@ html.dark-mode .departures-table tr.departure-row:hover td {
   animation: point-row-flash 600ms ease-out;
 }
 @keyframes point-row-flash {
-  0%   { background: rgba(192, 120, 8, 0.32); }
+  0%   { background: rgba(var(--color-accent-rgb), 0.32); }
   100% { background: transparent;             }
 }
 
@@ -1922,7 +1982,7 @@ html.dark-mode #map::after {
 /* Segmented Day/Night toggle, sits above the About/Proposals tab strip */
 .service-mode-toggle {
   display: flex;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
   padding: 8px var(--space-md);
   background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border);
@@ -1944,7 +2004,7 @@ html.dark-mode #map::after {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
   cursor: pointer;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
@@ -1958,13 +2018,10 @@ html.dark-mode #map::after {
 
 .service-mode-btn.active {
   background: var(--color-accent, var(--color-primary));
-  color: #fff;
+  color: var(--color-on-accent);
   border-color: var(--color-accent, var(--color-primary));
 }
 
-html.dark-mode .service-mode-btn.active {
-  color: var(--color-bg);
-}
 
 /* Route endpoint tag — pill marker placed at the clipped end of an
    express or night route, showing where the line continues off the
@@ -1992,7 +2049,7 @@ html.dark-mode .service-mode-btn.active {
   letter-spacing: 0.02em;
   padding: 2px 8px;
   border-radius: var(--radius-pill);
-  border: 2px solid #fff;
+  border: 2px solid var(--color-on-fill);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
@@ -2004,7 +2061,7 @@ html.dark-mode .route-endpoint-pill {
 .filter-strip-group {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
   padding: 6px var(--space-md) 8px;
   background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border);
@@ -2030,7 +2087,7 @@ html.dark-mode .route-endpoint-pill {
 .filter-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
   flex: 1;
 }
 
@@ -2155,7 +2212,7 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 
 .route-filters-actions {
   display: inline-flex;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
 }
 
 .route-filter-chips {
@@ -2163,7 +2220,7 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   min-height: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
   overflow-y: auto;
   padding-right: 4px;
   align-content: flex-start;
@@ -2254,7 +2311,7 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
   font-family: inherit;
   color: inherit;
   transition: background var(--transition), transform var(--transition);
@@ -2312,7 +2369,7 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
 }
 
 .proposal-link {
@@ -2412,7 +2469,7 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  margin-top: var(--space-2xs);
+  margin-top: var(--space-xs);
 }
 .suggest-actions .editor-status.is-error { color: var(--color-late); }
 
@@ -2432,8 +2489,8 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 .report-stop-form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
-  margin: var(--space-xs) 0;
+  gap: var(--space-2xs);
+  margin: var(--space-2xs) 0;
   padding: var(--space-sm);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -2445,19 +2502,19 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
    unconfigured or blocked script leaves no empty gap in the form. */
 .suggest-turnstile:empty { display: none; }
 .suggest-turnstile {
-  margin-top: var(--space-2xs);
+  margin-top: var(--space-xs);
   min-height: 0;
 }
 
 /* Submissions are posted publicly — say so next to the form, not in a
    tooltip. */
 .suggest-privacy {
-  margin: var(--space-2xs) 0 0;
+  margin: var(--space-xs) 0 0;
   font-size: 0.78rem;
   line-height: 1.5;
   color: var(--color-text-muted);
 }
-.suggest-privacy a { color: var(--color-primary); }
+.suggest-privacy a { color: var(--color-link); }
 
 /* ── Ticket view: boundary penalty calculator ── */
 .journey-calc {
@@ -2484,7 +2541,7 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 .journey-result {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
 }
 .journey-endpoints { margin: 0; font-size: var(--font-size-md); }
 .journey-note {
@@ -2499,7 +2556,7 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   border-left: 4px solid var(--color-border);
   background: var(--color-surface-2);
 }
-.journey-alert p { margin: 0 0 var(--space-2xs); }
+.journey-alert p { margin: 0 0 var(--space-xs); }
 .journey-alert p:last-child { margin-bottom: 0; }
 
 /* One ticket covers it — the good outcome. */
@@ -2521,7 +2578,7 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
    asserted — a reader can check it against the operator's own price list. */
 .journey-costs {
   list-style: none;
-  margin: 0 0 var(--space-xs);
+  margin: 0 0 var(--space-2xs);
   padding: 0;
   font-size: var(--font-size-sm);
 }
@@ -2541,14 +2598,14 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 
 .journey-reform-list {
   list-style: none;
-  margin: 0 0 var(--space-2xs);
+  margin: 0 0 var(--space-xs);
   padding: 0;
 }
 .journey-reform-list li {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: var(--space-2xs) 0;
+  padding: var(--space-xs) 0;
 }
 .journey-reform-list li + li { border-top: 1px dotted var(--color-border); }
 
@@ -2556,14 +2613,14 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
    distinct from the factual sections above it so it can't be mistaken for a
    fare you can buy today. */
 .journey-reform {
-  margin-top: var(--space-xs);
+  margin-top: var(--space-2xs);
   padding: var(--space-sm);
   border-radius: var(--radius-md);
   border: 1px dashed var(--color-primary);
   background: var(--color-primary-light);
 }
 html.dark-mode .journey-reform { background: transparent; }
-.journey-reform p { margin: 0 0 var(--space-2xs); }
+.journey-reform p { margin: 0 0 var(--space-xs); }
 .journey-reform-head { font-weight: 600; line-height: 1.45; }
 .journey-reform-link {
   padding: 0;
@@ -2574,12 +2631,12 @@ html.dark-mode .journey-reform-link { color: var(--color-text); }
 
 .journey-alternative {
   font-size: 0.82rem;
-  padding-top: var(--space-2xs);
+  padding-top: var(--space-xs);
   border-top: 1px dashed var(--color-border);
 }
 .journey-zones, .journey-sources { font-size: 0.78rem; }
 .journey-zones-title {
-  margin: 0 0 var(--space-2xs);
+  margin: 0 0 var(--space-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -2608,7 +2665,7 @@ html.dark-mode .journey-reform-link { color: var(--color-text); }
 }
 .ticket-zone-link {
   font-size: var(--font-size-sm);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   text-decoration: none;
   font-weight: 600;
   align-self: flex-start;
@@ -2673,15 +2730,15 @@ html.dark-mode .journey-reform-link { color: var(--color-text); }
 .ticket-operator-zones {
   display: none;
   flex-direction: column;
-  gap: var(--space-2xs);
-  margin: var(--space-2xs) 0 0 var(--space-sm);
+  gap: var(--space-xs);
+  margin: var(--space-xs) 0 0 var(--space-sm);
   padding-left: var(--space-sm);
   border-left: 2px solid var(--color-border);
 }
 .ticket-operator-zones.expanded { display: flex; }
 /* Sub-category heading within an operator group (e.g. "Gold tickets"). */
 .ticket-subgroup-heading {
-  margin: var(--space-2xs) 0 0;
+  margin: var(--space-xs) 0 0;
   font-size: var(--font-size-2xs);
   font-weight: 700;
   text-transform: uppercase;
@@ -2690,7 +2747,7 @@ html.dark-mode .journey-reform-link { color: var(--color-text); }
 }
 /* Operator-wide footnote (e.g. the N700 supplement). */
 .ticket-operator-footnote {
-  margin: var(--space-2xs) 0 0;
+  margin: var(--space-xs) 0 0;
   font-size: var(--font-size-xs);
   font-style: italic;
   color: var(--color-text-muted);
@@ -2705,7 +2762,7 @@ html.dark-mode .journey-reform-link { color: var(--color-text); }
   padding: 1px 6px;
   border-radius: var(--radius-pill);
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   vertical-align: middle;
 }
 .ticket-zone--proposed { border-style: dashed; }
@@ -2753,7 +2810,7 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
   transition: background var(--transition), border-color var(--transition);
 }
 
@@ -2764,14 +2821,11 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
    mirrors .service-mode-btn.active. */
 .map-overlay-btn[aria-pressed="true"] {
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   border-color: var(--color-accent);
 }
 .map-overlay-btn[aria-pressed="true"]:hover {
   background: var(--color-accent);
-}
-html.dark-mode .map-overlay-btn[aria-pressed="true"] {
-  color: var(--color-bg);
 }
 
 /* ============================================================
@@ -2783,10 +2837,10 @@ html.dark-mode .map-overlay-btn[aria-pressed="true"] {
   margin-top: 10px;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
   appearance: none;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-fill);
   border: 1px solid var(--color-primary);
   border-radius: var(--radius-md);
   font-family: inherit;
@@ -2855,13 +2909,13 @@ html.dark-mode .map-overlay-btn[aria-pressed="true"] {
   border: none;
   color: var(--color-text-muted);
   cursor: pointer;
-  padding: var(--space-xs);
+  padding: var(--space-2xs);
   border-radius: var(--radius-sm, 4px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.draft-card-delete:hover { color: #c0392b; background: rgba(192,57,43,0.08); }
+.draft-card-delete:hover { color: var(--color-danger); background: var(--color-danger-tint); }
 .draft-card-delete .icon { width: 14px; height: 14px; }
 
 /* Editor view — same panel, different content */
@@ -2903,11 +2957,11 @@ html.dark-mode .map-overlay-btn[aria-pressed="true"] {
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
   transition: background var(--transition);
 }
 .editor-back-btn:hover { background: var(--color-surface); }
-.editor-delete-btn:hover { background: rgba(192,57,43,0.08); color: #c0392b; border-color: #c0392b; }
+.editor-delete-btn:hover { background: var(--color-danger-tint); color: var(--color-danger); border-color: var(--color-danger); }
 .editor-back-btn .icon, .editor-delete-btn .icon { width: 13px; height: 13px; }
 
 .editor-scroll {
@@ -2922,7 +2976,7 @@ html.dark-mode .map-overlay-btn[aria-pressed="true"] {
 .editor-field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
 }
 .editor-field > label {
   font-size: var(--font-size-xs);
@@ -2982,7 +3036,7 @@ html.dark-mode .map-overlay-btn[aria-pressed="true"] {
 .editor-mode-buttons {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
 }
 .editor-mode-btn {
   appearance: none;
@@ -2998,14 +3052,14 @@ html.dark-mode .map-overlay-btn[aria-pressed="true"] {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
   transition: background var(--transition), border-color var(--transition);
 }
 .editor-mode-btn .icon { width: 16px; height: 16px; }
 .editor-mode-btn:hover { background: var(--color-surface); }
 .editor-mode-btn.active {
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   border-color: var(--color-accent);
 }
 html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
@@ -3036,12 +3090,12 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
 .editor-point-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
   max-height: 260px;
   overflow-y: auto;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: var(--space-xs);
+  padding: var(--space-2xs);
   background: var(--color-surface);
 }
 .editor-point-list-empty {
@@ -3088,7 +3142,7 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
   font-size: var(--font-size-base);
   border-radius: var(--radius-sm, 4px);
 }
-.editor-point-row-remove:hover { color: #c0392b; background: rgba(192,57,43,0.08); }
+.editor-point-row-remove:hover { color: var(--color-danger); background: var(--color-danger-tint); }
 
 .editor-drag-handle {
   cursor: grab;
@@ -3128,7 +3182,7 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
   border-top: 1px solid var(--color-border);
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
   background: var(--color-surface-2);
 }
 .editor-action-btn {
@@ -3155,18 +3209,18 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
 }
 .editor-action-btn.primary {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-fill);
   border-color: var(--color-primary);
 }
 .editor-action-btn.primary:hover { background: var(--color-primary-dark, var(--color-primary)); }
 
 /* Info icon next to Contribute — opens a friendly walkthrough popover */
-.editor-help-btn { padding: var(--space-2xs); }
+.editor-help-btn { padding: var(--space-xs); }
 .editor-help-btn .icon { width: 16px; height: 16px; }
 
 /* Icon-only secondary actions: drop the label, keep visual weight low so the
    primary Contribute reads as the focal action. */
-.editor-action-btn.editor-icon-only { padding: var(--space-2xs); }
+.editor-action-btn.editor-icon-only { padding: var(--space-xs); }
 .editor-action-btn.editor-icon-only .icon { width: 16px; height: 16px; }
 
 /* Push the Info+Contribute group to the right edge of the action row so the
@@ -3227,7 +3281,7 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
-  padding: var(--space-xs);
+  padding: var(--space-2xs);
   border-radius: var(--radius-sm);
   line-height: 0;
 }
@@ -3268,7 +3322,7 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
   color: var(--color-accent);
 }
 .editor-help-steps a {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   text-decoration: underline;
 }
 
@@ -3390,12 +3444,12 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   min-width: 40px;
   padding: 0 8px;
   border-radius: 13px;
-  color: #fff;
+  color: var(--color-on-fill);
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  border: 2px solid rgba(255,255,255,0.95);
+  border: 2px solid rgba(var(--color-on-fill-rgb), 0.95);
   box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.25);
   white-space: nowrap;
   overflow: hidden;
@@ -3448,7 +3502,7 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
    it's not chord-interpolated. */
 .rail-train-icon-wrap--incoming .rail-train-icon {
   border-style: dashed;
-  border-color: rgba(255,255,255,0.85);
+  border-color: rgba(var(--color-on-fill-rgb), 0.85);
 }
 .rail-train-icon-wrap--incoming .rail-train-pulse {
   animation: rail-train-pulse 2.2s ease-out infinite;
@@ -3555,7 +3609,7 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 .rail-track-btn:hover { background: var(--color-border); }
 .rail-track-btn--on {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-fill);
   border-color: var(--color-primary);
 }
 
@@ -3573,7 +3627,7 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   font-size: var(--font-size-2xs);
   color: var(--color-text-muted);
   font-style: italic;
-  margin-top: var(--space-xs);
+  margin-top: var(--space-2xs);
 }
 
 /* ── Train marker popup ── */
@@ -3629,7 +3683,7 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 /* Pinned campaign asks, above the collapsed body groups. */
 .objective-featured { margin-bottom: var(--space-md); }
 .objective-bodies-intro {
-  margin: 0 0 var(--space-xs);
+  margin: 0 0 var(--space-2xs);
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
@@ -3641,7 +3695,7 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-sm);
-  margin: 0 0 var(--space-2xs);
+  margin: 0 0 var(--space-xs);
   padding-bottom: 4px;
   border-bottom: 1px solid var(--color-border);
 }
@@ -3665,7 +3719,7 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: var(--space-2xs);
+  margin-top: var(--space-xs);
 }
 .objective-chip {
   padding: 1px 7px;

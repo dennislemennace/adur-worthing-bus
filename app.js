@@ -2217,7 +2217,7 @@ async function loadRouteLinesImpl() {
     state.routeFrequencyByService[r.service] = r.frequency || null;
 
     const colour = getLineColour(r.service, r.operator);
-    const fg = (pickTextOn(colour) === "dark") ? "#1a1a1a" : "#ffffff";
+    const fg = textColourOn(colour);
     const showEndpointTags = isExpressService(r.service) || isNightService(r.service);
     const layers = [];
 
@@ -2335,7 +2335,7 @@ function renderRouteFilterChips() {
     const label    = variants.join("/");
     const operator = state.routeOperatorByService[variants[0]] || "";
     const bg       = getLineColour(base, operator);
-    const fg       = pickTextOn(bg) === "dark" ? "#1a1a1a" : "#ffffff";
+    const fg       = textColourOn(bg);
     const allOn    = variants.every(v => state.visibleRoutes.has(v));
     return `
       <button type="button"
@@ -2998,7 +2998,7 @@ async function loadTicketZonesImpl() {
       state.ticketReachLayers[z.id] = z.reach_points.map(rp => {
         const firstRoute = rp.routes ? String(rp.routes).split(/[\/,]/)[0].trim() : "";
         const bg = getRouteColour(firstRoute, z.operator);
-        const fg = pickTextOn(bg) === "dark" ? "#1a1a1a" : "#ffffff";
+        const fg = textColourOn(bg);
         return makeReachPill(rp.lat, rp.lon,
           `${rp.routes ? rp.routes + " → " : ""}${rp.name}`, bg, fg);
       });
@@ -3159,7 +3159,7 @@ function renderTicketZonesList() {
 
   const operatorSection = (op, items) => {
     const fill = OPERATOR_COLOURS[op] || "#444";
-    const fg   = pickTextOn(fill) === "dark" ? "#1a1a1a" : "#ffffff";
+    const fg   = textColourOn(fill);
     const open = state.expandedOperators.has(op);
     const n    = items.length;
     // Ungrouped cards first, then any named sub-categories (e.g. "Gold tickets"),
@@ -5045,7 +5045,7 @@ function groupObjectivesByBody(objectives) {
 function objectiveBodyChips(o) {
   const chip = (code, isLead) => {
     const fill = bodyColour(code);
-    const fg   = pickTextOn(fill) === "dark" ? "#1a1a1a" : "#ffffff";
+    const fg   = textColourOn(fill);
     // Only the lead carries a filled chip. A body that merely has to agree
     // shouldn't look like the one you write to first.
     return isLead
@@ -5068,7 +5068,7 @@ function bodyGroupHtml(g, itemHtml, noun) {
   if (!state.expandedBodies) state.expandedBodies = new Set();
   const open   = state.expandedBodies.has(g.key);
   const fill   = bodyColour(g.key);
-  const fg     = pickTextOn(fill) === "dark" ? "#1a1a1a" : "#ffffff";
+  const fg     = textColourOn(fill);
   const body   = RESPONSIBLE_BODIES[g.key] || {};
   const n      = g.total;
 
@@ -5720,18 +5720,76 @@ function getLineColour(service, operator) {
     h = ((h << 5) - h + key.charCodeAt(i)) | 0;
   }
   const hue = ((h % 360) + 360) % 360;
-  return `hsl(${hue}, 55%, 42%)`;
+  // Hex, not hsl(): every other branch here returns hex, and pickTextOn used
+  // to answer "light" for anything that was not a six-digit hex — silently,
+  // with no way to tell a real answer from a shrug. Unknown routes were
+  // getting white text on mid-tone fills at 3.0:1 for exactly that reason.
+  return hslToHex(hue, 55, 42);
+}
+
+/** hsl() in degrees/percent to a #rrggbb string. */
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const k = (n) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const hx = (n) => Math.round(f(n) * 255).toString(16).padStart(2, "0");
+  return `#${hx(0)}${hx(8)}${hx(4)}`;
 }
 
 // Return 'light' or 'dark' text depending on background luminance (WCAG-ish).
+/**
+ * Which of the two label colours to draw on a coloured fill — "dark" meaning
+ * the callers draw as black, "light" meaning white.
+ *
+ * This used to weigh the background with the YIQ brightness formula against a
+ * 0.62 threshold, which is not contrast and does not agree with it: several
+ * route liveries came out at 3.0:1 because the brighter-looking option won on
+ * brightness while losing on contrast. Since one of black or white always
+ * clears AA on any background, a failing chip meant the wrong one was picked.
+ *
+ * So: compute WCAG relative luminance and take whichever candidate actually
+ * contrasts more. Same two candidates, same return values, correct choice.
+ */
+/* The two candidates, and their relative luminances. Pure black rather than
+   the old #1a1a1a for a specific reason: whichever of black and white
+   contrasts better is guaranteed at least 4.58:1 on ANY background, which
+   clears AA everywhere. #1a1a1a only guaranteed 4.17:1, and the hash-derived
+   route colours landed right in that gap. */
+const TEXT_DARK     = "#000000";
+const TEXT_LIGHT    = "#ffffff";
+const TEXT_ON_DARK  = 0;
+const TEXT_ON_LIGHT = 1;
+
+function relativeLuminance(r, g, b) {
+  const f = (v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+
+function contrastRatio(l1, l2) {
+  const hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** The label colour itself, for callers that just want to draw it. */
+function textColourOn(bgHex) {
+  return pickTextOn(bgHex) === "dark" ? TEXT_DARK : TEXT_LIGHT;
+}
+
 function pickTextOn(bgHex) {
-  const h = String(bgHex || "").replace("#", "");
-  if (h.length !== 6) return "light";
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return lum > 0.62 ? "dark" : "light";
+  let h = String(bgHex || "").replace("#", "").trim();
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return "light";
+  const bg = relativeLuminance(
+    parseInt(h.slice(0, 2), 16),
+    parseInt(h.slice(2, 4), 16),
+    parseInt(h.slice(4, 6), 16),
+  );
+  return contrastRatio(bg, TEXT_ON_DARK) >= contrastRatio(bg, TEXT_ON_LIGHT)
+    ? "dark" : "light";
 }
 
 function getOperatorBorderColour(operatorRef) {
@@ -6062,7 +6120,7 @@ function renderRailBoardRow(svc) {
   const opCode = svc.atocCode || "";
   const opCol  = railOperatorColour(opCode);
   const opName = railOperatorName(opCode, svc.atocName);
-  const opTxt  = pickTextOn(opCol) === "dark" ? "#1a1a1a" : "#ffffff";
+  const opTxt  = textColourOn(opCol);
   const uid = svc.uid || "";
   const date = svc.departureDate || "";
   const isSelected = !!state.selectedRailServices[uid];
