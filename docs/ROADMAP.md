@@ -2,8 +2,9 @@
 
 **Written:** 2026-08-29 · **Against:** `main` @ `f498865`
 
-**Status:** Phases 1, 1b and 2 are **done, merged and live**. Phase 3 not started.
-Test count 121 → 144, plus 12 browser checks.
+**Status:** Phases 1, 1b and 2 are **done, merged and live**. Phase 3 packages
+P3.0–P3.5 are **built and committed, not yet pushed or deployed**.
+Test count 121 → 150, plus 50 browser checks (was 12).
 
 Submissions went live 2026-08-30 and are proven end to end: issue #1 arrived
 through the Worker with the right labels and was published to the site with
@@ -289,6 +290,59 @@ local end-to-end runs.
 ---
 
 ## Phase 3 — restyle and mobile
+
+> ### ✅ Built 2026-08-30 — and decision (a) went the other way
+>
+> The recommendation below was the civic-transit re-theme. **That was made
+> without ever looking at the site.** Driving it at 390 / 768 / 1440 in both
+> themes, with a departure board actually loaded, changed the answer: the
+> identity is already distinctive and already half-civic — mono numerals on a
+> live board *is* departure-board language. What failed was structural.
+>
+> **Decision taken: refine in place.** Fraunces, Outfit, JetBrains Mono, navy
+> and amber, sand and ocean, and the wave all stay. No hue moved except where
+> contrast required it.
+>
+> Measured before, at 390px:
+>
+> | Defect | Evidence |
+> |---|---|
+> | Status chip clipped on **every** departure row | `right: 396px` vs a 390px viewport |
+> | Header title rendering 38% of itself | `clientWidth 110` / `scrollWidth 292` |
+> | 1,520 stop markers, 1,604 marker elements | route lines in Route/Network view invisible beneath them |
+> | Panel locked at 45vh — 5 of 10 departures, no way to see more | `max-height: 379.8px` of 844 |
+> | Zero `svh`, zero safe-area insets, no `viewport-fit=cover` | 0 occurrences |
+> | Targets 24–42px | status-pill toggles were 24×24, not the 38 assumed |
+> | 768px tablet on the desktop split | squeezed map beside a mostly-empty panel |
+> | Every `:hover` unguarded | 0 `any-hover` queries — hover stuck after every tap |
+>
+> After: **50/50 browser checks**, four views × two themes × three viewports.
+> The board fits, the title is 137/137, the default view carries 124 marker
+> elements instead of 1,604, and the sheet's full detent shows all ten
+> departures at once — which the old slab could never do.
+>
+> Two bugs found that predate this work:
+>
+> - **`el.hidden` did nothing.** The UA stylesheet's `[hidden]` is
+>   author-level-zero, so `.btn-icon { display: flex }` beat it. The bus and
+>   rail toggles had been sitting in the header in all four views, including
+>   the three where they do nothing.
+> - **`pickTextOn` was not measuring contrast.** It weighed backgrounds with
+>   the YIQ brightness formula against a 0.62 threshold, and `getLineColour`
+>   handed it `hsl()` strings that its six-digit-hex check silently rejected,
+>   returning "light" as a shrug. Unknown routes got white on mid-tone fills
+>   at 3.0:1 for that reason alone.
+>
+> **Still open in Phase 3:** the systematic state-coverage pass in P3.3
+> (disabled, loading and error states were not audited — focus and hover were),
+> and the large "Click any bus stop" empty state itself. Everything under
+> "Not in scope" below is still deferred.
+>
+> **A note for whoever runs this next:** on 2026-08-30 a commit left seven
+> zero-length files in `.git/objects` and pointed `refs/heads/main` at one of
+> them, which broke `HEAD`. Nothing was lost — the last good commit was intact
+> and the working tree untouched — but seven empty objects appearing at once
+> is a filesystem or power event, not a git bug. Worth watching for.
 
 ### The good news, measured
 
