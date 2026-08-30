@@ -19,3 +19,6 @@ data/.nb_quota.json
 
 # Wrangler's local account/build cache — machine-specific, never committed.
 worker/.wrangler/
+
+# Screenshot output from scripts/browser_check.mjs --shots
+shots/

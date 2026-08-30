@@ -25,6 +25,15 @@
  *   node scripts/browser_check.mjs --shots ./shots   # also write screenshots
  *
  * Exits non-zero if any check fails, so it can gate a release.
+ *
+ * ── Layout assertions ───────────────────────────────────────────────────
+ * The `checkLayout` pass encodes three defects measured at 390px in Phase 3.
+ * They are expected to FAIL until the packages that fix them land — that is
+ * the point of a regression net. Each one names the defect it guards:
+ *
+ *   #1  the status chip sat 6px past the right edge on every departure row
+ *   #2  the header title rendered 110px of its 292px
+ *   #6  touch targets were 38–42px, under the 44px guideline
  */
 
 import { writeFile, mkdir } from "node:fs/promises";
@@ -41,6 +50,16 @@ const VIEWPORTS = [
   { name: "tablet",  width: 768,  height: 1024, mobile: true  },
   { name: "desktop", width: 1440, height: 900,  mobile: false },
 ];
+
+/** A reliably busy stop, so the departure board renders with real rows. */
+const SAMPLE_STOP = { atco: "149000007954", name: "Town Hall" };
+
+/**
+ * Console noise that is expected locally and must not fail the run: without
+ * BODS/RTT keys the data fetches legitimately error. Anything that looks like
+ * a JS exception is a different matter — that is a bug a restyle introduced.
+ */
+const JS_ERROR = /TypeError|ReferenceError|SyntaxError|is not a function|Cannot read|is not defined/i;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -68,6 +87,12 @@ async function connect(url) {
           m.params.args.map((a) => a.value ?? a.description).join(" ").slice(0, 200),
         );
       }
+      // An uncaught throw does not arrive as a console API call.
+      if (m.method === "Runtime.exceptionThrown") {
+        const d = m.params.exceptionDetails;
+        consoleErrors.push(
+          String(d.exception?.description || d.text || "uncaught").slice(0, 200));
+      }
     }
   });
 
@@ -80,7 +105,8 @@ async function connect(url) {
     });
 
   const evaluate = async (expression) => {
-    const r = await send("Runtime.evaluate", { expression, returnByValue: true });
+    const r = await send("Runtime.evaluate",
+      { expression, returnByValue: true, awaitPromise: true });
     if (r.exceptionDetails) throw new Error(`${r.exceptionDetails.text} :: ${expression}`);
     return r.result.value;
   };
@@ -111,6 +137,17 @@ async function screenshot(page, name) {
   await writeFile(`${SHOTS}/${name}.png`, Buffer.from(shot.data, "base64"));
 }
 
+/**
+ * Drive the app's own toggle rather than poking the class, so `state.darkMode`
+ * stays consistent with the DOM for anything that reads it.
+ */
+async function setTheme(page, theme) {
+  const want = theme === "dark";
+  await page.evaluate(
+    `if (state.darkMode !== ${want}) toggleDarkMode(); state.darkMode`);
+  await sleep(250);
+}
+
 // ── Checks ──────────────────────────────────────────────────
 
 const results = [];
@@ -118,9 +155,201 @@ const check = (name, pass, detail = "") =>
   results.push({ name, pass, detail });
 
 /**
+ * Some conditions are environmental rather than regressions — an API that is
+ * cold or absent cannot render a departure board, and failing the run for that
+ * would train people to ignore a red result.
+ */
+const skip = (name, detail = "") =>
+  results.push({ name, pass: true, skipped: true, detail });
+
+/** Poll instead of sleeping: Render's free tier cold-starts in ~30s. */
+async function waitFor(page, expression, timeoutMs = 40000, everyMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await page.evaluate(expression)) return true;
+    await sleep(everyMs);
+  }
+  return false;
+}
+
+/**
+ * Nothing inside the header or the panel may extend past the right edge.
+ * The map is excluded deliberately — Leaflet's panes overflow by design.
+ */
+const OVERFLOW_SCAN = `(() => {
+  const named = (el) =>
+    (typeof el.className === "string" && el.className.trim())
+      ? "." + el.className.trim().split(/\\s+/)[0]
+      : el.tagName.toLowerCase();
+  const bad = [];
+  for (const root of document.querySelectorAll(".site-header, .departure-panel")) {
+    for (const el of root.querySelectorAll("*")) {
+      const cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden") continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      const over = Math.round(r.right - window.innerWidth);
+      if (over > 1) bad.push(named(el) + " +" + over + "px");
+    }
+  }
+  return [...new Set(bad)].slice(0, 6);
+})()`;
+
+/**
+ * Labels and headings must not be clipped by their own container. Long
+ * destination names are allowed to ellipsis; a title losing a third of
+ * itself is not, so this only fires under 92% shown.
+ */
+const TRUNCATION_SCAN = `(() => {
+  const named = (el) =>
+    (typeof el.className === "string" && el.className.trim())
+      ? "." + el.className.trim().split(/\\s+/)[0]
+      : el.tagName.toLowerCase();
+  const sel = ".header-title, .header-subtitle, .section-nav-label," +
+              " .panel-tab-label, h1, h2, h3, button";
+  const bad = [];
+  for (const el of document.querySelectorAll(sel)) {
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden") continue;
+    if (!el.textContent.trim()) continue;
+    if (el.clientWidth === 0 || el.scrollWidth <= el.clientWidth + 1) continue;
+    const shown = el.clientWidth / el.scrollWidth;
+    if (shown < 0.92) {
+      bad.push(named(el) + " " + Math.round(shown * 100) + "% shown");
+    }
+  }
+  return [...new Set(bad)].slice(0, 6);
+})()`;
+
+/**
+ * WCAG 2.5.8 sets a 24x24 floor; 44 is Apple's number, the AAA criterion,
+ * and what this site targets. Inline links in prose have an explicit
+ * exception in the spec and are not selected here.
+ */
+const TARGET_SCAN = `(() => {
+  const named = (el) =>
+    (el.id ? "#" + el.id
+      : (typeof el.className === "string" && el.className.trim())
+        ? "." + el.className.trim().split(/\\s+/)[0]
+        : el.tagName.toLowerCase());
+  const sel = 'button, [role="option"], [role="button"], select,' +
+              ' input:not([type=hidden]), .panel-tab';
+  const bad = [];
+  for (const el of document.querySelectorAll(sel)) {
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden") continue;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    if (r.width < 44 || r.height < 44) {
+      bad.push(named(el) + " " + Math.round(r.width) + "x" + Math.round(r.height));
+    }
+  }
+  return [...new Set(bad)].slice(0, 8);
+})()`;
+
+async function checkLayout(page, where) {
+  const over = await page.evaluate(OVERFLOW_SCAN);
+  check(`nothing overflows the viewport — ${where}`, over.length === 0, over.join(", "));
+
+  const trunc = await page.evaluate(TRUNCATION_SCAN);
+  check(`no label is clipped by its container — ${where}`, trunc.length === 0, trunc.join(", "));
+
+  const small = await page.evaluate(TARGET_SCAN);
+  check(`touch targets are at least 44px — ${where}`, small.length === 0, small.join(", "));
+}
+
+/**
+ * The empty states were the only thing ever screenshotted, so the component
+ * people actually stare at went unexamined. Load a real board.
+ */
+async function checkDepartureBoard(page) {
+  await page.evaluate("setViewMode('live')");
+  await sleep(1200);
+  const opened = await page.evaluate(
+    `(() => {
+       if (typeof openDepartures !== "function") return "no openDepartures";
+       openDepartures("${SAMPLE_STOP.atco}", "${SAMPLE_STOP.name}");
+       return "ok";
+     })()`);
+  if (opened !== "ok") {
+    check("departure board opens", false, opened);
+    return;
+  }
+  await waitFor(page, "document.querySelectorAll('.departure-row').length > 0");
+
+  const rows = await page.evaluate("document.querySelectorAll('.departure-row').length");
+  if (rows > 0) {
+    check("departure board renders rows", true, `${rows} rows`);
+    await checkLayout(page, "departure board");
+    return;
+  }
+
+  // No rows. An error state on screen means the API never answered, which is
+  // an environment problem, not something a restyle broke.
+  const errored = await page.evaluate(
+    `(() => {
+       const e = document.getElementById("panel-error");
+       if (e && !e.classList.contains("hidden")) {
+         return (document.getElementById("panel-error-msg") || {}).textContent || "error";
+       }
+       return "";
+     })()`);
+  if (errored) skip("departure board renders rows", `API unreachable: ${errored.trim().slice(0, 60)}`);
+  else check("departure board renders rows", false, "0 rows and no error shown");
+}
+
+/** The basemap must actually render tiles — a 200 response proved nothing. */
+async function checkBasemap(page) {
+  const tiles = await page.evaluate(
+    "document.querySelectorAll('.leaflet-tile-pane img.leaflet-tile-loaded').length");
+  check("basemap tiles loaded", tiles > 0, `${tiles} tiles`);
+  check("no CARTO tile requests",
+    (await page.evaluate(
+      "[...document.querySelectorAll('.leaflet-tile-pane img')]" +
+      ".every(i => !i.src.includes('cartocdn'))")));
+}
+
+async function checkViews(page) {
+  for (const [mode, label] of [
+    ["live", "Live Bus Tracking"], ["improvements", "Route view"],
+    ["tickets", "Ticket view"], ["network", "Network Objectives"],
+  ]) {
+    await page.evaluate(`setViewMode('${mode}')`);
+    await sleep(1500);
+    check(`view "${mode}" activates`,
+      (await page.evaluate("document.body.dataset.view")) === mode, label);
+    await screenshot(page, `${mode}`);
+  }
+}
+
+/** Screenshot every view in both themes, so a restyle can be compared. */
+async function shootThemes(page) {
+  if (!SHOTS) return;
+  for (const theme of ["light", "dark"]) {
+    await setTheme(page, theme);
+    for (const mode of ["live", "improvements", "tickets", "network"]) {
+      await page.evaluate(`setViewMode('${mode}')`);
+      await sleep(1200);
+      await screenshot(page, `${mode}-${theme}`);
+    }
+    await page.evaluate("setViewMode('live')");
+    await sleep(800);
+    await page.evaluate(
+      `openDepartures("${SAMPLE_STOP.atco}", "${SAMPLE_STOP.name}")`);
+    await waitFor(page, "document.querySelectorAll('.departure-row').length > 0", 20000);
+    await screenshot(page, `departures-${theme}`);
+  }
+}
+
+/**
  * Regression: collapsing the panel in one view used to hide the next view's
  * content too, because `panel-collapsed` sits on <body>. Ticket view has no
  * collapse control of its own, so there was nothing on screen to undo it.
+ *
+ * Runs LAST, and deliberately so: the widening check assigns
+ * `window.innerWidth`, which is [Replaceable] and therefore stays replaced for
+ * the rest of the page's life. Anything running afterwards would see a desktop
+ * width in JS while CSS still rendered at 390px.
  */
 async function checkPanelCollapse(page) {
   await page.evaluate("setViewMode('improvements')");
@@ -152,30 +381,6 @@ async function checkPanelCollapse(page) {
     (await page.evaluate("document.body.classList.contains('panel-collapsed')")) === false);
 }
 
-/** The basemap must actually render tiles — a 200 response proved nothing. */
-async function checkBasemap(page) {
-  const tiles = await page.evaluate(
-    "document.querySelectorAll('.leaflet-tile-pane img.leaflet-tile-loaded').length");
-  check("basemap tiles loaded", tiles > 0, `${tiles} tiles`);
-  check("no CARTO tile requests",
-    (await page.evaluate(
-      "[...document.querySelectorAll('.leaflet-tile-pane img')]" +
-      ".every(i => !i.src.includes('cartocdn'))")));
-}
-
-async function checkViews(page) {
-  for (const [mode, label] of [
-    ["live", "Live Bus Tracking"], ["improvements", "Route view"],
-    ["tickets", "Ticket view"], ["network", "Network Objectives"],
-  ]) {
-    await page.evaluate(`setViewMode('${mode}')`);
-    await sleep(1500);
-    check(`view "${mode}" activates`,
-      (await page.evaluate("document.body.dataset.view")) === mode, label);
-    await screenshot(page, `${mode}`);
-  }
-}
-
 // ── Run ─────────────────────────────────────────────────────
 
 try {
@@ -187,25 +392,36 @@ try {
 
 const page = await openPage(VIEWPORTS[0]);
 await checkBasemap(page);
-await checkPanelCollapse(page);
+await checkLayout(page, "live view");
+await checkDepartureBoard(page);
 await checkViews(page);
+await shootThemes(page);
+await checkPanelCollapse(page);   // must stay last — see the note on the function
 
 if (SHOTS) {
   for (const vp of VIEWPORTS.slice(1)) {
     const p = await openPage(vp);
     await screenshot(p, `live-${vp.name}`);
+    await checkLayout(p, vp.name);
     p.ws.close();
   }
 }
 
+const jsErrors = page.consoleErrors.filter((e) => JS_ERROR.test(e));
+check("no JavaScript exceptions on the page", jsErrors.length === 0,
+  jsErrors.slice(0, 2).join(" | "));
+
 const failed = results.filter((r) => !r.pass);
 for (const r of results) {
-  console.log(`${r.pass ? "PASS" : "FAIL"}  ${r.name}${r.detail ? `  (${r.detail})` : ""}`);
+  const tag = r.skipped ? "SKIP" : r.pass ? "PASS" : "FAIL";
+  console.log(`${tag}  ${r.name}${r.detail ? `  (${r.detail})` : ""}`);
 }
 if (page.consoleErrors.length) {
   console.log("\nconsole errors seen (BODS/RTT keys are absent locally — expected):");
   for (const e of page.consoleErrors.slice(0, 5)) console.log(`  ${e}`);
 }
-console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
+const skipped = results.filter((r) => r.skipped).length;
+console.log(`\n${results.length - failed.length - skipped}/${results.length - skipped} checks passed` +
+  (skipped ? `, ${skipped} skipped` : ""));
 page.ws.close();
 process.exit(failed.length ? 1 : 0);
