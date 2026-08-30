@@ -52,7 +52,13 @@ If a label is renamed or deleted later the Worker no longer breaks: a 422 on
 issue creation is retried once without labels, so the submission still lands and
 only the labelling is lost. Don't rely on that — it's a safety net, not a plan.
 
-### 2. Create the KV namespace for rate-limit counters
+### 2. Log wrangler in
+
+```sh
+cd worker && npx wrangler login
+```
+
+### 3. Create the KV namespace for rate-limit counters
 
 ```sh
 cd worker
@@ -64,7 +70,35 @@ versions use the deprecated `kv:namespace` form.)
 
 Paste the returned id into `wrangler.toml` under `[[kv_namespaces]]`.
 
-### 3. Create the GitHub token
+### 4. Deploy once, before touching secrets
+
+**Order matters here and it is not obvious.** `wrangler secret put` fails with
+*"Worker not found"* until the Worker exists, so the first deploy has to come
+first. This is safe: with no `TURNSTILE_SECRET` the Worker **fails closed** and
+accepts nothing, and with no `GITHUB_TOKEN` it cannot file anything either.
+
+```sh
+npx wrangler deploy
+```
+
+### 5. Register a workers.dev subdomain
+
+The first deploy warns *"You need to register a workers.dev subdomain"* and then
+prints a URL anyway. **That URL will not work** — DNS resolves but TLS fails,
+because Cloudflare has no certificate for an unregistered subdomain. The
+symptom is `curl: (35) TLS connect error`, which looks nothing like the actual
+cause.
+
+Register one at **Workers & Pages → your account → Subdomain** in the
+dashboard. Picking `yourname` gives you:
+
+```
+https://adur-worthing-submissions.yourname.workers.dev
+```
+
+That is the URL for `CONFIG.SUBMIT_ENDPOINT` in step 9.
+
+### 6. Create the GitHub token
 
 Use a **fine-grained** personal access token, not a classic one:
 
@@ -78,13 +112,13 @@ Use a **fine-grained** personal access token, not a classic one:
 > PAT: tokens rotate automatically and there's no expiry cliff. Worth doing if
 > the endpoint ever handles more than hobby volume.
 
-### 4. Create the Turnstile keys
+### 7. Create the Turnstile keys
 
 Cloudflare dashboard → Turnstile → Add site. Use the **Managed** widget.
 Keep the *site key* (public, goes in `app.js`) and the *secret key* (goes in
 `wrangler secret`).
 
-### 5. Push the secrets
+### 8. Push the secrets
 
 ```sh
 npx wrangler secret put GITHUB_TOKEN       # the fine-grained PAT
@@ -95,14 +129,18 @@ npx wrangler secret put IP_SALT            # any long random string
 `IP_SALT` salts the hashed client IP used for rate limiting, so the KV store
 never holds a raw address. Generate one with `openssl rand -hex 32`.
 
-### 6. Deploy
+### 9. Redeploy and wire up the frontend
+
+Secrets take effect immediately, but redeploy after any `wrangler.toml`
+change:
 
 ```sh
 npx wrangler deploy
 ```
 
-Then put the deployed URL into `CONFIG.SUBMIT_ENDPOINT` in `app.js`, and the
-Turnstile **site key** into `CONFIG.TURNSTILE_SITE_KEY`.
+Then put the step-5 URL into `CONFIG.SUBMIT_ENDPOINT` in `app.js` — replacing
+the `YOUR-WORKER` sentinel, which is what makes the forms say "not switched on
+yet" — and the Turnstile **site key** into `CONFIG.TURNSTILE_SITE_KEY`.
 
 ## Local development
 

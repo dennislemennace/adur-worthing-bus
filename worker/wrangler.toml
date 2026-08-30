@@ -25,7 +25,7 @@ ALLOWED_ORIGINS = "https://dennislemennace.github.io"
 # then paste the returned id below.
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "2d5b7c6b9d9c412e97e03655c98e4b27"
 
 # Keeps request logs available in the dashboard for debugging failed
 # submissions (the sender only ever sees a generic error).
