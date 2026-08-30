@@ -197,10 +197,27 @@ async function waitFor(page, expression, timeoutMs = 40000, everyMs = 1000) {
 }
 
 /**
+ * Is this element actually being shown?
+ *
+ * getClientRects() alone is not enough: a closed <details> hides its content
+ * with content-visibility, which preserves layout state, so descendants keep
+ * reporting a size they are not currently painting at. checkVisibility() is
+ * the API built for the question; the rect test stays as a fallback and as a
+ * guard against zero-sized elements.
+ */
+const VISIBLE_FN = `(el) => (
+  (typeof el.checkVisibility !== "function" || el.checkVisibility({
+     contentVisibilityAuto: true, opacityProperty: true, visibilityProperty: true,
+     checkOpacity: true, checkVisibilityCSS: true,
+   })) && el.getClientRects().length > 0
+)`;
+
+/**
  * Nothing inside the header or the panel may extend past the right edge.
  * The map is excluded deliberately — Leaflet's panes overflow by design.
  */
 const OVERFLOW_SCAN = `(() => {
+  const visible = ${VISIBLE_FN};
   const named = (el) =>
     (typeof el.className === "string" && el.className.trim())
       ? "." + el.className.trim().split(/\\s+/)[0]
@@ -208,8 +225,7 @@ const OVERFLOW_SCAN = `(() => {
   const bad = [];
   for (const root of document.querySelectorAll(".site-header, .departure-panel")) {
     for (const el of root.querySelectorAll("*")) {
-      const cs = getComputedStyle(el);
-      if (cs.display === "none" || cs.visibility === "hidden") continue;
+      if (!visible(el)) continue;
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue;
       const over = Math.round(r.right - window.innerWidth);
@@ -225,6 +241,7 @@ const OVERFLOW_SCAN = `(() => {
  * itself is not, so this only fires under 92% shown.
  */
 const TRUNCATION_SCAN = `(() => {
+  const visible = ${VISIBLE_FN};
   const named = (el) =>
     (typeof el.className === "string" && el.className.trim())
       ? "." + el.className.trim().split(/\\s+/)[0]
@@ -233,9 +250,7 @@ const TRUNCATION_SCAN = `(() => {
               " .panel-tab-label, h1, h2, h3, button";
   const bad = [];
   for (const el of document.querySelectorAll(sel)) {
-    if (el.getClientRects().length === 0) continue;
-    const cs = getComputedStyle(el);
-    if (cs.visibility === "hidden") continue;
+    if (!visible(el)) continue;
     if (!el.textContent.trim()) continue;
     if (el.clientWidth === 0 || el.scrollWidth <= el.clientWidth + 1) continue;
     const shown = el.clientWidth / el.scrollWidth;
@@ -252,6 +267,7 @@ const TRUNCATION_SCAN = `(() => {
  * exception in the spec and are not selected here.
  */
 const TARGET_SCAN = `(() => {
+  const visible = ${VISIBLE_FN};
   const named = (el) =>
     (el.id ? "#" + el.id
       : (typeof el.className === "string" && el.className.trim())
@@ -265,11 +281,18 @@ const TARGET_SCAN = `(() => {
   const EXEMPT = /leaflet-marker-icon|leaflet-div-icon/;
   const bad = [];
   for (const el of document.querySelectorAll(sel)) {
-    const cs = getComputedStyle(el);
-    if (cs.display === "none" || cs.visibility === "hidden") continue;
+    if (!visible(el)) continue;
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) continue;
     if (EXEMPT.test(el.className || "")) continue;
+    // For a control inside a <label>, the target is the label: clicking
+    // anywhere on it operates the control, so that is the region a finger
+    // actually has to hit. Measuring the 14px checkbox would be wrong.
+    const label = el.closest("label");
+    if (label) {
+      const lr = label.getBoundingClientRect();
+      if (lr.width >= 44 && lr.height >= 44) continue;
+    }
     if (r.width < 44 || r.height < 44) {
       bad.push(named(el) + " " + Math.round(r.width) + "x" + Math.round(r.height));
     }
@@ -287,6 +310,7 @@ const TARGET_SCAN = `(() => {
  * static computation describes it honestly.
  */
 const CONTRAST_SCAN = `(() => {
+  const visible = ${VISIBLE_FN};
   const parse = (c) => {
     const m = c.match(/rgba?\\(([^)]+)\\)/);
     if (!m) return null;
@@ -314,9 +338,8 @@ const CONTRAST_SCAN = `(() => {
   const bad = [];
   for (const el of document.querySelectorAll("*")) {
     if (el.closest("#map")) continue;              // backdrop is imagery
-    if (el.getClientRects().length === 0) continue;   // not rendered at all
+    if (!visible(el)) continue;
     const cs = getComputedStyle(el);
-    if (cs.visibility === "hidden" || cs.opacity === "0") continue;
     const own = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
     if (!own) continue;
     const fg = parse(cs.color);
@@ -429,9 +452,10 @@ async function checkViews(page) {
     check(`view "${mode}" activates`,
       (await page.evaluate("document.body.dataset.view")) === mode, label);
     await screenshot(page, `${mode}`);
-    // Contrast is measured here, not in one pass up front: a panel that is
-    // not the active view is display:none, and its contents cannot be
-    // meaningfully measured until the view that owns them is showing.
+    // Measured here, not in one pass up front: a panel that is not the
+    // active view is display:none, and its contents cannot be meaningfully
+    // measured until the view that owns them is showing.
+    await checkLayout(page, `${mode} view`);
     await checkContrastBothThemes(page, `${mode} view`);
   }
 }

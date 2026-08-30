@@ -765,6 +765,34 @@ html.dark-mode .map-loading {
   .departures-meta { padding: 2px var(--space-sm); }
 }
 
+/* ===== ROUTE VIEW FILTER DISCLOSURE ===== */
+.filter-disclosure {
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  flex-shrink: 0;
+}
+.filter-disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: var(--target-min);
+  padding: 0 var(--space-md);
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+.filter-disclosure-summary::-webkit-details-marker { display: none; }
+.filter-disclosure-summary .icon { width: 15px; height: 15px; flex-shrink: 0; }
+.filter-disclosure-chevron {
+  margin-left: auto;
+  transition: transform var(--transition);
+}
+.filter-disclosure[open] .filter-disclosure-chevron { transform: rotate(180deg); }
+.filter-disclosure[open] .filter-disclosure-summary { color: var(--color-text); }
+
 /* ===== SHEET HANDLE =====
    Desktop has no sheet, so no handle. On mobile it is the primary way to
    resize the panel: drag for a continuous gesture, or click / Enter / Space
@@ -1416,6 +1444,41 @@ html.dark-mode .btn-text {
   display: inline-flex;
   align-items: center;
 }
+
+/* Count bubble standing in for a group of stops when zoomed out. Same gold
+   family as the dots it replaces, so it reads as "stops, collapsed" rather
+   than as a new kind of thing. */
+.stop-cluster-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border: 2px solid var(--color-on-fill);
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(10, 18, 32, 0.35);
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+html.dark-mode .stop-cluster-icon {
+  border-color: rgba(9, 14, 26, 0.85);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+
+/* Leaflet's attribution ships as black on white and sat there unchanged over
+   the dark theme. It has to stay legible and present — it is the OSM licence
+   condition — so it is themed rather than hidden. */
+.leaflet-control-attribution {
+  background: var(--color-surface) !important;
+  color: var(--color-text-muted) !important;
+  font-size: var(--font-size-2xs);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm) 0 0 0;
+}
+.leaflet-control-attribution a { color: var(--color-link) !important; }
 
 /* Leaflet's own controls ship at 30x30. */
 .leaflet-bar a,
@@ -2203,6 +2266,7 @@ html.dark-mode .departures-table tr.departure-row:hover td {
 
 /* ---- Improvements: Frequency toggle (Show limited services) ---- */
 .filter-toggle {
+  min-height: var(--target-min);
   display: inline-flex;
   align-items: center;
   gap: var(--space-sm);
@@ -2280,6 +2344,7 @@ html.dark-mode #map::after {
 
 .service-mode-btn {
   flex: 1;
+  min-height: var(--target-min);
   appearance: none;
   background: transparent;
   border: 1px solid var(--color-border);
@@ -2384,6 +2449,8 @@ html.dark-mode .route-endpoint-pill {
 
 .filter-chip {
   appearance: none;
+  min-height: var(--target-min);
+  min-width: var(--target-min);
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-pill);
@@ -2544,6 +2611,8 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 
 /* Each route chip — shows route number on its livery colour */
 .route-chip {
+  min-height: var(--target-min);
+  min-width: var(--target-min);
   --chip-bg: var(--color-surface-2);
   --chip-fg: var(--color-text);
   appearance: none;
@@ -2985,6 +3054,7 @@ html.dark-mode .journey-reform-link { color: var(--color-text); }
 .ticket-operator-group + .ticket-operator-group { margin-top: var(--space-sm); }
 .ticket-operator-card {
   display: flex;
+  min-height: var(--target-min);
   align-items: center;
   gap: var(--space-sm);
   padding: 10px 12px;
@@ -3087,8 +3157,11 @@ html.dark-mode .journey-reform-link { color: var(--color-text); }
 /* ── Map overlay control: "Show proposals" toggle ── */
 .map-overlay-controls {
   position: absolute;
-  top: var(--space-md);
-  left: var(--space-md);
+  /* Below Leaflet's zoom control, not on top of it. At 44px per button plus
+     its border the zoom stack is ~90px tall from a 10px offset, and this
+     button was sitting squarely over the "+". */
+  top: calc(var(--target-min) * 2 + 26px);
+  left: var(--space-sm);
   z-index: 500;
   display: none;
   flex-direction: column;
@@ -3109,6 +3182,7 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
   box-shadow: var(--shadow-md, 0 1px 4px rgba(0,0,0,0.15));
   border-radius: var(--radius-md);
   padding: 6px 12px;
+  min-height: var(--target-min);
   font-family: inherit;
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -3307,6 +3381,7 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
 .editor-field input[type="text"],
 .editor-field textarea {
   appearance: none;
+  min-height: var(--target-min);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -3512,6 +3587,7 @@ html.dark-mode .editor-mode-btn.active { color: var(--color-bg); }
 }
 .editor-action-btn {
   appearance: none;
+  min-height: var(--target-min);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);

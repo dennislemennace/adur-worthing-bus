@@ -448,6 +448,16 @@
         <!-- Category + operator multi-select filter strips. Both default
              to all-on; clicking a chip toggles its bucket. Populated by
              app.js once /api/route-lines has loaded. -->
+        <!-- A disclosure rather than three always-open rows: with 44px targets
+             the filter block came to 132px, and Route view was spending 61% of
+             a phone sheet on chrome before any content. <details> gives the
+             collapse, the keyboard behaviour and the aria for free. -->
+        <details class="filter-disclosure">
+          <summary class="filter-disclosure-summary">
+            <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
+            <span>Filter services</span>
+            <svg class="icon filter-disclosure-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </summary>
         <div class="filter-strip-group" aria-label="Service filters">
           <div class="filter-strip-row">
             <span class="filter-strip-label">Type</span>
@@ -465,6 +475,7 @@
             </label>
           </div>
         </div>
+        </details>
 
         <!-- Tab strip + close button -->
         <div class="panel-tabs-bar">

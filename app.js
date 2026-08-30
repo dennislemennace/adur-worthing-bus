@@ -103,6 +103,7 @@ const state = {
   tileLayer: null,       // active Leaflet tile layer
   darkMode: false,
   stopMarkers:   {},    // atcoCode → Leaflet marker
+  stopClusters:  [],    // count bubbles shown in place of stops when zoomed out
   stopData:      {},    // atcoCode → { lat, lon }
   busMarkers:    {},    // vehicleRef → Leaflet marker
   selectedStop:  null,  // { atcoCode, name }
@@ -482,12 +483,20 @@ function initMap() {
     maxZoom: TILES.maxZoom,
   }).addTo(state.map);
 
-  // Shrink stop dots slightly when zoomed out a lot (≤ z12) so ~1400
-  // markers don't crowd the map. CSS-driven via a class on the container.
+  // Stops are zoom-gated (see applyStopVisibility): below STOP_ZOOM_INDIVIDUAL
+  // they are drawn as count bubbles instead. At the threshold itself the dots
+  // come in small, so arriving at them is a fade rather than a pop.
   const applyStopDotScale = () => {
-    state.map.getContainer().classList.toggle("stops-far", state.map.getZoom() <= 12);
+    state.map.getContainer()
+      .classList.toggle("stops-far", state.map.getZoom() <= STOP_ZOOM_INDIVIDUAL);
   };
-  state.map.on("zoomend", applyStopDotScale);
+  // moveend covers panning as well as zooming, which matters because stops
+  // are culled to the viewport: pan somewhere new and its stops have to
+  // arrive. Leaflet fires moveend after a zoom too, so one hook does both.
+  state.map.on("moveend", () => {
+    applyStopDotScale();
+    applyStopVisibility();
+  });
   applyStopDotScale();
 
   // Close panel when clicking an empty area of the map. Leaflet bubbles
@@ -588,6 +597,66 @@ function renderStopMarker(stop) {
  *      proposal reveals the stops it relies on even if a night route
  *      doesn't currently serve them).
  */
+/* ============================================================
+ * ZOOM-GATING THE STOPS
+ *
+ * There are just over 1,500 stops in the area and every one of them used to
+ * be on the map at every zoom. At the default z13 that is a carpet: it hides
+ * the basemap, and in Route and Network view it hides the coloured route
+ * lines, which are the entire content of those views.
+ *
+ * Below the threshold the stops are replaced by count bubbles. Above it they
+ * are themselves. This is also what stops ~1,500 markers being live in the
+ * DOM at once, because Leaflet only builds an element for a marker that is
+ * actually on the map.
+ * ============================================================ */
+const STOP_ZOOM_INDIVIDUAL = 14;   // at or above this, draw stops one by one
+
+/** Cluster cell size in degrees, sized so a bubble covers ~60px on screen. */
+function clusterCellDegrees(zoom) {
+  return 60 * 360 / (256 * Math.pow(2, zoom));
+}
+
+function clearStopClusters() {
+  for (const m of state.stopClusters) state.map.removeLayer(m);
+  state.stopClusters = [];
+}
+
+function renderStopClusters(atcos) {
+  clearStopClusters();
+  const cell = clusterCellDegrees(state.map.getZoom());
+  const buckets = new Map();
+
+  for (const atco of atcos) {
+    const d = state.stopData[atco];
+    if (!d) continue;
+    const key = `${Math.floor(d.lat / cell)}:${Math.floor(d.lon / cell)}`;
+    let b = buckets.get(key);
+    if (!b) { b = { lat: 0, lon: 0, n: 0 }; buckets.set(key, b); }
+    b.lat += d.lat; b.lon += d.lon; b.n++;
+  }
+
+  for (const b of buckets.values()) {
+    const at = [b.lat / b.n, b.lon / b.n];
+    const marker = L.marker(at, {
+      icon: L.divIcon({
+        className: "stop-cluster-icon",
+        html: `<span>${b.n}</span>`,
+        iconSize: [34, 34],
+        iconAnchor: [17, 17],
+      }),
+      // Not a destination in its own right — it exists to be zoomed into.
+      keyboard: false,
+      title: `${b.n} stop${b.n === 1 ? "" : "s"} — zoom in to see them`,
+    });
+    marker.on("click", () => {
+      state.map.setView(at, Math.max(state.map.getZoom() + 2, STOP_ZOOM_INDIVIDUAL));
+    });
+    marker.addTo(state.map);
+    state.stopClusters.push(marker);
+  }
+}
+
 function applyStopVisibility() {
   if (!state.map || !state.stopMarkers) return;
   // In the proposal editor every stop is selectable, so don't hide any
@@ -606,16 +675,40 @@ function applyStopVisibility() {
     }
   }
 
+  // Cull to what is actually on screen, padded so a small pan does not
+  // reveal a hole. Leaflet builds no DOM for a marker that is not on the
+  // map, so this is what keeps the node count proportional to the view
+  // rather than to the size of the dataset.
+  const bounds = state.map.getBounds().pad(0.3);
+
+  const wanted = [];
+  for (const atco in state.stopMarkers) {
+    const data = state.stopData[atco] || {};
+    if (filterToNight && !(data.night_serving || overrideShow.has(atco))) continue;
+    if (data.lat === undefined || !bounds.contains([data.lat, data.lon])) continue;
+    wanted.push(atco);
+  }
+
+  // The editor is the exception: every stop there is a thing you click, so
+  // collapsing them into bubbles would make it unusable at a working zoom.
+  const clustered = !editorOpen && state.map.getZoom() < STOP_ZOOM_INDIVIDUAL;
+
+  if (clustered) {
+    for (const atco in state.stopMarkers) {
+      const marker = state.stopMarkers[atco];
+      if (state.map.hasLayer(marker)) state.map.removeLayer(marker);
+    }
+    renderStopClusters(wanted);
+    return;
+  }
+
+  clearStopClusters();
+  const show = new Set(wanted);
   for (const atco in state.stopMarkers) {
     const marker = state.stopMarkers[atco];
-    let shouldShow = true;
-    if (filterToNight) {
-      const data = state.stopData[atco] || {};
-      shouldShow = data.night_serving || overrideShow.has(atco);
-    }
     const has = state.map.hasLayer(marker);
-    if (shouldShow && !has)      state.map.addLayer(marker);
-    else if (!shouldShow && has) state.map.removeLayer(marker);
+    if (show.has(atco) && !has)      state.map.addLayer(marker);
+    else if (!show.has(atco) && has) state.map.removeLayer(marker);
   }
 }
 
@@ -5659,9 +5752,11 @@ function showToast(message, durationMs = 3500) {
 // the operator_ref field in the JSON.
 // ============================================================
 const OPERATOR_COLOURS = {
-  // Stagecoach South
-  "SCSC": "#0000FF",   // Stagecoach orange
-  "SCSO": "#0000FF",   // Stagecoach orange
+  // Stagecoach South. The comment here used to say "Stagecoach orange" over
+  // a pure #0000FF — not a brand colour, not orange, and the harshest thing
+  // on the map for the operator that runs most of the network.
+  "SCSC": "#00447C",   // Stagecoach corporate blue
+  "SCSO": "#00447C",
 
   // Brighton & Hove Buses (Go-Ahead)
   "BHBC": "#e30613",   // Bright red
@@ -5715,8 +5810,8 @@ const OPERATOR_ICONS = {
 };
 
 const OPERATOR_BORDER_COLOURS = {
-  "SCSC": "#0000FF",
-  "SCSO": "#0000FF",
+  "SCSC": "#002F55",
+  "SCSO": "#002F55",
   "BHBC": "#a00010",
   "ARBB": "#007aaf",
   "ARHE": "#007aaf",
