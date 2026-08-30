@@ -659,26 +659,41 @@ html.dark-mode .map-loading {
     min-height: 0;
   }
 
-  /* The panel becomes a bottom sheet with three detents. It replaces a fixed
-     45vh slab that could show 5 of 10 departures and had no way to show
-     more. */
+  /* The panel becomes a bottom sheet with three detents, replacing a fixed
+     45vh slab that could show 5 of 10 departures with no way to show more.
+
+     It *overlays* the map rather than sitting below it. Two reasons: the
+     translucent handle strip only means something if there is map behind it,
+     and a sheet that shares the height with the map resizes the map on every
+     detent change — which left an unpainted grey band until Leaflet was told
+     about it. Out of flow, the map is always full height and never needs to
+     be told anything. */
   .departure-panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 900;
     width: 100%;
     border-left: none;
-    border-top: 1px solid var(--color-border);
+    border-top: none;
     height: var(--sheet-h, var(--sheet-half));
-    min-height: var(--sheet-peek);
     max-height: var(--sheet-full);
-    flex-shrink: 0;
     /* Keeps the last row clear of the home indicator. Non-zero only because
        of viewport-fit=cover on the viewport meta. */
     padding-bottom: env(safe-area-inset-bottom, 0px);
     transition: height var(--transition);
   }
 
-  body[data-sheet="peek"] .departure-panel { --sheet-h: var(--sheet-peek); }
-  body[data-sheet="half"] .departure-panel { --sheet-h: var(--sheet-half); }
-  body[data-sheet="full"] .departure-panel { --sheet-h: var(--sheet-full); }
+  /* On <body> rather than on the panel, so anything else that has to sit
+     clear of the sheet — Leaflet's attribution, below — can read it too. */
+  body[data-sheet="peek"] { --sheet-h: var(--sheet-peek); }
+  body[data-sheet="half"] { --sheet-h: var(--sheet-half); }
+  body[data-sheet="full"] { --sheet-h: var(--sheet-full); }
+
+  /* Leaflet's attribution is a licence condition, so it may not be parked
+     under the sheet. */
+  .leaflet-bottom { bottom: var(--sheet-h, var(--sheet-half)); }
 
   /* During a drag the height follows the pointer, so it must not also be
      easing towards it. */
@@ -801,6 +816,18 @@ html.dark-mode .map-loading {
 .sheet-handle { display: none; }
 
 @media (max-width: 900px) {
+  /* The panel's own background moves onto the panel modes, so the handle
+     strip is the one part of the sheet the map shows through. */
+  .departure-panel {
+    background: transparent;
+    border-top: none;
+    box-shadow: none;
+  }
+  .panel-mode {
+    background: var(--color-surface);
+    box-shadow: var(--shadow-lg);
+  }
+
   .sheet-handle {
     display: flex;
     align-items: center;
@@ -810,9 +837,13 @@ html.dark-mode .map-loading {
     min-height: var(--sheet-handle-height);
     flex-shrink: 0;
     padding: 0;
-    background: var(--color-surface);
+    /* A quarter opaque: enough to read the grip against, thin enough to see
+       the map carry on underneath. The blur is what keeps the grip legible
+       over a busy map; without it a 25% wash is not enough separation. */
+    background: color-mix(in srgb, var(--color-surface) 25%, transparent);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
     border: none;
-    border-bottom: 1px solid var(--color-border);
     cursor: grab;
     /* The gesture is ours; without this the browser scrolls the page instead
        of giving us pointermove. */
@@ -822,7 +853,8 @@ html.dark-mode .map-loading {
     width: 44px;
     height: 4px;
     border-radius: var(--radius-pill);
-    background: var(--color-border);
+    background: var(--color-text-muted);
+    box-shadow: 0 0 0 1px rgba(var(--color-on-fill-rgb), 0.35);
     transition: background var(--transition);
   }
   .sheet-handle:active { cursor: grabbing; }
@@ -953,7 +985,7 @@ body.panel-collapsed .btn-collapse-panel .icon {
 
 @media (max-width: 900px) {
   /* Collapsed is the peek detent; the height rules above already say so. */
-  body.panel-collapsed .departure-panel { --sheet-h: var(--sheet-peek); }
+  body.panel-collapsed { --sheet-h: var(--sheet-peek); }
 }
 
 .panel-tab-content {
@@ -3791,8 +3823,9 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
    has a fixed max-height (45vh), so we let the active tab's content
    scroll as a single column instead of carving up the space between
    intro / filters / list and squeezing the list to near-zero height.
-   Inner overflow:auto blocks (proposals-list, route-filter-chips) are
-   flattened so we don't get nested scroll regions on a phone.
+   Inner overflow:auto blocks (proposals-list, route-filter-chips,
+   ticket-zones-list) are flattened so we don't get nested scroll regions
+   on a phone.
    ============================================================ */
 @media (max-width: 900px) {
   .panel-tab-content { overflow-y: auto; }
@@ -3805,7 +3838,12 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   }
 
   .proposals-list,
-  .route-filter-chips {
+  .route-filter-chips,
+  /* This one was missed, and it was the worst of them: flex:1 plus
+     overflow-y:auto inside an already-scrolling parent squeezed the operator
+     list to 32px holding 200px of content, so the cards that reveal the zone
+     outlines were all but unreachable. No cards clicked, no boundaries. */
+  .ticket-zones-list {
     flex: 0 0 auto;
     min-height: 0;
     overflow: visible;

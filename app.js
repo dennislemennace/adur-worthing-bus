@@ -1720,6 +1720,19 @@ const MOBILE_BREAKPOINT = 900;
 
 const SHEET_DETENTS = ["peek", "half", "full"];
 
+/* Where the sheet sits when a view opens. Each view is answering a different
+   question, so each wants a different share of the screen:
+     live    — the map is the point; peek still shows the next departure
+     route   — half, so the lines and the list are both readable
+     tickets — half, same reason
+     network — full, because there is nothing on the map to look at */
+const VIEW_DEFAULT_DETENT = {
+  live:         "peek",
+  improvements: "half",
+  tickets:      "half",
+  network:      "full",
+};
+
 function isSheetLayout() {
   return window.innerWidth <= MOBILE_BREAKPOINT;
 }
@@ -1764,6 +1777,32 @@ function setSheetDetent(detent) {
   if (dom.sheetHandle) {
     dom.sheetHandle.setAttribute("aria-expanded", collapsed ? "false" : "true");
   }
+}
+
+/** How much of the map the sheet is covering. */
+function sheetOverlapPx() {
+  if (!isSheetLayout() || !dom.departurePanel) return 0;
+  return Math.round(dom.departurePanel.getBoundingClientRect().height);
+}
+
+/**
+ * fitBounds, then shift the result clear of the sheet.
+ *
+ * Not fitBounds' own asymmetric padding: passing the sheet height as
+ * paddingBottomRight shrinks the box Leaflet fits into, so it picks a much
+ * lower zoom — fitting a Brighton zone came out showing Crawley — and the
+ * shape ended up under the sheet anyway. Fitting to the whole map and then
+ * panning keeps the zoom honest and moves the shape by exactly as much as
+ * the sheet covers.
+ */
+function fitBoundsAboveSheet(bounds, options) {
+  // animate:false matters. fitBounds animates by default, and an animated fit
+  // finishes *after* the panBy below runs — so the pan was applied and then
+  // immediately overwritten by the settling animation, which is why the shape
+  // kept landing back underneath the sheet.
+  state.map.fitBounds(bounds, { ...options, animate: false });
+  const overlap = sheetOverlapPx();
+  if (overlap > 0) state.map.panBy([0, Math.round(overlap / 2)], { animate: false });
 }
 
 function cycleSheetDetent() {
@@ -1822,7 +1861,7 @@ function initSheet() {
     moved = Math.max(moved, Math.abs(dy));
     const d = sheetDetentPixels();
     const h = Math.min(d.full, Math.max(d.peek, startH + dy));
-    panel.style.setProperty("--sheet-h", `${h}px`);
+    document.body.style.setProperty("--sheet-h", `${h}px`);
   });
 
   const endDrag = (e) => {
@@ -1832,7 +1871,7 @@ function initSheet() {
     try { handle.releasePointerCapture(e.pointerId); } catch { /* fine */ }
 
     const height = panel.getBoundingClientRect().height;
-    panel.style.removeProperty("--sheet-h");
+    document.body.style.removeProperty("--sheet-h");
 
     wasDrag = moved >= TAP_SLOP;
     if (!wasDrag) return;                     // a tap: the click handler has it
@@ -2000,7 +2039,10 @@ function bindUIEvents() {
     btn.addEventListener("click", togglePanelCollapsed);
   });
   initSheet();
-  setSheetDetent(state.sheetDetent);   // publish the initial detent to the DOM
+  // First paint gets the same per-view default a view change would give it.
+  setSheetDetent(isSheetLayout()
+    ? (VIEW_DEFAULT_DETENT[state.viewMode] || "half")
+    : "half");
   window.addEventListener("resize", syncPanelCollapsedToWidth);
 
   // Improvements panel: tab switching + close
@@ -2318,12 +2360,14 @@ function initSectionNav() {
 }
 
 async function applyViewMode() {
-  // `panel-collapsed` lives on <body>, so it outlives the view that set it and
-  // hides the incoming view's content too. Ticket view made that unrecoverable:
-  // it has no collapse control, so there was nothing on screen to undo it and
-  // the boundary calculator simply vanished. Collapsing is a per-view gesture —
-  // reset it whenever the view changes.
-  setPanelCollapsed(false);
+  // The sheet position is per-view, and resetting it on every view change is
+  // also what retired the Phase 1b bug: `panel-collapsed` lives on <body>, so
+  // it used to outlive the view that set it and hide the incoming view's
+  // content too — unrecoverably in Ticket view, which had no control to undo
+  // it. Desktop has no sheet, so it always opens expanded.
+  setSheetDetent(isSheetLayout()
+    ? (VIEW_DEFAULT_DETENT[state.viewMode] || "half")
+    : "half");
 
   const live = state.viewMode === "live";
   // The "show buses" toggle only does anything in Live view.
@@ -3303,20 +3347,45 @@ function reconcileTicketDisplay() {
   }
 }
 
-/** Combined map bounds of every shown zone (polygons + reach pills) for an
- *  operator, or null if it has nothing to fit to. */
+/**
+ * Map bounds for an operator's zones.
+ *
+ * The outlines only — deliberately not the reach pills. Those mark where a
+ * ticket can carry you, which for Brighton & Hove runs out to Lewes, Ringmer
+ * and Devil's Dyke, and fitting them dragged the view all the way to
+ * Crowborough. On a phone's 331px-tall map that left the actual zone as a
+ * shape in the bottom corner, which is what "the boundaries aren't visible"
+ * turned out to mean. The pills are still drawn; they are just not allowed to
+ * decide the framing.
+ *
+ * Falls back to including them when an operator has no polygon at all, so an
+ * operator-wide ticket still has something to fit to.
+ */
 function operatorBounds(op) {
-  let b = null;
+  let outlines = null;
+  let withPills = null;
+
+  /* Copy, don't alias. L.latLngBounds(x) returns x itself when handed a
+     LatLngBounds, and extend() mutates in place — so seeding both variables
+     from one layer's bounds made them the same object, and adding the reach
+     pills to one silently grew the other. That is what dragged the framing
+     out to Crowborough while the geometry was perfectly correct. */
+  const copy = (b) => L.latLngBounds(b.getSouthWest(), b.getNorthEast());
+  const grow = (b, x) => (b ? b.extend(x) : L.latLngBounds(x, x));
+
   for (const z of (state.ticketZones || [])) {
     if (z.operator !== op) continue;
     const layer = state.ticketZoneLayers[z.id];
-    if (layer) b = b ? b.extend(layer.getBounds()) : L.latLngBounds(layer.getBounds());
+    if (layer) {
+      const lb = layer.getBounds();
+      outlines  = outlines  ? outlines.extend(copy(lb))  : copy(lb);
+      withPills = withPills ? withPills.extend(copy(lb)) : copy(lb);
+    }
     for (const m of (state.ticketReachLayers[z.id] || [])) {
-      const ll = m.getLatLng();
-      b = b ? b.extend(ll) : L.latLngBounds(ll, ll);
+      withPills = grow(withPills, m.getLatLng());
     }
   }
-  return b;
+  return outlines || withPills;
 }
 
 /** Toggle selection of a zone (click again to deselect); zoom to its polygon,
@@ -3328,10 +3397,10 @@ function selectZone(id) {
   const layer = state.ticketZoneLayers[sel];
   const pills = state.ticketReachLayers[sel];
   if (layer) {
-    state.map.fitBounds(layer.getBounds(), { padding: [40, 40], maxZoom: 13 });
+    fitBoundsAboveSheet(layer.getBounds(), { padding: [40, 40], maxZoom: 13 });
   } else if (pills && pills.length) {
     const b = L.latLngBounds(pills.map(m => m.getLatLng()));
-    state.map.fitBounds(b, { padding: [50, 50], maxZoom: 12 });
+    fitBoundsAboveSheet(b, { padding: [30, 30], maxZoom: 13 });
   }
   renderTicketZonesList();
 }
@@ -3443,7 +3512,9 @@ function renderTicketZonesList() {
       reconcileTicketDisplay();
       if (nowOpen) {
         const b = operatorBounds(op);
-        if (b && b.isValid()) state.map.fitBounds(b, { padding: [45, 45], maxZoom: 13 });
+        if (b && b.isValid()) {
+          fitBoundsAboveSheet(b, { padding: [45, 45], maxZoom: 13 });
+        }
       }
     };
     card.addEventListener("click", toggle);
