@@ -1608,12 +1608,25 @@ function toggleDarkMode() {
  *  hides everything below it so the map can take the rest of the
  *  viewport. Updates aria-pressed + aria-label on each collapse button
  *  so a screen reader follows along. */
-function togglePanelCollapsed() {
-  const collapsed = document.body.classList.toggle("panel-collapsed");
+function setPanelCollapsed(collapsed) {
+  document.body.classList.toggle("panel-collapsed", collapsed);
   document.querySelectorAll(".btn-collapse-panel").forEach(btn => {
     btn.setAttribute("aria-pressed", collapsed ? "true" : "false");
     btn.setAttribute("aria-label", collapsed ? "Show panel" : "Hide panel");
   });
+}
+
+function togglePanelCollapsed() {
+  setPanelCollapsed(!document.body.classList.contains("panel-collapsed"));
+}
+
+/** The collapse control is only rendered under 700px. Crossing back above it
+ *  while collapsed used to strand the panel hidden with no way to reopen it,
+ *  because the button that would undo it had gone. Clear the state instead. */
+function syncPanelCollapsedToWidth() {
+  if (window.innerWidth > 700 && document.body.classList.contains("panel-collapsed")) {
+    setPanelCollapsed(false);
+  }
 }
 
 function closePanel() {
@@ -1761,6 +1774,7 @@ function bindUIEvents() {
   document.querySelectorAll(".btn-collapse-panel").forEach(btn => {
     btn.addEventListener("click", togglePanelCollapsed);
   });
+  window.addEventListener("resize", syncPanelCollapsedToWidth);
 
   // Improvements panel: tab switching + close
   dom.tabAbout.addEventListener("click",     () => setImprovementsTab("about"));
@@ -2077,6 +2091,13 @@ function initSectionNav() {
 }
 
 async function applyViewMode() {
+  // `panel-collapsed` lives on <body>, so it outlives the view that set it and
+  // hides the incoming view's content too. Ticket view made that unrecoverable:
+  // it has no collapse control, so there was nothing on screen to undo it and
+  // the boundary calculator simply vanished. Collapsing is a per-view gesture —
+  // reset it whenever the view changes.
+  setPanelCollapsed(false);
+
   const live = state.viewMode === "live";
   // The "show buses" toggle only does anything in Live view.
   if (dom.toggleBusesBtn) dom.toggleBusesBtn.hidden = !live;

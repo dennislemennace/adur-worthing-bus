@@ -596,6 +596,12 @@ html.dark-mode .map-loading {
   color: var(--color-text);
 }
 
+/* Ticket view's strip is a label, not a control — there is only one view to
+   be on. Styled as the active tab so the bar reads the same everywhere. */
+.panel-tab-static {
+  cursor: default;
+}
+
 /* Hide tab button only appears on mobile, where vertical space is at a
    premium and the user wants to swap the panel for the map. */
 .panel-tabs-bar .btn-collapse-panel {

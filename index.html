@@ -559,6 +559,21 @@
 
       <!-- === TICKET VIEW (fare zones) === -->
       <div class="panel-mode" data-mode="tickets">
+
+        <!-- Single-view strip. Ticket view draws zone outlines on the map, so
+             it wants the same collapse affordance as every other view — and
+             without one, a collapsed panel here could not be reopened. -->
+        <div class="panel-tabs-bar">
+          <div class="panel-tabs">
+            <span class="panel-tab panel-tab-static active">
+              <span class="panel-tab-label">Ticket zones</span>
+            </span>
+          </div>
+          <button class="btn-collapse-panel" type="button" aria-label="Hide panel" aria-pressed="false">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </button>
+        </div>
+
         <div class="panel-tab-content" id="tab-content-tickets" role="tabpanel">
           <div class="improvements-intro">
             <h2 class="improvements-title">Ticket zones</h2>
