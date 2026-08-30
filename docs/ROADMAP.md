@@ -186,7 +186,7 @@ visible.
 
 ---
 
-## Phase 2 — switching submissions on  ⏸ BLOCKED ON ACCOUNTS
+## Phase 2 — switching submissions on  ◐ PARTLY DONE, BLOCKED ON ACCOUNTS
 
 Mostly account work that cannot be done on your behalf. The Worker itself is
 built, tested (26 tests) and deployed-ready.
@@ -219,7 +219,7 @@ stop-issue:other
 
 | # | Step | Who |
 |---|------|-----|
-| 0 | Create the 11 labels above (`gh label create` ×11) | Claude |
+| 0 | ~~Create the 11 labels above~~ **DONE 2026-08-30** — all 11 exist on the live repo | Claude |
 | 1 | Cloudflare account — free, no card required | **you** |
 | 2 | `cd worker && npx wrangler kv namespace create RATE_LIMIT`, paste the id over `REPLACE_WITH_KV_NAMESPACE_ID` at `wrangler.toml:28` | Claude |
 | 3 | Turnstile → Add site → **Managed** widget. Domains: `dennislemennace.github.io`, plus `127.0.0.1` only while testing | **you** |
@@ -238,12 +238,23 @@ the version note.
 **Do not skip step 7.** The Worker writes to a public tracker; test somewhere
 disposable first.
 
-### Worth adding while in there
+### Worth adding while in there — both DONE 2026-08-30
 
-- README labels step (mandatory — this is the actual footgun).
-- **422 retry-without-labels fallback** in the Worker: if a label is renamed
-  later, submissions degrade to unlabelled rather than failing outright. Small
-  change, offered previously and not yet built.
+- ~~README labels step~~ **DONE.** `worker/README.md` now opens with the label
+  step, the eleven `gh label create` commands, and a note that the set derives
+  from `buildIssue` + `STOP_ISSUE_CATEGORIES`. Steps renumbered 1–6, and the
+  Wrangler 3.60.0 `kv namespace` vs `kv:namespace` caveat added.
+- ~~422 retry-without-labels fallback~~ **DONE.** `fileIssue` retries once
+  without labels on a 422, so a renamed label costs the labelling rather than
+  the submission. `ghFetch` attaches the HTTP status so the retry is scoped to
+  422 only — a 401 is a wrong token and retrying would double the damage.
+  3 new tests (worker suite 26 → 29).
+
+**What is left is only what needs your accounts:** the Cloudflare account,
+Turnstile keys, and the fine-grained PAT (steps 1, 3, 4). Everything after
+those — KV namespace, secrets, deploy, scratch-repo test, wiring
+`CONFIG.SUBMIT_ENDPOINT` and `CONFIG.TURNSTILE_SITE_KEY`, tightening
+`ALLOWED_ORIGINS` — can be driven once the credentials exist.
 
 Turnstile's always-passing local test keys (`1x00000000000000000000AA` /
 `1x0000000000000000000000000000000AA`) are already documented in the README for
