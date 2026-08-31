@@ -268,3 +268,60 @@ if __name__ == "__main__":  # allow `python tests/test_curated_data.py`
     import pytest
 
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# The reform block is the site's actual argument — "here is what this journey
+# costs, and here is what it would cost if you changed one rule". It had no
+# schema coverage at all, so a malformed entry failed silently at render time
+# rather than in CI, which on the one page where a wrong number does real
+# damage is the worst place to find out.
+REFORM_APPLIES = {"same_operator_multi_zone", "multi_operator"}
+
+
+def test_reforms_schema():
+    meta = _load("ticket_zones.json")["fares_meta"]
+    reforms = meta.get("reforms")
+    assert isinstance(reforms, list) and reforms, (
+        "ticket_zones.json: 'fares_meta.reforms' must be a non-empty list")
+
+    _assert_unique_ids(reforms, "fares_meta.reforms")
+    objective_ids = {o["id"] for o in _load("objectives.json")["objectives"]}
+
+    for r in reforms:
+        rid = r.get("id", "?")
+        assert _nonempty_str(r.get("id")), "a reform needs an 'id'"
+        assert _nonempty_str(r.get("headline")), f"reform '{rid}' needs a 'headline'"
+        assert r.get("applies") in REFORM_APPLIES, (
+            f"reform '{rid}': 'applies' must be one of {sorted(REFORM_APPLIES)}")
+
+        # A reform points at the objective that argues for it. A dangling
+        # pointer here means the campaign asks for something the objectives
+        # page no longer lists.
+        assert r.get("objective_id") in objective_ids, (
+            f"reform '{rid}': objective_id {r.get('objective_id')!r} "
+            f"does not exist in objectives.json")
+
+        price = r.get("price_pence")
+        assert price is None or (
+            isinstance(price, int) and not isinstance(price, bool) and 0 < price < 100000
+        ), f"reform '{rid}': 'price_pence' must be a sensible int, or null"
+
+
+def test_single_fare_schema():
+    meta = _load("ticket_zones.json")["fares_meta"]
+    sf = meta.get("single_fare")
+    if sf is None:
+        return
+    for key in ("price_pence", "short_hop_pence"):
+        v = sf.get(key)
+        assert isinstance(v, int) and not isinstance(v, bool) and 0 < v < 100000, (
+            f"single_fare.{key} must be a sensible int in pence")
+    assert _nonempty_str(sf.get("source_url")), (
+        "single_fare needs a source_url — it is a national cap, so it is "
+        "citable, and an uncited fare can't be defended")
+    for key in ("checked_on", "review_by"):
+        assert _nonempty_str(sf.get(key)), f"single_fare needs '{key}'"
+        date.fromisoformat(sf[key])
+    # The cap has an end date and a scheduled change. A site quoting an
+    # expired fare cap is worse than one quoting none.
+    assert date.fromisoformat(sf["review_by"]) > date.fromisoformat(sf["checked_on"])

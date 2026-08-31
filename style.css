@@ -1061,6 +1061,9 @@ body.panel-collapsed .btn-collapse-panel .icon {
   background: var(--color-primary);
   color: var(--color-on-fill);
   border: none;
+  /* Only ever rendered in the error state, which is why it escaped the
+     earlier target-size pass — nothing had exercised that state. */
+  min-height: var(--target-min);
   padding: var(--space-sm) var(--space-lg);
   border-radius: var(--radius-md);
   font-family: var(--font-family);

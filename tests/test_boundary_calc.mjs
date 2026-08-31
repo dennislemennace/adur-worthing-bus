@@ -358,8 +358,11 @@ test("cross-operator acceptance is offered when operators differ", () => {
     ["sc-worthing-dayrider", "bh-citysaver"], byId, META);
   assert.equal(rs.length, 1);
   assert.equal(rs[0].id, "cross-operator-acceptance");
-  // Not an invented figure: the cheapest day ticket already on the route.
-  assert.equal(rs[0].price_pence, 600);
+  // networkSAVER's own published fare. This used to be priced at the cheapest
+  // day ticket already on the route, which produced a lower and more striking
+  // number that no operator actually sells — and "which ticket is that?" is
+  // the first question a council would ask.
+  assert.equal(rs[0].price_pence, 730);
 });
 
 test("no reform is offered when one ticket already covers the journey", () => {
@@ -695,7 +698,97 @@ test("authorities get a palette colour, never an operator's brand colour", () =>
 
 test("the featured asks are the live campaign ones", () => {
   const featured = OBJECTIVES.filter(o => o.featured).map(o => o.id);
-  assert.ok(featured.includes("fairer-ticketing-zones"));
-  assert.ok(featured.includes("cross-operator-tickets"));
-  assert.ok(featured.includes("connect-adur-to-brighton"));
+  // The four the campaign leads with, in the order they appear on the page.
+  assert.deepEqual(featured, [
+    "integrated-sussex-plan",
+    "extend-existing-routes",
+    "express-commuter-routes",
+    "fairer-ticketing-zones",
+  ]);
+});
+
+// ── Coverage has to mean "usable here", not "inside the shape" ──────
+//
+// The bug this pins: Boundary Road in Portslade sits inside the Brighton
+// DayRider polygon and is served only by Brighton & Hove. The calculator
+// counted the DayRider as covering it and reported "good news", when a
+// DayRider buys you nothing at that stop.
+
+const BOUNDARY_ROAD = { lat: 50.832836, lon: -0.207391 };  // Portslade, BHBC only
+
+test("a zone is not offered at a stop none of its operators serve", () => {
+  const covering = app.zonesForStop(BOUNDARY_ROAD, zones, byId, ["BHBC"]);
+  assert.ok(!covering.includes("sc-brighton-dayrider"),
+    "a Stagecoach DayRider is useless at a stop no Stagecoach bus calls at");
+  assert.ok(covering.includes("bh-citysaver"),
+    "the B&H ticket is usable — B&H is what stops here");
+});
+
+test("the same stop does offer the DayRider when Stagecoach serves it", () => {
+  // Same coordinates, different operators on the ground. Geometry alone
+  // cannot tell these two cases apart, which is the whole point.
+  const covering = app.zonesForStop(BOUNDARY_ROAD, zones, byId, ["BHBC", "SCSO"]);
+  assert.ok(covering.includes("sc-brighton-dayrider"));
+});
+
+test("with no operator information the geometry alone still matches", () => {
+  // The permissive path is kept for callers that genuinely have none — but it
+  // is exactly the path that produced the wrong answer, so the difference has
+  // to be visible rather than incidental. Same point, same polygons; the only
+  // thing that changes is whether we know who runs the buses.
+  const known   = app.zonesForStop(BOUNDARY_ROAD, zones, byId, ["BHBC"]);
+  const unknown = app.zonesForStop(BOUNDARY_ROAD, zones, byId, null);
+
+  assert.ok(unknown.includes("sc-brighton-dayrider"),
+    "geometry alone cannot rule the DayRider out");
+  assert.ok(!known.includes("sc-brighton-dayrider"),
+    "knowing only B&H stops here does rule it out");
+  assert.ok(known.includes("bh-networksaver"),
+    "and knowing the operator is what lets operator-wide tickets count at all");
+});
+
+test("operator-wide tickets appear once we know who serves the stop", () => {
+  // These used to vanish entirely on an interchange journey, taking the
+  // £9.00 Gold DayRider and £7.30 networkSAVER out of the comparison.
+  const covering = app.zonesForStop(
+    { lat: 50.8158, lon: -0.3743 }, zones, byId, ["SCSO"]);   // central Worthing
+  assert.ok(covering.includes("sc-gold-dayrider"));
+});
+
+// ── Singles ────────────────────────────────────────────────────────
+
+test("singles price a return as legs each way", () => {
+  const s = app.singlesBaseline(META, 2);
+  assert.equal(s.kind, "singles");
+  assert.equal(s.each, 300);
+  assert.equal(s.total, 1200, "two buses each way at the £3 cap");
+  assert.equal(s.legs, 2);
+});
+
+test("singles compete with day tickets and can win", () => {
+  const singles = app.singlesBaseline(META, 1);              // £6 return
+  const pricey  = { zones: ["mb-metrovoyager"], total: 920, priced: true };
+  const cheapest = app.cheapestRealOption(pricey, null, null, null, singles);
+  assert.equal(cheapest.kind, "singles");
+  assert.equal(cheapest.total, 600);
+});
+
+test("no single-fare data means no singles option, not a guessed one", () => {
+  assert.equal(app.singlesBaseline({}, 2), null);
+  assert.equal(app.singlesBaseline(META, 0), null);
+});
+
+test("coveringZoneIds unions the zones across every stop, de-duped", () => {
+  assert.deepEqual(
+    plain(app.coveringZoneIds([["a", "b"], ["b", "c"], []])),
+    ["a", "b", "c"]);
+});
+
+test("a journey one expensive ticket covers can still show a reform", () => {
+  // Previously reformsForJourney bailed under two zones, so the case that
+  // most needed the comparison was the one that never got it.
+  const rs = app.reformsForJourney(
+    ["mb-metrovoyager", "sc-worthing-dayrider", "bh-citysaver"], byId, META);
+  const ids = rs.map(r => r.id);
+  assert.ok(ids.includes("cross-operator-acceptance"));
 });

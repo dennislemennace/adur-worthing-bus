@@ -157,6 +157,9 @@ const state = {
 
   // ── Ticket view (fare zones) ──
   ticketZones:             null,   // data/ticket_zones.json (array); null = not loaded
+  councilBoundaryLayers:   {},     // boundary id → L.polyline / L.polygon (Route view)
+  showConnectionGap:       false,  // the Shoreham seam overlay is opt-in
+  _councilBoundariesPromise: null,
   ticketZoneLayers:        {},     // zone id → L.polygon (only for zones with geometry)
   ticketReachLayers:       {},     // zone id → [L.marker] reach pills (networkSAVER-style)
   selectedZoneId:          null,
@@ -710,6 +713,86 @@ function applyStopVisibility() {
     if (show.has(atco) && !has)      state.map.addLayer(marker);
     else if (!show.has(atco) && has) state.map.removeLayer(marker);
   }
+}
+
+/* ============================================================
+ * COUNCIL BOUNDARY + CONNECTION GAP (Route view)
+ *
+ * Note the name. "Boundary" already means the *fare* seam everywhere else in
+ * this file, so anything administrative is spelled out as councilBoundary to
+ * keep the two apart.
+ * ============================================================ */
+function loadCouncilBoundaries() {
+  if (!state._councilBoundariesPromise) {
+    state._councilBoundariesPromise = loadCouncilBoundariesImpl()
+      .catch(err => { state._councilBoundariesPromise = null; throw err; });
+  }
+  return state._councilBoundariesPromise;
+}
+
+async function loadCouncilBoundariesImpl() {
+  if (Object.keys(state.councilBoundaryLayers).length) return;
+  let data;
+  try {
+    const res = await fetch("data/council_boundaries.json");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+  } catch (err) {
+    // A missing overlay is not worth breaking the view for.
+    console.warn("Council boundaries unavailable:", err);
+    return;
+  }
+
+  if (!state.map.getPane("councilBoundaryPane")) {
+    const pane = state.map.createPane("councilBoundaryPane");
+    // Below the ticket zones (404) and below route lines' own pane, so it
+    // reads as a backdrop rather than competing with the network it explains.
+    pane.style.zIndex = 402;
+  }
+
+  for (const b of (data.boundaries || [])) {
+    const colour = bodyColour((b.bodies || [])[0]) || "var(--color-text-muted)";
+    if (b.kind === "line" && Array.isArray(b.polyline)) {
+      state.councilBoundaryLayers[b.id] = L.polyline(b.polyline, {
+        color: colour, weight: 2, opacity: 0.55, dashArray: "6 5",
+        interactive: false, pane: "councilBoundaryPane",
+        className: "council-boundary-line",
+      });
+    } else if (b.kind === "area" && Array.isArray(b.polygon)) {
+      state.councilBoundaryLayers[b.id] = L.polygon(b.polygon, {
+        color: colour, weight: 1.5, opacity: 0.5, dashArray: "4 4",
+        fillColor: colour, fillOpacity: 0.12,
+        interactive: false, pane: "councilBoundaryPane",
+        className: "connection-gap-area",
+      });
+    }
+  }
+}
+
+/** The line is always on in Route view; the seam band is opt-in. */
+function reconcileCouncilBoundaries() {
+  if (!state.map) return;
+  const inRoute = state.viewMode === "improvements";
+  for (const [id, layer] of Object.entries(state.councilBoundaryLayers)) {
+    const show = inRoute && (id === "connection-gap" ? state.showConnectionGap : true);
+    if (show && !state.map.hasLayer(layer))      layer.addTo(state.map);
+    else if (!show && state.map.hasLayer(layer)) state.map.removeLayer(layer);
+  }
+}
+
+function hideCouncilBoundaries() {
+  if (!state.map) return;
+  for (const layer of Object.values(state.councilBoundaryLayers)) {
+    if (state.map.hasLayer(layer)) state.map.removeLayer(layer);
+  }
+}
+
+function setShowConnectionGap(on) {
+  state.showConnectionGap = !!on;
+  reconcileCouncilBoundaries();
+  const btn = dom.mapOverlayControls
+    && dom.mapOverlayControls.querySelector("[data-overlay='connection-gap']");
+  if (btn) btn.setAttribute("aria-pressed", state.showConnectionGap ? "true" : "false");
 }
 
 /** Popup body for a stop — built on demand (see renderStopMarker). */
@@ -2394,8 +2477,9 @@ async function applyViewMode() {
     hideTicketZones();
     ensureMapOverlayControls();
     try {
-      await Promise.all([loadRouteLines(), loadProposals()]);
+      await Promise.all([loadRouteLines(), loadProposals(), loadCouncilBoundaries()]);
       showRouteLines();
+      reconcileCouncilBoundaries();
       reconcileProposalLayers();
       if (state.selectedProposalId) showProposal(state.selectedProposalId);
     } catch (err) {
@@ -2407,6 +2491,7 @@ async function applyViewMode() {
     if (state.editor) closeEditor({ skipSave: false });
     hideRouteLines();
     hideAllProposalLayers();
+    hideCouncilBoundaries();
     try {
       await loadTicketZones();
       showTicketZones();
@@ -2420,6 +2505,7 @@ async function applyViewMode() {
     hideRouteLines();
     hideAllProposalLayers();
     hideTicketZones();
+    hideCouncilBoundaries();
     try {
       await loadNetworkData();
     } catch (err) {
@@ -2432,6 +2518,7 @@ async function applyViewMode() {
     hideRouteLines();
     hideAllProposalLayers();
     hideTicketZones();
+    hideCouncilBoundaries();
     if (state.busesVisible) {
       showVehicleMarkers();
       if (!state.isRefreshing) startVehicleRefresh();
@@ -3190,10 +3277,20 @@ function ensureMapOverlayControls() {
             aria-pressed="${state.showProposals ? "true" : "false"}">
       <svg class="icon" aria-hidden="true" style="width:14px;height:14px"><use href="#i-lightbulb"/></svg>
       <span>Show proposals</span>
+    </button>
+    <button type="button"
+            class="map-overlay-btn"
+            data-overlay="connection-gap"
+            aria-pressed="${state.showConnectionGap ? "true" : "false"}"
+            title="Where the Worthing and Brighton DayRider zones meet at Shoreham, with no overlap">
+      <svg class="icon" aria-hidden="true" style="width:14px;height:14px"><use href="#i-alert"/></svg>
+      <span>Connection gap</span>
     </button>`;
   dom.mapOverlayControls.dataset.built = "1";
   dom.mapOverlayControls.querySelector("[data-overlay='proposals']")
     .addEventListener("click", () => setShowProposals(!state.showProposals));
+  dom.mapOverlayControls.querySelector("[data-overlay='connection-gap']")
+    .addEventListener("click", () => setShowConnectionGap(!state.showConnectionGap));
 }
 
 // ============================================================
@@ -3655,19 +3752,36 @@ function ringBounds(ring) {
  * unknown (no direct bus, so we're comparing endpoints only) the operator test
  * is skipped and the caller labels the result as the less certain answer.
  */
+/** One NOC, a list of them, or nothing — always out as an array of codes. */
+function normaliseOperators(operatorOfStop) {
+  if (!operatorOfStop) return [];
+  const list = Array.isArray(operatorOfStop) ? operatorOfStop : [operatorOfStop];
+  return list.filter(Boolean);
+}
+
 function zonesForStop(stop, zones, byId, operatorOfStop) {
   const covering = [];
+  // `operatorOfStop` may be a single NOC or a list of every operator calling
+  // at the stop. A list is the honest form: a ticket is usable here only if
+  // some operator that accepts it actually stops here.
+  const serving = normaliseOperators(operatorOfStop);
+
   for (const z of zones) {
     const rule = z.coverage_rule || "polygon";
     // A ticket is only valid on the operators it says it is. Mostly that's
     // just its own (Stagecoach tickets are explicitly not valid on Metrobus
     // or B&H), but some cross over: networkSAVER covers Metrobus inside the
     // zone, and Metrovoyager covers Brighton & Hove.
-    if (operatorOfStop && !ticketValidOn(z, operatorOfStop)) continue;
+    //
+    // This used to be skipped whenever the operator was unknown, which is how
+    // Boundary Road — inside the Brighton DayRider polygon, served only by
+    // Brighton & Hove — was reported as covered by a Stagecoach DayRider. An
+    // unknown operator now means we say we don't know, not that we assume yes.
+    if (serving.length && !serving.some(op => ticketValidOn(z, op))) continue;
 
     if (rule === "operator_network") {
       // No geometry to test — validity is exactly "this operator's network".
-      if (operatorOfStop && ticketValidOn(z, operatorOfStop)) covering.push(z.id);
+      if (serving.some(op => ticketValidOn(z, op))) covering.push(z.id);
       continue;
     }
     if (rule === "reach_points") {
@@ -3922,6 +4036,68 @@ async function checkJourney() {
   renderJourneyResult(journey, fromAtco, toAtco);
 }
 
+/**
+ * Operators serving each stop we're costing.
+ *
+ * A direct journey is simple — one operator runs the whole thing. An
+ * interchange journey is where this matters: the two ends can be served by
+ * completely different companies, and a ticket valid in the zone but not on
+ * the buses that stop there is no use to anybody. Boundary Road sits inside
+ * the Brighton DayRider zone and sees only Brighton & Hove buses.
+ *
+ * Returns one entry per stop: an array of NOCs, or `null` where the API
+ * hasn't told us (an older deployment), which callers must not read as "any".
+ */
+function journeyEndpointOperators(journey, option, pathStops) {
+  if (option) return pathStops.map(() => [option.operator].filter(Boolean));
+  const from = journey && journey.from && journey.from.operators;
+  const to   = journey && journey.to   && journey.to.operators;
+  return pathStops.map((_, i) => {
+    const ops = i === 0 ? from : (i === pathStops.length - 1 ? to : null);
+    return Array.isArray(ops) ? ops : null;
+  });
+}
+
+/**
+ * What this journey costs if you just buy singles.
+ *
+ * Often the honest answer, and the one the zone machinery cannot see. England
+ * caps a single at £3, so two buses each way is £12 return — which is why an
+ * interchange costs what it does, and why quoting only day tickets overstates
+ * what a careful passenger pays.
+ */
+function singlesBaseline(meta, legs, returnTrip = true) {
+  const sf = meta && meta.single_fare;
+  if (!sf || typeof sf.price_pence !== "number" || !legs) return null;
+  const each = sf.price_pence;
+  const total = each * legs * (returnTrip ? 2 : 1);
+  return {
+    kind: "singles",
+    total,
+    legs,
+    each,
+    returnTrip,
+    source_url: sf.source_url || "",
+    label: sf.label || "Single fare",
+  };
+}
+
+/** Every zone touching any stop on the path, de-duped. */
+function coveringZoneIds(coverPerStop) {
+  const out = [];
+  for (const ids of coverPerStop) {
+    for (const id of ids) if (!out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+/** The cheaper of two priced options; either may be null. */
+function cheaperOf(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  return b.total < a.total ? b : a;
+}
+
 function renderJourneyResult(journey, fromAtco, toAtco) {
   const host = dom.jcResult;
   if (!host) return;
@@ -3939,6 +4115,13 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   ];
   const operator = option ? option.operator : "";
 
+  // Who actually runs a bus from each end. On a direct journey every stop is
+  // served by the operator running it; on an interchange journey the API
+  // tells us per endpoint. Older deployments of the API don't send this, so
+  // `null` means "unknown" and is reported as such rather than assumed away.
+  const endpointOperators = journeyEndpointOperators(journey, option, pathStops);
+  const operatorsKnown = endpointOperators.every(o => o !== null);
+
   const usable = pathStops.filter(s => typeof s.lat === "number" && typeof s.lon === "number");
   if (usable.length < 2) {
     host.innerHTML = `<p class="journey-note">We don't have locations for those stops, so we can't check the zones.</p>`;
@@ -3954,7 +4137,8 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   const zones = allZones.filter(z =>
     isStandardFareZone(z) && ticketValidAtTime(z, departAt));
 
-  const coverPerStop = usable.map(s => zonesForStop(s, zones, byId, operator));
+  const coverPerStop = usable.map((s, i) =>
+    zonesForStop(s, zones, byId, endpointOperators[i] ?? operator));
   const uncovered = coverPerStop.filter(c => c.length === 0).length;
 
   // Zone tickets answer "how many tickets does this journey need?"; an
@@ -3968,6 +4152,9 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   const supplement = serviceSupplement(meta, service, operator);
   // The all-operator ticket competes on price like any other option.
   const unifiedOption = unifiedTicketOption(meta, service);
+  // A journey with no direct bus needs at least two buses each way.
+  const legs = option ? 1 : 2;
+  const singlesOption = singlesBaseline(meta, legs);
 
   const routeLine = option
     ? `<p class="journey-note">Following the ${escapeHtml(option.service)} — ${option.stop_count} stops, ${escapeHtml(option.depart)} to ${escapeHtml(option.arrive)}.</p>`
@@ -3992,7 +4179,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
                : `<p class="journey-basis">The only ticket that covers it is
                   ${escapeHtml(networkOption.zone.name)}, but we don't have a
                   current price for it.</p>`}
-        ${reformComparisonHtml(only, meta)}
+        ${reformComparisonHtml(only, coveringZoneIds(coverPerStop), byId, meta)}
       </div>` + zoneListHtml(coverPerStop, byId);
     return;
   }
@@ -4008,13 +4195,49 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   }
 
   // ── One ticket covers it ──────────────────────────────────
+  //
+  // This used to print the ticket's name and stop. That read as "good news"
+  // for a £9.20 Metrovoyager on a journey a passenger could make for £12 in
+  // singles, or £7.30 if one ticket were accepted across operators — so it
+  // was cheerful about exactly the fare gap the site exists to point at. One
+  // ticket covering a journey is worth saying, with its price, and with what
+  // a reform would change.
   if (best.zones.length === 1) {
     const z = byId[best.zones[0]];
+    const fare = zoneDayFare(z);
+    const singles = singlesOption;
+    const dayTotal = fare === null ? null : fare + (supplement ? supplement.price_pence : 0);
+
+    // Compare against what you'd really pay, not just against this ticket.
+    const cheapest = cheaperOf(
+      dayTotal === null ? null : { kind: "zonal", total: dayTotal },
+      singles,
+    );
+
+    const priceLine = fare === null
+      ? `<p>One ticket covers this journey — <strong>${escapeHtml(z.name)}</strong>
+         (${escapeHtml(z.operator)}) — but we don't have a current price for it.</p>`
+      : `<p>One ticket covers this journey:
+         <strong>${escapeHtml(z.name)}</strong> (${escapeHtml(z.operator)})
+         at <strong>${formatGbp(fare)}</strong>.</p>`;
+
+    const singlesLine = (singles && cheapest && cheapest.kind === "singles")
+      ? `<p class="journey-basis">Singles are cheaper here:
+         ${legs} bus${legs === 1 ? "" : "es"} each way at
+         ${formatGbp(singles.each)} is ${formatGbp(singles.total)} for a return.</p>`
+      : "";
+
     host.innerHTML = header + `
       <div class="journey-alert journey-alert--ok">
-        <p>Good news — one ticket covers this journey:
-        <strong>${escapeHtml(z.name)}</strong> (${escapeHtml(z.operator)}).</p>
-      </div>`;
+        ${priceLine}
+        ${operatorsKnown ? "" : `<p class="journey-basis">We couldn't confirm which
+          operators serve these stops, so this assumes the ticket is usable at both
+          ends.</p>`}
+        ${singlesLine}
+      </div>`
+      + reformComparisonHtml(cheapest, coveringZoneIds(coverPerStop), byId, meta)
+      + zoneListHtml(coverPerStop, byId)
+      + faresProvenanceHtml(best.zones, byId);
     return;
   }
 
@@ -4108,9 +4331,15 @@ function unifiedTicketOption(meta, service) {
  * whichever one you hold. It is not added to the all-operator ticket, which is
  * excluded from the services that carry a supplement rather than surcharged.
  */
-function cheapestRealOption(zonalBest, networkOption, supplement, unifiedOption) {
+function cheapestRealOption(zonalBest, networkOption, supplement, unifiedOption,
+                            singlesOption) {
   const extra = supplement ? supplement.price_pence : 0;
   const options = [];
+  // Buying singles is a real option and often the cheapest one, especially on
+  // a journey that needs a change. Leaving it out overstated what a careful
+  // passenger pays, which makes every saving quoted against it look bigger
+  // than it is.
+  if (singlesOption) options.push(singlesOption);
   if (zonalBest && zonalBest.priced) {
     options.push({
       kind: "zonal", total: zonalBest.total + extra,
@@ -4148,6 +4377,22 @@ function penaltyMoneyHtml(cheapest, meta, service) {
       <strong>${src ? `<a href="${escapeAttr(src)}" target="_blank" rel="noopener noreferrer">${name}</a>` : name}</strong>
       at ${formatGbp(cheapest.total)} — the only day ticket that's valid on every
       operator, priced as a day-out rover rather than a local fare.</p>`);
+  } else if (cheapest.kind === "singles") {
+    // Not a day ticket at all — and on a journey needing a change, usually
+    // the cheapest honest answer. Saying so is the point: the cost is the
+    // interchange, not the distance.
+    const legs = cheapest.legs;
+    parts.push(`<p class="journey-headline">
+      The cheapest way to make this journey is
+      <strong>${formatGbp(cheapest.total)}</strong> in single fares —
+      ${legs} bus${legs === 1 ? "" : "es"} each way at
+      ${formatGbp(cheapest.each)}, because no day ticket is valid on every
+      operator that serves these stops.</p>`);
+    if (cheapest.source_url) {
+      parts.push(`<p class="journey-basis">Single fares are capped nationally:
+        <a href="${escapeAttr(cheapest.source_url)}" target="_blank"
+           rel="noopener noreferrer">${escapeHtml(cheapest.label)}</a>.</p>`);
+    }
   } else if (cheapest.kind === "network") {
     parts.push(`<p class="journey-headline">
       The cheapest ticket covering it is a
@@ -4202,7 +4447,12 @@ function zoneDayFare(zone) {
  */
 function reformsForJourney(zoneIds, byId, meta) {
   const reforms = (meta && meta.reforms) || [];
-  if (!zoneIds || zoneIds.length < 2) return [];
+  // No blanket two-zone gate. A journey that one expensive ticket happens to
+  // cover still crosses the zones a reform would merge, and refusing to look
+  // was why the Boundary Road case showed no reform at all. Each rule below
+  // states its own precondition, and nothing is offered unless it is actually
+  // cheaper than what you'd pay today.
+  if (!zoneIds || !zoneIds.length) return [];
 
   const operators = new Set(zoneIds.map(id => (byId[id] || {}).operator).filter(Boolean));
   const fares = zoneIds.map(id => zoneDayFare(byId[id])).filter(p => p !== null);
@@ -4212,7 +4462,7 @@ function reformsForJourney(zoneIds, byId, meta) {
   for (const r of reforms) {
     let price = null;
     if (r.applies === "same_operator_multi_zone") {
-      if (operators.size !== 1) continue;
+      if (operators.size !== 1 || zoneIds.length < 2) continue;
       price = typeof r.price_pence === "number" ? r.price_pence : cheapestSingle;
     } else if (r.applies === "multi_operator") {
       if (operators.size < 2) continue;

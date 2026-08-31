@@ -1255,7 +1255,9 @@ async def get_journey(
     that looks intra-zone at its ends can still need two tickets.
 
     Direct trips only. Interchange journeys return `direct: false` with no
-    options, and the caller degrades to comparing the endpoints alone.
+    options, and the caller degrades to comparing the endpoints alone — which
+    is exactly when knowing *who serves each end* matters most, so `from` and
+    `to` always carry an `operators` list whether or not a direct bus exists.
 
     Purely local SQLite reads — no upstream calls, so no quota implications.
     Cached 1 h per (from, to, date): the schedule only changes when a new
@@ -1342,8 +1344,13 @@ async def get_journey(
             break
 
     result = {
-        "from":    {"atco": a, "name": (tt.stops.get(a) or {}).get("name", "")},
-        "to":      {"atco": b, "name": (tt.stops.get(b) or {}).get("name", "")},
+        # `operators` is what lets the caller tell a ticket that is valid here
+        # from a ticket you could actually use here. A zone polygon covering a
+        # stop means nothing if no operator accepting that ticket calls at it.
+        "from":    {"atco": a, "name": (tt.stops.get(a) or {}).get("name", ""),
+                    "operators": tt.operators_at_stop(a)},
+        "to":      {"atco": b, "name": (tt.stops.get(b) or {}).get("name", ""),
+                    "operators": tt.operators_at_stop(b)},
         "direct":  bool(options),
         "options": options,
         "note": "" if options else

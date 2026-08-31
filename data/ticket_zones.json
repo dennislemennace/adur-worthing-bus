@@ -4079,9 +4079,20 @@
         "objective_id": "cross-operator-tickets",
         "applies": "multi_operator",
         "headline": "If your ticket were valid on every operator on this route",
-        "detail": "One day ticket, accepted on whichever operator's bus turns up.",
-        "price_pence": null
+        "detail": "networkSAVER is £7.30 and already works on Brighton & Hove and Metrobus. Accepting it on Stagecoach too would make it one ticket for the whole coast.",
+        "price_pence": 730,
+        "price_basis_zone": "bh-networksaver"
       }
-    ]
+    ],
+    "single_fare": {
+      "price_pence": 300,
+      "short_hop_pence": 200,
+      "label": "Single fare (England fare cap)",
+      "basis": "England's national bus fare cap. Most single journeys are capped at £3; a short single-stop hop is £2. Two buses means two singles, which is why an interchange costs more than the distance suggests.",
+      "source_url": "https://www.gov.uk/guidance/3-national-bus-fare-cap",
+      "checked_on": "2026-08-31",
+      "review_by": "2026-12-31",
+      "review_note": "The £3 cap is funded to March 2027, and a £2 cap is announced from 1 January 2027. Re-check before quoting — an advocacy site running on an expired fare cap is worse than one quoting none."
+    }
   }
 }

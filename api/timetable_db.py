@@ -530,6 +530,50 @@ class Timetable:
             })
         return out
 
+    def operators_at_stop(self, stop_id: str) -> list:
+        """NOCs of every operator whose services call at `stop_id`.
+
+        This is what makes a ticket answer honest. A zone polygon says where a
+        ticket is *geographically* valid; it says nothing about whether a bus
+        you can use that ticket on actually stops there. Boundary Road in
+        Portslade sits inside the Brighton DayRider zone and is served only by
+        Brighton & Hove — so a DayRider buys you nothing at that stop, and a
+        calculator that reasons from the polygon alone will cheerfully tell you
+        otherwise.
+
+        Widened across sibling poles, for the same reason journey search is:
+        a passenger picks a place, not a side of the road.
+        """
+        if self._con is None:
+            return []
+        sids = [
+            self.stops[s]["_sid"]
+            for s in self.sibling_stops(stop_id)
+            if s in self.stops and "_sid" in self.stops[s]
+        ]
+        if not sids:
+            return []
+        placeholders = ",".join("?" * len(sids))
+        rows = self._con.execute(
+            f"""SELECT DISTINCT r.short_name, r.noc
+                  FROM stop_times st
+                  JOIN trips  t ON t.tid = st.tid
+                  JOIN routes r ON r.rid = t.rid
+                 WHERE st.sid IN ({placeholders})""",
+            sids,
+        )
+        # Read routes.noc per route, NOT noc_for_short_name. That helper
+        # collapses the whole routes table into one short_name -> noc map and
+        # is last-row-wins (see the TODO on _OPERATOR_OVERRIDES), so a number
+        # used by two operators anywhere in the region resolves to whichever
+        # row happened to come last. At a Portslade stop served only by
+        # Brighton & Hove routes 1/1X/6 that produced "SCSO", which is exactly
+        # the false positive this method exists to prevent.
+        nocs = set()
+        for short_name, noc in rows:
+            nocs.add(self._OPERATOR_OVERRIDES.get(short_name, noc))
+        return sorted(n for n in nocs if n)
+
     def service_endpoints(self, short_name: str) -> Iterator[tuple]:
         """Yield (trip_id, first_stop_id, last_stop_id, first_secs) for every
         trip whose route short_name matches."""

@@ -52,8 +52,8 @@ Working, live at <https://dennislemennace.github.io/adur-worthing-bus/>:
 - **Route view** — 4 curated proposals, map overlay, `localStorage` draft editor.
 - **Ticket view** — indicative zone outlines plus the A-to-B boundary penalty
   calculator (`GET /api/journey`), verified end-to-end against production.
-- **Network Objectives** — 9 objectives grouped by responsible body, 3 campaign
-  asks pinned open, 1 published community idea.
+- **Network Objectives** — 8 objectives grouped by responsible body, 4 campaign
+  asks pinned open, 2 published community ideas.
 
 Built but dormant: the whole community-submission path (Worker + three forms).
 See Phase 2.

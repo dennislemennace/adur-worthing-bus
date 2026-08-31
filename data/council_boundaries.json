@@ -1,0 +1,175 @@
+{
+  "_comment": "Curated map overlays for Route view. Coordinates are [lat, lon], decimal degrees, rings unclosed — the same convention as ticket_zones.json and proposals.json.",
+  "boundaries": [
+    {
+      "id": "bhcc-wscc",
+      "kind": "line",
+      "name": "Brighton & Hove / West Sussex boundary",
+      "bodies": [
+        "BHCC",
+        "WSCC"
+      ],
+      "summary": "The western edge of Brighton & Hove City Council, from the sea at Southwick up onto the Downs. West of it is West Sussex, and a different transport authority with a different plan.",
+      "polyline": [
+        [
+          50.827585,
+          -0.216044
+        ],
+        [
+          50.830369,
+          -0.215295
+        ],
+        [
+          50.830682,
+          -0.216585
+        ],
+        [
+          50.832962,
+          -0.216666
+        ],
+        [
+          50.832917,
+          -0.217571
+        ],
+        [
+          50.839089,
+          -0.222906
+        ],
+        [
+          50.842931,
+          -0.225966
+        ],
+        [
+          50.844406,
+          -0.227645
+        ],
+        [
+          50.845634,
+          -0.228403
+        ],
+        [
+          50.845734,
+          -0.229324
+        ],
+        [
+          50.848318,
+          -0.230616
+        ],
+        [
+          50.85111,
+          -0.234333
+        ],
+        [
+          50.852412,
+          -0.235383
+        ],
+        [
+          50.857522,
+          -0.236382
+        ],
+        [
+          50.858722,
+          -0.238994
+        ],
+        [
+          50.861952,
+          -0.239753
+        ],
+        [
+          50.862876,
+          -0.241505
+        ],
+        [
+          50.863435,
+          -0.244716
+        ],
+        [
+          50.863809,
+          -0.244971
+        ],
+        [
+          50.865202,
+          -0.240576
+        ],
+        [
+          50.866048,
+          -0.239798
+        ],
+        [
+          50.867886,
+          -0.239238
+        ],
+        [
+          50.869719,
+          -0.238754
+        ],
+        [
+          50.87179,
+          -0.237551
+        ],
+        [
+          50.875158,
+          -0.23382
+        ],
+        [
+          50.875939,
+          -0.232671
+        ],
+        [
+          50.878181,
+          -0.226719
+        ],
+        [
+          50.878068,
+          -0.225522
+        ],
+        [
+          50.877239,
+          -0.224647
+        ],
+        [
+          50.876292,
+          -0.224555
+        ]
+      ],
+      "source_url": "https://geoportal.statistics.gov.uk/datasets/local-authority-districts-december-2023-boundaries-uk-bgc",
+      "licence": "Contains OS data © Crown copyright and database right 2023; ONS geography © Crown copyright, Open Government Licence v3.0",
+      "checked_on": "2026-08-31",
+      "note": "Extracted from the generalised (BGC) Brighton and Hove district boundary, E06000043 — the arc between the coast and the northern corner of its western flank. Generalised boundaries are simplified for display, so this is indicative to within a few tens of metres and should not be used to decide which side of a line an address falls on."
+    },
+    {
+      "id": "connection-gap",
+      "kind": "area",
+      "name": "Connection gap",
+      "bodies": [
+        "WSCC",
+        "BHCC"
+      ],
+      "summary": "Where the two Stagecoach DayRider zones meet at Shoreham. The zones do not overlap, so people living along this strip cross a fare boundary travelling towards Worthing or towards Brighton.",
+      "polygon": [
+        [
+          50.818,
+          -0.314
+        ],
+        [
+          50.852,
+          -0.314
+        ],
+        [
+          50.852,
+          -0.272
+        ],
+        [
+          50.818,
+          -0.272
+        ]
+      ],
+      "derived_from": [
+        "sc-worthing-dayrider",
+        "sc-brighton-dayrider"
+      ],
+      "checked_on": "2026-08-31",
+      "note": "Derived, not drawn. The Worthing DayRider zone reaches east to lon -0.2896, the Brighton DayRider west to lon -0.2964; the band is roughly 1.5 km either side of the -0.293 seam between them. Measured against the timetable: of the stops on the coastal strip, every one west of the seam is Worthing-zone and every one east is Brighton-zone. Not one stop is in both."
+    }
+  ]
+}

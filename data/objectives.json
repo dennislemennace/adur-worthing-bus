@@ -1,55 +1,22 @@
 {
   "objectives": [
     {
-      "id": "connect-adur-to-brighton",
-      "title": "Bring Brighton & Hove buses back west",
-      "summary": "Extend Brighton & Hove services beyond Shoreham into Lancing and Worthing",
-      "description": "Brighton & Hove Buses stop dead at Shoreham. Across the Adur and Worthing corridor they serve 576 stops, but not a single one in Lancing or Worthing. Their westernmost stop is Dacre Gardens, and the 28 stops they reach beyond Shoreham are all on routes 2, 2B, 59 and 59A running north up the Adur valley towards Steyning and Upper Beeding — not west along the coast.\n\nWest of Shoreham there are 736 stops with a bus service. Compass reaches 395 of them and Stagecoach 386. Brighton & Hove reaches 28, all of them in the valley. Lancing and Worthing sit on the edge of Brighton's network and are served by everyone except the operator whose network they most need to reach, which is why a Worthing passenger has no B&H option at all and no competitive alternative on the corridor.\n\nB&H served Lancing and Worthing within living memory. Bringing those services back west gives the coast a second operator, a genuine choice of bus, and a direct link into the Brighton network that today requires a change and a second ticket.",
+      "id": "integrated-sussex-plan",
+      "title": "A joined-up plan with our neighbours",
+      "summary": "An integrated Bus Service Improvement Plan across Sussex",
+      "description": "Work far more closely with Brighton & Hove City Council and East Sussex County Council on an integrated Bus Service Improvement Plan for Sussex, so the network is planned as one rather than stopping at council boundaries.",
       "status": "not_considered",
-      "color": "#1a4b82",
+      "color": "#0e7c86",
       "links": [],
-      "category": "Network & coverage",
+      "category": "Planning & governance",
       "lead": [
-        "BHBC"
+        "WSCC"
       ],
       "shared": [
-        "WSCC"
+        "BHCC",
+        "ESCC"
       ],
       "featured": true
-    },
-    {
-      "id": "express-commuter-routes",
-      "title": "Express routes to the job centres",
-      "summary": "Faster peak-time commuter links to Brighton & Worthing",
-      "description": "Give commuters quicker access to the main business centres in Brighton and Worthing. This can be done simply and cheaply by splitting a frequent service so that, at peak times, every other journey runs as an express.",
-      "status": "not_considered",
-      "color": "#1a70b5",
-      "links": [],
-      "category": "Network & coverage",
-      "lead": [
-        "SCSO",
-        "BHBC"
-      ],
-      "shared": [
-        "WSCC"
-      ]
-    },
-    {
-      "id": "night-service-west",
-      "title": "Night service that goes west",
-      "summary": "Affordable late-night travel westward from Brighton, beyond the N700",
-      "description": "Westbound night travel is currently served only by the N700 — expensive and limited to a narrow coastal corridor. The goal is additional, affordable night-time services running west from Brighton into Adur.",
-      "status": "not_considered",
-      "color": "#6a4ea3",
-      "links": [],
-      "category": "Frequency & hours",
-      "lead": [
-        "SCSO",
-        "BHBC"
-      ],
-      "shared": [
-        "WSCC"
-      ]
     },
     {
       "id": "extend-existing-routes",
@@ -67,6 +34,92 @@
         "SCSO",
         "BHBC",
         "COMT"
+      ],
+      "featured": true
+    },
+    {
+      "id": "express-commuter-routes",
+      "title": "Express buses for commuters",
+      "summary": "Faster peak-time links between Worthing and Brighton, and a second operator running them",
+      "description": "Give commuters quicker access to the main business centres in Brighton and Worthing. This can be done simply and cheaply by splitting a frequent service so that, at peak times, every other journey runs as an express.\n\nBrighton & Hove Buses stop dead at Shoreham. Across the Adur and Worthing corridor they serve 576 stops, but not a single one in Lancing or Worthing. Their westernmost stop is Dacre Gardens, and the 28 stops they reach beyond Shoreham are all on routes 2, 2B, 59 and 59A running north up the Adur valley towards Steyning and Upper Beeding — not west along the coast.\n\nWest of Shoreham there are 736 stops with a bus service. Compass reaches 395 of them and Stagecoach 386. Brighton & Hove reaches 28, all of them in the valley. Lancing and Worthing sit on the edge of Brighton's network and are served by everyone except the operator whose network they most need to reach, which is why a Worthing passenger has no B&H option at all and no competitive alternative on the corridor.\n\nB&H served Lancing and Worthing within living memory. Bringing those services back west gives the coast a second operator, a genuine choice of bus, and a direct link into the Brighton network that today requires a change and a second ticket.",
+      "status": "not_considered",
+      "color": "#1a70b5",
+      "links": [],
+      "category": "Network & coverage",
+      "lead": [
+        "SCSO",
+        "BHBC"
+      ],
+      "shared": [
+        "WSCC"
+      ],
+      "featured": true
+    },
+    {
+      "id": "fairer-ticketing-zones",
+      "title": "Merge the Stagecoach DayRider zones",
+      "summary": "One coastal DayRider covering Worthing and Brighton, at the £6 each already costs",
+      "description": "Stagecoach sells a Worthing DayRider and a Brighton DayRider at £6 each, and the two zones do not overlap anywhere: of the stops Stagecoach serves, 361 sit in the Worthing zone and 186 in the Brighton zone, and not one sits in both. Every journey along the coast between the two towns therefore crosses a boundary. You either buy both tickets at £12, or you are pushed onto a Gold DayRider at £9 — a ticket covering Hampshire, Surrey and Berkshire that you have bought purely to travel from Worthing to Brighton.\n\nThe ask is simple: one coastal DayRider covering both zones, at the same £6 the two separate tickets already cost. For a five-day commuter that is £15 a week, around £690 a year, saved against the Gold ticket they are currently forced into. Use the journey checker in the Ticket view to see the cost on your own route.",
+      "status": "not_considered",
+      "color": "#bc3220",
+      "links": [
+        {
+          "label": "Worthing DayRider zone map",
+          "url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Worthing%20Network%20Map%200425.pdf"
+        },
+        {
+          "label": "Brighton DayRider zone map",
+          "url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Brighton%20Network%20Map%200424.pdf"
+        }
+      ],
+      "category": "Ticketing & fares",
+      "lead": [
+        "SCSO"
+      ],
+      "shared": [],
+      "featured": true
+    },
+    {
+      "id": "cross-operator-tickets",
+      "title": "One ticket for the whole coast",
+      "summary": "Mutual ticket acceptance between operators, at day-ticket prices",
+      "description": "A single ticket that works along the whole coast, whichever company's bus turns up. Today the bus that arrives first decides which ticket is valid.\n\nAt 502 of the 1,633 stops in the Adur, Worthing and Brighton corridor — almost a third of them — more than one operator calls. At those stops the bus that turns up first decides whether your ticket is valid. A Stagecoach DayRider is not accepted on a Brighton & Hove or Metrobus service, so passengers either wait for the right livery or pay twice.\n\nSome acceptance already exists and proves the principle works: Metrovoyager is valid on Brighton & Hove services, and networkSAVER is valid on Metrobus within its zone. The gap is Stagecoach, which accepts nobody and is accepted by nobody. The all-operator South Downs Discovery Ticket exists at £10, but it is priced as a day-out rover rather than a commuter fare and is not valid on the N700 or N1.\n\nThe ask is mutual acceptance across the corridor at day-ticket prices, so that a ticket bought for a journey is valid on whichever bus makes that journey.",
+      "status": "not_considered",
+      "color": "#1a7a6a",
+      "links": [
+        {
+          "label": "South Downs Discovery Ticket",
+          "url": "https://www.southdowns.gov.uk/travelling-around/south-downs-discovery-ticket/"
+        }
+      ],
+      "category": "Ticketing & fares",
+      "lead": [
+        "SCSO",
+        "BHBC",
+        "METR",
+        "COMT"
+      ],
+      "shared": [
+        "WSCC",
+        "BHCC"
+      ],
+      "featured": false
+    },
+    {
+      "id": "night-service-west",
+      "title": "Night service that goes west",
+      "summary": "Affordable late-night travel westward from Brighton, beyond the N700",
+      "description": "Westbound night travel is currently served only by the N700 — expensive and limited to a narrow coastal corridor. The goal is additional, affordable night-time services running west from Brighton into Adur.",
+      "status": "not_considered",
+      "color": "#6a4ea3",
+      "links": [],
+      "category": "Frequency & hours",
+      "lead": [
+        "SCSO",
+        "BHBC"
+      ],
+      "shared": [
+        "WSCC"
       ]
     },
     {
@@ -91,47 +144,6 @@
       ]
     },
     {
-      "id": "fairer-ticketing-zones",
-      "title": "One ticket for the whole coast",
-      "summary": "Merge the Worthing and Brighton DayRider zones into a single £6 ticket",
-      "description": "Stagecoach sells a Worthing DayRider and a Brighton DayRider at £6 each, and the two zones do not overlap anywhere: of the stops Stagecoach serves, 361 sit in the Worthing zone and 186 in the Brighton zone, and not one sits in both. Every journey along the coast between the two towns therefore crosses a boundary. You either buy both tickets at £12, or you are pushed onto a Gold DayRider at £9 — a ticket covering Hampshire, Surrey and Berkshire that you have bought purely to travel from Worthing to Brighton.\n\nThe ask is simple: one coastal DayRider covering both zones, at the same £6 the two separate tickets already cost. For a five-day commuter that is £15 a week, around £690 a year, saved against the Gold ticket they are currently forced into. Use the journey checker in the Ticket view to see the cost on your own route.",
-      "status": "not_considered",
-      "color": "#bc3220",
-      "links": [
-        {
-          "label": "Worthing DayRider zone map",
-          "url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Worthing%20Network%20Map%200425.pdf"
-        },
-        {
-          "label": "Brighton DayRider zone map",
-          "url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Brighton%20Network%20Map%200424.pdf"
-        }
-      ],
-      "category": "Ticketing & fares",
-      "lead": [
-        "SCSO"
-      ],
-      "shared": [],
-      "featured": true
-    },
-    {
-      "id": "integrated-sussex-plan",
-      "title": "A joined-up plan with our neighbours",
-      "summary": "An integrated Bus Service Improvement Plan across Sussex",
-      "description": "Work far more closely with Brighton & Hove City Council and East Sussex County Council on an integrated Bus Service Improvement Plan for Sussex, so the network is planned as one rather than stopping at council boundaries.",
-      "status": "not_considered",
-      "color": "#0e7c86",
-      "links": [],
-      "category": "Planning & governance",
-      "lead": [
-        "WSCC"
-      ],
-      "shared": [
-        "BHCC",
-        "ESCC"
-      ]
-    },
-    {
       "id": "real-time-info-everywhere",
       "title": "Clear, real-time information everywhere",
       "summary": "E-Ink live displays at every stop and one real-time app across operators",
@@ -148,32 +160,6 @@
         "SCSO",
         "BHBC"
       ]
-    },
-    {
-      "id": "cross-operator-tickets",
-      "title": "Make any ticket work on any bus",
-      "summary": "Mutual ticket acceptance between operators along the coast",
-      "description": "At 502 of the 1,633 stops in the Adur, Worthing and Brighton corridor — almost a third of them — more than one operator calls. At those stops the bus that turns up first decides whether your ticket is valid. A Stagecoach DayRider is not accepted on a Brighton & Hove or Metrobus service, so passengers either wait for the right livery or pay twice.\n\nSome acceptance already exists and proves the principle works: Metrovoyager is valid on Brighton & Hove services, and networkSAVER is valid on Metrobus within its zone. The gap is Stagecoach, which accepts nobody and is accepted by nobody. The all-operator South Downs Discovery Ticket exists at £10, but it is priced as a day-out rover rather than a commuter fare and is not valid on the N700 or N1.\n\nThe ask is mutual acceptance across the corridor at day-ticket prices, so that a ticket bought for a journey is valid on whichever bus makes that journey.",
-      "status": "not_considered",
-      "color": "#1a7a6a",
-      "links": [
-        {
-          "label": "South Downs Discovery Ticket",
-          "url": "https://www.southdowns.gov.uk/travelling-around/south-downs-discovery-ticket/"
-        }
-      ],
-      "category": "Ticketing & fares",
-      "lead": [
-        "SCSO",
-        "BHBC",
-        "METR",
-        "COMT"
-      ],
-      "shared": [
-        "WSCC",
-        "BHCC"
-      ],
-      "featured": true
     }
   ]
 }
