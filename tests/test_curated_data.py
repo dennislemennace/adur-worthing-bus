@@ -325,3 +325,42 @@ def test_single_fare_schema():
     # The cap has an end date and a scheduled change. A site quoting an
     # expired fare cap is worse than one quoting none.
     assert date.fromisoformat(sf["review_by"]) > date.fromisoformat(sf["checked_on"])
+
+
+# Network Updates. Two files, same shape: one written here, one published from
+# passenger reports after review. Both are articles people will read as fact,
+# so the schema insists on a date and treats a bare claim with a link as
+# better than one without.
+def _assert_updates(name, *, needs_name):
+    data = _load(name)
+    updates = data.get("updates")
+    assert isinstance(updates, list), f"{name}: 'updates' must be a list"
+    _assert_unique_ids(updates, name)
+
+    for u in updates:
+        uid = u.get("id", "?")
+        for field in ("id", "title", "summary", "body", "status"):
+            assert _nonempty_str(u.get(field)), f"{name}: '{uid}' needs a '{field}'"
+        assert u["status"] == "published", (
+            f"{name}: '{uid}' has status {u['status']!r} — only published items "
+            f"belong in a file the site renders")
+        # A dated article can be judged stale; an undated one cannot.
+        assert _nonempty_str(u.get("date")), f"{name}: '{uid}' needs a 'date'"
+        date.fromisoformat(u["date"])
+
+        for link in u.get("links", []):
+            assert _nonempty_str(link.get("label")), f"{name}: '{uid}' link needs a label"
+            assert _nonempty_str(link.get("url")), f"{name}: '{uid}' link needs a url"
+
+        if needs_name and u.get("name") is not None:
+            assert _nonempty_str(u["name"]), (
+                f"{name}: '{uid}' has an empty 'name' — omit it rather than "
+                f"crediting nobody")
+
+
+def test_official_updates_schema():
+    _assert_updates("updates.json", needs_name=False)
+
+
+def test_community_updates_schema():
+    _assert_updates("community_updates.json", needs_name=True)

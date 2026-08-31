@@ -148,7 +148,10 @@ const state = {
   railFreezeNoticed:       false,  // shown once if the rail panel is opened with rail hidden
 
   // ── Improvements view (network/proposals mode) ──
-  viewMode:                "live", // "live" | "improvements" | "tickets" | "network"
+  viewMode:                "live", // "live" | "improvements" | "tickets" | "network" | "updates"
+  updatesTab:              "official", // "official" | "community"
+  officialUpdates:         null,   // data/updates.json
+  communityUpdates:        null,   // data/community_updates.json
   sheetDetent:             "half", // "peek" | "half" | "full" — the mobile sheet
   improvementsTab:         "about",// "about" | "proposals" — official proposal lines only show on the Proposals tab
   serviceMode:             "day",  // "day" | "night" — splits chips, route lines, proposals
@@ -168,7 +171,6 @@ const state = {
   // ── Ticket view (fare zones) ──
   ticketZones:             null,   // data/ticket_zones.json (array); null = not loaded
   councilBoundaryLayers:   {},     // boundary id → L.polyline / L.polygon (Route view)
-  showConnectionGap:       false,  // the Shoreham seam overlay is opt-in
   _councilBoundariesPromise: null,
   ticketZoneLayers:        {},     // zone id → L.polygon (only for zones with geometry)
   ticketReachLayers:       {},     // zone id → [L.marker] reach pills (networkSAVER-style)
@@ -205,6 +207,12 @@ const dom = {
   darkModeBtn:        document.getElementById("dark-mode-btn"),
   departurePanel:     document.getElementById("departure-panel"),
   sheetHandle:        document.getElementById("sheet-handle"),
+  tabOfficialNews:    document.getElementById("tab-official-news"),
+  tabCommunityNews:   document.getElementById("tab-community-news"),
+  tabContentOfficial: document.getElementById("tab-content-official-news"),
+  tabContentCommunityNews: document.getElementById("tab-content-community-news"),
+  officialUpdatesList:  document.getElementById("official-updates-list"),
+  communityUpdatesList: document.getElementById("community-updates-list"),
   liveStatusPill:     document.getElementById("live-status-pill"),
   panelStopName:      document.getElementById("panel-stop-name"),
   panelStopId:        document.getElementById("panel-stop-id"),
@@ -322,6 +330,7 @@ function buildUrlHash() {
   if (state.viewMode === "improvements") parts.push("view=i");
   else if (state.viewMode === "tickets") parts.push("view=t");
   else if (state.viewMode === "network") parts.push("view=n");
+  else if (state.viewMode === "updates") parts.push("view=u");
   if (state.serviceMode === "night")     parts.push("svc=n");
   if (state.viewMode === "live") {
     if (state.selectedStop && state.selectedStop.atcoCode) {
@@ -360,6 +369,7 @@ async function applyUrlState(parsed) {
     const view = parsed.view === "i" ? "improvements"
                : parsed.view === "t" ? "tickets"
                : parsed.view === "n" ? "network"
+               : parsed.view === "u" ? "updates"
                : "live";
     if (state.viewMode !== view) setViewMode(view);
 
@@ -762,29 +772,27 @@ async function loadCouncilBoundariesImpl() {
 
   for (const b of (data.boundaries || [])) {
     const colour = bodyColour((b.bodies || [])[0]) || "var(--color-text-muted)";
-    if (b.kind === "line" && Array.isArray(b.polyline)) {
-      state.councilBoundaryLayers[b.id] = L.polyline(b.polyline, {
-        color: colour, weight: 2, opacity: 0.55, dashArray: "6 5",
-        interactive: false, pane: "councilBoundaryPane",
-        className: "council-boundary-line",
-      });
-    } else if (b.kind === "area" && Array.isArray(b.polygon)) {
-      state.councilBoundaryLayers[b.id] = L.polygon(b.polygon, {
-        color: colour, weight: 1.5, opacity: 0.5, dashArray: "4 4",
-        fillColor: colour, fillOpacity: 0.12,
-        interactive: false, pane: "councilBoundaryPane",
-        className: "connection-gap-area",
-      });
-    }
+    if (b.kind !== "line" || !Array.isArray(b.polyline)) continue;
+    const st = b.style || {};
+    state.councilBoundaryLayers[b.id] = L.polyline(b.polyline, {
+      color:     colour,
+      weight:    st.weight  ?? 5,
+      opacity:   st.opacity ?? 0.9,
+      dashArray: st.dashArray ?? "12 7",
+      lineCap:   "round",
+      interactive: false,
+      pane: "councilBoundaryPane",
+      className: "council-boundary-line",
+    });
   }
 }
 
-/** The line is always on in Route view; the seam band is opt-in. */
+/** The boundary shows in Route view and nowhere else. */
 function reconcileCouncilBoundaries() {
   if (!state.map) return;
   const inRoute = state.viewMode === "improvements";
-  for (const [id, layer] of Object.entries(state.councilBoundaryLayers)) {
-    const show = inRoute && (id === "connection-gap" ? state.showConnectionGap : true);
+  for (const layer of Object.values(state.councilBoundaryLayers)) {
+    const show = inRoute;
     if (show && !state.map.hasLayer(layer))      layer.addTo(state.map);
     else if (!show && state.map.hasLayer(layer)) state.map.removeLayer(layer);
   }
@@ -797,13 +805,6 @@ function hideCouncilBoundaries() {
   }
 }
 
-function setShowConnectionGap(on) {
-  state.showConnectionGap = !!on;
-  reconcileCouncilBoundaries();
-  const btn = dom.mapOverlayControls
-    && dom.mapOverlayControls.querySelector("[data-overlay='connection-gap']");
-  if (btn) btn.setAttribute("aria-pressed", state.showConnectionGap ? "true" : "false");
-}
 
 /** Popup body for a stop — built on demand (see renderStopMarker). */
 function buildStopPopupHtml(atcoCode, name) {
@@ -1824,6 +1825,7 @@ const VIEW_DEFAULT_DETENT = {
   improvements: "half",
   tickets:      "half",
   network:      "full",
+  updates:      "full",   // panel-only, same as the network view
 };
 
 function isSheetLayout() {
@@ -2146,6 +2148,8 @@ function bindUIEvents() {
   // Network plan panel: Objectives / Ideas tab switching + suggestion form
   if (dom.tabObjectives) dom.tabObjectives.addEventListener("click", () => setNetworkTab("objectives"));
   if (dom.tabIdeas)      dom.tabIdeas.addEventListener("click",      () => setNetworkTab("ideas"));
+  if (dom.tabOfficialNews)  dom.tabOfficialNews.addEventListener("click",  () => setUpdatesTab("official"));
+  if (dom.tabCommunityNews) dom.tabCommunityNews.addEventListener("click", () => setUpdatesTab("community"));
   if (dom.suggestForm) {
     dom.suggestForm.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -2332,6 +2336,102 @@ function setImprovementsTab(tab) {
 /** Switch between the Objectives and Ideas tabs in Network plan mode.
  *  Mirrors setActiveTab() so the same ARIA (aria-selected) + .active/.hidden
  *  contract the rest of the panel relies on is preserved. */
+/* ============================================================
+ * NETWORK UPDATES
+ *
+ * Short articles on what is changing. Two sources, kept in separate files
+ * for the same reason objectives and ideas are: one is written here, the
+ * other comes from passengers and is published only after review.
+ * ============================================================ */
+async function loadUpdates() {
+  if (state.officialUpdates && state.communityUpdates) return;
+  const read = async (path) => {
+    try {
+      const res = await fetch(path);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return Array.isArray(data.updates) ? data.updates : [];
+    } catch (err) {
+      // An empty feed is a fine thing to show; a broken view is not.
+      console.warn(`Updates unavailable (${path}):`, err);
+      return [];
+    }
+  };
+  const [official, community] = await Promise.all([
+    read("data/updates.json"),
+    read("data/community_updates.json"),
+  ]);
+  state.officialUpdates  = official;
+  state.communityUpdates = community;
+}
+
+/** Newest first — a news list in any other order is a filing cabinet. */
+function sortUpdates(list) {
+  return (list || []).slice().sort((a, b) =>
+    String(b.date || "").localeCompare(String(a.date || "")));
+}
+
+function updateCardHtml(u, opts = {}) {
+  const date = u.date
+    ? `<span class="idea-card-meta">${escapeHtml(formatUpdateDate(u.date))}</span>` : "";
+  const byline = opts.community && u.name
+    ? `<span class="idea-card-meta">Reported by ${escapeHtml(u.name)}</span>` : "";
+  const links = Array.isArray(u.links) && u.links.length
+    ? `<ul class="proposal-links">${u.links.map(l => `
+        <li><a class="proposal-link" href="${escapeAttr(l.url)}"
+               target="_blank" rel="noopener noreferrer">${escapeHtml(l.label || l.url)} ↗</a></li>`
+      ).join("")}</ul>`
+    : "";
+  // Paragraph breaks are meaningful in an article, and escapeHtml alone
+  // would render the whole body as one run-on block.
+  const body = String(u.body || "").split(/\n\s*\n/)
+    .filter(Boolean)
+    .map(para => `<p>${escapeHtml(para)}</p>`).join("");
+
+  return `
+    <article class="proposal-card update-card">
+      <h3 class="proposal-card-name">${escapeHtml(u.title || "Untitled")}</h3>
+      <div class="update-card-meta">${date}${byline}</div>
+      ${u.summary ? `<p class="proposal-card-summary">${escapeHtml(u.summary)}</p>` : ""}
+      <div class="proposal-detail-body update-card-body">${body}</div>
+      ${links}
+    </article>`;
+}
+
+function formatUpdateDate(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function renderUpdates() {
+  if (dom.officialUpdatesList) {
+    const list = sortUpdates(state.officialUpdates);
+    dom.officialUpdatesList.innerHTML = list.length
+      ? list.map(u => updateCardHtml(u)).join("")
+      : `<p class="proposals-empty">No updates published yet.</p>`;
+  }
+  if (dom.communityUpdatesList) {
+    const list = sortUpdates(state.communityUpdates);
+    dom.communityUpdatesList.innerHTML = list.length
+      ? list.map(u => updateCardHtml(u, { community: true })).join("")
+      : `<p class="proposals-empty">Nothing from passengers yet — this is where
+         reviewed reports from the network will appear.</p>`;
+  }
+}
+
+function setUpdatesTab(tab) {
+  const officialActive = (tab !== "community");
+  state.updatesTab = officialActive ? "official" : "community";
+  if (!dom.tabOfficialNews || !dom.tabCommunityNews) return;
+  dom.tabOfficialNews.classList.toggle("active", officialActive);
+  dom.tabCommunityNews.classList.toggle("active", !officialActive);
+  dom.tabOfficialNews.setAttribute("aria-selected", String(officialActive));
+  dom.tabCommunityNews.setAttribute("aria-selected", String(!officialActive));
+  dom.tabContentOfficial.classList.toggle("hidden", !officialActive);
+  dom.tabContentCommunityNews.classList.toggle("hidden", officialActive);
+}
+
 function setNetworkTab(tab) {
   const objectivesActive = (tab !== "ideas");
   state.networkTab = objectivesActive ? "objectives" : "ideas";
@@ -2359,7 +2459,7 @@ function setNetworkTab(tab) {
  * visible but don't react to clicks.
  */
 function setViewMode(mode) {
-  if (mode !== "live" && mode !== "improvements" && mode !== "tickets" && mode !== "network") return;
+  if (!["live", "improvements", "tickets", "network", "updates"].includes(mode)) return;
   if (state.viewMode === mode) return;
   state.viewMode = mode;
 
@@ -2508,6 +2608,19 @@ async function applyViewMode() {
     } catch (err) {
       console.warn("Ticket view data fetch failed:", err);
       showToast("Could not load ticket data. Try again later.");
+    }
+  } else if (state.viewMode === "updates") {
+    // Panel-only, like the network view — no map layers of its own.
+    if (state.editor) closeEditor({ skipSave: false });
+    hideRouteLines();
+    hideAllProposalLayers();
+    hideTicketZones();
+    hideCouncilBoundaries();
+    try {
+      await loadUpdates();
+      renderUpdates();
+    } catch (err) {
+      console.warn("Updates fetch failed:", err);
     }
   } else if (state.viewMode === "network") {
     // Network plan is panel-only (objectives + ideas); no map overlays.
@@ -3287,20 +3400,10 @@ function ensureMapOverlayControls() {
             aria-pressed="${state.showProposals ? "true" : "false"}">
       <svg class="icon" aria-hidden="true" style="width:14px;height:14px"><use href="#i-lightbulb"/></svg>
       <span>Show proposals</span>
-    </button>
-    <button type="button"
-            class="map-overlay-btn"
-            data-overlay="connection-gap"
-            aria-pressed="${state.showConnectionGap ? "true" : "false"}"
-            title="Where the Worthing and Brighton DayRider zones meet at Shoreham, with no overlap">
-      <svg class="icon" aria-hidden="true" style="width:14px;height:14px"><use href="#i-alert"/></svg>
-      <span>Connection gap</span>
     </button>`;
   dom.mapOverlayControls.dataset.built = "1";
   dom.mapOverlayControls.querySelector("[data-overlay='proposals']")
     .addEventListener("click", () => setShowProposals(!state.showProposals));
-  dom.mapOverlayControls.querySelector("[data-overlay='connection-gap']")
-    .addEventListener("click", () => setShowConnectionGap(!state.showConnectionGap));
 }
 
 // ============================================================

@@ -175,6 +175,7 @@
             <li role="option" data-mode="improvements" aria-selected="false" tabindex="-1">Route view</li>
             <li role="option" data-mode="tickets" aria-selected="false" tabindex="-1">Ticket view</li>
             <li role="option" data-mode="network" aria-selected="false" tabindex="-1">Network Objectives</li>
+            <li role="option" data-mode="updates" aria-selected="false" tabindex="-1">Network Updates</li>
           </ul>
         </div>
         <!-- Live-data status: connecting/updated text + bus visibility toggle, grouped -->
@@ -659,6 +660,56 @@
       </div><!-- /panel-mode[data-mode="tickets"] -->
 
       <!-- === NETWORK PLAN VIEW (objectives + community ideas) === -->
+      <div class="panel-mode" data-mode="updates">
+
+        <!-- Tab strip (Official / Community) + mobile collapse -->
+        <div class="panel-tabs-bar">
+          <div class="panel-tabs" role="tablist" aria-label="Network Updates panels">
+            <button class="panel-tab active" data-updates-tab="official" role="tab"
+                    aria-selected="true" id="tab-official-news" aria-controls="tab-content-official-news">
+              <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-info"/></svg>
+              <span class="panel-tab-label">Official News</span>
+            </button>
+            <button class="panel-tab" data-updates-tab="community" role="tab"
+                    aria-selected="false" id="tab-community-news" aria-controls="tab-content-community-news">
+              <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-lightbulb"/></svg>
+              <span class="panel-tab-label">Community News</span>
+            </button>
+          </div>
+          <button class="btn-collapse-panel" type="button" aria-label="Hide panel" aria-pressed="false">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </button>
+        </div>
+
+        <!-- ── OFFICIAL NEWS TAB ── -->
+        <div class="panel-tab-content" id="tab-content-official-news" role="tabpanel"
+             aria-labelledby="tab-official-news">
+          <div class="improvements-intro">
+            <h2 class="improvements-title">What's changing on the network</h2>
+            <p>
+              Short pieces on the changes that actually affect a journey — fares,
+              routes, timetables, and the decisions behind them. Each one says
+              where it came from, so you can check it.
+            </p>
+          </div>
+          <div class="proposals-section-cards" id="official-updates-list"></div>
+        </div>
+
+        <!-- ── COMMUNITY NEWS TAB ── -->
+        <div class="panel-tab-content hidden" id="tab-content-community-news" role="tabpanel"
+             aria-labelledby="tab-community-news">
+          <div class="improvements-intro">
+            <h2 class="improvements-title">News from passengers</h2>
+            <p>
+              Changes people have noticed on the ground — a stop moved, a service
+              quietly cut, a shelter finally fixed. Nothing appears here
+              automatically; every item is reviewed before it is published.
+            </p>
+          </div>
+          <div class="proposals-section-cards" id="community-updates-list"></div>
+        </div>
+      </div>
+
       <div class="panel-mode" data-mode="network">
 
         <!-- Tab strip (Objectives / Ideas) + mobile collapse -->

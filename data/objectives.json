@@ -76,7 +76,9 @@
       "lead": [
         "SCSO"
       ],
-      "shared": [],
+      "shared": [
+        "WSCC"
+      ],
       "featured": true
     },
     {

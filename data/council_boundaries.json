@@ -135,41 +135,12 @@
       "source_url": "https://geoportal.statistics.gov.uk/datasets/local-authority-districts-december-2023-boundaries-uk-bgc",
       "licence": "Contains OS data © Crown copyright and database right 2023; ONS geography © Crown copyright, Open Government Licence v3.0",
       "checked_on": "2026-08-31",
-      "note": "Extracted from the generalised (BGC) Brighton and Hove district boundary, E06000043 — the arc between the coast and the northern corner of its western flank. Generalised boundaries are simplified for display, so this is indicative to within a few tens of metres and should not be used to decide which side of a line an address falls on."
-    },
-    {
-      "id": "connection-gap",
-      "kind": "area",
-      "name": "Connection gap",
-      "bodies": [
-        "WSCC",
-        "BHCC"
-      ],
-      "summary": "Where the two Stagecoach DayRider zones meet at Shoreham. The zones do not overlap, so people living along this strip cross a fare boundary travelling towards Worthing or towards Brighton.",
-      "polygon": [
-        [
-          50.818,
-          -0.314
-        ],
-        [
-          50.852,
-          -0.314
-        ],
-        [
-          50.852,
-          -0.272
-        ],
-        [
-          50.818,
-          -0.272
-        ]
-      ],
-      "derived_from": [
-        "sc-worthing-dayrider",
-        "sc-brighton-dayrider"
-      ],
-      "checked_on": "2026-08-31",
-      "note": "Derived, not drawn. The Worthing DayRider zone reaches east to lon -0.2896, the Brighton DayRider west to lon -0.2964; the band is roughly 1.5 km either side of the -0.293 seam between them. Measured against the timetable: of the stops on the coastal strip, every one west of the seam is Worthing-zone and every one east is Brighton-zone. Not one stop is in both."
+      "note": "Extracted from the generalised (BGC) Brighton and Hove district boundary, E06000043 — the arc between the coast and the northern corner of its western flank. Generalised boundaries are simplified for display, so this is indicative to within a few tens of metres and should not be used to decide which side of a line an address falls on.",
+      "style": {
+        "weight": 5,
+        "opacity": 0.9,
+        "dashArray": "12 7"
+      }
     }
   ]
 }

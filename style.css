@@ -808,6 +808,22 @@ html.dark-mode .map-loading {
 .filter-disclosure[open] .filter-disclosure-chevron { transform: rotate(180deg); }
 .filter-disclosure[open] .filter-disclosure-summary { color: var(--color-text); }
 
+/* ===== NETWORK UPDATES ===== */
+.update-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+.update-card-body {
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+}
+/* An article is paragraphs, not one block — the renderer splits on blank
+   lines and this is what gives them room to read as such. */
+.update-card-body p + p { margin-top: var(--space-sm); }
+
 /* ===== SHEET HANDLE =====
    Desktop has no sheet, so no handle. On mobile it is the primary way to
    resize the panel: drag for a continuous gesture, or click / Enter / Space
@@ -2526,7 +2542,8 @@ html.dark-mode .filter-chip.active {
 body[data-view="live"]         .panel-mode[data-mode="live"],
 body[data-view="improvements"] .panel-mode[data-mode="improvements"],
 body[data-view="tickets"]      .panel-mode[data-mode="tickets"],
-body[data-view="network"]      .panel-mode[data-mode="network"] { display: flex; }
+body[data-view="network"]      .panel-mode[data-mode="network"],
+body[data-view="updates"]      .panel-mode[data-mode="updates"] { display: flex; }
 
 /* In the non-live network views stops stay visible but inert (no clicks, no
    popup). Vehicle markers are removed from the map entirely by JS. */
@@ -2775,7 +2792,10 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 
 .proposal-link {
   font-size: var(--font-size-sm);
-  color: var(--color-primary);
+  /* --color-link, not --color-primary: the primary reads as a fill colour and
+     only measures 3.4:1 as text on the dark surface. Never showed up before
+     because no view rendered these links against it. */
+  color: var(--color-link);
   text-decoration: none;
   word-break: break-all;
 }@media (hover: hover) {

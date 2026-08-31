@@ -1,0 +1,19 @@
+{
+  "_comment": "Short articles about changes and news on the network. `official` is maintainer-written; `community` is published from submissions the same way ideas are — nothing reaches either file automatically.",
+  "updates": [
+    {
+      "id": "single-fare-cap-falls-to-2-pounds",
+      "title": "Single fares drop to £2 in January",
+      "date": "2026-08-31",
+      "summary": "The national cap on a single bus fare falls from £3 to £2 from 1 January 2027.",
+      "body": "It matters more here than the headline suggests. A journey across the Worthing/Brighton DayRider boundary needs two buses, so it is two singles each way — £12 return today, £8 once the cap drops. That is cheaper than every day ticket covering the same trip, which tells you something about how those zones are drawn.\n\nThe Ticket view journey checker prices singles alongside day tickets, so you can see which is actually cheaper for a given trip.",
+      "links": [
+        {
+          "label": "£3 national bus fare cap — GOV.UK",
+          "url": "https://www.gov.uk/guidance/3-national-bus-fare-cap"
+        }
+      ],
+      "status": "published"
+    }
+  ]
+}

@@ -60,6 +60,29 @@ git add data/suggestions.json && git commit -m "Publish community idea" && git p
 (Pass `--commit` to stage + commit for you; it never pushes.) GitHub Pages
 redeploys and the idea appears in the **Ideas** tab after a page reload.
 
+### Network Updates
+
+Short articles on what is changing — fares, routes, timetables, and the
+decisions behind them. Two feeds, kept in separate files for the same reason
+objectives and ideas are: one is written by a maintainer, the other comes from
+passengers and is published only after somebody has read it.
+
+```sh
+python scripts/add_update.py                  # type it in
+python scripts/add_update.py --community      # publish a passenger report
+python scripts/add_update.py '{"title":"…","summary":"…","body":"…"}'
+wl-paste | python scripts/add_update.py
+```
+
+The script gives the entry an id and today's date, forces `status:
+"published"`, and re-validates the whole file *before* writing — a bad file
+that only fails in CI has already been saved. It never commits or pushes.
+
+Body text is split on blank lines into paragraphs. Every article needs a
+`date`, because a dated claim can be judged stale and an undated one cannot,
+and anything asserting a fact should carry a `links` entry pointing at where
+it came from.
+
 ### Other curated content
 
 Network goals (`data/objectives.json`) are maintainer-authored — edit them by

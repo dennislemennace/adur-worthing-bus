@@ -446,6 +446,7 @@ async function checkViews(page) {
   for (const [mode, label] of [
     ["live", "Live Bus Tracking"], ["improvements", "Route view"],
     ["tickets", "Ticket view"], ["network", "Network Objectives"],
+    ["updates", "Network Updates"],
   ]) {
     await page.evaluate(`setViewMode('${mode}')`);
     await sleep(1500);
