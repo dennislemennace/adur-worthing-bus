@@ -52,16 +52,26 @@ const CONFIG = {
 
 // Local development: point the page at a backend you're running yourself with
 //   ?api=http://localhost:8000
-// Only honoured when the page itself is served from localhost, so a link
-// pasted to a real user can never redirect their traffic somewhere else.
+//
+// Honoured only when the page itself came from a local or private-network
+// address, AND the backend is one too. That is the property worth keeping: a
+// link pasted to a real user browsing the deployed site can never redirect
+// their traffic, because a public hostname fails the first test.
+//
+// Private LAN addresses are allowed as well as loopback so the site can be
+// previewed on a phone against a laptop's backend. Reaching that case at all
+// means the attacker is already serving pages inside your network.
+const LOCAL_HOST_RE =
+  /^(localhost|127\.0\.0\.1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/i;
+
 (function applyApiOverride() {
   try {
-    const host = location.hostname;
-    const isLocal = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
-    if (!isLocal) return;
+    if (!LOCAL_HOST_RE.test(location.hostname)) return;
     const override = new URLSearchParams(location.search).get("api");
     if (!override) return;
-    if (!/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(override.replace(/\/$/, ""))) {
+    let target;
+    try { target = new URL(override); } catch { return; }
+    if (!/^https?:$/.test(target.protocol) || !LOCAL_HOST_RE.test(target.hostname)) {
       console.warn("Ignoring ?api= override — only local backends are allowed.");
       return;
     }

@@ -219,6 +219,22 @@ _allowed_origins = [
 if DEFAULT_ALLOWED_ORIGIN not in _allowed_origins:
     _allowed_origins.append(DEFAULT_ALLOWED_ORIGIN)
 
+# Loopback is always allowed so the documented preview flow works with no env
+# vars. Private LAN origins are opt-in via ALLOW_LAN_ORIGINS, because that is
+# only wanted while previewing on a phone against a laptop — production has no
+# business accepting an Origin it could never legitimately see.
+_LOOPBACK_ORIGIN = r"^http://(localhost|127\.0\.0\.1)(:\d+)?$"
+_LAN_ORIGIN = (
+    r"^http://("
+    r"localhost|127\.0\.0\.1"
+    r"|10\.\d+\.\d+\.\d+"
+    r"|192\.168\.\d+\.\d+"
+    r"|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+"
+    r")(:\d+)?$"
+)
+_ALLOW_LAN = os.environ.get("ALLOW_LAN_ORIGINS", "").lower() in ("1", "true", "yes")
+_ALLOWED_ORIGIN_REGEX = _LAN_ORIGIN if _ALLOW_LAN else _LOOPBACK_ORIGIN
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
@@ -226,7 +242,7 @@ app.add_middleware(
     # (python -m http.server 8765 + ?api=http://localhost:8000) keeps working
     # without setting env vars. This is not a hole: a browser sets Origin
     # itself, so a page on evil.example cannot claim to be localhost.
-    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origin_regex=_ALLOWED_ORIGIN_REGEX,
     allow_methods=["GET"],
     allow_headers=["*"],
 )
