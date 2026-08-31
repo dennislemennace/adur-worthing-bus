@@ -2365,10 +2365,21 @@ async function loadUpdates() {
   state.communityUpdates = community;
 }
 
-/** Newest first — a news list in any other order is a filing cabinet. */
+/**
+ * Newest first — a news list in any other order is a filing cabinet.
+ *
+ * Several items often share a date, and a plain date sort then falls back to
+ * whatever order they sit in the file, which puts the item added first at the
+ * top. Ties break on position instead, latest addition leading.
+ */
 function sortUpdates(list) {
-  return (list || []).slice().sort((a, b) =>
-    String(b.date || "").localeCompare(String(a.date || "")));
+  return (list || [])
+    .map((u, i) => ({ u, i }))
+    .sort((a, b) => {
+      const byDate = String(b.u.date || "").localeCompare(String(a.u.date || ""));
+      return byDate !== 0 ? byDate : b.i - a.i;
+    })
+    .map(x => x.u);
 }
 
 function updateCardHtml(u, opts = {}) {

@@ -14,6 +14,20 @@
         }
       ],
       "status": "published"
+    },
+    {
+      "title": "Stagecoach moves to Ticketer — the same system B&H already runs",
+      "summary": "From September both major operators on this coast will be running the same ticketing platform, which removes the technical excuse for not accepting each other's tickets.",
+      "body": "Stagecoach has appointed Ticketer as its supplier of ticketing and real-time information technology, deploying the detachable TK300 ticket machine across its fleet. The national rollout begins in September. The platform combines electronic ticketing, vehicle location and real-time information in one system.\n\nEvery Brighton & Hove bus already runs Ticketer. So from September, the two operators either side of the Shoreham boundary will be issuing and reading tickets on the same equipment, from the same supplier.\n\nThat matters because of what it removes. Mutual ticket acceptance between operators has always carried a technical argument against it: two different ticketing systems, two sets of hardware, and a reconciliation problem in the middle that somebody has to build and pay for. Any scheme meant compromise somewhere. That argument is about to stop being true here.\n\nWhat is left is commercial. Whether a Stagecoach DayRider is accepted on a Brighton & Hove bus, or a networkSAVER on a Stagecoach one, is now a question of whether the two companies and the two transport authorities want it — not of whether it can be built. See \"One ticket for the whole coast\" in Network Objectives.",
+      "links": [
+        {
+          "label": "Stagecoach selects Ticketer for nationwide ticketing — routeone",
+          "url": "https://www.route-one.net/news/stagecoach-selects-ticketer-for-nationwide-ticketing/"
+        }
+      ],
+      "date": "2026-08-31",
+      "status": "published",
+      "id": "stagecoach-moves-to-ticketer-the-same-system-b-h-already-run"
     }
   ]
 }
