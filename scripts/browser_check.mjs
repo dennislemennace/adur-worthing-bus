@@ -442,6 +442,46 @@ async function checkBasemap(page) {
       ".every(i => !i.src.includes('cartocdn'))")));
 }
 
+/**
+ * Content that cannot be reached.
+ *
+ * Every view's panel is a fixed-height box with more in it than fits, so
+ * something has to scroll. `.panel-tab-content` used to be `overflow: hidden`,
+ * delegating that to whichever inner element each view nominated — and a view
+ * that forgot to nominate one did not scroll awkwardly, it silently clipped.
+ * Network Updates lost everything past the first article that way, and the
+ * Ideas tab lost the bottom of its own form. Nothing failed; the content was
+ * simply gone.
+ *
+ * A pane is fine if it does not overflow, or if it — or a descendant — can
+ * actually scroll the overflow away. Anything else is unreachable content.
+ */
+const CLIPPED_SCAN = `(() => {
+  const bad = [];
+  const scrolls = (el) => {
+    const oy = getComputedStyle(el).overflowY;
+    return (oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 1;
+  };
+  for (const mode of document.querySelectorAll(".panel-mode")) {
+    if (getComputedStyle(mode).display === "none") continue;
+    for (const pane of mode.querySelectorAll(".panel-tab-content")) {
+      if (pane.classList.contains("hidden")) continue;
+      const overflows = pane.scrollHeight > pane.clientHeight + 1;
+      if (!overflows) continue;
+      if (scrolls(pane)) continue;
+      if ([...pane.querySelectorAll("*")].some(scrolls)) continue;
+      bad.push((pane.id || pane.className) + " clips " +
+               (pane.scrollHeight - pane.clientHeight) + "px with nothing to scroll it");
+    }
+  }
+  return bad;
+})()`;
+
+async function checkReachable(page, where) {
+  const bad = await page.evaluate(CLIPPED_SCAN);
+  check(`all panel content is reachable — ${where}`, bad.length === 0, bad.join(", "));
+}
+
 async function checkViews(page) {
   for (const [mode, label] of [
     ["live", "Live Bus Tracking"], ["improvements", "Route view"],
@@ -458,6 +498,38 @@ async function checkViews(page) {
     // measured until the view that owns them is showing.
     await checkLayout(page, `${mode} view`);
     await checkContrastBothThemes(page, `${mode} view`);
+  }
+}
+
+/**
+ * Walk every view, and both tabs of the two-tab views, asserting nothing is
+ * clipped out of reach.
+ *
+ * Run per viewport, because this is a viewport-dependent defect and running it
+ * on one size proves nothing about the others: the panel is a bottom sheet
+ * under 900px and a fixed side column above it, and the desktop column was the
+ * one clipping. A first version of this check ran only at 390px, passed with
+ * the bug still in the stylesheet, and would have shipped it.
+ *
+ * The second tab of each pair matters for the same reason: it is never the one
+ * showing when a view opens, so nothing had ever looked at it.
+ */
+async function checkReachableAcrossViews(page, where) {
+  for (const mode of ["live", "improvements", "tickets", "network", "updates"]) {
+    await page.evaluate(`setViewMode('${mode}')`);
+    await sleep(1200);
+    await checkReachable(page, `${mode} view — ${where}`);
+    for (const [owner, fn, second, first] of [
+      ["network", "setNetworkTab", "ideas",     "objectives"],
+      ["updates", "setUpdatesTab", "community", "official"],
+    ]) {
+      if (mode !== owner) continue;
+      await page.evaluate(`${fn}('${second}')`);
+      await sleep(600);
+      await checkReachable(page, `${mode} view, ${second} tab — ${where}`);
+      await page.evaluate(`${fn}('${first}')`);
+      await sleep(300);
+    }
   }
 }
 
@@ -534,6 +606,7 @@ await checkBasemap(page);
 await checkLayout(page, "live view");
 await checkDepartureBoard(page);
 await checkViews(page);
+await checkReachableAcrossViews(page, VIEWPORTS[0].name);
 await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
 
@@ -545,6 +618,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await screenshot(p, `live-${vp.name}`);
   await checkLayout(p, vp.name);
   await checkContrastBothThemes(p, vp.name);
+  await checkReachableAcrossViews(p, vp.name);
   p.ws.close();
 }
 

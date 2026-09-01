@@ -849,3 +849,96 @@ test("City Sightseeing has a livery despite having no timetable", () => {
   // modelled at all.
   assert.equal(app.iconForService("BHBC", "CSS"), "icons/BHBC-CSS.png");
 });
+
+// ── Costing at a fixed time of day ──────────────────────────
+//
+// The trip a journey is costed against decides the answer: a night service
+// carries a supplement and voids the all-operator ticket, so taking whichever
+// bus the API listed first meant a night fare came back at any hour of the
+// day. Midday is the anchor, applied to whatever the API returns so that an
+// older deployment of it still produces a daytime quote.
+
+test("the costed option is the one nearest midday", () => {
+  const options = [
+    { service: "N700", depart: "00:45" },
+    { service: "700",  depart: "06:07" },
+    { service: "700",  depart: "12:05" },
+    { service: "700",  depart: "17:40" },
+  ];
+  assert.equal(app.pickRepresentativeOption(options).depart, "12:05");
+});
+
+test("midday itself wins outright", () => {
+  const options = [{ depart: "11:59" }, { depart: "12:00" }, { depart: "12:01" }];
+  assert.equal(app.pickRepresentativeOption(options).depart, "12:00");
+});
+
+test("a pair served only overnight still gets an answer", () => {
+  // No bus at noon must not read as no bus. The one nearest midday wins,
+  // which here is the later of the two.
+  const options = [{ service: "N700", depart: "02:30" }, { service: "N700", depart: "00:45" }];
+  assert.equal(app.pickRepresentativeOption(options).depart, "02:30");
+});
+
+test("nearest is measured either side of midday, not only forwards", () => {
+  // The deployed API returns the first trips of the service day until it
+  // catches up with the anchor. Counting only forwards from midday would
+  // wrap right round to the 00:45 N700 — the night fare this fix exists to
+  // stop quoting. The 06:07 is the nearest thing to midday on offer.
+  const asTheOldApiAnswers = [
+    { service: "N700", depart: "00:45" },
+    { service: "700",  depart: "03:45" },
+    { service: "700",  depart: "06:07" },
+  ];
+  assert.equal(app.pickRepresentativeOption(asTheOldApiAnswers).service, "700");
+  assert.equal(app.pickRepresentativeOption(asTheOldApiAnswers).depart, "06:07");
+});
+
+test("midnight is twenty minutes from ten to, not a whole day", () => {
+  const options = [{ depart: "23:50" }, { depart: "00:10" }, { depart: "18:00" }];
+  assert.equal(app.pickRepresentativeOption(options).depart, "18:00");
+});
+
+test("an option with no departure time is a last resort, not a first choice", () => {
+  const timed = { service: "700", depart: "15:00" };
+  assert.equal(app.pickRepresentativeOption([{ service: "?" }, timed]), timed);
+  assert.equal(app.pickRepresentativeOption([{ service: "?" }]).service, "?");
+});
+
+test("no options means no option", () => {
+  assert.equal(app.pickRepresentativeOption([]), null);
+  assert.equal(app.pickRepresentativeOption(undefined), null);
+});
+
+test("the anchor the frontend sends is the one it applies", () => {
+  // The parameter on the request and the rule applied to the reply have to
+  // agree, or the two halves of the fix disagree about what midday is.
+  const code = readFileSync(join(ROOT, "app.js"), "utf8");
+  assert.match(code, /at=\$\{encodeURIComponent\(JOURNEY_TIME_ANCHOR\)\}/,
+    "/api/journey must be asked for the anchored time");
+  assert.equal(vm.runInContext("JOURNEY_TIME_ANCHOR", app), "12:00");
+});
+
+// ── Zone cards carry the colour they are drawn in ───────────
+
+test("every zone drawn on the map has a colour for its card", () => {
+  for (const z of zonesData.zones) {
+    const drawn = Array.isArray(z.polygon) || Array.isArray(z.polygons)
+               || Array.isArray(z.polygons_from);
+    if (!drawn) continue;
+    assert.ok(/^#[0-9a-f]{6}$/i.test(z.color || ""),
+      `${z.id} is drawn on the map but has no colour to match its card to`);
+  }
+});
+
+test("the Brighton and Worthing DayRiders are told apart by colour", () => {
+  const byIdLocal = Object.fromEntries(zonesData.zones.map(z => [z.id, z]));
+  assert.notEqual(byIdLocal["sc-brighton-dayrider"].color,
+                  byIdLocal["sc-worthing-dayrider"].color,
+    "two zones of the same operator that never overlap must not share a colour");
+});
+
+test("the Gold DayRider is £8.50", () => {
+  const byIdLocal = Object.fromEntries(zonesData.zones.map(z => [z.id, z]));
+  assert.equal(byIdLocal["sc-gold-dayrider"].fares.adult_day.price_pence, 850);
+});

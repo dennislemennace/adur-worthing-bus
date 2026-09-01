@@ -136,6 +136,24 @@
       "licence": "Contains OS data © Crown copyright and database right 2023; ONS geography © Crown copyright, Open Government Licence v3.0",
       "checked_on": "2026-08-31",
       "note": "Extracted from the generalised (BGC) Brighton and Hove district boundary, E06000043 — the arc between the coast and the northern corner of its western flank. Generalised boundaries are simplified for display, so this is indicative to within a few tens of metres and should not be used to decide which side of a line an address falls on.",
+      "sides": {
+        "west": {
+          "body": "WSCC",
+          "label": "West Sussex"
+        },
+        "east": {
+          "body": "BHCC",
+          "label": "Brighton & Hove"
+        }
+      },
+      "label_caption": "Council boundary",
+      "label_at": [
+        [
+          50.845634,
+          -0.228403
+        ]
+      ],
+      "label_note": "One label, above Mile Oak where the line has room to be read — low enough to be near the coast and the fare seam it explains, high enough to clear the bus markers along the A259. It sits on the line itself, so west and east of it read left and right on the map. The labels are the short place names, not the councils' full titles: a map label is read at a glance.",
       "style": {
         "weight": 5,
         "opacity": 0.9,

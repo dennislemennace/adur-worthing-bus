@@ -1255,11 +1255,25 @@ async def get_departures(
     return await _apply_live_overlay(base, resolved)
 
 
+# The time of day a costed journey is priced at.
+#
+# Trips used to be taken earliest-first, which on a coastal pair meant the
+# 00:45 N700 — a night service carrying a £2 supplement, and one the
+# all-operator Discovery ticket is not valid on. So the answer to "what does
+# this journey cost?" was a night fare, whatever time you asked. Anchoring to
+# an ordinary midday departure makes the quote reproducible and representative
+# of the journey most people are actually making.
+JOURNEY_TIME_ANCHOR = "12:00"
+
+
 @app.get("/api/journey")
 async def get_journey(
     fromStop: str = Query(..., alias="from"),
     toStop:   str = Query(..., alias="to"),
     limit:    int = Query(3, ge=1, le=10),
+    at:       str = Query(JOURNEY_TIME_ANCHOR,
+                          pattern=r"^([01]\d|2[0-3]):[0-5]\d$",
+                          description="Time of day to price the journey at (HH:MM)."),
 ):
     """
     The ordered stops a passenger passes through travelling from one stop to
@@ -1300,7 +1314,8 @@ async def get_journey(
 
     today     = date.today()
     today_str = today.strftime("%Y%m%d")
-    cache_key = f"journey:{a}:{b}:{today_str}:{limit}"
+    anchor    = _hhmm_to_secs(at)
+    cache_key = f"journey:{a}:{b}:{today_str}:{limit}:{anchor}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
@@ -1315,18 +1330,18 @@ async def get_journey(
         for b2 in tt.sibling_stops(b):
             if a2 == b2:
                 continue
-            for trip in tt.trips_connecting(a2, b2):
+            for trip in tt.trips_connecting(a2, b2, from_secs=anchor):
                 if trip["trip_id"] in seen_trips:
                     continue
                 seen_trips.add(trip["trip_id"])
                 candidates.append(trip)
     candidates.sort(key=lambda t: t["depart_secs"])
 
-    running = [
+    running = _from_time_of_day([
         t for t in candidates
         if _runs_today(t["service_id"], today, today_str, dow,
                        tt.calendar, tt.calendar_dates)
-    ]
+    ], anchor)
 
     options = []
     seen_shapes = set()
@@ -1368,6 +1383,7 @@ async def get_journey(
         "to":      {"atco": b, "name": (tt.stops.get(b) or {}).get("name", ""),
                     "operators": tt.operators_at_stop(b)},
         "direct":  bool(options),
+        "priced_at": at,
         "options": options,
         "note": "" if options else
                 "No direct bus found between these stops today — this journey "
@@ -1375,6 +1391,30 @@ async def get_journey(
     }
     cache_set(cache_key, result, 3600)
     return result
+
+
+def _hhmm_to_secs(hhmm: str) -> int:
+    """HH:MM to seconds past midnight. The pattern on the query param has
+    already rejected anything else, so this only has to parse."""
+    hh, mm = hhmm.split(":")
+    return int(hh) * 3600 + int(mm) * 60
+
+
+def _from_time_of_day(trips: list, anchor_secs: int) -> list:
+    """Trips ordered outward from a time of day, wrapping at midnight.
+
+    The first trip is the one departing at or soonest after `anchor_secs`; the
+    small-hours services that used to lead the list come last, where they
+    belong — still returned, so a pair of stops served only overnight is not
+    reported as unreachable.
+
+    GTFS encodes a trip continuing past midnight as 24:xx and beyond, so
+    departures are taken modulo a day before being placed on the clock.
+    """
+    def key(t):
+        dep = (t.get("depart_secs") or 0) % 86400
+        return ((dep - anchor_secs) % 86400, dep)
+    return sorted(trips, key=key)
 
 
 def _secs_to_hhmm(secs: Optional[int]) -> str:

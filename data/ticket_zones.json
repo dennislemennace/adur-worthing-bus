@@ -3997,12 +3997,13 @@
       "coverage_rule": "operator_network",
       "fares": {
         "adult_day": {
-          "price_pence": 900,
+          "price_pence": 850,
           "label": "Gold DayRider"
         },
         "adult_day_cash": null,
         "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Gold%20Network%20Map%20Aug%2023.pdf",
-        "checked_on": "2026-08-09"
+        "checked_on": "2026-09-01",
+        "note": "The linked network map is the source for the coverage, not the price: Stagecoach publishes Gold fares in the app rather than on the map. \u00a38.50 is the fare as sold locally, checked 1 September 2026."
       },
       "valid_on_operators": [
         "SCSO"

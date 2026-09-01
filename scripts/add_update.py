@@ -12,6 +12,10 @@ Writes to data/updates.json (official) or data/community_updates.json
 "published", and re-validates the whole file before saving. Nothing is
 committed or pushed — review the diff, then commit.
 
+An article may carry an `image`: put the file in media/updates/ first, then
+give its repo-relative path. The path is checked against the working tree
+here, because a hero that 404s is only visible once the page is live.
+
 The two files are kept apart for the same reason objectives and ideas are:
 one is written here, the other comes from passengers and is published only
 after somebody has read it.
@@ -86,6 +90,17 @@ def validate(doc: dict, path: Path, community: bool) -> None:
         for link in u.get("links", []):
             if not link.get("label") or not link.get("url"):
                 sys.exit(f"{path.name}: '{uid}' has a link missing label or url")
+        image = u.get("image")
+        if image is not None:
+            src = image.get("src", "")
+            if not src or src.startswith(("/", "http://", "https://")):
+                sys.exit(f"{path.name}: '{uid}' image src must be a relative "
+                         f"repo path, e.g. media/updates/name.jpg")
+            if not (ROOT / src).exists():
+                sys.exit(f"{path.name}: '{uid}' image {src} is not in the repo")
+            if not str(image.get("alt", "")).strip():
+                sys.exit(f"{path.name}: '{uid}' image needs 'alt' — the picture "
+                         f"carries the article, so it is not decoration")
 
 
 def main() -> None:
@@ -115,6 +130,19 @@ def main() -> None:
         }
         if args.community:
             entry["name"] = prompt("Reported by (blank for anonymous)", required=False)
+        topic = prompt("Topic tag, e.g. Fares (blank for none)", required=False)
+        if topic:
+            entry["topic"] = topic
+        img = prompt("Image path under media/updates/ (blank for none)", required=False)
+        if img:
+            entry["image"] = {
+                "src": img,
+                "alt": prompt("Describe the image for anyone who cannot see it"),
+                "focus": prompt("Focus, a CSS object-position (blank for centre)",
+                                required=False) or "50% 50%",
+                "credit": prompt("Credit — whose photograph is it? (blank for none)",
+                                 required=False),
+            }
         url = prompt("Source link URL (blank for none)", required=False)
         if url:
             entry["links"] = [{"label": prompt("Source link label"), "url": url}]

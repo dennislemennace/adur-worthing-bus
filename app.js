@@ -120,6 +120,13 @@ const state = {
   refreshTimer:  null,  // setInterval handle for bus positions
   isRefreshing:  true,
   busesVisible:  true,  // header toggle: show bus markers + run live refresh
+  // Operators the user has switched OFF, by NOC. A hide-list rather than a
+  // show-list on purpose: an operator that appears in the feed for the first
+  // time should show up, not be silently filtered out by a preference saved
+  // before it existed.
+  hiddenOperators: new Set(),
+  busFilterOpen: false,
+  lastVehicles:  [],    // last feed, so a filter change redraws without waiting
 
   // ── Bus info panel state ──
   selectedVehicleRef:      null,   // vehicle_ref of bus shown in Bus tab
@@ -170,7 +177,8 @@ const state = {
 
   // ── Ticket view (fare zones) ──
   ticketZones:             null,   // data/ticket_zones.json (array); null = not loaded
-  councilBoundaryLayers:   {},     // boundary id → L.polyline / L.polygon (Route view)
+  councilBoundaryLayers:   {},     // boundary id → L.polyline / L.polygon
+  councilBoundaryLabels:   {},     // boundary id → [L.tooltip] naming each side
   _councilBoundariesPromise: null,
   ticketZoneLayers:        {},     // zone id → L.polygon (only for zones with geometry)
   ticketReachLayers:       {},     // zone id → [L.marker] reach pills (networkSAVER-style)
@@ -204,6 +212,9 @@ const dom = {
   mapLoading:         document.getElementById("map-loading"),
   lastUpdatedLabel:   document.getElementById("last-updated-label"),
   toggleBusesBtn:     document.getElementById("toggle-buses-btn"),
+  busFilter:          document.getElementById("bus-filter"),
+  busFilterAll:       document.getElementById("bus-filter-all"),
+  busFilterList:      document.getElementById("bus-filter-list"),
   darkModeBtn:        document.getElementById("dark-mode-btn"),
   departurePanel:     document.getElementById("departure-panel"),
   sheetHandle:        document.getElementById("sheet-handle"),
@@ -442,6 +453,10 @@ async function init() {
     dom.darkModeBtn.title = "Switch to light mode";
   }
 
+  // Before bindUIEvents, so the bus button's label can report how many
+  // operators are switched off the moment the page settles.
+  loadHiddenOperators();
+
   initMap();
   bindUIEvents();
 
@@ -461,6 +476,13 @@ async function init() {
 
   // Start live bus position loop
   startVehicleRefresh();
+
+  // The council boundary is part of the Live map, so it loads with it rather
+  // than waiting for the first switch into Route view.
+  if (state.viewMode === "live") {
+    loadCouncilBoundaries().then(reconcileCouncilBoundaries)
+                           .catch(err => console.warn("Council boundary init failed:", err));
+  }
 
   // Load rail stations + render in Live view. Failure here is non-fatal —
   // buses still work even if RTT is unconfigured / unreachable.
@@ -519,6 +541,7 @@ function initMap() {
   state.map.on("moveend", () => {
     applyStopDotScale();
     applyStopVisibility();
+    reconcileCouncilBoundaries();   // the boundary label is zoom-gated too
   });
   applyStopDotScale();
 
@@ -769,6 +792,15 @@ async function loadCouncilBoundariesImpl() {
     // reads as a backdrop rather than competing with the network it explains.
     pane.style.zIndex = 402;
   }
+  if (!state.map.getPane("councilBoundaryLabelPane")) {
+    const pane = state.map.createPane("councilBoundaryLabelPane");
+    // The label is the opposite case from the line: a line can afford to sit
+    // underneath things, but a label nobody can read explains nothing. Above
+    // markers (600), below tooltips and popups (650/700), and pointer-events
+    // off in CSS so it never intercepts a click meant for a bus.
+    pane.style.zIndex = 620;
+    pane.style.pointerEvents = "none";
+  }
 
   for (const b of (data.boundaries || [])) {
     const colour = bodyColour((b.bodies || [])[0]) || "var(--color-text-muted)";
@@ -784,17 +816,67 @@ async function loadCouncilBoundariesImpl() {
       pane: "councilBoundaryPane",
       className: "council-boundary-line",
     });
+
+    state.councilBoundaryLabels[b.id] = (b.label_at || [])
+      .filter(at => Array.isArray(at) && at.length === 2)
+      .map(at => L.tooltip({
+        permanent:   true,
+        direction:   "center",
+        opacity:     1,
+        interactive: false,
+        className:   "council-boundary-tooltip",
+        pane:        "councilBoundaryLabelPane",
+      }).setLatLng(at).setContent(councilBoundaryLabelHtml(b)));
   }
 }
 
-/** The boundary shows in Route view and nowhere else. */
+/**
+ * The label that says what the dashed line is.
+ *
+ * A boundary drawn without a name is just a line on a map. Naming both sides
+ * — and putting them left and right, the way they sit on the ground — is what
+ * turns it into the point being made: two authorities, one coast.
+ */
+function councilBoundaryLabelHtml(boundary) {
+  const sides = boundary.sides || {};
+  const side = (entry) => {
+    if (!entry || !entry.body) return "";
+    // The short place name, not the council's full title: this is read at a
+    // glance over a moving map, and "Brighton & Hove City Council" is three
+    // times the width of the thing it is naming.
+    const text = entry.label || bodyName(entry.body);
+    return `<span class="council-boundary-side" style="--side-colour:${escapeAttr(bodyColour(entry.body))}">`
+         + `${escapeHtml(text)}</span>`;
+  };
+  const caption = boundary.label_caption
+    ? `<span class="council-boundary-caption">${escapeHtml(boundary.label_caption)}</span>` : "";
+  return `<span class="council-boundary-label">`
+       + `${side(sides.west)}<span class="council-boundary-tick" aria-hidden="true"></span>${side(sides.east)}`
+       + `</span>${caption}`;
+}
+
+// Below this the line is a few pixels long and the label would be shouting
+// over a coastline nobody can make out yet.
+const COUNCIL_LABEL_MIN_ZOOM = 11;
+
+/**
+ * The boundary shows on the two views that have a map worth putting it on:
+ * Route, where it explains the shape of the network, and Live, where it
+ * explains why the buses you are watching stop where they do.
+ */
 function reconcileCouncilBoundaries() {
   if (!state.map) return;
-  const inRoute = state.viewMode === "improvements";
+  const show = state.viewMode === "improvements" || state.viewMode === "live";
   for (const layer of Object.values(state.councilBoundaryLayers)) {
-    const show = inRoute;
     if (show && !state.map.hasLayer(layer))      layer.addTo(state.map);
     else if (!show && state.map.hasLayer(layer)) state.map.removeLayer(layer);
+  }
+  const labelled = show && state.map.getZoom() >= COUNCIL_LABEL_MIN_ZOOM;
+  for (const tips of Object.values(state.councilBoundaryLabels)) {
+    for (const tip of tips) {
+      if (labelled && !state.map.hasLayer(tip))      tip.addTo(state.map);
+      else if (!labelled && state.map.hasLayer(tip)) state.map.removeLayer(tip);
+    }
   }
 }
 
@@ -802,6 +884,11 @@ function hideCouncilBoundaries() {
   if (!state.map) return;
   for (const layer of Object.values(state.councilBoundaryLayers)) {
     if (state.map.hasLayer(layer)) state.map.removeLayer(layer);
+  }
+  for (const tips of Object.values(state.councilBoundaryLabels)) {
+    for (const tip of tips) {
+      if (state.map.hasLayer(tip)) state.map.removeLayer(tip);
+    }
   }
 }
 
@@ -854,15 +941,140 @@ function setBusesVisible(on) {
 function updateBusesToggleBtn() {
   if (!dom.toggleBusesBtn) return;
   const on = state.busesVisible;
-  dom.toggleBusesBtn.setAttribute("aria-pressed", on ? "true" : "false");
-  dom.toggleBusesBtn.setAttribute("aria-label", on ? "Hide buses" : "Show buses");
-  dom.toggleBusesBtn.title = on ? "Hide buses" : "Show buses";
+  const hidden = state.hiddenOperators.size;
+  // The button opens the filter, so aria-expanded is what it owns. Whether
+  // buses are on is a property of the filter's contents, said in the label.
+  dom.toggleBusesBtn.setAttribute("aria-expanded", state.busFilterOpen ? "true" : "false");
+  dom.toggleBusesBtn.classList.toggle("is-off", !on);
+  dom.toggleBusesBtn.classList.toggle("is-filtered", on && hidden > 0);
+  const label = !on
+    ? "Buses hidden — open bus filter"
+    : hidden
+      ? `Bus filter — ${hidden} operator${hidden === 1 ? "" : "s"} hidden`
+      : "Bus filter";
+  dom.toggleBusesBtn.setAttribute("aria-label", label);
+  dom.toggleBusesBtn.title = label;
+  if (dom.busFilterAll) dom.busFilterAll.checked = on;
+}
+
+// ============================================================
+// BUS OPERATOR FILTER
+//
+// The map can carry two hundred buses at once, and most of the time somebody
+// watching it cares about one company's. The bus button in the status pill
+// opens this: a master switch that still turns everything off in one click,
+// and a checkbox per operator actually present in the feed.
+//
+// Choices persist, because a filter you have to re-apply on every visit is
+// one you stop using.
+// ============================================================
+const HIDDEN_OPERATORS_KEY = "hiddenOperators";
+
+function loadHiddenOperators() {
+  try {
+    const raw = localStorage.getItem(HIDDEN_OPERATORS_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(list)) state.hiddenOperators = new Set(list.filter(x => typeof x === "string"));
+  } catch (err) {
+    console.warn("Could not read the bus filter:", err);
+  }
+}
+
+function saveHiddenOperators() {
+  try {
+    localStorage.setItem(HIDDEN_OPERATORS_KEY, JSON.stringify([...state.hiddenOperators]));
+  } catch (err) {
+    // Private browsing, quota, a locked-down profile — none of it is worth
+    // losing the filter the user just set, which still applies this session.
+    console.warn("Could not save the bus filter:", err);
+  }
+}
+
+/** Is this vehicle's operator switched on? */
+function operatorShown(operatorRef) {
+  return !state.hiddenOperators.has(operatorRef || "");
+}
+
+function setBusFilterOpen(open) {
+  state.busFilterOpen = !!open;
+  if (dom.busFilter) dom.busFilter.classList.toggle("hidden", !state.busFilterOpen);
+  updateBusesToggleBtn();
+  if (state.busFilterOpen) renderBusFilter();
+}
+
+/** Flip one operator on or off and redraw from the feed already in hand. */
+function setOperatorShown(operatorRef, shown) {
+  const code = operatorRef || "";
+  if (shown) state.hiddenOperators.delete(code);
+  else       state.hiddenOperators.add(code);
+  saveHiddenOperators();
+  // Unhiding an operator while everything is off would leave the user
+  // checking a box and seeing nothing happen.
+  if (shown && !state.busesVisible) setBusesVisible(true);
+  else {
+    updateVehicleMarkers(state.lastVehicles);
+    updateBusesToggleBtn();
+    renderBusFilter();
+  }
+}
+
+/**
+ * The operators to offer.
+ *
+ * Everything in the current feed, busiest first, plus anything the user has
+ * switched off that has since left the feed — otherwise turning an operator
+ * off at midnight would remove the only way to turn it back on.
+ */
+function busFilterOperators() {
+  const counts = new Map();
+  for (const v of (state.lastVehicles || [])) {
+    const code = v.operator_ref || "";
+    counts.set(code, (counts.get(code) || 0) + 1);
+  }
+  for (const code of state.hiddenOperators) {
+    if (!counts.has(code)) counts.set(code, 0);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => (b[1] - a[1]) || getOperatorName(a[0]).localeCompare(getOperatorName(b[0])))
+    .map(([code, count]) => ({ code, count }));
+}
+
+function renderBusFilter() {
+  if (!dom.busFilterList) return;
+  const rows = busFilterOperators();
+  if (!rows.length) {
+    dom.busFilterList.innerHTML =
+      `<p class="bus-filter-empty">No buses in the feed right now.</p>`;
+    return;
+  }
+  dom.busFilterList.innerHTML = rows.map(({ code, count }) => {
+    const on = operatorShown(code);
+    const name = code ? getOperatorName(code) : "Unknown operator";
+    return `
+      <label class="bus-filter-row">
+        <input type="checkbox" data-operator="${escapeAttr(code)}" ${on ? "checked" : ""}>
+        <span class="bus-filter-swatch" aria-hidden="true"
+              style="background:${escapeAttr(getOperatorColour(code))}"></span>
+        <span class="bus-filter-name">${escapeHtml(name)}</span>
+        <span class="bus-filter-count">${count}</span>
+      </label>`;
+  }).join("");
+  dom.busFilterList.querySelectorAll("input[data-operator]").forEach(input => {
+    input.addEventListener("change", () => {
+      setOperatorShown(input.dataset.operator, input.checked);
+    });
+  });
 }
 
 async function fetchVehicles() {
   try {
     const data = await apiFetch("/api/vehicles");
     if (!data || !data.vehicles) return;
+    // Kept whatever the view, so toggling an operator redraws immediately
+    // rather than at the next refresh, and so the filter can list operators
+    // with the counts actually in the feed.
+    state.lastVehicles = data.vehicles;
+    if (state.busFilterOpen) renderBusFilter();
 
     // A request in flight when the user switched to a non-live view (Route or
     // Ticket) must not re-add bus markers after the switch cleared them.
@@ -948,6 +1160,11 @@ function updateVehicleMarkers(vehicles) {
     if (!vehicle.latitude || !vehicle.longitude) return;
 
     const ref = vehicle.vehicle_ref;
+    // A filtered-out operator is left out of `seenRefs` so the sweep at the
+    // bottom removes any marker it already had — the same path a bus takes
+    // when it drops out of the feed. The bus being followed is the exception:
+    // hiding the thing the user asked to be shown helps nobody.
+    if (!operatorShown(vehicle.operator_ref) && ref !== state.selectedVehicleRef) return;
     seenRefs.add(ref);
 
     const label = vehicle.service_ref || "?";
@@ -2076,14 +2293,34 @@ function bindUIEvents() {
   // Dark mode toggle
   dom.darkModeBtn.addEventListener("click", toggleDarkMode);
 
-  // Toggle showing buses on the map (hides markers + pauses the refresh).
+  // The bus button opens the operator filter; the master switch inside it is
+  // what still turns every bus off in one go.
   if (dom.toggleBusesBtn) {
-    dom.toggleBusesBtn.addEventListener("click", () => {
-      const willShow = !state.busesVisible;
+    dom.toggleBusesBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setBusFilterOpen(!state.busFilterOpen);
+    });
+    updateBusesToggleBtn();
+  }
+  if (dom.busFilterAll) {
+    dom.busFilterAll.addEventListener("change", () => {
+      const willShow = dom.busFilterAll.checked;
       setBusesVisible(willShow);
       showToast(willShow ? "Showing buses." : "Buses hidden.");
     });
-    updateBusesToggleBtn();
+  }
+  if (dom.busFilter) {
+    // A popover has to be dismissible without hunting for the button again.
+    dom.busFilter.addEventListener("click", (e) => e.stopPropagation());
+    document.addEventListener("click", () => {
+      if (state.busFilterOpen) setBusFilterOpen(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && state.busFilterOpen) {
+        setBusFilterOpen(false);
+        if (dom.toggleBusesBtn) dom.toggleBusesBtn.focus();
+      }
+    });
   }
 
   // Toggle showing trains (rail stations + tracked train markers).
@@ -2382,31 +2619,89 @@ function sortUpdates(list) {
     .map(x => x.u);
 }
 
+/**
+ * One article, laid out as an article.
+ *
+ * A news list is read by scanning: picture, date, headline, first line, and
+ * only then the piece itself. So each of those is a distinct thing here with
+ * its own weight, rather than three sizes of the same grey paragraph.
+ *
+ * Long pieces are folded after their opening paragraphs behind a "Continue
+ * reading" button, so ten items stay a list rather than becoming a wall. The
+ * fold is by paragraph count, not by measuring the rendered height: it gives
+ * the same answer on every screen and never reflows after paint.
+ */
+const UPDATE_FOLD_AFTER_PARAGRAPHS = 2;
+
 function updateCardHtml(u, opts = {}) {
-  const date = u.date
-    ? `<span class="idea-card-meta">${escapeHtml(formatUpdateDate(u.date))}</span>` : "";
-  const byline = opts.community && u.name
-    ? `<span class="idea-card-meta">Reported by ${escapeHtml(u.name)}</span>` : "";
-  const links = Array.isArray(u.links) && u.links.length
-    ? `<ul class="proposal-links">${u.links.map(l => `
-        <li><a class="proposal-link" href="${escapeAttr(l.url)}"
-               target="_blank" rel="noopener noreferrer">${escapeHtml(l.label || l.url)} ↗</a></li>`
-      ).join("")}</ul>`
+  const id    = String(u.id || "");
+  const date  = u.date
+    ? `<time class="update-card-date" datetime="${escapeAttr(u.date)}">${escapeHtml(formatUpdateDate(u.date))}</time>`
     : "";
+  const topic = u.topic
+    ? `<span class="update-card-topic">${escapeHtml(u.topic)}</span>` : "";
+  const byline = opts.community && u.name
+    ? `<span class="update-card-byline">Reported by ${escapeHtml(u.name)}</span>` : "";
+
+  const img = u.image && u.image.src ? u.image : null;
+  // A decorative-looking photo still carries the meaning of the piece, so it
+  // gets real alt text or none at all — never a filename.
+  const media = img ? `
+      <figure class="update-card-media">
+        <img src="${escapeAttr(img.src)}" alt="${escapeAttr(img.alt || "")}"
+             loading="lazy" decoding="async"
+             style="object-position:${escapeAttr(img.focus || "50% 50%")}">
+        ${img.credit ? `<figcaption class="update-card-credit">${escapeHtml(img.credit)}</figcaption>` : ""}
+      </figure>` : "";
+
+  const links = Array.isArray(u.links) && u.links.length
+    ? `<footer class="update-card-sources">
+         <p class="update-card-sources-title">Sources</p>
+         <ul class="proposal-links">${u.links.map(l => `
+           <li><a class="proposal-link" href="${escapeAttr(l.url)}"
+                  target="_blank" rel="noopener noreferrer">${escapeHtml(l.label || l.url)} ↗</a></li>`
+         ).join("")}</ul>
+       </footer>`
+    : "";
+
   // Paragraph breaks are meaningful in an article, and escapeHtml alone
   // would render the whole body as one run-on block.
-  const body = String(u.body || "").split(/\n\s*\n/)
-    .filter(Boolean)
-    .map(para => `<p>${escapeHtml(para)}</p>`).join("");
+  const paras = String(u.body || "").split(/\n\s*\n/).filter(Boolean);
+  const open  = paras.slice(0, UPDATE_FOLD_AFTER_PARAGRAPHS);
+  const rest  = paras.slice(UPDATE_FOLD_AFTER_PARAGRAPHS);
+  const para  = (t) => `<p>${escapeHtml(t)}</p>`;
+  const restId = `update-rest-${escapeAttr(id || String(Math.random()).slice(2))}`;
+  const folded = rest.length
+    ? `<div class="update-card-rest hidden" id="${restId}">${rest.map(para).join("")}</div>
+       <button type="button" class="update-card-more" data-update-more="${restId}"
+               aria-expanded="false" aria-controls="${restId}">Continue reading</button>`
+    : "";
 
   return `
-    <article class="proposal-card update-card">
-      <h3 class="proposal-card-name">${escapeHtml(u.title || "Untitled")}</h3>
-      <div class="update-card-meta">${date}${byline}</div>
-      ${u.summary ? `<p class="proposal-card-summary">${escapeHtml(u.summary)}</p>` : ""}
-      <div class="proposal-detail-body update-card-body">${body}</div>
-      ${links}
+    <article class="update-card">
+      ${media}
+      <div class="update-card-text">
+        <p class="update-card-kicker">${topic}${date}${byline}</p>
+        <h3 class="update-card-title">${escapeHtml(u.title || "Untitled")}</h3>
+        ${u.summary ? `<p class="update-card-lede">${escapeHtml(u.summary)}</p>` : ""}
+        <div class="update-card-body">${open.map(para).join("")}${folded}</div>
+        ${links}
+      </div>
     </article>`;
+}
+
+/** Wire the "Continue reading" buttons in a freshly rendered list. */
+function bindUpdateFolds(host) {
+  if (!host) return;
+  host.querySelectorAll("[data-update-more]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const rest = host.querySelector(`#${CSS.escape(btn.dataset.updateMore)}`);
+      if (!rest) return;
+      const showing = rest.classList.toggle("hidden");
+      btn.setAttribute("aria-expanded", showing ? "false" : "true");
+      btn.textContent = showing ? "Continue reading" : "Show less";
+    });
+  });
 }
 
 function formatUpdateDate(iso) {
@@ -2421,6 +2716,7 @@ function renderUpdates() {
     dom.officialUpdatesList.innerHTML = list.length
       ? list.map(u => updateCardHtml(u)).join("")
       : `<p class="proposals-empty">No updates published yet.</p>`;
+    bindUpdateFolds(dom.officialUpdatesList);
   }
   if (dom.communityUpdatesList) {
     const list = sortUpdates(state.communityUpdates);
@@ -2428,6 +2724,7 @@ function renderUpdates() {
       ? list.map(u => updateCardHtml(u, { community: true })).join("")
       : `<p class="proposals-empty">Nothing from passengers yet — this is where
          reviewed reports from the network will appear.</p>`;
+    bindUpdateFolds(dom.communityUpdatesList);
   }
 }
 
@@ -2576,6 +2873,7 @@ async function applyViewMode() {
   const live = state.viewMode === "live";
   // The "show buses" toggle only does anything in Live view.
   if (dom.toggleBusesBtn) dom.toggleBusesBtn.hidden = !live;
+  if (!live && state.busFilterOpen) setBusFilterOpen(false);
   if (dom.toggleRailBtn)  dom.toggleRailBtn.hidden  = !live;
   // ...and hide the pill that holds them, not just its contents. On mobile it
   // is positioned over the map with its own background, so an empty one reads
@@ -2647,12 +2945,18 @@ async function applyViewMode() {
       showToast("Could not load network plan data. Try again later.");
     }
   } else {
-    // Live: tear down all network-view layers and restore the live map.
+    // Live: tear down all network-view layers and restore the live map. The
+    // council boundary stays — it is as much a live fact as the buses are.
     if (state.editor) closeEditor({ skipSave: false });
     hideRouteLines();
     hideAllProposalLayers();
     hideTicketZones();
-    hideCouncilBoundaries();
+    try {
+      await loadCouncilBoundaries();
+      reconcileCouncilBoundaries();
+    } catch (err) {
+      console.warn("Council boundary unavailable:", err);
+    }
     if (state.busesVisible) {
       showVehicleMarkers();
       if (!state.isRefreshing) startVehicleRefresh();
@@ -3637,7 +3941,10 @@ function renderTicketZonesList() {
     const sel      = z.id === state.selectedZoneId;
     const hasGeo   = !!state.ticketZoneLayers[z.id];
     const hasReach = !!(state.ticketReachLayers[z.id] || []).length;
-    const border   = getOperatorBorderColour(z.operator);
+    // The card's stripe is the colour the zone is drawn in, so a card and its
+    // shape on the map are recognisably the same thing. Only card-only
+    // tickets with no geometry (Gold) fall back to the operator's colour.
+    const border   = z.color || getOperatorBorderColour(z.operator);
     // Prefer a sourced fare over the free-text `price` blurb, and date it so a
     // stale figure is visibly stale rather than quietly wrong.
     const day      = z.fares && z.fares.adult_day;
@@ -3831,7 +4138,7 @@ function hhmmToMinutes(hhmm) {
 /**
  * Is this ticket usable at the journey's departure time?
  *
- * The Gold Nightrider is £4 against the DayRider's £9, but only from 19:30 —
+ * The Gold Nightrider is £4 against the DayRider's £8.50, but only from 19:30 —
  * offering it for a midday commute would quote less than half the real fare.
  * The window wraps past midnight (19:30 to 04:00 is one night), which matters
  * because the N700 runs in the small hours.
@@ -4151,7 +4458,9 @@ async function checkJourney() {
   let journey;
   try {
     journey = await apiFetch(
-      `/api/journey?from=${encodeURIComponent(fromAtco)}&to=${encodeURIComponent(toAtco)}`);
+      `/api/journey?from=${encodeURIComponent(fromAtco)}`
+      + `&to=${encodeURIComponent(toAtco)}`
+      + `&at=${encodeURIComponent(JOURNEY_TIME_ANCHOR)}`);
   } catch (err) {
     setJourneyStatus("Couldn't look up that journey — please try again.", true);
     return;
@@ -4222,6 +4531,58 @@ function cheaperOf(a, b) {
   return b.total < a.total ? b : a;
 }
 
+/**
+ * The time of day a journey is costed at.
+ *
+ * What a trip costs must not depend on when you happen to ask. It used to:
+ * the checker took whichever bus left first in the service day, which on this
+ * coast is the 00:45 N700 — a night service carrying a £2 supplement, and one
+ * the all-operator Discovery ticket is not valid on. Every quote was therefore
+ * a night fare, at two in the afternoon as readily as at two in the morning.
+ *
+ * Midday is the anchor: an ordinary hour, on an ordinary service, for the
+ * journey most people are actually costing. It is sent to /api/journey and
+ * applied again to whatever comes back, so a deployment of the API that
+ * predates the parameter still produces a daytime answer.
+ */
+const JOURNEY_TIME_ANCHOR = "12:00";
+
+/**
+ * The option to cost, out of everything the API offered.
+ *
+ * The departure closest to the anchor on the clock, in either direction. Not
+ * "the next one after midday": an API that only offered small-hours trips —
+ * which is exactly what the deployed one does until it catches up with the
+ * anchor parameter — would answer that with the 00:45, having wrapped all the
+ * way round. Nearest-in-either-direction picks the 06:07 instead, which is at
+ * least a daytime fare. Where a midday trip exists both rules agree on it.
+ *
+ * Wrapping is still needed for the other end of the day: 23:50 and 00:10 are
+ * twenty minutes apart, not twenty-three hours forty.
+ *
+ * Options with no departure time rank behind every option that has one, and
+ * still beat returning nothing.
+ */
+function pickRepresentativeOption(options) {
+  const list = Array.isArray(options) ? options.filter(Boolean) : [];
+  if (!list.length) return null;
+  const anchor = hhmmToMinutes(JOURNEY_TIME_ANCHOR) ?? 0;
+  const DAY = 24 * 60;
+  let best = null, bestKey = Infinity;
+  list.forEach((o, i) => {
+    const m = hhmmToMinutes(o.depart);
+    let key;
+    if (m === null) {
+      key = DAY + i;
+    } else {
+      const forward = (((m - anchor) % DAY) + DAY) % DAY;
+      key = Math.min(forward, DAY - forward);
+    }
+    if (key < bestKey) { bestKey = key; best = o; }
+  });
+  return best;
+}
+
 function renderJourneyResult(journey, fromAtco, toAtco) {
   const host = dom.jcResult;
   if (!host) return;
@@ -4232,7 +4593,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
 
   // Path-aware when a direct bus exists; endpoints-only otherwise, and we say
   // which of the two we did.
-  const option = (journey.options && journey.options[0]) || null;
+  const option = pickRepresentativeOption(journey.options);
   const pathStops = option ? option.stops : [
     Object.assign({ atco: fromAtco }, state.stopData[fromAtco] || {}),
     Object.assign({ atco: toAtco },   state.stopData[toAtco]   || {}),
@@ -4370,7 +4731,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // Careful with the money here. The headline has to describe what a passenger
   // would really pay, which is the cheapest option open to them — not the zone
   // combination. On a Worthing-to-Brighton Stagecoach run the two zone tickets
-  // come to £12, but a Gold DayRider covers the same journey for £9, so
+  // come to £12, but a Gold DayRider covers the same journey for £8.50, so
   // claiming £12 would be plainly wrong and would discredit the point.
   const cheapest = cheapestRealOption(best, networkOption, supplement, unifiedOption);
   const money = cheapest

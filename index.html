@@ -185,9 +185,22 @@
             <span class="loading-dots" aria-hidden="true"></span>
           </span>
           <button class="btn-icon status-pill-toggle" id="toggle-buses-btn"
-                  title="Hide buses" aria-label="Hide buses" aria-pressed="true">
+                  title="Filter buses" aria-label="Filter buses"
+                  aria-expanded="false" aria-controls="bus-filter">
             <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
           </button>
+          <!-- Operator filter, opened by the bus button above. Positioned
+               against the status pill, so it hangs directly under the control
+               that opens it. Populated by app.js from the live feed. -->
+          <div class="bus-filter hidden" id="bus-filter" role="group"
+               aria-labelledby="bus-filter-title">
+            <p class="bus-filter-title" id="bus-filter-title">Buses on the map</p>
+            <label class="bus-filter-row bus-filter-row--all">
+              <input type="checkbox" id="bus-filter-all" checked>
+              <span class="bus-filter-name">Show buses</span>
+            </label>
+            <div class="bus-filter-list" id="bus-filter-list"></div>
+          </div>
           <button class="btn-icon status-pill-toggle" id="toggle-rail-btn"
                   title="Hide trains" aria-label="Hide trains" aria-pressed="true">
             <svg class="icon" aria-hidden="true"><use href="#i-train"/></svg>

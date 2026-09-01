@@ -22,6 +22,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from api.main import _from_time_of_day, _hhmm_to_secs  # noqa: E402
 from api.timetable_db import (  # noqa: E402
     MAX_JOURNEY_SECS,
     MAX_LEG_GAP_SECS,
@@ -204,3 +205,65 @@ def test_limit_is_respected(tt):
     stops = tt.trip_stops_for(trip_id)
     got = tt.trips_connecting(stops[0][1], stops[-1][1], limit=3)
     assert len(got) <= 3
+
+
+# ── Costing a journey at a fixed time of day ────────────────
+#
+# What a journey costs must not depend on which trip the timetable happens to
+# list first. It used to: trips came back earliest-first, so a coastal pair was
+# always answered with the 00:45 N700 — a night service carrying a £2
+# supplement, and one the all-operator ticket is not valid on. Every quote was
+# a night fare, asked at any hour.
+
+def test_from_time_of_day_starts_at_the_anchor():
+    trips = [
+        {"depart_secs": 2700},    # 00:45
+        {"depart_secs": 43500},   # 12:05
+        {"depart_secs": 25200},   # 07:00
+        {"depart_secs": 75600},   # 21:00
+    ]
+    order = [t["depart_secs"] for t in _from_time_of_day(trips, 12 * 3600)]
+    assert order == [43500, 75600, 2700, 25200]
+
+
+def test_from_time_of_day_keeps_everything_it_was_given():
+    """Reordering, never filtering — a pair served only overnight still has to
+    come back with something rather than looking unreachable."""
+    trips = [{"depart_secs": s} for s in (2700, 5400, 9000)]
+    assert len(_from_time_of_day(trips, 12 * 3600)) == 3
+
+
+def test_from_time_of_day_places_past_midnight_trips_on_the_clock():
+    """GTFS writes a trip continuing past midnight as 24:xx and beyond. 24:30
+    is half past midnight, so it belongs with the small hours, not the evening."""
+    trips = [
+        {"depart_secs": 88200},   # 24:30 == 00:30
+        {"depart_secs": 46800},   # 13:00
+    ]
+    assert [t["depart_secs"] for t in _from_time_of_day(trips, 12 * 3600)] == [46800, 88200]
+
+
+def test_hhmm_to_secs():
+    assert _hhmm_to_secs("00:00") == 0
+    assert _hhmm_to_secs("12:00") == 43200
+    assert _hhmm_to_secs("23:59") == 86340
+
+
+@needs_db
+def test_trips_connecting_can_start_from_a_time_of_day(tt):
+    """The cap inside trips_connecting is what made this necessary: keeping the
+    first forty trips of the service day threw the daytime ones away before the
+    caller ever saw them."""
+    trip_id, _, _, _ = next(iter(tt.service_endpoints("700")))
+    stops = tt.trip_stops_for(trip_id)
+    a, b = stops[0][1], stops[-1][1]
+
+    noon = 12 * 3600
+    from_noon = tt.trips_connecting(a, b, limit=5, from_secs=noon)
+    if not from_noon:
+        pytest.skip("no direct trips between these stops in this build")
+    # Every returned trip is nearer noon, going forwards, than the earliest of
+    # the day would be.
+    first = from_noon[0]["depart_secs"] % 86400
+    assert (first - noon) % 86400 <= (
+        (tt.trips_connecting(a, b, limit=1)[0]["depart_secs"] % 86400) - noon) % 86400

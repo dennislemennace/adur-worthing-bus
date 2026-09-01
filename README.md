@@ -81,7 +81,31 @@ that only fails in CI has already been saved. It never commits or pushes.
 Body text is split on blank lines into paragraphs. Every article needs a
 `date`, because a dated claim can be judged stale and an undated one cannot,
 and anything asserting a fact should carry a `links` entry pointing at where
-it came from.
+it came from. Long pieces fold after their first two paragraphs behind a
+"Continue reading" button, so a list of ten stays a list.
+
+An article may carry a `topic` tag and an `image`. Put the picture in
+`media/updates/` first, then reference it:
+
+```json
+"image": {
+  "src": "media/updates/ticketer-contactless.jpg",
+  "alt": "A contactless card held against a Ticketer reader on a bus.",
+  "focus": "50% 22%",
+  "credit": "Ticketer"
+}
+```
+
+`src` is repo-relative (the site is served from a project subpath on GitHub
+Pages, so a leading `/` breaks it) and both `add_update.py` and `pytest` check
+the file is actually in the tree — a hero that 404s is only visible once the
+page is live. `alt` is required: a photograph carrying the point of an article
+is not decoration. `focus` is a CSS `object-position`, needed because the card
+crops every hero to 16:9 and the part that matters is not always the middle.
+
+**Credit and licence are yours to establish.** Nothing here checks that you
+have the right to publish a photograph, and a press shot found online usually
+is not free to use. Fill in `credit`, or use a picture you own.
 
 ### Other curated content
 
@@ -138,6 +162,31 @@ the stop's ATCO code in the title so repeat reports about the same stop fold
 into one thread. Most are council responsibilities rather than operator ones —
 the issue records the report, it doesn't raise a works order.
 
+## The live map
+
+The **bus button** in the status pill opens an operator filter: a master switch
+that still turns every bus off in one click, and a checkbox per operator
+present in the feed with a live count beside it. Choices persist in
+`localStorage`, because a filter you have to re-apply on every visit is one you
+stop using.
+
+It is stored as a **hide-list**, not a show-list. An operator appearing in the
+feed for the first time should show up, not be silently filtered out by a
+preference saved before it existed. The bus currently being followed is never
+hidden — hiding the thing the user asked to be shown helps nobody.
+
+The **council boundary** between Brighton & Hove and West Sussex is drawn on
+both the Live and Route maps from `data/council_boundaries.json`, sourced from
+the ONS Open Geography Portal under the Open Government Licence. It is the
+reason the network stops where it does, so it is labelled: a permanent Leaflet
+tooltip naming the short place name each side, in that body's colour, laid out
+left and right the way they sit on the ground. The label is zoom-gated above
+`COUNCIL_LABEL_MIN_ZOOM` — below it the line is a few pixels long and the label
+would be shouting over a coastline nobody can make out yet.
+
+Note the naming: "boundary" already means the *fare* seam everywhere else in
+`app.js`, so anything administrative is spelled out as `councilBoundary`.
+
 ## Ticket view: what does your journey cost?
 
 The Ticket view can check a specific A-to-B journey against the operators' zone
@@ -162,21 +211,28 @@ Four rules keep the numbers defensible:
   "one ticket, no problem" for almost everything and hide the boundary.
 - **The headline price is the cheapest thing you could actually buy.** On an
   all-Stagecoach Worthing–Brighton run the two zone tickets come to £12, but a
-  Gold DayRider covers it for £9 — so £9 is what's quoted. Claiming £12 would be
-  wrong and would discredit the point.
+  Gold DayRider covers it for £8.50 — so £8.50 is what's quoted. Claiming £12
+  would be wrong and would discredit the point.
 - **Night services are priced properly.** `service_supplements` adds the N700's
   £2 add-on, and the Discovery ticket is marked `not_valid_on_services` for the
   N700/N1, so it's never offered as a fix on a journey where it can't be used.
 - **Time-restricted tickets are only offered when they apply.** The Gold
-  Nightrider is £4 against the DayRider's £9, but only from 19:30
+  Nightrider is £4 against the DayRider's £8.50, but only from 19:30
   (`valid_from_time` / `valid_to_time`, wrapping past midnight so the small-hours
-  N700 still counts as that evening). A midday journey is quoted £9, not £4. A
+  N700 still counts as that evening). A midday journey is quoted £8.50, not £4. A
   ticket with a time window is excluded entirely when the departure time is
   unknown, rather than assumed usable.
+- **Every journey is costed at midday.** What a trip costs must not depend on
+  when you happened to ask. It used to: `/api/journey` returned the earliest
+  trips of the service day, which on this coast is the 00:45 N700 — a night
+  service carrying a £2 supplement, and one the Discovery ticket isn't valid on.
+  Every quote was a night fare, at any hour. `JOURNEY_TIME_ANCHOR` (12:00) is
+  sent as `?at=` and applied again to whatever comes back, so the answer is the
+  same at two in the afternoon as at two in the morning.
 
 A saving is only claimed when there genuinely is one. The all-operator
 **South Downs Discovery Ticket** (£10) is a real ticket, not a hypothetical —
-but it doesn't beat a £9 Gold DayRider on a single-operator journey, and the UI
+but it doesn't beat an £8.50 Gold DayRider on a single-operator journey, and the UI
 says so instead of printing a negative "saving". Where it does pay is journeys
 that need a change between operators.
 

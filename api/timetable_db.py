@@ -385,7 +385,7 @@ class Timetable:
         ]
 
     def trips_connecting(self, from_stop: str, to_stop: str,
-                         limit: int = 40) -> list:
+                         limit: int = 40, from_secs: int = None) -> list:
         """Trips that serve `from_stop` and later `to_stop`, in that order.
 
         Returns [{trip_id, route_id, short_name, headsign, service_id,
@@ -451,7 +451,17 @@ class Timetable:
             })
 
         out = [t for t in out if _plausible_span(t)]
-        out.sort(key=lambda t: t["depart_secs"])
+        if from_secs is None:
+            out.sort(key=lambda t: t["depart_secs"])
+        else:
+            # Order outward from a time of day, wrapping at midnight, so that
+            # `limit` keeps the trips around that time rather than the first
+            # forty of the service day. Without this a caller asking about
+            # midday is handed the small hours and never sees anything else,
+            # because the cap has already thrown the rest away. GTFS writes a
+            # trip running past midnight as 24:xx, hence the modulo.
+            out.sort(key=lambda t: (((t["depart_secs"] % 86400) - from_secs) % 86400,
+                                    t["depart_secs"]))
         return out[:limit] if limit else out
 
     def sibling_stops(self, stop_id: str, max_km: float = 0.4) -> list:

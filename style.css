@@ -344,6 +344,7 @@ html.dark-mode .last-updated {
    they read as a single "live data" control. The bus toggle nests inside as a
    smaller circular dot; dark-mode toggle lives outside (intentionally distinct). */
 .status-pill {
+  position: relative;   /* anchors the bus filter popover */
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
@@ -808,21 +809,315 @@ html.dark-mode .map-loading {
 .filter-disclosure[open] .filter-disclosure-chevron { transform: rotate(180deg); }
 .filter-disclosure[open] .filter-disclosure-summary { color: var(--color-text); }
 
-/* ===== NETWORK UPDATES ===== */
-.update-card-meta {
+/* ===== BUS OPERATOR FILTER =====
+   Hangs from the status pill, under the bus button that opens it. Right-
+   aligned so it never runs off the screen edge on a phone, where the pill
+   sits near the right of the header. */
+.bus-filter {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1200;          /* over the map and its Leaflet controls */
+  min-width: 232px;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: var(--space-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md, 0 6px 20px rgba(10,18,32,0.18));
+  color: var(--color-text);
+  text-align: left;
+}
+.bus-filter-title {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.bus-filter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  /* 2.5.8 wants 24px of target; a checkbox alone is smaller than that, so the
+     whole row is the target and the row is tall enough to be one. */
+  min-height: 32px;
+  padding: 2px 2px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+@media (hover: hover) {
+  .bus-filter-row:hover { background: var(--color-surface-2); }
+}
+.bus-filter-row input { flex: none; width: 16px; height: 16px; cursor: pointer; }
+.bus-filter-row--all {
+  font-weight: 700;
+  padding-bottom: var(--space-xs);
+  margin-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--color-border);
+}
+.bus-filter-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid rgba(0,0,0,0.2);
+}
+.bus-filter-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bus-filter-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.bus-filter-list { max-height: 46vh; overflow-y: auto; }
+.bus-filter-empty {
+  margin: 0;
+  padding: var(--space-xs) 2px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+/* Buses off, or some operators hidden: the button says so without a word,
+   because the label it carries is only read by a screen reader or on hover. */
+.status-pill .btn-icon.status-pill-toggle.is-off { opacity: 0.45; }
+.status-pill .btn-icon.status-pill-toggle.is-filtered { position: relative; }
+.status-pill .btn-icon.status-pill-toggle.is-filtered::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent, #d98324);
+  border: 1px solid var(--color-surface);
+}
+
+/* ===== COUNCIL BOUNDARY LABEL =====
+   The dashed line is drawn by Leaflet; this is the bit that says what it is.
+   A permanent tooltip, so it stays put and needs no interaction, stripped of
+   every default tooltip affordance — no card, no arrow, no pointer target.
+   Legibility comes from a halo rather than a panel, so the map still shows
+   through the way it does behind any place name. */
+.leaflet-tooltip.council-boundary-tooltip {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  white-space: nowrap;
+  pointer-events: none;
+  text-align: center;
+  font-family: inherit;
+  /* Leaflet hard-codes #222 on its tooltips, which is invisible against a
+     dark basemap. Anything here that inherits its colour — the divider —
+     needs a token instead. */
+  color: var(--color-text-muted);
+}
+.leaflet-tooltip.council-boundary-tooltip::before { display: none; }  /* arrow */
+
+.council-boundary-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.council-boundary-side {
+  color: var(--side-colour, var(--color-text));
+  /* A halo, not a box: four offsets of the map's own background, so the words
+     stay readable over coastline, sea or a route line without hiding any of
+     them. paint-order keeps the stroke behind the glyph where supported. */
+  text-shadow:
+     1px  1px 0 var(--color-surface),
+    -1px  1px 0 var(--color-surface),
+     1px -1px 0 var(--color-surface),
+    -1px -1px 0 var(--color-surface),
+     0 0 4px var(--color-surface);
+}
+.council-boundary-tick {
+  width: 1px;
+  height: 0.9em;
+  background: currentColor;
+  opacity: 0.6;
+  flex: none;
+  /* The same halo as the text: without it the divider disappears wherever it
+     crosses the boundary line it is sitting on. */
+  box-shadow: 0 0 0 1px var(--color-surface);
+}
+.council-boundary-caption {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  text-shadow:
+     1px  1px 0 var(--color-surface),
+    -1px  1px 0 var(--color-surface),
+     1px -1px 0 var(--color-surface),
+    -1px -1px 0 var(--color-surface);
+}
+
+/* ===== NETWORK UPDATES =====
+   These are articles, so they are laid out like articles rather than like the
+   proposal cards elsewhere: a photograph, a kicker line, a headline with real
+   weight, a lede, then the body. The card itself recedes — no left stripe, no
+   tinted fill — because on a news list the picture and the headline are what
+   should carry it. */
+.update-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;                       /* clips the hero to the radius */
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+.update-card + .update-card { margin-top: var(--space-xs); }
+
+.update-card-media {
+  position: relative;
+  margin: 0;
+  /* A fixed band rather than the image's own shape, so a list of articles
+     reads as a list rather than a ragged column. `focus` per item keeps the
+     part that matters inside the crop. */
+  aspect-ratio: 16 / 9;
+  background: var(--color-surface-2);
+}
+.update-card-media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.update-card-credit {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+}
+
+.update-card-text {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-md) var(--space-md) var(--space-sm);
+}
+
+/* Kicker: topic, then date. Small, spaced, and the one place colour is used,
+   so the eye lands on it before the headline and knows what it is reading. */
+.update-card-kicker {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-sm);
-  margin-bottom: var(--space-xs);
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0 0 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
-.update-card-body {
-  margin-top: var(--space-xs);
-  font-size: var(--font-size-md);
+.update-card-kicker:empty { display: none; }
+.update-card-topic {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--color-accent-rgb), 0.16);
+  color: var(--color-accent-text);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+html.dark-mode .update-card-topic {
+  background: rgba(var(--color-accent-rgb), 0.22);
+  color: var(--color-accent);
+}
+.update-card-date { font-variant-numeric: tabular-nums; }
+.update-card-byline { font-style: italic; }
+
+.update-card-title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 750;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
   color: var(--color-text);
+  /* Balanced wrapping stops a headline leaving one word on the last line.
+     Ignored where unsupported, which costs nothing. */
+  text-wrap: balance;
+}
+
+/* The lede is the sentence that decides whether the piece gets read, so it is
+   set larger than the body and separated from it by a rule. */
+.update-card-lede {
+  margin: var(--space-xs) 0 0;
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.update-card-body {
+  margin-top: var(--space-sm);
+  font-size: var(--font-size-md);
+  line-height: 1.62;
+  color: var(--color-text);
+  /* Prose reads badly across a wide panel; this caps the measure without
+     capping the card. */
+  max-width: 68ch;
 }
 /* An article is paragraphs, not one block — the renderer splits on blank
    lines and this is what gives them room to read as such. */
+.update-card-body p { margin: 0; }
 .update-card-body p + p { margin-top: var(--space-sm); }
+
+.update-card-rest p:first-child { margin-top: var(--space-sm); }
+
+.update-card-more {
+  align-self: flex-start;
+  margin-top: var(--space-sm);
+  min-height: var(--target-min);
+  padding: 0;
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  /* --color-link, not --color-primary. The primary is a fill colour and only
+     measures 3.7:1 as text on the card in dark mode; the same trap the
+     proposal links fell into. */
+  color: var(--color-link);
+  cursor: pointer;
+}
+.update-card-more:hover { text-decoration: underline; }
+
+.update-card-sources {
+  margin-top: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+.update-card-sources-title {
+  margin: 0 0 var(--space-2xs);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
 
 /* ===== SHEET HANDLE =====
    Desktop has no sheet, so no handle. On mobile it is the primary way to
@@ -1004,12 +1299,30 @@ body.panel-collapsed .btn-collapse-panel .icon {
   body.panel-collapsed { --sheet-h: var(--sheet-peek); }
 }
 
+/* Each tab's content area fills the panel and owns its own scrolling.
+ *
+ * This used to be `overflow: hidden`, on the assumption that every view would
+ * nominate an inner `flex: 1; overflow-y: auto` child to do the scrolling —
+ * `objectives-list`, `proposals-list`, `ticket-zones-list` all do. Three did
+ * not, and a tab that forgets does not degrade to an awkward scroll: it
+ * silently clips, and the content below the fold becomes unreachable. Network
+ * Updates lost everything past the first article; the Ideas tab lost the
+ * bottom of its form.
+ *
+ * Scrolling here instead makes clipping impossible by default. Views with an
+ * inner scroller are unaffected — the inner one absorbs the overflow, so this
+ * container never overflows and never shows a second scrollbar.
+ */
 .panel-tab-content {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Reaching the end of the panel must not start scrolling the page behind
+     it, which on mobile drags the whole sheet. */
+  overscroll-behavior: contain;
 }
 
 .panel-tab-content.hidden {

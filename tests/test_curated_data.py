@@ -17,7 +17,8 @@ import json
 from datetime import date
 from pathlib import Path
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT / "data"
 
 # Allowed `status` values for objectives. Kept in sync with OBJECTIVE_STATUS in
 # app.js — these track delivery by councils/operators, not our own roadmap.
@@ -357,6 +358,32 @@ def _assert_updates(name, *, needs_name):
                 f"{name}: '{uid}' has an empty 'name' — omit it rather than "
                 f"crediting nobody")
 
+        _assert_update_image(u.get("image"), name, uid)
+
+
+def _assert_update_image(image, name, uid):
+    """An article's picture, when it has one.
+
+    Optional, but not optional to get right: a path that does not resolve
+    leaves a grey box where the hero should be, and a picture with no
+    description is invisible to anyone using a screen reader.
+    """
+    if image is None:
+        return
+    assert isinstance(image, dict), f"{name}: '{uid}' image must be an object"
+    src = image.get("src")
+    assert _nonempty_str(src), f"{name}: '{uid}' image needs a 'src'"
+    assert not src.startswith(("/", "http://", "https://")), (
+        f"{name}: '{uid}' image src {src!r} must be a relative path — the site "
+        f"is served from a project subpath on GitHub Pages")
+    assert (ROOT / src).exists(), f"{name}: '{uid}' image {src!r} is not in the repo"
+    assert _nonempty_str(image.get("alt")), (
+        f"{name}: '{uid}' image needs 'alt' — a photograph carrying the point "
+        f"of the article is not decoration")
+    if image.get("focus") is not None:
+        assert _nonempty_str(image["focus"]), (
+            f"{name}: '{uid}' image 'focus' is empty — omit it to centre")
+
 
 def test_official_updates_schema():
     _assert_updates("updates.json", needs_name=False)
@@ -364,3 +391,77 @@ def test_official_updates_schema():
 
 def test_community_updates_schema():
     _assert_updates("community_updates.json", needs_name=True)
+
+
+# ── Council boundaries ──────────────────────────────────────
+#
+# The dashed line between Brighton & Hove and West Sussex is the whole reason
+# the network stops where it does, so it is drawn on both the Route and Live
+# maps. A line with no label is just a line; these check that what is drawn
+# can still say what it is.
+
+def test_council_boundaries_schema():
+    data = _load("council_boundaries.json")
+    boundaries = data.get("boundaries")
+    assert isinstance(boundaries, list) and boundaries, (
+        "council_boundaries.json: 'boundaries' must be a non-empty list")
+    _assert_unique_ids(boundaries, "council_boundaries.json")
+
+    for b in boundaries:
+        bid = b.get("id", "?")
+        for field in ("id", "kind", "name", "summary", "source_url", "licence"):
+            assert _nonempty_str(b.get(field)), (
+                f"council_boundaries.json: '{bid}' needs a '{field}'")
+        assert _nonempty_str(b.get("checked_on")), (
+            f"council_boundaries.json: '{bid}' needs a 'checked_on'")
+        date.fromisoformat(b["checked_on"])
+
+        assert b["kind"] == "line", (
+            f"council_boundaries.json: '{bid}' kind {b['kind']!r} — only 'line' "
+            f"is drawn today, and an unrecognised kind is silently skipped")
+        line = b.get("polyline")
+        assert isinstance(line, list) and len(line) >= 2, (
+            f"council_boundaries.json: '{bid}' needs a polyline of two points or more")
+        for point in line:
+            assert (isinstance(point, list) and len(point) == 2
+                    and all(isinstance(c, (int, float)) for c in point)), (
+                f"council_boundaries.json: '{bid}' polyline points are [lat, lon] pairs")
+
+        bodies = b.get("bodies") or []
+        assert bodies, f"council_boundaries.json: '{bid}' needs the bodies either side"
+        for code in bodies:
+            assert code in RESPONSIBLE_BODIES, (
+                f"council_boundaries.json: '{bid}' names body {code!r}, which "
+                f"app.js cannot colour or name")
+
+
+def test_council_boundary_labels_name_both_sides():
+    """West and east are drawn left and right on the map, so both have to be
+    named — a label saying 'boundary' and nothing else explains nothing."""
+    for b in _load("council_boundaries.json")["boundaries"]:
+        bid = b.get("id", "?")
+        anchors = b.get("label_at") or []
+        sides = b.get("sides") or {}
+        if not anchors:
+            continue
+        for key in ("west", "east"):
+            entry = sides.get(key)
+            assert isinstance(entry, dict), (
+                f"council_boundaries.json: '{bid}' is labelled but has no "
+                f"{key} side")
+            assert entry.get("body") in RESPONSIBLE_BODIES, (
+                f"council_boundaries.json: '{bid}' {key} side names "
+                f"{entry.get('body')!r}, which app.js cannot colour")
+            assert _nonempty_str(entry.get("label")), (
+                f"council_boundaries.json: '{bid}' {key} side needs a short "
+                f"'label' — the council's full title is unreadable on a map")
+        assert sides["west"]["body"] != sides["east"]["body"], (
+            f"council_boundaries.json: '{bid}' has the same body both sides")
+        named = {sides[k]["body"] for k in ("west", "east")}
+        assert named <= set(b.get("bodies") or []), (
+            f"council_boundaries.json: '{bid}' labels a body it does not list "
+            f"in 'bodies'")
+        for at in anchors:
+            assert (isinstance(at, list) and len(at) == 2
+                    and all(isinstance(c, (int, float)) for c in at)), (
+                f"council_boundaries.json: '{bid}' label_at entries are [lat, lon]")
