@@ -6340,9 +6340,12 @@ const ROUTE_COLOURS = {
   // 6 — plum
   "6":   "#8E1B6B",
 
-  // 7 / N7 — red
-  "7":   "#D7282F",
-  "N7":  "#D7282F",
+  // 7 / N7 — purple. Sampled from the route's own livery (icons/BHBC-7.png)
+  // rather than taken from the colour guide like its neighbours: the guide
+  // lists 7 as red, and a red chip above a purple bus is worse than a
+  // citation that says where it actually came from.
+  "7":   "#622aa9",
+  "N7":  "#622aa9",
 
   // Coaster family 11X / 12 / 12A / 12X / 13 / 13X / 14 / 14C — lime green
   "11X": "#7AB800",
