@@ -830,3 +830,22 @@ test("lookup is case- and whitespace-insensitive", () => {
 test("an operator with no icon at all still returns nothing to draw", () => {
   assert.equal(app.iconForService("ZZZZ", "1"), undefined);
 });
+
+test("the Coaster family shares one livery", () => {
+  for (const svc of ["11X", "12", "12A", "12X", "13", "13X", "14", "14C"]) {
+    assert.equal(app.iconForService("BHBC", svc), "icons/BHBC-12.png", svc);
+  }
+});
+
+test("Regency 28/29 share one livery", () => {
+  for (const svc of ["28", "29", "29X", "29B"]) {
+    assert.equal(app.iconForService("BHBC", svc), "icons/BHBC-28.png", svc);
+  }
+});
+
+test("City Sightseeing has a livery despite having no timetable", () => {
+  // It shows on the live map tagged CSS from the vehicle feed, and never
+  // appears in the GTFS timetable — so the livery is the only place it is
+  // modelled at all.
+  assert.equal(app.iconForService("BHBC", "CSS"), "icons/BHBC-CSS.png");
+});

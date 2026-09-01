@@ -7,8 +7,10 @@ Prepare a bus image for use as a map marker.
 Three things have to be true of a marker icon, and generated bus art is
 rarely born with any of them:
 
-  1. The background must be gone. A white rectangle or a dark glow looks
-     fine on its own and terrible over a map.
+  1. The background must be gone. A white rectangle, a dark glow, or a
+     painted transparency checkerboard all look fine on their own and
+     terrible over a map. The checkerboard is the common one: an export
+     that *looks* transparent but ships two alternating greys.
   2. Faint halo must be gone too. Alpha of 1-30 around the vehicle is
      invisible against white and reads as a smudge over dark tiles.
   3. It must be the same size as the others. Markers are scaled by CSS
@@ -43,20 +45,42 @@ def solid_box(im: Image.Image, threshold: int = 200):
     return box
 
 
-def drop_background(im: Image.Image) -> Image.Image:
+def _is_backdrop(px, sat_max: int, val_min: int) -> bool:
+    """Bright and colourless — white, light grey, or a checkerboard square.
+
+    Deliberately not "matches the corner pixel": exports frequently paint a
+    transparency checkerboard into the image, so the backdrop is two
+    alternating greys rather than one colour, and a seed-matching fill stops
+    at the first square boundary.
+    """
+    r, g, b = px[:3]
+    return max(r, g, b) - min(r, g, b) <= sat_max and min(r, g, b) >= val_min
+
+
+def drop_background(im: Image.Image, sat_max: int = 26, val_min: int = 150) -> Image.Image:
     """Remove an opaque backdrop, then any faint halo left around the edge."""
     im = im.convert("RGBA")
     if im.getchannel("A").getextrema()[0] == 255:
-        # No alpha at all: the backdrop is baked in. Flood from the corners,
-        # which is where a backdrop always is and a vehicle never is.
-        from PIL import ImageDraw
-        seed = im.getpixel((0, 0))[:3]
-        flooded = im.copy()
-        draw = ImageDraw.floodfill
-        for corner in ((0, 0), (im.width - 1, 0),
-                       (0, im.height - 1), (im.width - 1, im.height - 1)):
-            draw(flooded, corner, (0, 0, 0, 0), thresh=42)
-        im = flooded
+        # No alpha at all: the backdrop is baked in. Clear every backdrop-like
+        # pixel reachable from the border, so enclosed light areas — a white
+        # flag on the bodywork, a pale window — are left alone.
+        px = im.load()
+        w, h = im.size
+        seen = bytearray(w * h)
+        stack = [(x, 0) for x in range(w)] + [(x, h - 1) for x in range(w)] \
+              + [(0, y) for y in range(h)] + [(w - 1, y) for y in range(h)]
+        while stack:
+            x, y = stack.pop()
+            if not (0 <= x < w and 0 <= y < h):
+                continue
+            i = y * w + x
+            if seen[i]:
+                continue
+            seen[i] = 1
+            if not _is_backdrop(px[x, y], sat_max, val_min):
+                continue
+            px[x, y] = (0, 0, 0, 0)
+            stack.extend(((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)))
 
     # Halo: keep the hard edge, discard the glow that surrounds it.
     a = im.getchannel("A").point(lambda v: 0 if v <= HALO_THRESHOLD else v)

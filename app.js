@@ -6256,6 +6256,27 @@ const ROUTE_ICONS = {
   // Route 49 — blue, shared with 3X
   "BHBC:49":  "icons/BHBC-49.png",
   "BHBC:3X":  "icons/BHBC-49.png",
+
+  // Coaster family — lime green over blue
+  "BHBC:11X": "icons/BHBC-12.png",
+  "BHBC:12":  "icons/BHBC-12.png",
+  "BHBC:12A": "icons/BHBC-12.png",
+  "BHBC:12X": "icons/BHBC-12.png",
+  "BHBC:13":  "icons/BHBC-12.png",
+  "BHBC:13X": "icons/BHBC-12.png",
+  "BHBC:14":  "icons/BHBC-12.png",
+  "BHBC:14C": "icons/BHBC-12.png",
+
+  // Regency 28 / 29 — magenta and purple
+  "BHBC:28":  "icons/BHBC-28.png",
+  "BHBC:29":  "icons/BHBC-28.png",
+  "BHBC:29X": "icons/BHBC-28.png",
+  "BHBC:29B": "icons/BHBC-28.png",
+
+  // City Sightseeing — the open-top tour bus. It runs as a Brighton & Hove
+  // vehicle and shows on the live map tagged CSS, but has no timetable in
+  // the GTFS feed, so it exists here only as a livery.
+  "BHBC:CSS": "icons/BHBC-CSS.png",
 };
 
 /** The livery for this service, falling back to the operator's generic bus. */
