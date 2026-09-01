@@ -1058,7 +1058,7 @@ function buildBusPopupHtml(vehicle, label) {
  * right-side-up and still indicates direction via left/right facing.
  */
 function createBusIcon(operatorRef, label, bearing) {
-  const iconUrl  = OPERATOR_ICONS[operatorRef];
+  const iconUrl  = iconForService(operatorRef, label);
   const transform = iconTransformForBearing(bearing);
 
   let inner;
@@ -6233,6 +6233,37 @@ const OPERATOR_COLOURS = {
 // `bearing - 90` rotation in createBusIcon points them correctly.
 // Operators not listed here fall back to the coloured-box marker.
 // ============================================================
+// ============================================================
+// ROUTE ICONS
+// Per-route liveries, keyed "NOC:ROUTE". Keyed by operator as well as
+// route number on purpose: route numbers repeat across operators, and an
+// icon is a far stronger claim than a colour — a Stagecoach 1 wearing
+// Brighton & Hove pink would be simply wrong.
+//
+// Checked before OPERATOR_ICONS, so an operator without a route entry
+// still gets its generic bus.
+// ============================================================
+const ROUTE_ICONS = {
+  // Route 1 family — pink
+  "BHBC:1":   "icons/BHBC-1.png",
+  "BHBC:1X":  "icons/BHBC-1.png",
+  "BHBC:N1":  "icons/BHBC-1.png",
+
+  // Route 7 — purple
+  "BHBC:7":   "icons/BHBC-7.png",
+  "BHBC:N7":  "icons/BHBC-7.png",
+
+  // Route 49 — blue, shared with 3X
+  "BHBC:49":  "icons/BHBC-49.png",
+  "BHBC:3X":  "icons/BHBC-49.png",
+};
+
+/** The livery for this service, falling back to the operator's generic bus. */
+function iconForService(operatorRef, service) {
+  const key = `${operatorRef}:${String(service || "").trim().toUpperCase()}`;
+  return ROUTE_ICONS[key] || OPERATOR_ICONS[operatorRef];
+}
+
 const OPERATOR_ICONS = {
   // Stagecoach South — share one icon across the region's NOCs
   "SCSO": "icons/SCSO.png",

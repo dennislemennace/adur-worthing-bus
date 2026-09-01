@@ -792,3 +792,41 @@ test("a journey one expensive ticket covers can still show a reform", () => {
   const ids = rs.map(r => r.id);
   assert.ok(ids.includes("cross-operator-acceptance"));
 });
+
+// ── Route liveries ─────────────────────────────────────────────────
+//
+// Keyed by operator as well as route number, because route numbers repeat
+// across operators and an icon is a stronger claim than a colour.
+
+test("a B&H route with its own livery gets it", () => {
+  assert.equal(app.iconForService("BHBC", "1"),  "icons/BHBC-1.png");
+  assert.equal(app.iconForService("BHBC", "7"),  "icons/BHBC-7.png");
+  assert.equal(app.iconForService("BHBC", "49"), "icons/BHBC-49.png");
+  assert.equal(app.iconForService("BHBC", "3X"), "icons/BHBC-49.png",
+    "3X shares the 49's blue");
+});
+
+test("route variants share the parent livery", () => {
+  for (const svc of ["1X", "N1"]) {
+    assert.equal(app.iconForService("BHBC", svc), "icons/BHBC-1.png");
+  }
+  assert.equal(app.iconForService("BHBC", "N7"), "icons/BHBC-7.png");
+});
+
+test("another operator's route 1 does NOT get B&H pink", () => {
+  assert.equal(app.iconForService("SCSO", "1"), "icons/SCSO.png");
+  assert.equal(app.iconForService("METR", "1"), "icons/METR.png");
+});
+
+test("a B&H route with no livery falls back to the generic bus", () => {
+  assert.equal(app.iconForService("BHBC", "5"), "icons/BHBC.png");
+  assert.equal(app.iconForService("BHBC", ""),  "icons/BHBC.png");
+});
+
+test("lookup is case- and whitespace-insensitive", () => {
+  assert.equal(app.iconForService("BHBC", " 3x "), "icons/BHBC-49.png");
+});
+
+test("an operator with no icon at all still returns nothing to draw", () => {
+  assert.equal(app.iconForService("ZZZZ", "1"), undefined);
+});
