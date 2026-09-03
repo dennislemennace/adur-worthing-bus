@@ -1,0 +1,56 @@
+{
+  "_comment": "Worked examples for the Ticket view journey checker. Each one is a journey the campaign has something to say about, so the checker opens on a real case instead of an empty form. `from`/`to` are NaPTAN ATCO codes and are checked against data/timetable.sqlite by pytest — a preset pointing at a stop that is not in the timetable would fail silently at runtime.",
+  "checked_on": "2026-09-01",
+  "presets": [
+    {
+      "id": "lancing-to-brighton",
+      "label": "Lancing → Brighton",
+      "note": "One ticket will not do it",
+      "from": "4400AD0117",
+      "from_name": "Lancing Station",
+      "to": "149000007830",
+      "to_name": "Old Steine",
+      "why": "Lancing is served by Stagecoach; Old Steine by Brighton & Hove, Compass and Stagecoach. No direct bus, so this is two legs and, in practice, two operators."
+    },
+    {
+      "id": "worthing-to-brighton",
+      "label": "Worthing → Brighton",
+      "note": "Crosses the DayRider zone boundary",
+      "from": "4400WO0253",
+      "from_name": "Marine Parade",
+      "to": "149000007830",
+      "to_name": "Old Steine",
+      "why": "A direct Coastliner run that still crosses the Worthing/Brighton DayRider boundary, so no single zone ticket covers it."
+    },
+    {
+      "id": "shoreham-to-university",
+      "label": "Shoreham → Brighton University",
+      "note": "No through service",
+      "from": "4400AD0314",
+      "from_name": "Shoreham-by-Sea Railway Station",
+      "to": "149000007212",
+      "to_name": "Brighton University",
+      "why": "A commute with no direct bus at all, across both a council and an operator boundary."
+    },
+    {
+      "id": "southwick-to-mile-oak",
+      "label": "Southwick → Mile Oak",
+      "note": "Two miles, one change",
+      "from": "4400AD0259",
+      "from_name": "Southwick Square",
+      "to": "149000006479",
+      "to_name": "Mile Oak Road Shops",
+      "why": "Both ends are Brighton & Hove, and they are barely two miles apart — but the council line runs between them and there is no direct bus."
+    },
+    {
+      "id": "worthing-to-hangleton",
+      "label": "Worthing → Hangleton",
+      "note": "A named missing corridor",
+      "from": "4400WO0253",
+      "from_name": "Marine Parade",
+      "to": "149000007677",
+      "to_name": "Hangleton Road Shops",
+      "why": "One of the corridors with no simple route: a change, two operators, and no express option across the boundary."
+    }
+  ]
+}

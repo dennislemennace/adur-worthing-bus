@@ -33,7 +33,7 @@ import httpx
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.timetable_db import Timetable, path_has_time_gap
+from api.timetable_db import NIGHT_ENDS_SECS, Timetable, path_has_time_gap
 
 # ── Logging ──────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO,
@@ -1253,6 +1253,51 @@ async def get_departures(
         cache_set(cache_key, base, 60)
 
     return await _apply_live_overlay(base, resolved)
+
+
+# ── /api/stop-span ────────────────────────────────────────────
+@app.get("/api/stop-span")
+async def get_stop_span(
+    stopId: str = Query(...),
+    lat: Optional[float] = Query(None),
+    lon: Optional[float] = Query(None),
+):
+    """
+    When buses actually run from a stop, by day of week.
+
+    Separate from /api/departures on purpose. That route is gated behind the
+    live-prediction quota and the BODS key; this one is a local SQLite read with
+    no upstream call and no metered cost, so a stop's span still answers when
+    live data is unavailable — which is exactly when somebody is most likely to
+    be wondering whether a bus is coming at all.
+
+    Cached for an hour: the schedule only changes when a new timetable is
+    published.
+    """
+    if not stopId or len(stopId) > 30:
+        raise HTTPException(status_code=400, detail="Invalid stopId.")
+
+    tt       = await _get_timetable()
+    resolved = _resolve_stop_id(tt, stopId, lat, lon)
+    if resolved not in tt.stops:
+        raise HTTPException(status_code=404, detail=f"Unknown stop id: {resolved}")
+
+    cache_key = f"span:{resolved}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    span = tt.service_span(resolved)
+    result = {
+        "atco": resolved,
+        "name": (tt.stops.get(resolved) or {}).get("name", ""),
+        "span": span,
+        # Named so the caller can label what it is showing without hardcoding
+        # the rule, and so a change to it is visible in the response.
+        "night_before": _secs_to_hhmm(NIGHT_ENDS_SECS),
+    }
+    cache_set(cache_key, result, 3600)
+    return result
 
 
 # The time of day a costed journey is priced at.

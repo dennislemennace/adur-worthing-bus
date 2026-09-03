@@ -482,6 +482,81 @@ async function checkReachable(page, where) {
   check(`all panel content is reachable — ${where}`, bad.length === 0, bad.join(", "));
 }
 
+/**
+ * The surfaces that only exist once something is clicked.
+ *
+ * A contrast or target-size regression inside a dialog is invisible to a pass
+ * that only ever looks at the page as it loads — and these two are where the
+ * campaign's evidence lives, so they are the last places a defect should be
+ * allowed to sit unseen.
+ */
+async function checkInteractiveSurfaces(page) {
+  // ── Boundary evidence dialog ──
+  await page.evaluate(`setViewMode('live')`);
+  await sleep(1200);
+  // Wrapped so the expression evaluates to a primitive: setView returns the
+  // Leaflet map, and CDP cannot serialise that object graph — it fails the
+  // whole run with "Object reference chain is too long".
+  await page.evaluate(`(state.map.setView([50.8456, -0.2284], 13), 1)`);
+  await sleep(1500);
+
+  const labelIsButton = await page.evaluate(`
+    (() => { const b = document.querySelector(".council-boundary-label");
+             return !!b && b.tagName === "BUTTON"; })()`);
+  check("the boundary label is a real button", labelIsButton,
+    "a div with a click handler is unreachable by keyboard");
+
+  if (labelIsButton) {
+    await page.evaluate(`(document.querySelector(".council-boundary-label").click(), 1)`);
+    await sleep(1400);
+    const open = await page.evaluate(`!!document.getElementById("evidence-dialog").open`);
+    check("the boundary label opens the evidence", open);
+    if (open) {
+      await page.evaluate(`(document.querySelector(".evidence-method").open = true, 1)`);
+      await sleep(300);
+      await freezeMotion(page);
+      await screenshot(page, "evidence-dialog");
+      await checkLayout(page, "evidence dialog");
+      await checkContrastBothThemes(page, "evidence dialog");
+      // The figure has to arrive with its provenance, or it is just a number.
+      const shown = await page.evaluate(
+        `document.getElementById("evidence-body").textContent`);
+      check("the evidence states its method and its caveats",
+        /How this was worked out/.test(shown) && /What would make this wrong/.test(shown),
+        "a derived statistic published without either is not checkable");
+      await page.evaluate(`(document.getElementById("evidence-dialog").close(), 1)`);
+      await sleep(300);
+    }
+  }
+
+  // ── Service span ──
+  await page.evaluate(`(openDepartures("4400AD0117", "Lancing Station"), 1)`);
+  await sleep(2500);
+  const hasSpan = await page.evaluate(
+    `!document.getElementById("stop-span").classList.contains("hidden")`);
+  // The span is a local timetable read, so it must survive the departure board
+  // failing — which is exactly when someone wants to know if a bus ever comes.
+  check("the service span renders without live departures", hasSpan);
+  if (hasSpan) {
+    await page.evaluate(`(document.querySelector(".stop-span-disclosure").open = true, 1)`);
+    await sleep(300);
+    await screenshot(page, "stop-span");
+    await checkLayout(page, "service span");
+    await checkContrastBothThemes(page, "service span");
+  }
+
+  // ── Journey presets ──
+  await page.evaluate(`setViewMode('tickets')`);
+  await sleep(2200);
+  const presets = await page.evaluate(`document.querySelectorAll(".jc-preset").length`);
+  check("the journey checker offers worked examples", presets > 0,
+    `${presets} presets`);
+  if (presets > 0) {
+    await checkLayout(page, "journey presets");
+    await checkContrastBothThemes(page, "journey presets");
+  }
+}
+
 async function checkViews(page) {
   for (const [mode, label] of [
     ["live", "Live Bus Tracking"], ["improvements", "Route view"],
@@ -607,6 +682,7 @@ await checkLayout(page, "live view");
 await checkDepartureBoard(page);
 await checkViews(page);
 await checkReachableAcrossViews(page, VIEWPORTS[0].name);
+await checkInteractiveSurfaces(page);
 await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
 

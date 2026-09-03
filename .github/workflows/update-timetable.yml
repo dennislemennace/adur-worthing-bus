@@ -30,6 +30,7 @@ jobs:
         run: |
           python -m py_compile scripts/build_timetable.py
           python -m py_compile scripts/json_to_sqlite.py
+          python -m py_compile scripts/build_evidence.py
 
       - name: Build timetable JSON
         run: python -u scripts/build_timetable.py
@@ -49,6 +50,26 @@ jobs:
           if rows['stop_times'] == 0:
               raise SystemExit('empty timetable — aborting')
           "
+
+      - name: Recompute published statistics
+        run: python -u scripts/build_evidence.py
+
+      # The site reads data/boundary_evidence.json from GitHub Pages, so fresh
+      # figures have to land in the repo — publishing them to the release
+      # alongside the database would leave the page quoting whatever numbers
+      # were committed by hand, which is the failure this build step exists to
+      # prevent.
+      - name: Commit refreshed statistics
+        run: |
+          if git diff --quiet -- data/boundary_evidence.json; then
+            echo "Statistics unchanged — nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/boundary_evidence.json
+          git commit -m "Recompute boundary statistics from the $(date -u +%Y-%m-%d) timetable"
+          git push
 
       - name: Generate SHA-256 sidecar
         run: |

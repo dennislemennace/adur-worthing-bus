@@ -72,6 +72,39 @@ MAX_LEG_GAP_SECS   = 7_200    # 2 h between two consecutive stops is never real
 MAX_JOURNEY_SECS   = 21_600   # 6 h end to end
 
 
+# Where the ordinary service day starts, for reporting a stop's span. Matches
+# the 04:00 close of the Gold Nightrider window already modelled in
+# data/ticket_zones.json, so "night" means the same thing across the site.
+NIGHT_ENDS_SECS = 4 * 3600
+DAY_SECS = 24 * 3600
+
+
+def _span_hhmm(secs) -> str:
+    """Seconds past midnight to HH:MM, keeping GTFS's past-midnight hours.
+
+    Deliberately not wrapped at 24:00. A last bus at 24:20 left at twenty past
+    midnight *at the end of that service day*, and rendering it as "00:20"
+    would put it thirteen hours before the first bus.
+    """
+    if secs is None:
+        return ""
+    return f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}"
+
+
+def _route_sort_key(name: str):
+    """Sort route labels the way a timetable does: 2, 9, 19, 46, N1, 700."""
+    text = str(name)
+    night = text[:1].upper() == "N" and text[1:2].isdigit()
+    body = text[1:] if night else text
+    digits = ""
+    for ch in body:
+        if ch.isdigit():
+            digits += ch
+        else:
+            break
+    return (night, int(digits) if digits else 9999, text)
+
+
 def _plausible_span(trip: dict) -> bool:
     """Reject A-to-B spans whose timings can't describe one real journey."""
     span_secs = trip["arrive_secs"] - trip["depart_secs"]
@@ -695,6 +728,150 @@ class Timetable:
             "weekday_headway_min": weekday_headway_min,
             "is_frequent_all_day": is_frequent,
         }
+
+    def runs_on(self, service_id: str, day) -> bool:
+        """Whether a GTFS service actually runs on a given date.
+
+        Not "does its calendar row mention this weekday" — that question has a
+        much larger answer. This feed carries 112 calendars over 14 different
+        date ranges, so a single real bus is described by several service_ids
+        covering term time, holidays and seasonal variations. Counting every
+        calendar whose `monday` column is 1 counts that bus once per calendar:
+        one Portslade stop came out at 782 Monday departures, a bus every ninety
+        seconds, and the error is not uniform between operators, so it does not
+        even cancel in a ratio.
+
+        `calendar_dates` wins over `calendar`, which is what makes a bank
+        holiday behave like a Sunday.
+        """
+        cal = self.calendar.get(service_id)
+        exceptions = self.calendar_dates.get(service_id, {})
+        stamp = day.strftime("%Y%m%d")
+        if stamp in exceptions:
+            return exceptions[stamp] == "1"
+        if not cal:
+            return False
+        start, end = cal.get("start_date", ""), cal.get("end_date", "")
+        if start and stamp < start:
+            return False
+        if end and stamp > end:
+            return False
+        return cal.get(self._DAY_COLS[day.weekday()]) == "1"
+
+    def sample_week(self, from_day=None) -> dict:
+        """A concrete week to measure, as {day name: date}.
+
+        Measuring "a Monday" requires picking one. The first full week that
+        starts inside the timetable's own validity window is used, so the answer
+        is reproducible and can be quoted with the date it refers to.
+        """
+        import datetime as _dt
+        base = from_day or _dt.date.today()
+        # Move to the next Monday (or today, if today is one).
+        monday = base + _dt.timedelta(days=(0 - base.weekday()) % 7)
+        return {name: monday + _dt.timedelta(days=i)
+                for i, name in enumerate(self._DAY_COLS)}
+
+    def service_span(self, stop_id: str) -> dict:
+        """When buses actually run from a stop, by day of week.
+
+        The departure board answers "what is coming next". It cannot answer the
+        question this network's problems actually turn on: *is there a bus here
+        at seven in the evening, or on a Sunday at all?* A peak-only stop with
+        no weekend service looks identical on a Tuesday morning to one served
+        every ten minutes until midnight.
+
+        Returns, per day type, the first and last departure and how many there
+        are, plus the set of routes calling that day:
+
+            {"monday": {"first": "06:12", "last": "18:40", "count": 31,
+                        "routes": ["9", "19"]}, ..., "sunday": None}
+
+        `None` for a day means no service at all on it, which is the finding
+        worth showing rather than an empty result to be styled away.
+
+        Widened across sibling poles, like every other stop-level answer here:
+        a passenger picks a place, not a side of the road.
+
+        Computed on demand rather than precomputed into the database. A stop is
+        one indexed scan on `idx_stop_times_stop`, only stops somebody opens are
+        ever touched, and it costs no upstream quota — where a new column would
+        have meant every deployment serving a stale schedule until the next
+        weekly rebuild caught up.
+        """
+        if self._con is None:
+            return {}
+        cache = getattr(self, "_span_cache", None)
+        if cache is None:
+            cache = self._span_cache = {}
+        if stop_id in cache:
+            return cache[stop_id]
+
+        sids = [
+            self.stops[s]["_sid"]
+            for s in self.sibling_stops(stop_id)
+            if s in self.stops
+        ]
+        if not sids:
+            cache[stop_id] = {}
+            return {}
+
+        placeholders = ",".join("?" * len(sids))
+        rows = self._con.execute(
+            f"""SELECT st.dep_secs, t.service_id, r.short_name
+                  FROM stop_times st
+                  JOIN trips  t ON t.tid = st.tid
+                  JOIN routes r ON r.rid = t.rid
+                 WHERE st.sid IN ({placeholders})""",
+            sids,
+        ).fetchall()
+
+        # Measured against a concrete week, not against calendar weekday flags:
+        # overlapping calendars describe one bus several times over, and summing
+        # them reports a stop as busier than any stop in Britain. See runs_on.
+        week = self.sample_week()
+        runs = {}   # (service_id, day) -> bool, memoised across the row scan
+
+        out = {}
+        for day in self._DAY_COLS:
+            first = last = None
+            count = night = 0
+            routes = set()
+            for dep, service_id, short_name in rows:
+                key = (service_id, day)
+                if key not in runs:
+                    runs[key] = self.runs_on(service_id, week[day])
+                if not runs[key]:
+                    continue
+                count += 1
+                if short_name:
+                    routes.add(short_name)
+                if dep is None:
+                    continue
+                # Small-hours departures are counted separately, not folded into
+                # the span. Feeds are inconsistent about them: the same 00:13
+                # trip is written as 24:13 by one operator and 00:13 by another,
+                # and taking the raw minimum reports a stop whose first morning
+                # bus is 05:40 as starting at ten past midnight. Both forms land
+                # in `night` here, so `first` and `last` describe the ordinary
+                # service day and mean the same thing at every stop.
+                if dep < NIGHT_ENDS_SECS or dep >= DAY_SECS:
+                    night += 1
+                    continue
+                if first is None or dep < first:
+                    first = dep
+                if last is None or dep > last:
+                    last = dep
+            out[day] = None if count == 0 else {
+                "date":   week[day].isoformat(),
+                "first":  _span_hhmm(first),
+                "last":   _span_hhmm(last),
+                "count":  count,
+                "night":  night,
+                "routes": sorted(routes, key=_route_sort_key),
+            }
+        cache[stop_id] = out
+        return out
 
     def has_stop_times(self, stop_id: str) -> bool:
         return stop_id in self.stops_with_times

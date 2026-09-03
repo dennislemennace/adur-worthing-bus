@@ -233,6 +233,14 @@
     <section class="map-section" aria-label="Live bus map">
       <div id="map"></div>
 
+      <!-- What the council boundary means, opened from the label on the map.
+           A native <dialog> so Escape, focus trapping and the backdrop come
+           from the platform rather than being reimplemented. Filled from
+           data/boundary_evidence.json — see app.js renderBoundaryEvidence. -->
+      <dialog class="evidence-dialog" id="evidence-dialog" aria-labelledby="evidence-title">
+        <div class="evidence-body" id="evidence-body"></div>
+      </dialog>
+
       <!-- Map overlay controls (visible only in Improvements mode).
            Populated by app.js — currently holds the "Show proposals" toggle. -->
       <div class="map-overlay-controls" id="map-overlay-controls" aria-label="Map overlays"></div>
@@ -302,6 +310,11 @@
             <p class="panel-stop-id" id="panel-stop-id"></p>
           </div>
         </div>
+
+        <!-- When buses actually run here, by day. Filled from /api/stop-span,
+             which is a local timetable read — so it still answers when live
+             predictions are unavailable. See app.js renderStopSpan. -->
+        <div class="stop-span hidden" id="stop-span"></div>
 
         <!-- Loading state for departures -->
         <div class="panel-loading hidden" id="panel-loading" aria-live="polite">
@@ -640,6 +653,14 @@
               Pick where you get on and off. We follow the actual route between
               them and check it against each operator's ticket zones.
             </p>
+
+            <!-- Worked examples, from data/journey_presets.json. An empty form
+                 asks the visitor to already know which two stops make the
+                 point; these are the journeys the campaign is about. -->
+            <div class="jc-presets" id="jc-presets" hidden>
+              <p class="jc-presets-label" id="jc-presets-label">Or try one of these</p>
+              <div class="jc-presets-row" role="group" aria-labelledby="jc-presets-label"></div>
+            </div>
 
             <div class="editor-field">
               <label for="jc-from">From this stop</label>

@@ -1,0 +1,218 @@
+{
+  "_comment": "Derived statistics, recomputed by scripts/build_evidence.py on every timetable rebuild. Do not hand-edit: a figure typed in here will drift away from the data it claims to describe. See .claude/skills/evidence-provenance.",
+  "id": "bhcc-wscc-boundary-effect",
+  "sides": {
+    "west": "West Sussex",
+    "east": "Brighton & Hove"
+  },
+  "headline": "Bus service is measurably thinner on the West Sussex side of the Brighton & Hove boundary.",
+  "as_of": "2026-09-01",
+  "computed_at": "2026-09-01T21:22:20+00:00",
+  "data_version": {
+    "source": "Bus Open Data Service, South East regional GTFS bundle",
+    "artefact": "data/timetable.sqlite",
+    "sha256": "cf328d07361a8ae87e5bbc9d1a6950f1c74146e1ec16ce36f342bcf760879358"
+  },
+  "measured_week": {
+    "monday": "2026-09-07",
+    "saturday": "2026-09-12",
+    "sunday": "2026-09-13"
+  },
+  "method": {
+    "summary": "Stops in a 4 km band either side of the council boundary, along the same coastal strip, bucketed east or west of the line and compared per stop.",
+    "band": {
+      "line_lon": -0.216,
+      "half_width_lon_deg": 0.057,
+      "approx_half_width_km": 4,
+      "lat_min": 50.818,
+      "lat_max": 50.855
+    },
+    "steps": [
+      "Select stops with latitude between the band's lat_min and lat_max and longitude within half_width_lon_deg of line_lon.",
+      "Bucket each stop west or east of line_lon.",
+      "Join stop_times to trips to calendar; keep a trip only if its service actually runs on the dated day being measured — its calendar window must cover that date, and calendar_dates exceptions override it. Counting every calendar that merely lists the weekday counts one bus several times over, because term-time, holiday and seasonal variants each have their own.",
+      "Count departures and distinct route short_names per bucket.",
+      "Divide by the number of stops in that bucket."
+    ],
+    "denominator": "Departures are divided by the number of stops in the same bucket, so the figure is departures per stop per day — not a total, which would only restate that one side has more stops.",
+    "script": "scripts/build_evidence.py"
+  },
+  "caveats": [
+    {
+      "text": "scripts/build_timetable.py keeps a route only if it touches a West Sussex (ATCO 4400) stop or appears on a hand-maintained allowlist of cross-boundary services. Routes running purely inside Brighton & Hove are therefore missing from this database.",
+      "direction": "understates",
+      "effect": "The east side of every comparison is under-counted, so the real gap is wider than these figures show."
+    },
+    {
+      "text": "Departures counted are scheduled, not operated. Cancellations and short-workings are not visible in a timetable feed.",
+      "direction": "unknown",
+      "effect": "Could move the comparison either way."
+    },
+    {
+      "text": "A band drawn at a different width would give different figures. 4 km was chosen to keep the strip comparable in character; widening it folds in Brighton city centre.",
+      "direction": "unknown",
+      "effect": "Widening the band favours the east; narrowing it makes the two sides more alike."
+    }
+  ],
+  "days": {
+    "monday": {
+      "west": {
+        "stops": 180,
+        "departures": 11584,
+        "departures_per_stop": 64.4,
+        "routes": 15,
+        "departures_after_2300": 382,
+        "route_list": [
+          "025",
+          "1",
+          "19",
+          "1X",
+          "2",
+          "2B",
+          "46",
+          "59",
+          "59A",
+          "60",
+          "700",
+          "9",
+          "98",
+          "N1",
+          "N700"
+        ]
+      },
+      "east": {
+        "stops": 320,
+        "departures": 27738,
+        "departures_per_stop": 86.7,
+        "routes": 18,
+        "departures_after_2300": 929,
+        "route_list": [
+          "1",
+          "1X",
+          "2",
+          "21",
+          "2B",
+          "3X",
+          "46",
+          "47",
+          "49",
+          "5",
+          "5B",
+          "6",
+          "7",
+          "700",
+          "N1",
+          "N5",
+          "N7",
+          "N700"
+        ]
+      },
+      "ratio": {
+        "departures_per_stop": 0.743,
+        "routes": 0.833
+      }
+    },
+    "saturday": {
+      "west": {
+        "stops": 180,
+        "departures": 10900,
+        "departures_per_stop": 60.6,
+        "routes": 11,
+        "departures_after_2300": 382,
+        "route_list": [
+          "025",
+          "1",
+          "19",
+          "1X",
+          "2",
+          "2B",
+          "46",
+          "700",
+          "9",
+          "N1",
+          "N700"
+        ]
+      },
+      "east": {
+        "stops": 320,
+        "departures": 25927,
+        "departures_per_stop": 81.0,
+        "routes": 18,
+        "departures_after_2300": 934,
+        "route_list": [
+          "1",
+          "1X",
+          "2",
+          "21",
+          "2B",
+          "3X",
+          "46",
+          "47",
+          "49",
+          "5",
+          "5B",
+          "6",
+          "7",
+          "700",
+          "N1",
+          "N5",
+          "N7",
+          "N700"
+        ]
+      },
+      "ratio": {
+        "departures_per_stop": 0.748,
+        "routes": 0.611
+      }
+    },
+    "sunday": {
+      "west": {
+        "stops": 180,
+        "departures": 6607,
+        "departures_per_stop": 36.7,
+        "routes": 9,
+        "departures_after_2300": 236,
+        "route_list": [
+          "025",
+          "1",
+          "1X",
+          "2",
+          "2B",
+          "46",
+          "700",
+          "N1",
+          "N700"
+        ]
+      },
+      "east": {
+        "stops": 320,
+        "departures": 16171,
+        "departures_per_stop": 50.5,
+        "routes": 16,
+        "departures_after_2300": 522,
+        "route_list": [
+          "1",
+          "1X",
+          "2",
+          "21",
+          "2B",
+          "3X",
+          "46",
+          "47",
+          "5",
+          "5B",
+          "6",
+          "7",
+          "700",
+          "N1",
+          "N7",
+          "N700"
+        ]
+      },
+      "ratio": {
+        "departures_per_stop": 0.727,
+        "routes": 0.562
+      }
+    }
+  }
+}

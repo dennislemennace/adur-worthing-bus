@@ -17,6 +17,8 @@ import json
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 
@@ -465,3 +467,111 @@ def test_council_boundary_labels_name_both_sides():
             assert (isinstance(at, list) and len(at) == 2
                     and all(isinstance(c, (int, float)) for c in at)), (
                 f"council_boundaries.json: '{bid}' label_at entries are [lat, lon]")
+
+
+# ── Journey presets ─────────────────────────────────────────
+#
+# Worked examples for the Ticket view checker. A preset pointing at a stop that
+# is not in the timetable does not error — it quietly reads as "pick both stops
+# from the suggestions", which looks like the checker is broken.
+
+def test_journey_presets_schema():
+    data = _load("journey_presets.json")
+    presets = data.get("presets")
+    assert isinstance(presets, list) and presets, (
+        "journey_presets.json: 'presets' must be a non-empty list")
+    _assert_unique_ids(presets, "journey_presets.json")
+    assert _nonempty_str(data.get("checked_on")), (
+        "journey_presets.json needs a 'checked_on' — a preset can go stale when "
+        "the network changes under it")
+    date.fromisoformat(data["checked_on"])
+
+    for p in presets:
+        pid = p.get("id", "?")
+        for field in ("id", "label", "from", "to", "from_name", "to_name", "why"):
+            assert _nonempty_str(p.get(field)), (
+                f"journey_presets.json: '{pid}' needs a '{field}'")
+        assert p["from"] != p["to"], (
+            f"journey_presets.json: '{pid}' starts and ends at the same stop")
+
+
+@pytest.mark.skipif(not (ROOT / "data" / "timetable.sqlite").exists(),
+                    reason="data/timetable.sqlite is a build artefact and isn't present")
+def test_journey_preset_stops_exist():
+    """Every preset points at a stop the timetable actually knows about."""
+    import sqlite3
+    con = sqlite3.connect(ROOT / "data" / "timetable.sqlite")
+    known = {row[0] for row in con.execute("SELECT stop_id FROM stops")}
+    for p in _load("journey_presets.json")["presets"]:
+        for end in ("from", "to"):
+            assert p[end] in known, (
+                f"journey_presets.json: '{p['id']}' {end}-stop {p[end]!r} is not "
+                f"in the timetable — the checker would report it as unpickable")
+
+
+# ── Derived statistics ──────────────────────────────────────
+#
+# A cited fare carries source_url and checked_on. A number this site works out
+# for itself has to carry more: the method, the data it came from, when it was
+# computed, and what would make it wrong. See .claude/skills/evidence-provenance.
+
+def test_boundary_evidence_carries_its_provenance():
+    data = _load("boundary_evidence.json")
+
+    for field in ("id", "headline", "as_of"):
+        assert _nonempty_str(data.get(field)), (
+            f"boundary_evidence.json needs a '{field}'")
+    date.fromisoformat(data["as_of"])
+
+    version = data.get("data_version")
+    assert isinstance(version, dict), "boundary_evidence.json needs a 'data_version'"
+    for field in ("source", "artefact", "sha256"):
+        assert _nonempty_str(version.get(field)), (
+            f"boundary_evidence.json: data_version needs '{field}' — a figure "
+            f"whose data version is unknown cannot be reproduced")
+
+    method = data.get("method")
+    assert isinstance(method, dict), "boundary_evidence.json needs a 'method'"
+    for field in ("summary", "denominator", "script"):
+        assert _nonempty_str(method.get(field)), (
+            f"boundary_evidence.json: method needs '{field}'")
+    assert isinstance(method.get("steps"), list) and method["steps"], (
+        "boundary_evidence.json: method needs reproducible 'steps'")
+    assert (ROOT / method["script"]).exists(), (
+        f"boundary_evidence.json: method.script {method['script']!r} is not in "
+        f"the repo, so the figures cannot be recomputed")
+
+
+def test_boundary_evidence_states_which_way_its_biases_run():
+    """The caveat that weakens our own case is the one that earns the rest.
+
+    A reader who finds an unstated bias themselves stops believing everything
+    else on the page, so every known one is declared with its direction.
+    """
+    caveats = _load("boundary_evidence.json").get("caveats")
+    assert isinstance(caveats, list) and caveats, (
+        "boundary_evidence.json needs 'caveats' — a derived figure with no "
+        "stated weaknesses is not being honest about being derived")
+    directions = {"understates", "overstates", "unknown"}
+    for c in caveats:
+        assert _nonempty_str(c.get("text")), "each caveat needs 'text'"
+        assert c.get("direction") in directions, (
+            f"caveat direction {c.get('direction')!r} must be one of "
+            f"{sorted(directions)} — 'it might be wrong' is not a caveat")
+    assert any(c["direction"] == "understates" for c in caveats), (
+        "boundary_evidence.json states no caveat that works against its own "
+        "conclusion. The build filter under-counts the Brighton side; if that "
+        "has genuinely stopped being true, say so here rather than dropping it")
+
+
+def test_boundary_evidence_figures_are_present_and_sane():
+    days = _load("boundary_evidence.json").get("days")
+    assert isinstance(days, dict) and days, "boundary_evidence.json needs 'days'"
+    for day, block in days.items():
+        for side in ("west", "east"):
+            s = block.get(side)
+            assert isinstance(s, dict), f"{day}: missing '{side}'"
+            assert s.get("stops", 0) > 0, f"{day}/{side}: no stops in the band"
+            assert s.get("departures_per_stop") is not None, (
+                f"{day}/{side}: no departures_per_stop — the published figure is "
+                f"per stop, and a total would only restate that one side is bigger")

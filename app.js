@@ -226,6 +226,7 @@ const dom = {
   communityUpdatesList: document.getElementById("community-updates-list"),
   liveStatusPill:     document.getElementById("live-status-pill"),
   panelStopName:      document.getElementById("panel-stop-name"),
+  stopSpan:           document.getElementById("stop-span"),
   panelStopId:        document.getElementById("panel-stop-id"),
   closePanelBtn:      document.getElementById("close-panel-btn"),
   panelLoading:       document.getElementById("panel-loading"),
@@ -301,6 +302,7 @@ const dom = {
   jcFromList:             document.getElementById("jc-from-list"),
   jcToList:               document.getElementById("jc-to-list"),
   jcCheck:                document.getElementById("jc-check"),
+  jcPresets:              document.getElementById("jc-presets"),
   jcStatus:               document.getElementById("jc-status"),
   jcResult:               document.getElementById("jc-result"),
 
@@ -549,6 +551,16 @@ function initMap() {
   // marker/popup clicks up to the map 'click' event, so we need to
   // ignore anything whose DOM target is inside a marker or popup —
   // otherwise selecting a bus would immediately re-close the panel.
+  // The boundary label is rebuilt by Leaflet whenever the layer is re-added,
+  // so the handler lives on the container rather than on the element.
+  state.map.getContainer().addEventListener("click", (e) => {
+    const label = e.target.closest && e.target.closest(".council-boundary-label");
+    if (!label) return;
+    e.stopPropagation();
+    state._ignoreNextMapClick = true;
+    openBoundaryEvidence();
+  });
+
   state.map.on("click", (e) => {
     if (state._ignoreNextMapClick) {
       state._ignoreNextMapClick = false;
@@ -850,9 +862,177 @@ function councilBoundaryLabelHtml(boundary) {
   };
   const caption = boundary.label_caption
     ? `<span class="council-boundary-caption">${escapeHtml(boundary.label_caption)}</span>` : "";
-  return `<span class="council-boundary-label">`
+  // A button, not a span: the label is the way into the evidence behind the
+  // line, and a div with a click handler is unreachable by keyboard and
+  // unannounced to a screen reader. The label pane sets pointer-events: none
+  // so it never swallows a click meant for a bus; this element opts back in.
+  return `<button type="button" class="council-boundary-label"
+                  data-boundary="${escapeAttr(boundary.id || "")}"
+                  aria-label="What this boundary means — bus service either side">`
        + `${side(sides.west)}<span class="council-boundary-tick" aria-hidden="true"></span>${side(sides.east)}`
-       + `</span>${caption}`;
+       + `${caption}</button>`;
+}
+
+// ============================================================
+// BOUNDARY EVIDENCE
+//
+// The line on the map states the campaign's central claim; this is what backs
+// it. Figures come from data/boundary_evidence.json, recomputed by
+// scripts/build_evidence.py on every timetable rebuild, and are shown with
+// their method, their data version and their caveats — including the one that
+// weakens the case, which is the one worth showing first.
+// ============================================================
+function loadBoundaryEvidence() {
+  if (!state._boundaryEvidencePromise) {
+    state._boundaryEvidencePromise = (async () => {
+      const res = await fetch("data/boundary_evidence.json");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })().catch(err => {
+      state._boundaryEvidencePromise = null;
+      throw err;
+    });
+  }
+  return state._boundaryEvidencePromise;
+}
+
+const EVIDENCE_DAYS = [
+  ["monday",   "Weekday"],
+  ["saturday", "Saturday"],
+  ["sunday",   "Sunday"],
+];
+
+async function openBoundaryEvidence() {
+  const dialog = document.getElementById("evidence-dialog");
+  const body   = document.getElementById("evidence-body");
+  if (!dialog || !body) return;
+
+  body.innerHTML = `<p class="evidence-loading">Loading the figures…</p>`;
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+
+  let data;
+  try {
+    data = await loadBoundaryEvidence();
+  } catch (err) {
+    console.warn("Boundary evidence unavailable:", err);
+    body.innerHTML = `
+      <button type="button" class="evidence-close" data-close-evidence aria-label="Close">&times;</button>
+      <h2 class="evidence-title" id="evidence-title">Bus service either side of the boundary</h2>
+      <p class="journey-note">We can't load the figures right now. They are
+      rebuilt weekly from the published timetable — try again shortly.</p>`;
+    wireEvidenceClose(dialog, body);
+    return;
+  }
+  body.innerHTML = renderBoundaryEvidence(data);
+  wireEvidenceClose(dialog, body);
+}
+
+function wireEvidenceClose(dialog, body) {
+  body.querySelectorAll("[data-close-evidence]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
+    });
+  });
+}
+
+/**
+ * Render the comparison.
+ *
+ * Bars are drawn from zero and carry their own number, because a truncated axis
+ * turns "two thirds" into a visual wipeout and would overstate a case that does
+ * not need overstating. Nothing here is conveyed by colour alone.
+ */
+function renderBoundaryEvidence(data) {
+  const days = data.days || {};
+  const west = (data.sides && data.sides.west) || "West Sussex";
+  const east = (data.sides && data.sides.east) || "Brighton & Hove";
+
+  // One scale across every row, so bars are comparable between days as well as
+  // between sides.
+  let max = 0;
+  for (const [key] of EVIDENCE_DAYS) {
+    const d = days[key];
+    if (!d) continue;
+    max = Math.max(max, d.west.departures_per_stop, d.east.departures_per_stop);
+  }
+  if (!max) max = 1;
+
+  const bar = (label, value, cls) => {
+    const pct = Math.max(2, (value / max) * 100);
+    return `
+      <div class="evidence-bar-row">
+        <span class="evidence-bar-label">${escapeHtml(label)}</span>
+        <span class="evidence-bar-track">
+          <span class="evidence-bar ${cls}" style="width:${pct.toFixed(1)}%"></span>
+        </span>
+        <span class="evidence-bar-value">${value.toFixed(1)}</span>
+      </div>`;
+  };
+
+  const rows = EVIDENCE_DAYS.map(([key, label]) => {
+    const d = days[key];
+    if (!d) return "";
+    const ratio = d.ratio && d.ratio.departures_per_stop;
+    return `
+      <section class="evidence-day">
+        <h3 class="evidence-day-title">
+          ${escapeHtml(label)}
+          ${ratio != null ? `<span class="evidence-day-ratio">${Math.round(ratio * 100)}% of the Brighton side</span>` : ""}
+        </h3>
+        ${bar(west, d.west.departures_per_stop, "evidence-bar--west")}
+        ${bar(east, d.east.departures_per_stop, "evidence-bar--east")}
+        <p class="evidence-day-note">
+          <strong>${d.west.routes}</strong> routes west of the line against
+          <strong>${d.east.routes}</strong> east
+          ${d.west.departures_after_2300 != null
+            ? ` · after 23:00, <strong>${d.west.departures_after_2300}</strong> departures against <strong>${d.east.departures_after_2300}</strong>`
+            : ""}.
+        </p>
+      </section>`;
+  }).join("");
+
+  const caveats = (data.caveats || []).map(c => `
+    <li class="evidence-caveat evidence-caveat--${escapeAttr(c.direction || "unknown")}">
+      <span class="evidence-caveat-tag">${escapeHtml(
+        c.direction === "understates" ? "Understates the gap"
+        : c.direction === "overstates" ? "Overstates the gap"
+        : "Direction unknown")}</span>
+      ${escapeHtml(c.text)} ${c.effect ? `<em>${escapeHtml(c.effect)}</em>` : ""}
+    </li>`).join("");
+
+  const method = data.method || {};
+  return `
+    <button type="button" class="evidence-close" data-close-evidence aria-label="Close">&times;</button>
+    <p class="evidence-eyebrow">Council boundary</p>
+    <h2 class="evidence-title" id="evidence-title">${escapeHtml(
+      data.headline || "Bus service either side of the boundary")}</h2>
+    <p class="evidence-standfirst">
+      Scheduled departures <strong>per stop</strong>, in a
+      ${escapeHtml(String((method.band && method.band.approx_half_width_km) || 4))} km band
+      either side of the line along the same coastal strip — so the two sides are
+      the same kind of place.
+    </p>
+    <div class="evidence-days">${rows}</div>
+    <details class="evidence-method">
+      <summary>How this was worked out</summary>
+      <p>${escapeHtml(method.summary || "")}</p>
+      ${method.denominator ? `<p>${escapeHtml(method.denominator)}</p>` : ""}
+      ${Array.isArray(method.steps) ? `<ol>${method.steps.map(x =>
+        `<li>${escapeHtml(x)}</li>`).join("")}</ol>` : ""}
+      ${caveats ? `<p class="evidence-caveats-title">What would make this wrong</p>
+        <ul class="evidence-caveats">${caveats}</ul>` : ""}
+      <p class="evidence-provenance">
+        From <span class="mono">${escapeHtml((data.data_version || {}).artefact || "the timetable")}</span>,
+        built from ${escapeHtml((data.data_version || {}).source || "the published timetable")}.
+        Computed ${escapeHtml(data.as_of || "—")}${
+          (data.data_version || {}).sha256
+            ? ` · data <span class="mono">${escapeHtml(data.data_version.sha256.slice(0, 12))}</span>` : ""}.
+        Recomputed by <span class="mono">${escapeHtml(method.script || "scripts/build_evidence.py")}</span>
+        on every timetable rebuild.
+      </p>
+    </details>`;
 }
 
 // Below this the line is a few pixels long and the label would be shouting
@@ -1413,8 +1593,134 @@ window.openDepartures = async function(atcoCode, stopName) {
   // On mobile, scroll down so the panel is visible
   dom.departurePanel.scrollIntoView({ behavior: "smooth", block: "end" });
 
+  // Span and departures are independent: the span is a local timetable read
+  // and answers even when live predictions are quota-paused, so it is not
+  // chained behind them.
+  fetchStopSpan(atcoCode);
   await fetchDepartures(atcoCode);
 };
+
+// ============================================================
+// SERVICE SPAN — when buses actually run from a stop
+//
+// The departure board answers "what is next". It cannot answer the question
+// this network turns on: is there a bus here in the evening, or on a Sunday at
+// all? A peak-only stop with no weekend service looks identical on a Tuesday
+// morning to one served every ten minutes until midnight. This is the part of
+// the case that a live board structurally cannot show.
+// ============================================================
+const SPAN_DAYS = [
+  ["monday",    "Mon"], ["tuesday",  "Tue"], ["wednesday", "Wed"],
+  ["thursday",  "Thu"], ["friday",   "Fri"], ["saturday",  "Sat"],
+  ["sunday",    "Sun"],
+];
+
+async function fetchStopSpan(atcoCode) {
+  if (!dom.stopSpan) return;
+  dom.stopSpan.classList.add("hidden");
+  dom.stopSpan.innerHTML = "";
+  try {
+    let url = `/api/stop-span?stopId=${encodeURIComponent(atcoCode)}`;
+    const pos = state.stopData[atcoCode];
+    if (pos) url += `&lat=${pos.lat}&lon=${pos.lon}`;
+    const data = await apiFetch(url);
+    // A stop the user has since navigated away from must not paint over the
+    // one they are looking at now.
+    if (state.selectedStop && state.selectedStop.atcoCode !== atcoCode) return;
+    renderStopSpan(data);
+  } catch (err) {
+    // A missing span is a missing extra, not a broken panel. The departure
+    // board is the primary content and is fetched separately.
+    console.warn("Stop span unavailable:", err);
+  }
+}
+
+/**
+ * Collapse the week into the runs a timetable would print.
+ *
+ * Seven identical weekday rows is noise; "Mon–Fri" is what a passenger reads.
+ * Consecutive days whose service is the same are merged, so the rows that
+ * remain are the ones that differ — which is the finding.
+ */
+function groupSpanDays(span) {
+  const key = (v) => v
+    ? `${v.first}|${v.last}|${v.routes.join(",")}`
+    : "none";
+  const runs = [];
+  for (const [day, label] of SPAN_DAYS) {
+    const value = span[day] || null;
+    const k = key(value);
+    const last = runs[runs.length - 1];
+    if (last && last.key === k) {
+      last.to = label;
+    } else {
+      runs.push({ key: k, from: label, to: label, value });
+    }
+  }
+  return runs.map(r => ({
+    label: r.from === r.to ? r.from : `${r.from}–${r.to}`,
+    value: r.value,
+  }));
+}
+
+function renderStopSpan(data) {
+  if (!dom.stopSpan) return;
+  const span = (data && data.span) || {};
+  const runs = groupSpanDays(span);
+  if (!runs.length || runs.every(r => !r.value)) {
+    // No service on any day is itself worth saying, and is not an error.
+    dom.stopSpan.innerHTML =
+      `<p class="stop-span-none">No scheduled service from this stop.</p>`;
+    dom.stopSpan.classList.remove("hidden");
+    return;
+  }
+
+  const rows = runs.map(r => {
+    if (!r.value) {
+      return `
+        <tr class="stop-span-row stop-span-row--none">
+          <th scope="row">${escapeHtml(r.label)}</th>
+          <td colspan="2">
+            <span class="stop-span-nil">No service</span>
+          </td>
+        </tr>`;
+    }
+    const night = r.value.night
+      ? `<span class="stop-span-night" title="Departures before ${escapeAttr(data.night_before || "04:00")}">+${r.value.night} night</span>`
+      : "";
+    return `
+      <tr class="stop-span-row">
+        <th scope="row">${escapeHtml(r.label)}</th>
+        <td class="stop-span-hours">
+          <span class="stop-span-time">${escapeHtml(r.value.first)}</span>
+          <span class="stop-span-dash" aria-hidden="true">–</span>
+          <span class="stop-span-time">${escapeHtml(r.value.last)}</span>
+          ${night}
+        </td>
+        <td class="stop-span-routes">${r.value.routes.map(rt =>
+          `<span class="stop-span-route">${escapeHtml(rt)}</span>`).join("")}</td>
+      </tr>`;
+  }).join("");
+
+  dom.stopSpan.innerHTML = `
+    <details class="stop-span-disclosure">
+      <summary class="stop-span-summary">
+        <svg class="icon" aria-hidden="true" style="width:15px;height:15px"><use href="#i-info"/></svg>
+        <span>When buses run here</span>
+        <svg class="icon stop-span-chevron" aria-hidden="true" style="width:14px;height:14px"><use href="#i-chevron-down"/></svg>
+      </summary>
+      <table class="stop-span-table">
+        <caption class="stop-span-caption">
+          First and last scheduled departure, from the published timetable.
+        </caption>
+        <thead>
+          <tr><th scope="col">Days</th><th scope="col">Service</th><th scope="col">Routes</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </details>`;
+  dom.stopSpan.classList.remove("hidden");
+}
 
 async function fetchDepartures(atcoCode) {
   showPanelState("loading");
@@ -2213,6 +2519,10 @@ function closePanel() {
   state.selectedStop = null;
   showPanelState("prompt");
   dom.panelStopName.textContent = "Select a stop";
+  if (dom.stopSpan) {
+    dom.stopSpan.classList.add("hidden");
+    dom.stopSpan.innerHTML = "";
+  }
   dom.panelStopId.textContent   = "";
 
   // Clear bus selection
@@ -2914,6 +3224,7 @@ async function applyViewMode() {
     try {
       await loadTicketZones();
       showTicketZones();
+      renderJourneyPresets();     // examples for the checker; failure is silent
     } catch (err) {
       console.warn("Ticket view data fetch failed:", err);
       showToast("Could not load ticket data. Try again later.");
@@ -4438,6 +4749,82 @@ function setJourneyStatus(msg, isError = false) {
 }
 
 /** Run the calculator for whatever's in the two pickers. */
+/**
+ * Worked examples for the journey checker.
+ *
+ * The checker is the strongest thing on this site and it opens as an empty
+ * form, which asks the visitor to already know which two stops demonstrate the
+ * problem. These are the journeys the campaign is actually about — the Lancing
+ * change, the DayRider boundary, the corridors with no through service — one
+ * tap each.
+ */
+function loadJourneyPresets() {
+  if (!state._journeyPresetsPromise) {
+    state._journeyPresetsPromise = (async () => {
+      const res = await fetch("data/journey_presets.json");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return Array.isArray(data.presets) ? data.presets : [];
+    })().catch(err => {
+      state._journeyPresetsPromise = null;
+      throw err;
+    });
+  }
+  return state._journeyPresetsPromise;
+}
+
+async function renderJourneyPresets() {
+  if (!dom.jcPresets) return;
+  let presets;
+  try {
+    presets = await loadJourneyPresets();
+  } catch (err) {
+    // Examples are a convenience; the form works without them.
+    console.warn("Journey presets unavailable:", err);
+    return;
+  }
+  if (!presets.length) return;
+  const row = dom.jcPresets.querySelector(".jc-presets-row");
+  if (!row) return;
+
+  row.innerHTML = presets.map(p => `
+    <button type="button" class="jc-preset" data-preset="${escapeAttr(p.id)}">
+      <span class="jc-preset-label">${escapeHtml(p.label)}</span>
+      ${p.note ? `<span class="jc-preset-note">${escapeHtml(p.note)}</span>` : ""}
+    </button>`).join("");
+
+  row.querySelectorAll("[data-preset]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const p = presets.find(x => x.id === btn.dataset.preset);
+      if (p) runJourneyPreset(p);
+    });
+  });
+  dom.jcPresets.hidden = false;
+}
+
+/**
+ * The value to put in a stop picker so it both reads well and resolves.
+ *
+ * atcoFromPickerValue matches a cluster label first and accepts a bare ATCO
+ * last, so the label is preferred — "Old Steine" is what a person recognises —
+ * and the code is the fallback when the stop is not in the picker index, which
+ * keeps a preset working rather than silently reading as "pick both stops from
+ * the suggestions".
+ */
+function journeyPickerValue(name, atco) {
+  const cluster = stopPickerIndex().find(c => c.atcos.includes(atco));
+  if (cluster) return cluster.label;
+  return atco || name || "";
+}
+
+/** Fill the checker from a preset and run it. */
+function runJourneyPreset(preset) {
+  if (!dom.jcFrom || !dom.jcTo) return;
+  dom.jcFrom.value = journeyPickerValue(preset.from_name, preset.from);
+  dom.jcTo.value   = journeyPickerValue(preset.to_name,   preset.to);
+  checkJourney();
+}
+
 async function checkJourney() {
   const fromAtco = atcoFromPickerValue(dom.jcFrom && dom.jcFrom.value);
   const toAtco   = atcoFromPickerValue(dom.jcTo && dom.jcTo.value);
