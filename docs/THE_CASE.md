@@ -67,6 +67,37 @@ including 5, 5B, 6, 7, 21, 47 and 3X — a network rather than a corridor.
 Local Shoreham and Southwick services drop out entirely at the weekend, which is
 what the route counts above are measuring.
 
+### The same measurement in one place: Lancing against South Portslade
+
+A band average tells you the line has an effect. It does not tell a resident
+what that effect is where they live. So the same count is run over two named
+places, one either side — selected by whether a stop falls inside the published
+ONS polygon, not by distance from the line.
+
+| | Lancing (WSCC) | South Portslade (BHCC) | Lancing as % |
+|---|---:|---:|---:|
+| Weekday departures per stop | **32.8** | **116.8** | **28 %** |
+| Weekday routes | 9 | 10 | 90 % |
+| Weekend departures per stop | 23.7 | 92.1 | 26 % |
+| Sunday routes | **4** | **9** | 44 % |
+
+The route counts are the part worth sitting with. On a weekday the two places
+have **much the same choice of route** — nine against ten — and Lancing gets
+**28 % of the buses**. The problem is not that Lancing is unserved. It is that
+what serves it runs a quarter as often, and on a Sunday the choice collapses too.
+
+Areas are Lancing ED (`E58001636`, a West Sussex county electoral division) and
+South Portslade ward (`E05015414`), holding 65 and 43 timetable stops
+respectively — the denominators every per-stop figure above is divided by.
+Polygons are committed at `data/comparison_areas.json` — ONS Open Geography
+Portal, OGL v3.0 — so the selection can be re-run and disagreed with.
+
+**This comparison carries a bias in our favour and it should be stated.** South
+Portslade sits on a trunk corridor where routes 1, 1X, 2, 2B, 46, 49 and 6 all
+pass. Part of the gap is that Lancing has no corridor of that kind — which is
+the argument being made, but it is geography as much as it is council policy,
+and some of the difference would exist whoever ran the buses.
+
 ### An important caveat, and which way it cuts
 
 `scripts/build_timetable.py` keeps a route if it touches a West Sussex (ATCO

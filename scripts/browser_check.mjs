@@ -524,6 +524,74 @@ async function checkInteractiveSurfaces(page) {
       check("the evidence states its method and its caveats",
         /How this was worked out/.test(shown) && /What would make this wrong/.test(shown),
         "a derived statistic published without either is not checkable");
+
+      // Three panels: a weekday, a merged weekend, and one named place either
+      // side of the line. Two weekend panels used to sit here saying much the
+      // same thing, and the place comparison is the one a resident recognises.
+      const panels = await page.evaluate(`
+        (() => {
+          const secs = [...document.querySelectorAll("#evidence-body .evidence-day")];
+          return JSON.stringify({
+            titles: secs.map(s => s.querySelector(".evidence-day-title").textContent
+                                   .replace(/\\s+/g, " ").trim()),
+            places: secs.filter(s => s.classList.contains("evidence-day--place")).length,
+          });
+        })()`);
+      const { titles, places } = JSON.parse(panels);
+      check("the evidence shows a weekday and a merged weekend panel",
+        titles.length === 3 && /^Weekday/.test(titles[0]) && /^Weekend/.test(titles[1]),
+        `panels are ${JSON.stringify(titles)}`);
+      check("the weekend panel still names each day's routes",
+        /on Sunday alone/.test(shown),
+        "averaging Saturday with Sunday hides Sunday being the thinner day");
+      check("the evidence compares two named places either side of the line",
+        places === 1 && /Lancing against South Portslade/.test(shown),
+        "the band gives the average effect; this is what it means somewhere specific");
+
+      // One axis across every panel. A per-panel scale would draw Lancing's
+      // 32.8 the same length as the band's 64.4 and quietly halve the gap.
+      const scale = await page.evaluate(`
+        (() => {
+          const body = document.getElementById("evidence-body");
+          const w = [...body.querySelectorAll(".evidence-bar")]
+                      .map(b => parseFloat(b.style.width));
+          const v = [...body.querySelectorAll(".evidence-bar-value")]
+                      .map(el => parseFloat(el.textContent));
+          const k = w.map((x, i) => x / v[i]);
+          return JSON.stringify({ widest: Math.max(...w), bars: w.length,
+                                  spread: Math.max(...k) - Math.min(...k) });
+        })()`);
+      const s = JSON.parse(scale);
+      check("every bar is drawn on the same scale",
+        s.bars === 6 && s.spread < 0.01 && Math.abs(s.widest - 100) < 0.6,
+        `${s.bars} bars, widest ${s.widest}%, scale spread ${s.spread}`);
+
+      // The place panel is the last thing in a dialog that is taller than its
+      // max-height. Network Objectives once grew past its container and simply
+      // stopped being readable, so an added panel gets asked whether it can
+      // actually be scrolled to rather than only whether it rendered.
+      // Same test the panels get: overflowing is fine, overflowing with nothing
+      // able to scroll it is content that has silently stopped existing. A
+      // programmatic scrollTop still moves an overflow:hidden box, so asking
+      // whether it scrolled would pass on exactly the broken case.
+      const scrolled = await page.evaluate(`
+        (() => {
+          const b = document.querySelector(".evidence-body");
+          const scrolls = el => {
+            const oy = getComputedStyle(el).overflowY;
+            return (oy === "auto" || oy === "scroll") &&
+                   el.scrollHeight > el.clientHeight + 1;
+          };
+          return JSON.stringify({
+            overflows: b.scrollHeight > b.clientHeight + 1,
+            hidden: b.scrollHeight - b.clientHeight,
+            scrollable: scrolls(b) || [...b.querySelectorAll("*")].some(scrolls),
+          });
+        })()`);
+      const sc = JSON.parse(scrolled);
+      check("the evidence can be scrolled to its last panel",
+        !sc.overflows || sc.scrollable,
+        `${sc.hidden}px below the fold, scrollable: ${sc.scrollable}`);
       await page.evaluate(`(document.getElementById("evidence-dialog").close(), 1)`);
       await sleep(300);
     }

@@ -577,6 +577,80 @@ def test_boundary_evidence_figures_are_present_and_sane():
                 f"per stop, and a total would only restate that one side is bigger")
 
 
+def test_weekend_figure_stays_per_day_and_keeps_both_days():
+    """The merged panel must not become a two-day total wearing a daily label.
+
+    Saturday and Sunday are shown as one panel, so the number behind it is
+    divided by stops x 2. Get that wrong and the weekend bar is twice as long
+    as the weekday one for a service that is materially thinner — the chart
+    would say the opposite of the truth.
+    """
+    days = _load("boundary_evidence.json")["days"]
+    weekend = days.get("weekend")
+    assert isinstance(weekend, dict), (
+        "boundary_evidence.json: 'days' needs a 'weekend' block — the UI merges "
+        "Saturday and Sunday into one panel")
+    assert weekend.get("combines") == ["saturday", "sunday"]
+    assert _nonempty_str(weekend.get("denominator")), (
+        "the weekend block needs to state what it divided by, because it is the "
+        "one figure on the page that averages two different services")
+
+    for side in ("west", "east"):
+        sat, sun, wk = days["saturday"][side], days["sunday"][side], weekend[side]
+        assert wk["departures"] == sat["departures"] + sun["departures"]
+        lo, hi = sorted((sat["departures_per_stop"], sun["departures_per_stop"]))
+        assert lo <= wk["departures_per_stop"] <= hi, (
+            f"weekend/{side}: {wk['departures_per_stop']} per stop is outside "
+            f"the two days it averages ({lo}-{hi}). A per-day figure cannot be "
+            f"— this is a two-day total mislabelled as a daily rate")
+        # Saturday and Sunday are different services, and the panel says so
+        # rather than letting the average speak for both.
+        assert wk.get("routes_saturday") == sat["routes"]
+        assert wk.get("routes_sunday") == sun["routes"]
+
+
+def test_place_comparison_is_traceable_to_published_boundaries():
+    """Lancing against South Portslade, with the polygons that defined them.
+
+    "The nearest comparable place" is the whole weight of this comparison, so
+    the areas have to be named by their ONS codes: a reader who disagrees can
+    then look up exactly what was measured instead of taking the pairing on
+    trust.
+    """
+    data = _load("boundary_evidence.json")
+    places = data.get("places")
+    assert isinstance(places, dict), (
+        "boundary_evidence.json needs 'places' — the band gives the average "
+        "effect of the line, and this is what it means somewhere specific")
+
+    areas = _load("comparison_areas.json")
+    by_side = {a["side"]: a for a in areas["areas"]}
+    assert _nonempty_str(areas.get("source", {}).get("attribution")), (
+        "comparison_areas.json: ONS boundary data is OGL v3.0 and carries an "
+        "attribution requirement")
+
+    for side in ("west", "east"):
+        p = places.get(side)
+        assert isinstance(p, dict), f"places: missing '{side}'"
+        for field in ("name", "council", "ons_code", "ons_name"):
+            assert _nonempty_str(p.get(field)), f"places/{side}: needs '{field}'"
+        assert p["ons_code"] == by_side[side]["ons_code"], (
+            f"places/{side}: the published figure names {p['ons_code']} but the "
+            f"polygon it was measured from is {by_side[side]['ons_code']}")
+        assert p.get("stops", 0) > 0, f"places/{side}: no stops inside the polygon"
+
+    for day, block in places["days"].items():
+        for side in ("west", "east"):
+            assert block[side].get("departures_per_stop") is not None, (
+                f"places/{day}/{side}: no departures_per_stop")
+
+    method = data["method"].get("places")
+    assert isinstance(method, dict) and _nonempty_str(method.get("selection")), (
+        "method needs a 'places' section saying how a stop was assigned to an "
+        "area — point-in-polygon is not the only defensible choice, so it has "
+        "to be the stated one")
+
+
 # ── Served map icons ────────────────────────────────────────
 #
 # The icons were once 1536x1024 and drawn in a 56px box — a 27x oversample that

@@ -7,7 +7,7 @@
   },
   "headline": "Bus service is measurably thinner on the West Sussex side of the Brighton & Hove boundary.",
   "as_of": "2026-09-06",
-  "computed_at": "2026-09-06T07:45:31+00:00",
+  "computed_at": "2026-09-06T17:10:06+00:00",
   "data_version": {
     "source": "Bus Open Data Service, South East regional GTFS bundle",
     "artefact": "data/timetable.sqlite",
@@ -32,9 +32,47 @@
       "Bucket each stop west or east of line_lon.",
       "Join stop_times to trips to calendar; keep a trip only if its service actually runs on the dated day being measured — its calendar window must cover that date, and calendar_dates exceptions override it. Counting every calendar that merely lists the weekday counts one bus several times over, because term-time, holiday and seasonal variants each have their own.",
       "Count departures and distinct route short_names per bucket.",
-      "Divide by the number of stops in that bucket."
+      "Divide by the number of stops in that bucket.",
+      "Report Saturday and Sunday as one weekend figure: departures over both days divided by stops x 2, so the unit stays departures per stop per day. Both days' route counts are kept and shown, because Saturday and Sunday are different services.",
+      "Repeat the whole count for two named places either side of the line — Lancing and South Portslade — selecting stops by whether their coordinates fall inside the published ONS boundary polygon rather than by a distance band."
     ],
     "denominator": "Departures are divided by the number of stops in the same bucket, so the figure is departures per stop per day — not a total, which would only restate that one side has more stops.",
+    "places": {
+      "summary": "The band shows the average effect of the line. The place comparison shows what it means somewhere specific: Lancing against South Portslade, six miles apart along the same coast road, one either side of the boundary.",
+      "pairing": "The nearest comparable place across the council boundary: both coastal, both on the same six-mile stretch of the A259 corridor, similar stop density. Chosen before the figures were computed.",
+      "selection": "A stop belongs to a place when its coordinates fall inside that area's ONS polygon, tested by even-odd ray casting so enclosed holes count as outside.",
+      "boundaries": {
+        "name": "ONS Open Geography Portal",
+        "datasets": [
+          "County Electoral Divisions (May 2025) EN BGC",
+          "Wards (May 2025) UK BGC V2"
+        ],
+        "licence": "Open Government Licence v3.0",
+        "attribution": "Contains OS data © Crown copyright and database right 2025. Contains National Statistics data © Crown copyright and database right 2025.",
+        "generalisation": "BGC — generalised to 20 m, clipped to the coastline",
+        "retrieved": "2026-09-01"
+      },
+      "areas": [
+        {
+          "id": "lancing",
+          "side": "west",
+          "name": "Lancing",
+          "council": "West Sussex",
+          "ons_code": "E58001636",
+          "ons_name": "Lancing ED",
+          "ons_type": "county electoral division"
+        },
+        {
+          "id": "south-portslade",
+          "side": "east",
+          "name": "South Portslade",
+          "council": "Brighton & Hove",
+          "ons_code": "E05015414",
+          "ons_name": "South Portslade",
+          "ons_type": "ward"
+        }
+      ]
+    },
     "script": "scripts/build_evidence.py"
   },
   "caveats": [
@@ -47,6 +85,16 @@
       "text": "Departures counted are scheduled, not operated. Cancellations and short-workings are not visible in a timetable feed.",
       "direction": "unknown",
       "effect": "Could move the comparison either way."
+    },
+    {
+      "text": "South Portslade sits on a trunk corridor where routes 1, 1X, 2, 2B, 46, 49 and 6 all pass. Part of the gap is that Lancing has no corridor of that kind, which is geography as much as it is council policy.",
+      "direction": "overstates",
+      "effect": "Some of the Lancing/Portslade difference would exist whoever ran the buses. It is the point being made, but it should be said rather than left implied."
+    },
+    {
+      "text": "The weekend figure averages Saturday and Sunday, which are different services on both sides of the line. The panel gives each day's route count for that reason.",
+      "direction": "unknown",
+      "effect": "The averaged ratio sits between the two days' ratios, which are close; the route counts are what the average would otherwise flatten."
     },
     {
       "text": "A band drawn at a different width would give different figures. 4 km was chosen to keep the strip comparable in character; widening it folds in Brighton city centre.",
@@ -212,6 +260,261 @@
       "ratio": {
         "departures_per_stop": 0.727,
         "routes": 0.562
+      }
+    },
+    "weekend": {
+      "west": {
+        "stops": 180,
+        "departures": 17507,
+        "departures_per_stop": 48.6,
+        "routes": 11,
+        "routes_saturday": 11,
+        "routes_sunday": 9,
+        "departures_after_2300": 618,
+        "route_list": [
+          "025",
+          "1",
+          "19",
+          "1X",
+          "2",
+          "2B",
+          "46",
+          "700",
+          "9",
+          "N1",
+          "N700"
+        ]
+      },
+      "east": {
+        "stops": 320,
+        "departures": 42098,
+        "departures_per_stop": 65.8,
+        "routes": 18,
+        "routes_saturday": 18,
+        "routes_sunday": 16,
+        "departures_after_2300": 1456,
+        "route_list": [
+          "1",
+          "1X",
+          "2",
+          "21",
+          "2B",
+          "3X",
+          "46",
+          "47",
+          "49",
+          "5",
+          "5B",
+          "6",
+          "7",
+          "700",
+          "N1",
+          "N5",
+          "N7",
+          "N700"
+        ]
+      },
+      "ratio": {
+        "departures_per_stop": 0.739,
+        "routes": 0.611
+      },
+      "combines": [
+        "saturday",
+        "sunday"
+      ],
+      "denominator": "Departures across both weekend days divided by stops x 2, so the figure is departures per stop per day and is comparable with the weekday one. Route counts are given for each day separately, because Saturday and Sunday are different services and an average would hide the thinner of the two."
+    }
+  },
+  "places": {
+    "id": "lancing-vs-south-portslade",
+    "headline": "Six miles apart on the same coast road, and a quarter of the service.",
+    "west": {
+      "id": "lancing",
+      "name": "Lancing",
+      "council": "West Sussex",
+      "ons_code": "E58001636",
+      "ons_name": "Lancing ED",
+      "ons_type": "county electoral division",
+      "stops": 65
+    },
+    "east": {
+      "id": "south-portslade",
+      "name": "South Portslade",
+      "council": "Brighton & Hove",
+      "ons_code": "E05015414",
+      "ons_name": "South Portslade",
+      "ons_type": "ward",
+      "stops": 43
+    },
+    "days": {
+      "monday": {
+        "west": {
+          "stops": 65,
+          "departures": 2132,
+          "departures_per_stop": 32.8,
+          "routes": 9,
+          "departures_after_2300": 37,
+          "route_list": [
+            "025",
+            "16",
+            "19A",
+            "7",
+            "700",
+            "701",
+            "740",
+            "9",
+            "N700"
+          ]
+        },
+        "east": {
+          "stops": 43,
+          "departures": 5024,
+          "departures_per_stop": 116.8,
+          "routes": 10,
+          "departures_after_2300": 178,
+          "route_list": [
+            "1",
+            "1X",
+            "2",
+            "2B",
+            "46",
+            "49",
+            "6",
+            "700",
+            "N1",
+            "N700"
+          ]
+        },
+        "ratio": {
+          "departures_per_stop": 0.281,
+          "routes": 0.9
+        }
+      },
+      "saturday": {
+        "west": {
+          "stops": 65,
+          "departures": 1925,
+          "departures_per_stop": 29.6,
+          "routes": 6,
+          "departures_after_2300": 37,
+          "route_list": [
+            "025",
+            "7",
+            "700",
+            "701",
+            "9",
+            "N700"
+          ]
+        },
+        "east": {
+          "stops": 43,
+          "departures": 4724,
+          "departures_per_stop": 109.9,
+          "routes": 10,
+          "departures_after_2300": 178,
+          "route_list": [
+            "1",
+            "1X",
+            "2",
+            "2B",
+            "46",
+            "49",
+            "6",
+            "700",
+            "N1",
+            "N700"
+          ]
+        },
+        "ratio": {
+          "departures_per_stop": 0.269,
+          "routes": 0.6
+        }
+      },
+      "sunday": {
+        "west": {
+          "stops": 65,
+          "departures": 1162,
+          "departures_per_stop": 17.9,
+          "routes": 4,
+          "departures_after_2300": 19,
+          "route_list": [
+            "025",
+            "700",
+            "701",
+            "N700"
+          ]
+        },
+        "east": {
+          "stops": 43,
+          "departures": 3196,
+          "departures_per_stop": 74.3,
+          "routes": 9,
+          "departures_after_2300": 105,
+          "route_list": [
+            "1",
+            "1X",
+            "2",
+            "2B",
+            "46",
+            "6",
+            "700",
+            "N1",
+            "N700"
+          ]
+        },
+        "ratio": {
+          "departures_per_stop": 0.241,
+          "routes": 0.444
+        }
+      },
+      "weekend": {
+        "west": {
+          "stops": 65,
+          "departures": 3087,
+          "departures_per_stop": 23.7,
+          "routes": 6,
+          "routes_saturday": 6,
+          "routes_sunday": 4,
+          "departures_after_2300": 56,
+          "route_list": [
+            "025",
+            "7",
+            "700",
+            "701",
+            "9",
+            "N700"
+          ]
+        },
+        "east": {
+          "stops": 43,
+          "departures": 7920,
+          "departures_per_stop": 92.1,
+          "routes": 10,
+          "routes_saturday": 10,
+          "routes_sunday": 9,
+          "departures_after_2300": 283,
+          "route_list": [
+            "1",
+            "1X",
+            "2",
+            "2B",
+            "46",
+            "49",
+            "6",
+            "700",
+            "N1",
+            "N700"
+          ]
+        },
+        "ratio": {
+          "departures_per_stop": 0.257,
+          "routes": 0.6
+        },
+        "combines": [
+          "saturday",
+          "sunday"
+        ],
+        "denominator": "Departures across both weekend days divided by stops x 2, so the figure is departures per stop per day and is comparable with the weekday one. Route counts are given for each day separately, because Saturday and Sunday are different services and an average would hide the thinner of the two."
       }
     }
   }

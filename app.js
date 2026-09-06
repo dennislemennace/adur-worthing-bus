@@ -898,10 +898,14 @@ function loadBoundaryEvidence() {
   return state._boundaryEvidencePromise;
 }
 
+// Saturday and Sunday are published separately in data/boundary_evidence.json
+// and shown as one panel here. Two weekend panels said much the same thing
+// twice and left no room for the comparison that makes the case concrete; the
+// weekend note carries both days' route counts, which is the part an average
+// would have flattened.
 const EVIDENCE_DAYS = [
-  ["monday",   "Weekday"],
-  ["saturday", "Saturday"],
-  ["sunday",   "Sunday"],
+  ["monday",  "Weekday"],
+  ["weekend", "Weekend"],
 ];
 
 async function openBoundaryEvidence() {
@@ -953,12 +957,16 @@ function renderBoundaryEvidence(data) {
 
   // One scale across every row, so bars are comparable between days as well as
   // between sides.
+  const places    = data.places || null;
+  const placeDay  = places && places.days ? places.days.monday : null;
+
   let max = 0;
-  for (const [key] of EVIDENCE_DAYS) {
-    const d = days[key];
-    if (!d) continue;
+  const scaleAgainst = d => {
+    if (!d) return;
     max = Math.max(max, d.west.departures_per_stop, d.east.departures_per_stop);
-  }
+  };
+  for (const [key] of EVIDENCE_DAYS) scaleAgainst(days[key]);
+  scaleAgainst(placeDay);
   if (!max) max = 1;
 
   const bar = (label, value, cls) => {
@@ -987,13 +995,53 @@ function renderBoundaryEvidence(data) {
         ${bar(east, d.east.departures_per_stop, "evidence-bar--east")}
         <p class="evidence-day-note">
           <strong>${d.west.routes}</strong> routes west of the line against
-          <strong>${d.east.routes}</strong> east
+          <strong>${d.east.routes}</strong> east${
+            // An averaged weekend would hide Sunday being the thinner day, so
+            // the panel that averages it says what it averaged.
+            d.west.routes_sunday != null
+              ? ` — on Sunday alone, <strong>${d.west.routes_sunday}</strong> against <strong>${d.east.routes_sunday}</strong>`
+              : ""}
           ${d.west.departures_after_2300 != null
             ? ` · after 23:00, <strong>${d.west.departures_after_2300}</strong> departures against <strong>${d.east.departures_after_2300}</strong>`
             : ""}.
         </p>
       </section>`;
   }).join("");
+
+  // The band measures the line's average effect; this measures what it means
+  // in one place, which is the form the argument takes when it reaches a
+  // resident. Boundaries are ONS ward and division polygons, not a distance
+  // band, so the two are different geographies and the panel says so.
+  const placeSection = (() => {
+    if (!places || !placeDay) return "";
+    const sunday = places.days.sunday;
+    const ratio  = placeDay.ratio && placeDay.ratio.departures_per_stop;
+    return `
+      <section class="evidence-day evidence-day--place">
+        <p class="evidence-place-eyebrow">One place either side of the line</p>
+        <h3 class="evidence-day-title">
+          ${escapeHtml(places.west.name)} against ${escapeHtml(places.east.name)}
+          ${ratio != null ? `<span class="evidence-day-ratio">${Math.round(ratio * 100)}% of ${escapeHtml(places.east.name)}</span>` : ""}
+        </h3>
+        ${bar(places.west.name, placeDay.west.departures_per_stop, "evidence-bar--west")}
+        ${bar(places.east.name, placeDay.east.departures_per_stop, "evidence-bar--east")}
+        <p class="evidence-day-note">
+          Weekday departures per stop, six miles apart along the same coast road.
+          ${escapeHtml(places.west.name)} has <strong>${placeDay.west.routes}</strong>
+          routes across <strong>${places.west.stops}</strong> stops against
+          <strong>${placeDay.east.routes}</strong> across
+          <strong>${places.east.stops}</strong>${
+            // The point is frequency, not choice — but only while the two route
+            // counts really are close. If a rebuild pulls them apart the clause
+            // drops out rather than becoming a claim the figures contradict.
+            placeDay.ratio && placeDay.ratio.routes >= 0.8
+              ? " — much the same choice of route" : ""}${
+            ratio != null ? `, and <strong>${Math.round(ratio * 100)}%</strong> of the buses` : ""}${sunday
+            ? `. On a Sunday it is <strong>${sunday.west.routes}</strong> routes against <strong>${sunday.east.routes}</strong>`
+            : ""}.
+        </p>
+      </section>`;
+  })();
 
   const caveats = (data.caveats || []).map(c => `
     <li class="evidence-caveat evidence-caveat--${escapeAttr(c.direction || "unknown")}">
@@ -1014,9 +1062,14 @@ function renderBoundaryEvidence(data) {
       Scheduled departures <strong>per stop</strong>, in a
       ${escapeHtml(String((method.band && method.band.approx_half_width_km) || 4))} km band
       either side of the line along the same coastal strip — so the two sides are
-      the same kind of place.
+      the same kind of place. The last panel leaves the band behind and compares
+      two named places, one each side.
     </p>
-    <div class="evidence-days">${rows}</div>
+    <div class="evidence-days">${rows}${placeSection}</div>
+    <p class="evidence-axis">
+      Bars start at zero and share one scale across every panel —
+      0 to ${max.toFixed(1)} departures per stop, per day.
+    </p>
     <details class="evidence-method">
       <summary>How this was worked out</summary>
       <p>${escapeHtml(method.summary || "")}</p>
