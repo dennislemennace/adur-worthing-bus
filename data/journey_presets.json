@@ -1,6 +1,6 @@
 {
   "_comment": "Worked examples for the Ticket view journey checker. Each one is a journey the campaign has something to say about, so the checker opens on a real case instead of an empty form. `from`/`to` are NaPTAN ATCO codes and are checked against data/timetable.sqlite by pytest — a preset pointing at a stop that is not in the timetable would fail silently at runtime.",
-  "checked_on": "2026-09-01",
+  "checked_on": "2026-09-05",
   "presets": [
     {
       "id": "lancing-to-brighton",
@@ -35,12 +35,12 @@
     {
       "id": "southwick-to-mile-oak",
       "label": "Southwick → Mile Oak",
-      "note": "Two miles, one change",
+      "note": "Two miles, one change and a walk",
       "from": "4400AD0259",
       "from_name": "Southwick Square",
-      "to": "149000006479",
-      "to_name": "Mile Oak Road Shops",
-      "why": "Both ends are Brighton & Hove, and they are barely two miles apart — but the council line runs between them and there is no direct bus."
+      "to": "149000006483",
+      "to_name": "Mile Oak Gardens",
+      "why": "Both ends are Brighton & Hove and barely two miles apart, but the council line runs between them and there is no direct bus. The 46 and the 1X do not share a stop: the change is a short walk at Southern Cross. Mile Oak Road Shops, further up, cannot be reached at all — route 1 starts near there and runs the other way."
     },
     {
       "id": "worthing-to-hangleton",

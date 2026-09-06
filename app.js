@@ -120,6 +120,7 @@ const state = {
   refreshTimer:  null,  // setInterval handle for bus positions
   isRefreshing:  true,
   busesVisible:  true,  // header toggle: show bus markers + run live refresh
+  vehicleFetchInFlight: false,  // guards against overlapping /api/vehicles polls
   // Operators the user has switched OFF, by NOC. A hide-list rather than a
   // show-list on purpose: an operator that appears in the feed for the first
   // time should show up, not be silently filtered out by a preference saved
@@ -177,6 +178,7 @@ const state = {
 
   // ── Ticket view (fare zones) ──
   ticketZones:             null,   // data/ticket_zones.json (array); null = not loaded
+  journeyLayers:           [],     // the checked journey, drawn on the map
   councilBoundaryLayers:   {},     // boundary id → L.polyline / L.polygon
   councilBoundaryLabels:   {},     // boundary id → [L.tooltip] naming each side
   _councilBoundariesPromise: null,
@@ -1247,6 +1249,12 @@ function renderBusFilter() {
 }
 
 async function fetchVehicles() {
+  // A response slower than the 20s interval used to leave two requests in the
+  // air, racing to write the same markers. The flag is enough — an
+  // AbortController would let us cancel the older one, but the newer answer is
+  // the one we want either way, so there is nothing to cancel *to*.
+  if (state.vehicleFetchInFlight) return;
+  state.vehicleFetchInFlight = true;
   try {
     const data = await apiFetch("/api/vehicles");
     if (!data || !data.vehicles) return;
@@ -1268,6 +1276,8 @@ async function fetchVehicles() {
   } catch (err) {
     console.warn("Vehicle refresh failed:", err);
     setStatusLabel({ text: "Update failed — retrying", loading: true, error: true });
+  } finally {
+    state.vehicleFetchInFlight = false;
   }
 }
 
@@ -1462,6 +1472,7 @@ function createBusIcon(operatorRef, label, bearing) {
   if (iconUrl) {
     inner = `
       <img class="bus-icon-img" src="${escapeAttr(iconUrl)}" alt=""
+           width="56" height="56" decoding="async"
            style="transform:${transform}">
       <span class="bus-icon-label">${escapeHtml(label)}</span>`;
   } else {
@@ -2745,7 +2756,30 @@ function bindUIEvents() {
   window.addEventListener("pagehide", flushEditorAutosave);
   window.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flushEditorAutosave();
+    syncVehicleRefreshToVisibility();
   });
+}
+
+/**
+ * Stop polling for buses while nobody is looking at them.
+ *
+ * The refresh was a bare setInterval that ran for as long as the tab existed,
+ * so a page left open in a background tab fetched every twenty seconds for
+ * hours. LIMITS.md counts that against the BODS budget *per tab*, and on a
+ * phone it is the kind of thing that quietly costs battery.
+ *
+ * Coming back restarts it, and startVehicleRefresh fetches immediately before
+ * setting its interval — so returning to the tab shows current positions rather
+ * than up-to-twenty-second-old ones. The guards match the ones setBusesVisible
+ * and applyViewMode already use: nothing restarts if the user turned buses off
+ * or navigated away.
+ */
+function syncVehicleRefreshToVisibility() {
+  const wanted = document.visibilityState !== "hidden"
+              && state.viewMode === "live"
+              && state.busesVisible;
+  if (wanted && !state.isRefreshing)      startVehicleRefresh();
+  else if (!wanted && state.isRefreshing) stopVehicleRefresh();
 }
 
 // ── Category & operator filter strips ────────────────────────
@@ -3204,6 +3238,7 @@ async function applyViewMode() {
 
   if (state.viewMode === "improvements") {
     hideTicketZones();
+    clearJourneyLayers();
     ensureMapOverlayControls();
     try {
       await Promise.all([loadRouteLines(), loadProposals(), loadCouncilBoundaries()]);
@@ -3221,6 +3256,7 @@ async function applyViewMode() {
     hideRouteLines();
     hideAllProposalLayers();
     hideCouncilBoundaries();
+    clearJourneyLayers();
     try {
       await loadTicketZones();
       showTicketZones();
@@ -3236,6 +3272,7 @@ async function applyViewMode() {
     hideAllProposalLayers();
     hideTicketZones();
     hideCouncilBoundaries();
+    clearJourneyLayers();
     try {
       await loadUpdates();
       renderUpdates();
@@ -3249,6 +3286,7 @@ async function applyViewMode() {
     hideAllProposalLayers();
     hideTicketZones();
     hideCouncilBoundaries();
+    clearJourneyLayers();
     try {
       await loadNetworkData();
     } catch (err) {
@@ -3262,6 +3300,7 @@ async function applyViewMode() {
     hideRouteLines();
     hideAllProposalLayers();
     hideTicketZones();
+    clearJourneyLayers();
     try {
       await loadCouncilBoundaries();
       reconcileCouncilBoundaries();
@@ -4501,6 +4540,48 @@ function normaliseOperators(operatorOfStop) {
   return list.filter(Boolean);
 }
 
+/**
+ * The tickets that could actually carry this whole journey.
+ *
+ * `zonesForStop` answers a per-stop question: does an operator accepting this
+ * ticket call here? That is the right test for a direct bus, where one operator
+ * runs the lot. On a journey needing a change it is not enough.
+ *
+ * Metrovoyager is accepted by Metrobus and Brighton & Hove, and Metrobus does
+ * reach Worthing — on the route-23 corridor down from Horsham. So a
+ * Worthing-to-Hangleton trip had a Metrovoyager at each end and was reported as
+ * covered by one ticket. It is not. The bus anyone would actually take is a
+ * Stagecoach 700, which the Metrovoyager is not valid on; travelling only on
+ * operators that do accept it would mean going north to Horsham and back down.
+ *
+ * So a ticket survives here only when a *single* operator accepting it serves
+ * every endpoint. Two accepting operators that happen to touch opposite ends of
+ * a journey do not add up to a ticket you can use, and whether their networks
+ * meet somewhere in between is not something this data can answer. Guessing at
+ * it is precisely how the Boundary Road answer went wrong.
+ */
+function commonOperators(endpointOperators) {
+  let common = null;
+  for (const ops of endpointOperators) {
+    // An endpoint we know nothing about makes the whole answer unknown. It must
+    // not collapse to "no operators in common", which would read as a finding
+    // about the network rather than a gap in what the API told us.
+    if (ops === null || ops === undefined) return null;
+    const set = new Set(normaliseOperators(ops));
+    common = common === null ? set : new Set([...common].filter(o => set.has(o)));
+  }
+  return common === null ? null : [...common];
+}
+
+function ticketsUsableEndToEnd(zones, endpointOperators) {
+  // Operators present at *every* endpoint. On a direct journey that is the one
+  // operator running it, so nothing changes; on an interchange it is often
+  // empty, which is itself the finding.
+  const common = commonOperators(endpointOperators);
+  if (common === null) return zones;      // nothing to go on
+  return zones.filter(z => common.some(op => ticketValidOn(z, op)));
+}
+
 function zonesForStop(stop, zones, byId, operatorOfStop) {
   const covering = [];
   // `operatorOfStop` may be a single NOC or a list of every operator calling
@@ -4840,6 +4921,7 @@ async function checkJourney() {
   }
 
   setJourneyStatus("Checking…");
+  clearJourneyLayers();
   await loadTicketZones();
 
   let journey;
@@ -4970,6 +5052,158 @@ function pickRepresentativeOption(options) {
   return best;
 }
 
+// ============================================================
+// THE JOURNEY, DRAWN
+//
+// The checker could say what a trip costs and how long it takes. Saying it in
+// numbers understates it: "700, change at Brunswick Place, then the 5B" is a
+// sentence, but two coloured lines that meet at a dot and set off again is the
+// shape of the problem. Route liveries are the map's existing vocabulary, so a
+// journey drawn in them reads as the buses you would actually be on.
+// ============================================================
+function clearJourneyLayers() {
+  if (!state.map) return;
+  for (const layer of state.journeyLayers) {
+    if (state.map.hasLayer(layer)) state.map.removeLayer(layer);
+  }
+  state.journeyLayers = [];
+}
+
+function journeyMarker(latlng, label, bg, fg, cls) {
+  return L.marker(latlng, {
+    interactive: false,
+    keyboard: false,
+    zIndexOffset: 700,
+    icon: L.divIcon({
+      className: "journey-marker-icon",
+      html: `<span class="journey-marker ${cls}"
+                   style="background:${escapeAttr(bg)};color:${escapeAttr(fg)}">${escapeHtml(label)}</span>`,
+      iconSize: null,
+    }),
+  });
+}
+
+/**
+ * Draw the legs of a journey.
+ *
+ * `legs` is [{service, operator, stops:[{lat,lon,name}]}] — one for a through
+ * bus, two when a change is needed. Each is drawn in its own route's colour so
+ * a two-operator journey is visibly two journeys.
+ */
+function drawJourneyOnMap(legs, changeAt, boardAt) {
+  clearJourneyLayers();
+  if (!state.map || !legs || !legs.length) return;
+
+  if (!state.map.getPane("journeyPane")) {
+    const pane = state.map.createPane("journeyPane");
+    // Above the ticket zones (404) so the route being costed reads on top of
+    // the shading that explains its price, below the markers.
+    pane.style.zIndex = 405;
+  }
+
+  const all = [];
+  legs.forEach((leg, i) => {
+    const pts = (leg.stops || [])
+      .filter(s => typeof s.lat === "number" && typeof s.lon === "number")
+      .map(s => [s.lat, s.lon]);
+    if (pts.length < 2) return;
+    all.push(...pts);
+    const colour = getLineColour(leg.service, leg.operator);
+
+    // A casing under the line: liveries are chosen to stand out against each
+    // other, not against every basemap, and a bare stroke disappears over the
+    // A259 at some zooms.
+    state.journeyLayers.push(L.polyline(pts, {
+      color: "#ffffff", weight: 9, opacity: 0.85, lineCap: "round",
+      lineJoin: "round", interactive: false, pane: "journeyPane",
+    }).addTo(state.map));
+    state.journeyLayers.push(L.polyline(pts, {
+      color: colour, weight: 5, opacity: 1, lineCap: "round", lineJoin: "round",
+      interactive: false, pane: "journeyPane",
+      className: `journey-leg journey-leg--${i}`,
+    }).addTo(state.map));
+
+    const fg = textColourOn(colour);
+    state.journeyLayers.push(
+      journeyMarker(pts[Math.floor(pts.length / 2)],
+                    leg.service || "?", colour, fg, "journey-marker--service")
+        .addTo(state.map));
+  });
+
+  if (changeAt && typeof changeAt.lat === "number") {
+    state.journeyLayers.push(
+      journeyMarker([changeAt.lat, changeAt.lon], "Change", "#ffffff", "#141c24",
+                    "journey-marker--change").addTo(state.map));
+  }
+  // Where the second bus is caught, when it is not the same stop. Drawn as a
+  // dashed hop so the walk is visible as part of the journey rather than a gap
+  // the map forgot to join up.
+  if (boardAt && typeof boardAt.lat === "number"
+      && changeAt && typeof changeAt.lat === "number"
+      && (boardAt.atco !== changeAt.atco)) {
+    state.journeyLayers.push(L.polyline(
+      [[changeAt.lat, changeAt.lon], [boardAt.lat, boardAt.lon]], {
+        color: "#141c24", weight: 3, opacity: 0.8, dashArray: "2 6",
+        lineCap: "round", interactive: false, pane: "journeyPane",
+      }).addTo(state.map));
+    state.journeyLayers.push(
+      journeyMarker([boardAt.lat, boardAt.lon], "Walk", "#ffffff", "#141c24",
+                    "journey-marker--change").addTo(state.map));
+  }
+
+  if (all.length > 1) {
+    fitBoundsAboveSheet(L.latLngBounds(all).pad(0.12));
+  }
+}
+
+/**
+ * The itinerary in words, above the fare verdict.
+ *
+ * Two buses and a wait is the thing being complained about, so it is stated
+ * plainly with its total rather than left implicit in a price.
+ */
+function itineraryHtml(interchange) {
+  if (!interchange || !interchange.legs || interchange.legs.length < 2) return "";
+  const [one, two] = interchange.legs;
+  const chip = (leg) => {
+    const bg = getLineColour(leg.service, leg.operator);
+    return `<span class="journey-leg-chip" style="background:${escapeAttr(bg)};color:${escapeAttr(textColourOn(bg))}">`
+         + `${escapeHtml(leg.service || "?")}</span>`;
+  };
+  // The two buses often do not share a stop. At Portslade the 1X is around the
+  // corner from the 46 and the 1 is five minutes down the road — a walk is part
+  // of the journey, not a footnote, so it is said where it happens.
+  const board = interchange.board_at || {};
+  const metres = interchange.walk_metres || 0;
+  // Two poles of one road carry the same name, so naming the destination would
+  // read "Southern Cross, then a walk to Southern Cross". Say what is actually
+  // happening instead.
+  const sameName = board.name && board.name === interchange.change_at.name;
+  const walk = !metres ? ""
+    : sameName
+      ? `, then a <strong>${metres} m walk</strong> to the other stop`
+      : `, then a <strong>${metres} m walk</strong> to ${escapeHtml(board.name || "another stop")}`;
+  return `
+    <div class="journey-itinerary">
+      <p class="journey-zones-title">What the journey actually is</p>
+      <p class="journey-itinerary-line">
+        ${chip(one)} <strong>${escapeHtml(one.depart)}</strong> from
+        ${escapeHtml((one.stops[0] || {}).name || "the stop")}
+        &rarr; ${escapeHtml(interchange.change_at.name)} at
+        <strong>${escapeHtml(one.arrive)}</strong>${walk}, wait
+        ${interchange.wait_minutes} min, then
+        ${chip(two)} arriving <strong>${escapeHtml(two.arrive)}</strong>.
+      </p>
+      <p class="journey-basis">
+        <strong>${interchange.total_minutes} minutes</strong> door to door on two
+        buses${one.operator && two.operator && one.operator !== two.operator
+          ? `, run by ${escapeHtml(getOperatorName(one.operator))} and
+             ${escapeHtml(getOperatorName(two.operator))}`
+          : ""}.
+      </p>
+    </div>`;
+}
+
 function renderJourneyResult(journey, fromAtco, toAtco) {
   const host = dom.jcResult;
   if (!host) return;
@@ -4994,6 +5228,16 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   const endpointOperators = journeyEndpointOperators(journey, option, pathStops);
   const operatorsKnown = endpointOperators.every(o => o !== null);
 
+  // Drawn before any verdict is chosen, so the map shows the journey whichever
+  // branch the fare logic takes — including the ones that end in "we can't say".
+  const interchange = journey.interchange || null;
+  drawJourneyOnMap(
+    option ? [{ service: option.service, operator: option.operator, stops: option.stops }]
+           : (interchange ? interchange.legs : []),
+    interchange ? interchange.change_at : null,
+    interchange ? interchange.board_at : null);
+  const itinerary = itineraryHtml(interchange);
+
   const usable = pathStops.filter(s => typeof s.lat === "number" && typeof s.lon === "number");
   if (usable.length < 2) {
     host.innerHTML = `<p class="journey-note">We don't have locations for those stops, so we can't check the zones.</p>`;
@@ -5006,8 +5250,18 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // Evening-only products are left out of the costing entirely: a £4 Nightrider
   // is cheap because it's restricted, and letting it set the headline would
   // understate what an ordinary commuter actually pays.
-  const zones = allZones.filter(z =>
+  const allStandardZones = allZones.filter(z =>
     isStandardFareZone(z) && ticketValidAtTime(z, departAt));
+
+  // Tickets no single operator could carry you the whole way on are dropped
+  // before anything is costed — see ticketsUsableEndToEnd. `shared` is kept
+  // separately because an empty one is itself the answer: the two ends have no
+  // operator in common, so no day ticket can span them at any price.
+  const shared = operatorsKnown ? commonOperators(endpointOperators) : null;
+  const zones = operatorsKnown
+    ? ticketsUsableEndToEnd(allStandardZones, endpointOperators)
+    : allStandardZones;
+  const droppedForOperator = allStandardZones.filter(z => !zones.includes(z));
 
   const coverPerStop = usable.map((s, i) =>
     zonesForStop(s, zones, byId, endpointOperators[i] ?? operator));
@@ -5015,6 +5269,9 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
 
   // Zone tickets answer "how many tickets does this journey need?"; an
   // operator-wide ticket is shown alongside as the alternative, not folded in.
+  // Drop tickets no single operator could carry you the whole way on. See
+  // ticketsUsableEndToEnd — this is what stops a Metrovoyager being offered
+  // for a journey whose only realistic bus is a Stagecoach 700.
   const { zonal, network } = splitZonesByRule(zones);
   const best = cheapestCover(coverPerStop, zonal);
   const networkOption = bestNetworkTicket(coverPerStop, network);
@@ -5030,7 +5287,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
 
   const routeLine = option
     ? `<p class="journey-note">Following the ${escapeHtml(option.service)} — ${option.stop_count} stops, ${escapeHtml(option.depart)} to ${escapeHtml(option.arrive)}.</p>`
-    : `<p class="journey-note">${escapeHtml(journey.note || "No direct bus found.")}</p>`;
+    : `<p class="journey-note">${escapeHtml(journey.note || "No direct bus found.")}</p>${itinerary}`;
 
   const header = `
     <p class="journey-endpoints">
@@ -5052,7 +5309,32 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
                   ${escapeHtml(networkOption.zone.name)}, but we don't have a
                   current price for it.</p>`}
         ${reformComparisonHtml(only, coveringZoneIds(coverPerStop), byId, meta)}
-      </div>` + zoneListHtml(coverPerStop, byId);
+      </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared);
+    return;
+  }
+
+  // ── The two ends share no operator ────────────────────────
+  //
+  // Not a gap in our data — a fact about the network, and the sharpest thing
+  // this calculator can say. If no company runs a bus at both ends, no day
+  // ticket spans the journey at any price, so the honest answer is what two
+  // tickets or a handful of singles actually cost.
+  if (operatorsKnown && shared && shared.length === 0) {
+    const legFare = singlesBaseline(meta, legs);
+    const sf = meta.single_fare;
+    host.innerHTML = header + `
+      <div class="journey-alert journey-alert--penalty">
+        <p><strong>No single ticket can cover this journey.</strong> No bus company
+        runs a service at both ends of it &mdash; ${escapeHtml(operatorPhrase(endpointOperators[0]))}
+        at one end, ${escapeHtml(operatorPhrase(endpointOperators[endpointOperators.length - 1]))}
+        at the other &mdash; so whichever ticket you buy stops working when you change.</p>
+        ${(legFare && sf) ? `<p class="journey-basis">Two buses each way at the
+        ${escapeHtml(formatGbp(sf.price_pence))} single fare is
+        <strong>${escapeHtml(formatGbp(legFare.total))}</strong> for the return trip.
+        A day ticket from either operator would cover only half of it.</p>` : ""}
+      </div>
+      ${reformComparisonHtml(legFare, coveringZoneIds(coverPerStop), byId, meta)}`
+      + zoneListHtml(coverPerStop, byId, droppedForOperator, shared);
     return;
   }
 
@@ -5062,7 +5344,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
       <div class="journey-alert journey-alert--unknown">
         <p>We don't have ticket-zone coverage for every stop on this journey, so
         we can't say for certain how many tickets it needs.</p>
-      </div>` + zoneListHtml(coverPerStop, byId);
+      </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared);
     return;
   }
 
@@ -5108,7 +5390,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
         ${singlesLine}
       </div>`
       + reformComparisonHtml(cheapest, coveringZoneIds(coverPerStop), byId, meta)
-      + zoneListHtml(coverPerStop, byId)
+      + zoneListHtml(coverPerStop, byId, droppedForOperator, shared)
       + faresProvenanceHtml(best.zones, byId);
     return;
   }
@@ -5134,7 +5416,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
       ${zoneCostHtml(best, byId)}
       ${money}
       ${reformComparisonHtml(cheapest, best.zones, byId, meta)}
-    </div>` + zoneListHtml(coverPerStop, byId) + faresProvenanceHtml(best.zones, byId);
+    </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared) + faresProvenanceHtml(best.zones, byId);
 }
 
 /** The zones this journey crosses, itemised with what each ticket costs. */
@@ -5385,17 +5667,48 @@ function reformComparisonHtml(cheapest, zoneIds, byId, meta) {
     </div>`;
 }
 
-/** Which zones the journey actually passed through, for transparency. */
-function zoneListHtml(coverPerStop, byId) {
+/**
+ * Which zones the journey passed through, for transparency — and which were set
+ * aside, which is the more interesting half.
+ *
+ * A ticket whose zone covers these stops but which no operator serving both
+ * ends accepts is not a ticket you can use, and listing it without saying so is
+ * how a Metrovoyager came to look like the answer to a Worthing-to-Hangleton
+ * trip that anyone would actually make on a Stagecoach 700.
+ */
+function zoneListHtml(coverPerStop, byId, dropped, shared) {
   const seen = [];
   for (const set of coverPerStop) {
     for (const id of set) if (!seen.includes(id)) seen.push(id);
   }
-  if (!seen.length) return "";
-  const items = seen.map(id =>
-    `<li>${escapeHtml(byId[id].name)} <span class="journey-zone-op">${escapeHtml(byId[id].operator)}</span></li>`
-  ).join("");
-  return `<div class="journey-zones"><p class="journey-zones-title">Zones along the way</p><ul>${items}</ul></div>`;
+  const item = (z) =>
+    `<li>${escapeHtml(z.name)} <span class="journey-zone-op">${escapeHtml(z.operator)}</span></li>`;
+
+  let out = "";
+  if (seen.length) {
+    out += `<div class="journey-zones"><p class="journey-zones-title">Zones along the way</p>`
+         + `<ul>${seen.map(id => item(byId[id])).join("")}</ul></div>`;
+  }
+  if (dropped && dropped.length) {
+    const who = (shared && shared.length)
+      ? `only ${escapeHtml(shared.map(getOperatorName).join(" and "))} runs a bus at both ends`
+      : `no one company runs a bus at both ends`;
+    out += `<div class="journey-zones journey-zones--dropped">
+      <p class="journey-zones-title">Not usable on this journey</p>
+      <ul>${dropped.map(item).join("")}</ul>
+      <p class="journey-basis">These cover the ground, but ${who}, so a ticket
+      the other operators accept would stop working when you change.</p>
+    </div>`;
+  }
+  return out;
+}
+
+/** "Stagecoach South", or "Brighton &amp; Hove Buses and Compass Travel". */
+function operatorPhrase(ops) {
+  const names = normaliseOperators(ops).map(getOperatorName);
+  if (!names.length) return "no operator we know of";
+  if (names.length === 1) return names[0];
+  return names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
 }
 
 /** Every price shown must carry its source and the date it was checked. */

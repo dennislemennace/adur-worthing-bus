@@ -267,3 +267,60 @@ def test_trips_connecting_can_start_from_a_time_of_day(tt):
     first = from_noon[0]["depart_secs"] % 86400
     assert (first - noon) % 86400 <= (
         (tt.trips_connecting(a, b, limit=1)[0]["depart_secs"] % 86400) - noon) % 86400
+
+
+# ── One-change itineraries ──────────────────────────────────
+#
+# The fare side could say a journey needs two tickets; it could not say what the
+# journey *is*. These pin the two things a first version got wrong, both of
+# which made it report no way at all between places people plainly travel
+# between.
+
+@needs_db
+def test_a_change_can_be_a_short_walk(tt):
+    """Southwick Square to Mile Oak is the case that set the walk radius.
+
+    The 46 and the 1X do not share a stop near Portslade — the 1X is around the
+    corner and the 1 is five minutes down the road. Requiring the identical
+    stop, or even a same-named pair of poles, reported no way to travel between
+    two places two miles apart in the same city.
+    """
+    week = tt.sample_week()
+    got = tt.interchange_legs("4400AD0259", "149000006483", week["monday"])
+    assert got is not None, (
+        "no one-change itinerary Southwick Square -> Mile Oak Gardens; the "
+        "change is a short walk, so requiring one stop misses it")
+    assert len(got["legs"]) == 2
+    assert got["walk_metres"] <= tt.INTERCHANGE_WALK_KM * 1000
+    assert got["total_minutes"] > 0
+
+
+@needs_db
+def test_a_stop_only_served_outbound_has_no_arrival(tt):
+    """Mile Oak Road Shops sits at seq 3-7 of route 1: buses start near there
+    and run outbound to Whitehawk. You can board, not arrive. Reporting no
+    itinerary is correct, and must not be 'fixed' by widening the search."""
+    week = tt.sample_week()
+    assert tt.interchange_legs("4400AD0259", "149000006479", week["monday"]) is None
+
+
+@needs_db
+def test_a_later_bus_can_be_the_one_that_connects(tt):
+    """Keeping only the earliest arrival at each stop throws away the later one
+    that actually makes the connection. Several are kept, so a pair with any
+    valid connection resolves."""
+    week = tt.sample_week()
+    got = tt.interchange_legs("4400WO0253", "149000007677", week["monday"])
+    assert got is not None, "Worthing to Hangleton is one change via the coast"
+    one, two = got["legs"]
+    assert one["service"] and two["service"]
+    assert got["wait_minutes"] >= 0
+
+
+@needs_db
+def test_a_through_bus_gets_no_interchange(tt):
+    """Where a direct service exists the endpoint returns options instead, so
+    the search should never be asked — but it must also not invent a change
+    between a stop and itself."""
+    assert tt.interchange_legs("4400AD0117", "4400AD0117",
+                               tt.sample_week()["monday"]) is None

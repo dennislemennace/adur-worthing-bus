@@ -2,7 +2,11 @@
 """
 Prepare a bus image for use as a map marker.
 
-    python scripts/prepare_bus_icon.py in.png icons/BHBC-1.png
+    python scripts/prepare_bus_icon.py in.png icons/source/BHBC-1.png
+
+Writes the master to icons/source/ and then builds the served icon into
+icons/ via scripts/build_icons.py, so a new livery gets both without a second
+command. Pass --no-build to write only the master.
 
 Three things have to be true of a marker icon, and generated bus art is
 rarely born with any of them:
@@ -31,8 +35,10 @@ from pathlib import Path
 
 from PIL import Image
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_REFERENCE = ROOT / "icons" / "BHBC.png"
+DEFAULT_REFERENCE = ROOT / "icons" / "source" / "BHBC.png"
 HALO_THRESHOLD = 40      # alpha at or below this is halo, not vehicle
 
 
@@ -94,6 +100,8 @@ def main() -> None:
     ap.add_argument("dest")
     ap.add_argument("--reference", default=str(DEFAULT_REFERENCE),
                     help="icon whose content size and position to match")
+    ap.add_argument("--no-build", action="store_true",
+                    help="write the master only; skip the served-icon build")
     args = ap.parse_args()
 
     src = Image.open(args.source)
@@ -113,18 +121,27 @@ def main() -> None:
     cy = (rbox[1] + rbox[3]) // 2
     canvas.paste(bus, (cx - target_w // 2, cy - target_h // 2), bus)
 
-    # Palette + transparency, like the icons already in this directory —
-    # these are 1536px wide and there are a lot of them on screen at once.
-    # FASTOCTREE is the only quantiser that keeps an alpha channel, which is
-    # the whole point here — MEDIANCUT refuses RGBA outright.
-    quant = canvas.quantize(colors=255, method=Image.FASTOCTREE)
-    Path(args.dest).parent.mkdir(parents=True, exist_ok=True)
-    quant.save(args.dest, optimize=True)
+    # The master keeps full resolution and no palette: it is the thing future
+    # sizes get re-exported from, so throwing information away here would be
+    # permanent. Quantising and resizing happen in build_icons.py, on the copy
+    # the site actually serves.
+    dest = Path(args.dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(dest, optimize=True)
 
-    size_kb = Path(args.dest).stat().st_size / 1024
-    print(f"{args.dest}: {canvas.width}x{canvas.height} canvas, "
+    size_kb = dest.stat().st_size / 1024
+    print(f"{dest}: {canvas.width}x{canvas.height} canvas, "
           f"bus {target_w}x{target_h} (reference {target_w}x{rbox[3]-rbox[1]}), "
-          f"{size_kb:.0f} KB")
+          f"{size_kb:.0f} KB master")
+
+    if args.no_build:
+        print("  --no-build: served icon not written. "
+              "Run scripts/build_icons.py before the site can use it.")
+        return
+    # A master with no served counterpart is an icon that 404s on the map, so
+    # building is the default rather than a step to remember.
+    from build_icons import build, OUT_DIR
+    print(" ", build(dest, OUT_DIR / dest.name))
 
 
 if __name__ == "__main__":

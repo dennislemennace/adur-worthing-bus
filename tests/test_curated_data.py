@@ -575,3 +575,51 @@ def test_boundary_evidence_figures_are_present_and_sane():
             assert s.get("departures_per_stop") is not None, (
                 f"{day}/{side}: no departures_per_stop — the published figure is "
                 f"per stop, and a total would only restate that one side is bigger")
+
+
+# ── Served map icons ────────────────────────────────────────
+#
+# The icons were once 1536x1024 and drawn in a 56px box — a 27x oversample that
+# cost about 70 MB of decoded bitmap on a phone. A browser decodes a PNG to
+# width x height x 4 bytes whatever its palette holds, so shrinking the colour
+# count fixed the download and none of the memory. These stop a master being
+# dropped back into the served directory, where nothing would look wrong.
+
+ICON_DIR = ROOT / "icons"
+ICON_SOURCE_DIR = ICON_DIR / "source"
+MAX_SERVED_ICON_PX = 200      # the build targets 168; this is headroom, not a target
+
+
+def _served_icons():
+    return sorted(p for p in ICON_DIR.glob("*.png"))
+
+
+def test_served_icons_are_display_sized():
+    from PIL import Image
+    oversized = []
+    for path in _served_icons():
+        with Image.open(path) as im:
+            if max(im.size) > MAX_SERVED_ICON_PX:
+                oversized.append(f"{path.name} is {im.width}x{im.height}")
+    assert not oversized, (
+        "served icons far larger than the 56px box they are drawn in: "
+        + ", ".join(oversized)
+        + ". Run scripts/build_icons.py — masters belong in icons/source/.")
+
+
+def test_every_served_icon_has_a_master():
+    """A served icon with no master cannot be re-exported at another size, and
+    a master with no served icon is a marker that 404s on the map."""
+    served = {p.name for p in _served_icons()}
+    masters = {p.name for p in ICON_SOURCE_DIR.glob("*.png")}
+    assert served == masters, (
+        f"served-only: {sorted(served - masters)}; "
+        f"master-only: {sorted(masters - served)}")
+
+
+def test_served_icons_are_small_enough_to_ship():
+    """Twelve icons load before the first bus appears; the whole set should cost
+    less than a single photograph."""
+    total = sum(p.stat().st_size for p in _served_icons())
+    assert total < 120 * 1024, (
+        f"served icons total {total/1024:.0f} KB — the build produces about 45 KB")

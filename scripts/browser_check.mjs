@@ -554,6 +554,30 @@ async function checkInteractiveSurfaces(page) {
   if (presets > 0) {
     await checkLayout(page, "journey presets");
     await checkContrastBothThemes(page, "journey presets");
+
+    // A journey needing a change is drawn as its legs, in route liveries. The
+    // point of the picture is that two coloured lines meet at a dot — so the
+    // check is that both legs and the change marker are actually on the map.
+    await page.evaluate(`(document.querySelector('[data-preset="worthing-to-hangleton"]').click(), 1)`);
+    await sleep(3200);
+    const drawn = await page.evaluate(`state.journeyLayers.filter(l => state.map.hasLayer(l)).length`);
+    check("a journey with a change is drawn on the map", drawn >= 5,
+      `${drawn} layers — two casings, two legs, a service pill each and a change marker`);
+    const itin = await page.evaluate(
+      `(document.querySelector(".journey-itinerary") || {}).textContent || ""`);
+    check("the itinerary names both buses and the change",
+      /\bchange|wait\b/i.test(itin) && /minutes door to door/.test(itin),
+      itin.replace(/\s+/g, " ").trim().slice(0, 90));
+    await checkLayout(page, "journey itinerary");
+    await checkContrastBothThemes(page, "journey itinerary");
+
+    // Route liveries are chosen against each other, not against a basemap, so
+    // a leg drawn without its casing can vanish over a main road.
+    await page.evaluate(`(setViewMode("live"), 1)`);
+    await sleep(1500);
+    const left = await page.evaluate(`state.journeyLayers.filter(l => state.map.hasLayer(l)).length`);
+    check("the journey is torn down when the view changes", left === 0,
+      `${left} layers left behind`);
   }
 }
 

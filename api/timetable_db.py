@@ -772,6 +772,205 @@ class Timetable:
         return {name: monday + _dt.timedelta(days=i)
                 for i, name in enumerate(self._DAY_COLS)}
 
+    # A change on foot. Two poles of one road share a name and are caught by
+    # sibling_stops, but a real interchange often is not, and Portslade Station
+    # is the case that set this number: the 1X stops around the corner from the
+    # 46, while the 1 is five minutes down the road. Both are changes people
+    # make, so the radius has to reach the further one — with the walk penalised
+    # in scoring so the corner beats the road when both connect.
+    INTERCHANGE_WALK_KM = 0.4
+    WALK_METRES_PER_SEC = 1.35
+
+    def interchange_legs(self, from_stop: str, to_stop: str, day,
+                         anchor_secs: int = 43200) -> Optional[dict]:
+        """The best one-change itinerary, when no bus runs the whole way.
+
+        The fare side of this site can say a journey needs two tickets. It could
+        never say what the journey actually *is* — which bus, changing where,
+        taking how long — because /api/journey returns direct trips or nothing.
+        That is the half a passenger cares about, and the half that makes an
+        hour-long two-bus trip legible as the problem it is.
+
+        Deliberately one change, not two. A second change is a different kind of
+        journey and searching for it would invite answers nobody would make.
+
+        Two things this gets right that a first version did not, both of which
+        made it report no way at all between places people plainly do travel
+        between:
+
+        * **Changing costs a walk.** Requiring the identical stop, or even the
+          same-named pair of poles, misses the ordinary case of stepping a
+          couple of hundred metres to another stop. Southwick to Mile Oak is
+          exactly that — the 46 and the 1 meet near Portslade Station without
+          sharing a stop.
+        * **The first bus to arrive is not always the one to catch.** Keeping
+          only the earliest arrival at each stop throws away the later one that
+          actually connects. Several are kept and every pairing is tried.
+
+        Trip paths are a primary-key lookup — stop_times is WITHOUT ROWID keyed
+        on (tid, seq) — so walking every candidate trip end to end is cheap.
+        """
+        if self._con is None:
+            return None
+        MIN_CHANGE_SECS = 4 * 60
+        MAX_WAIT_SECS = 60 * 60          # a longer wait is not a connection
+        KEEP_ARRIVALS = 8                # per stop, earliest after the anchor
+
+        a_sids = {self.stops[s]["_sid"] for s in self.sibling_stops(from_stop)
+                  if s in self.stops}
+        b_sids = {self.stops[s]["_sid"] for s in self.sibling_stops(to_stop)
+                  if s in self.stops}
+        if not a_sids or not b_sids or (a_sids & b_sids):
+            return None
+
+        runs: dict = {}
+
+        def trip_runs(tid):
+            if tid not in runs:
+                trip_id = self._tid_to_trip.get(tid)
+                trip = self.trips.get(trip_id) if trip_id else None
+                runs[tid] = bool(trip) and self.runs_on(trip.get("service_id", ""), day)
+            return runs[tid]
+
+        def paths_from(sids):
+            out, seen = [], set()
+            for sid in sids:
+                for (tid,) in self._con.execute(
+                        "SELECT DISTINCT tid FROM stop_times WHERE sid=?", (sid,)):
+                    if tid in seen or not trip_runs(tid):
+                        continue
+                    seen.add(tid)
+                    out.append((tid, self._con.execute(
+                        "SELECT seq, sid, dep_secs FROM stop_times "
+                        "WHERE tid=? ORDER BY seq", (tid,)).fetchall()))
+            return out
+
+        # Leg one: every stop the first bus can put us at, with several arrival
+        # times each, not just the earliest.
+        first_leg: dict = {}
+        for tid, calls in paths_from(a_sids):
+            board = next((c for c in calls
+                          if c[1] in a_sids and c[2] is not None
+                          and c[2] >= anchor_secs), None)
+            if board is None:
+                continue
+            for c in calls:
+                if c[0] <= board[0] or c[2] is None:
+                    continue
+                first_leg.setdefault(c[1], []).append(
+                    {"tid": tid, "board_seq": board[0], "alight_seq": c[0],
+                     "depart": board[2], "arrive": c[2]})
+        if not first_leg:
+            return None
+        for sid in first_leg:
+            first_leg[sid].sort(key=lambda x: x["arrive"])
+            del first_leg[sid][KEEP_ARRIVALS:]
+
+        # Where each of those stops is, bucketed into a coarse grid so a walking
+        # transfer costs a handful of neighbour lookups rather than a full cross
+        # product against every boarding stop on the second leg. Without this the
+        # search ran to two and a half seconds on a long coastal pair.
+        CELL = 0.005                      # ~0.5 km, comfortably over the walk cap
+        coords, grid = {}, {}
+        for sid in first_leg:
+            stop = self.stops.get(self._sid_to_stop.get(sid)) or {}
+            if stop.get("lat") is None:
+                continue
+            coords[sid] = (stop["lat"], stop["lon"])
+            key = (int(stop["lat"] // CELL), int(stop["lon"] // CELL))
+            grid.setdefault(key, []).append(sid)
+
+        def nearby(lat, lon):
+            cy, cx = int(lat // CELL), int(lon // CELL)
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    for sid in grid.get((cy + dy, cx + dx), ()):
+                        yield sid
+
+        best = None
+        for tid, calls in paths_from(b_sids):
+            arrive = next((c for c in reversed(calls)
+                           if c[1] in b_sids and c[2] is not None), None)
+            if arrive is None:
+                continue
+            for c in calls:
+                if c[0] >= arrive[0] or c[2] is None:
+                    continue
+                stop = self.stops.get(self._sid_to_stop.get(c[1])) or {}
+                if stop.get("lat") is None:
+                    continue
+                for sid in set(nearby(stop["lat"], stop["lon"])) | ({c[1]} & first_leg.keys()):
+                    xy = coords.get(sid)
+                    if xy is None:
+                        continue
+                    if sid == c[1]:
+                        walk_km, walk_secs = 0.0, 0
+                    else:
+                        walk_km = _haversine_km(xy, (stop["lat"], stop["lon"]))
+                        if walk_km > self.INTERCHANGE_WALK_KM:
+                            continue
+                        walk_secs = int(walk_km * 1000 / self.WALK_METRES_PER_SEC)
+                    for one in first_leg[sid]:
+                        wait = c[2] - one["arrive"]
+                        if wait < MIN_CHANGE_SECS + walk_secs or wait > MAX_WAIT_SECS:
+                            continue
+                        total = arrive[2] - one["depart"]
+                        # Walking to another stop is worth more than the clock
+                        # says: it is the part of a change people get wrong, in
+                        # rain, with a pushchair. A stop-for-stop change wins
+                        # unless the walk genuinely saves time.
+                        score = total + walk_secs * 3
+                        if best is None or score < best["score"]:
+                            best = {"score": score, "total_secs": total, "one": one,
+                                    "from_sid": sid, "to_sid": c[1],
+                                    "walk_m": round(walk_km * 1000),
+                                    "two": {"tid": tid, "board_seq": c[0],
+                                            "alight_seq": arrive[0],
+                                            "depart": c[2], "arrive": arrive[2]},
+                                    "wait_secs": wait}
+        if best is None:
+            return None
+
+        def describe(leg):
+            trip_id = self._tid_to_trip.get(leg["tid"])
+            trip = self.trips.get(trip_id) or {}
+            route = self.routes.get(trip.get("route_id", "")) or {}
+            # The in-memory routes dict carries no NOC, and noc_for_short_name is
+            # last-row-wins across operators sharing a number. Read the row.
+            noc = ""
+            rid = route.get("_rid")
+            if rid is not None:
+                row = self._con.execute(
+                    "SELECT noc FROM routes WHERE rid=?", (rid,)).fetchone()
+                noc = (row[0] if row else "") or ""
+            return {
+                "service": route.get("short_name", ""),
+                "operator": noc,
+                "headsign": trip.get("headsign", ""),
+                "depart": _span_hhmm(leg["depart"]),
+                "arrive": _span_hhmm(leg["arrive"]),
+                "minutes": max(0, (leg["arrive"] - leg["depart"]) // 60),
+                "stops": self.stops_between(trip_id, leg["board_seq"], leg["alight_seq"]),
+            }
+
+        def place(sid):
+            atco = self._sid_to_stop.get(sid)
+            stop = self.stops.get(atco) or {}
+            return {"atco": atco, "name": stop.get("name", ""),
+                    "lat": stop.get("lat"), "lon": stop.get("lon")}
+
+        return {
+            "legs": [describe(best["one"]), describe(best["two"])],
+            "change_at": place(best["from_sid"]),
+            # Where the second bus is actually caught, when it is not the same
+            # stop. Named separately because "walk 120 m to Southern Cross" is
+            # part of the journey, not a detail.
+            "board_at": place(best["to_sid"]),
+            "walk_metres": best["walk_m"],
+            "wait_minutes": best["wait_secs"] // 60,
+            "total_minutes": best["total_secs"] // 60,
+        }
+
     def service_span(self, stop_id: str) -> dict:
         """When buses actually run from a stop, by day of week.
 

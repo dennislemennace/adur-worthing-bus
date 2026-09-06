@@ -942,3 +942,57 @@ test("the Gold DayRider is £8.50", () => {
   const byIdLocal = Object.fromEntries(zonesData.zones.map(z => [z.id, z]));
   assert.equal(byIdLocal["sc-gold-dayrider"].fares.adult_day.price_pence, 850);
 });
+
+// ── A ticket has to carry the whole journey ─────────────────
+//
+// zonesForStop asks a per-stop question: does an operator accepting this ticket
+// call here? Right for a direct bus, not enough for one needing a change.
+// Metrovoyager is accepted by Metrobus and Brighton & Hove, and Metrobus does
+// reach Worthing — on the route-23 corridor down from Horsham — so a
+// Worthing-to-Hangleton trip had one at each end and read as covered. The bus
+// anyone would actually take is a Stagecoach 700, which it is not valid on.
+
+test("operators common to both ends are what a ticket has to be valid on", () => {
+  // plain(): values built inside the vm come from another realm, so their
+  // Array prototype differs and deepEqual rejects them on identity alone.
+  assert.deepEqual(plain(app.commonOperators([["SCSO"], ["BHBC", "COMT", "SCSO"]])), ["SCSO"]);
+  assert.deepEqual(plain(app.commonOperators([["COMT", "METR", "SCSO"], ["BHBC"]])), []);
+  assert.deepEqual(plain(app.commonOperators([["BHBC"], ["BHBC"]])), ["BHBC"]);
+});
+
+test("unknown operators leave the answer open rather than empty", () => {
+  // null means "the API didn't tell us", which must not read as "nobody".
+  assert.equal(app.commonOperators([null, null]), null);
+});
+
+test("Metrovoyager is dropped when no accepting operator serves both ends", () => {
+  const metro = byId["mb-metrovoyager"];
+  // Worthing (Compass/Metrobus/Stagecoach) to Hangleton (Brighton & Hove).
+  const kept = app.ticketsUsableEndToEnd(
+    [metro], [["COMT", "METR", "SCSO"], ["BHBC"]]);
+  assert.equal(kept.length, 0,
+    "Metrobus serves one end and B&H the other, but neither serves both — " +
+    "the journey is made on a Stagecoach 700 the ticket is not valid on");
+});
+
+test("Metrovoyager survives where one accepting operator does serve both ends", () => {
+  const metro = byId["mb-metrovoyager"];
+  const kept = app.ticketsUsableEndToEnd(
+    [metro], [["BHBC", "SCSO"], ["BHBC"]]);
+  assert.equal(kept.length, 1, "Brighton & Hove serves both ends and accepts it");
+});
+
+test("a Stagecoach ticket is dropped on a journey Stagecoach cannot complete", () => {
+  const gold = byId["sc-gold-dayrider"];
+  assert.equal(app.ticketsUsableEndToEnd([gold], [["SCSO"], ["BHBC"]]).length, 0);
+  assert.equal(app.ticketsUsableEndToEnd([gold], [["SCSO"], ["BHBC", "SCSO"]]).length, 1);
+});
+
+test("a direct journey is unaffected — one operator runs the whole thing", () => {
+  const zones = [byId["sc-worthing-dayrider"], byId["sc-brighton-dayrider"],
+                 byId["bh-citysaver"]];
+  // journeyEndpointOperators gives every stop the running operator on a direct trip.
+  const kept = app.ticketsUsableEndToEnd(zones, [["SCSO"], ["SCSO"], ["SCSO"]]);
+  assert.deepEqual(kept.map(z => z.id).sort(),
+                   ["sc-brighton-dayrider", "sc-worthing-dayrider"]);
+});

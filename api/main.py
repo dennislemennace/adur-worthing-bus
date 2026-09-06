@@ -1430,6 +1430,12 @@ async def get_journey(
         "direct":  bool(options),
         "priced_at": at,
         "options": options,
+        # What the journey actually is when no bus runs the whole way. The fare
+        # side could say "this needs two tickets"; it could never say which
+        # buses, changing where, taking how long — which is the half a passenger
+        # cares about and the half that makes an hour-long two-bus trip legible.
+        "interchange": None if options else
+                       tt.interchange_legs(a, b, today, anchor),
         "note": "" if options else
                 "No direct bus found between these stops today — this journey "
                 "needs a change, so only the start and end zones are compared.",

@@ -994,6 +994,63 @@ html.dark-mode .map-loading {
   font-size: 0.94em;
 }
 
+/* Tickets whose zone covers the ground but which no operator serving both ends
+   accepts. Listed rather than hidden: "why isn't the Metrovoyager an option?"
+   is a fair question, and the answer is the argument. Muted, not struck through
+   — these are real tickets, just not for this journey. */
+.journey-zones--dropped {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px dashed var(--color-border);
+  opacity: 0.85;
+}
+.journey-zones--dropped .journey-zones-title { color: var(--color-text-muted); }
+.journey-zones--dropped li { color: var(--color-text-muted); }
+
+/* ===== THE JOURNEY, DRAWN =====
+   Route liveries on the map, so a two-operator trip is visibly two trips. */
+.journey-marker-icon { background: none; border: 0; }
+.journey-marker {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* The divIcon has no size of its own, so the pill centres itself on the
+     point rather than hanging off its top-left corner. */
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.journey-marker--change {
+  border: 1px solid var(--color-border);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.66rem;
+}
+
+.journey-itinerary {
+  margin: var(--space-sm) 0;
+  padding: var(--space-sm);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.journey-itinerary-line {
+  margin: 0 0 var(--space-2xs);
+  font-size: var(--font-size-sm);
+  line-height: 1.7;
+}
+.journey-leg-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ===== JOURNEY PRESETS =====
    Worked examples above the checker's form. Chips rather than a list: they are
    shortcuts, and should not compete with the two fields underneath them. */
@@ -2075,8 +2132,11 @@ html.dark-mode .btn-text {
   object-fit: contain;
   transform-origin: center center;
   transition: transform 0.4s ease-out;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
   display: block;
+  /* The drop shadow is baked into the PNG by scripts/build_icons.py, not drawn
+     here. `filter: drop-shadow()` puts every marker on its own compositing
+     layer, and there are two hundred buses on screen at the daytime peak — two
+     hundred layers recomposited every frame for a shadow that never changes. */
 }
 
 .bus-icon-label {
