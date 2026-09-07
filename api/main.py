@@ -193,7 +193,16 @@ DEBUG_ENABLED = os.environ.get("DEBUG_ENABLED", "").lower() in ("1", "true", "ye
 
 # Where the site is served from. render.yaml has always documented this var;
 # until now nothing read it and CORS was an unconditional wildcard.
-DEFAULT_ALLOWED_ORIGIN = "https://dennislemennace.github.io"
+#
+# Two entries, not one. The custom domain is the canonical home, but GitHub
+# keeps serving the Pages URL — it 301s to the custom domain — and leaving it
+# allowed means a DNS or certificate problem can be rolled back by deleting the
+# CNAME file without also having to remember to redeploy the API. Neither is a
+# wildcard, so the cost of keeping both is nil.
+DEFAULT_ALLOWED_ORIGINS = (
+    "https://worthingbrightonbus.co.uk",
+    "https://dennislemennace.github.io",
+)
 
 app = FastAPI(
     title="Adur & Worthing Bus API",
@@ -216,8 +225,9 @@ app = FastAPI(
 _allowed_origins = [
     o.strip() for o in os.environ.get("ALLOWED_ORIGIN", "").split(",") if o.strip()
 ]
-if DEFAULT_ALLOWED_ORIGIN not in _allowed_origins:
-    _allowed_origins.append(DEFAULT_ALLOWED_ORIGIN)
+for _origin in DEFAULT_ALLOWED_ORIGINS:
+    if _origin not in _allowed_origins:
+        _allowed_origins.append(_origin)
 
 # Loopback is always allowed so the documented preview flow works with no env
 # vars. Private LAN origins are opt-in via ALLOW_LAN_ORIGINS, because that is

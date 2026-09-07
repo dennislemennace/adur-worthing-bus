@@ -18,7 +18,7 @@ GITHUB_REPO = "dennislemennace/adur-worthing-bus"
 # Comma-separated origin allowlist. This is the check that stops the endpoint
 # being driven from anywhere but the site — keep it tight. Add a localhost
 # entry only while testing locally, and take it out again before deploying.
-ALLOWED_ORIGINS = "https://dennislemennace.github.io"
+ALLOWED_ORIGINS = "https://worthingbrightonbus.co.uk,https://dennislemennace.github.io"
 
 # Rate-limit counters. Create with:
 #   npx wrangler kv namespace create RATE_LIMIT

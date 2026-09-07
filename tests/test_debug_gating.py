@@ -24,7 +24,11 @@ sys.path.insert(0, str(ROOT))
 
 import api.main as main  # noqa: E402
 
-SITE_ORIGIN = "https://dennislemennace.github.io"
+# The custom domain is canonical; the Pages URL stays allowed so a rollback
+# (delete CNAME, GitHub serves github.io again) does not also need an API
+# redeploy. Both must survive a stale ALLOWED_ORIGIN.
+SITE_ORIGIN = "https://worthingbrightonbus.co.uk"
+LEGACY_ORIGIN = "https://dennislemennace.github.io"
 
 
 def debug_paths(app):
@@ -151,6 +155,7 @@ def test_allowed_origin_env_var_is_honoured(monkeypatch):
         assert "https://example.test" in reloaded._allowed_origins
         assert "https://other.test" in reloaded._allowed_origins
         assert SITE_ORIGIN in reloaded._allowed_origins
+        assert LEGACY_ORIGIN in reloaded._allowed_origins
         resp = TestClient(reloaded.app).get("/", headers={"Origin": "https://other.test"})
         assert resp.headers.get("access-control-allow-origin") == "https://other.test"
     finally:
@@ -193,6 +198,7 @@ def test_site_origin_survives_a_stale_allowed_origin(monkeypatch):
     reloaded = importlib.reload(main)
     try:
         assert SITE_ORIGIN in reloaded._allowed_origins
+        assert LEGACY_ORIGIN in reloaded._allowed_origins
         resp = TestClient(reloaded.app).get("/", headers={"Origin": SITE_ORIGIN})
         assert resp.headers.get("access-control-allow-origin") == SITE_ORIGIN
         # the configured value still works too
