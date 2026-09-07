@@ -5021,12 +5021,52 @@ function journeyPickerValue(name, atco) {
   return atco || name || "";
 }
 
-/** Fill the checker from a preset and run it. */
-function runJourneyPreset(preset) {
+/**
+ * Scroll a panel tab so `el` sits near the top of it.
+ *
+ * Deliberately scrolls the tab's own scroller rather than calling
+ * scrollIntoView: the panel is a bottom sheet under 700px, and letting the
+ * browser pick a scrolling ancestor there drags the sheet itself rather than
+ * its contents. `offset` keeps whatever sits above `el` in view - the point is
+ * usually to show a result *and* the control that produced it.
+ */
+function scrollPanelTo(el, offset = 0) {
+  const box = el && el.closest(".panel-tab-content");
+  if (!box) return;
+  const top = box.scrollTop
+            + el.getBoundingClientRect().top
+            - box.getBoundingClientRect().top
+            - offset;
+  const still = window.matchMedia
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  box.scrollTo({ top: Math.max(0, top), behavior: still ? "auto" : "smooth" });
+}
+
+/**
+ * Fill the checker from a preset, run it, and show the answer.
+ *
+ * A preset is a worked example, so pressing Check afterwards is a step nobody
+ * wants: choosing the journey *is* the request. The scroll matters as much as
+ * the run - the presets sit above both stop pickers and the button, so on a
+ * short panel the result appears entirely below the fold and the click looks
+ * like it did nothing.
+ *
+ * Awaited, because checkJourney fetches a route: scrolling before it resolves
+ * would move the panel to an empty result box.
+ */
+async function runJourneyPreset(preset) {
   if (!dom.jcFrom || !dom.jcTo) return;
   dom.jcFrom.value = journeyPickerValue(preset.from_name, preset.from);
   dom.jcTo.value   = journeyPickerValue(preset.to_name,   preset.to);
-  checkJourney();
+  await checkJourney();
+
+  // Only scroll to something worth reading. A failed check leaves the result
+  // empty and puts its reason in the status line by the button, so that is
+  // what to show instead - scrolling past it to a blank box hides the message.
+  const result = dom.jcResult && dom.jcResult.innerHTML.trim()
+    ? dom.jcResult
+    : dom.jcStatus;
+  if (result) scrollPanelTo(result, 72);
 }
 
 async function checkJourney() {

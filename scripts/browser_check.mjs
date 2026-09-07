@@ -821,6 +821,54 @@ async function checkPanelCollapse(page) {
  * a check people learn to ignore. tests/test_councillor.mjs covers that logic
  * against fixtures.
  */
+/**
+ * A preset journey answers itself.
+ *
+ * The presets are worked examples, so choosing one *is* the request: filling
+ * the form and then waiting to be told to press Check is a step nobody wants.
+ * The scroll is half the feature and the half that fails silently — the
+ * presets sit above both stop pickers and the button, so on a short panel the
+ * whole answer lands below the fold and the click reads as having done
+ * nothing.
+ *
+ * Asserted on "the result is visible", not "the panel scrolled": at a wide
+ * viewport the panel may not overflow at all, and there a scroll of zero is
+ * the correct outcome rather than a regression.
+ */
+async function checkJourneyPresets(page) {
+  await page.evaluate(`setViewMode('tickets')`);
+  await sleep(2200);
+
+  const count = await page.evaluate(
+    `document.querySelectorAll("#jc-presets [data-preset]").length`);
+  check("the ticket view offers preset journeys", count > 0,
+    "an empty checker asks the reader to already know which two stops make the point");
+  if (!count) return;
+
+  await page.evaluate(`(document.querySelector("#jc-presets [data-preset]").click(), 1)`);
+  await sleep(4000);
+
+  const state = await page.evaluate(`
+    (() => {
+      const box = document.getElementById("tab-content-tickets");
+      const res = document.getElementById("jc-result");
+      const b = box.getBoundingClientRect(), r = res.getBoundingClientRect();
+      return JSON.stringify({
+        filled:  !!document.getElementById("jc-from").value &&
+                 !!document.getElementById("jc-to").value,
+        answered: res.innerHTML.trim().length > 0,
+        visible: r.top >= b.top - 2 && r.top < b.bottom,
+      });
+    })()`);
+  const { filled, answered, visible } = JSON.parse(state);
+
+  check("choosing a preset fills both stops", filled);
+  check("choosing a preset runs the check without a second click", answered,
+    "the preset is a worked example — it should answer, not just fill the form");
+  check("the answer to a preset is on screen", visible,
+    "the result rendered below the fold, so the click looks like it did nothing");
+}
+
 async function checkCouncillorContact(page) {
   await page.evaluate(`setViewMode('network')`);
   await sleep(900);
@@ -955,6 +1003,7 @@ await checkViews(page);
 await checkReachableAcrossViews(page, VIEWPORTS[0].name);
 await checkInteractiveSurfaces(page);
 await checkCouncillorContact(page);
+await checkJourneyPresets(page);
 await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
 
