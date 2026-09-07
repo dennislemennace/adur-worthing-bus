@@ -49,6 +49,20 @@ python scripts/add_suggestion.py '{"title":"…","body":"…","area":"…"}'
 `--from-issue` needs the [`gh`](https://cli.github.com) CLI authenticated, and
 closes the issue for you once the idea is published.
 
+**Route proposals** — drawn in the in-app editor rather than typed into the
+Ideas form — go through their own script, because they carry geometry rather
+than prose:
+
+```sh
+python scripts/add_proposal.py --from-issue 2
+```
+
+It publishes as `community`, and will not take `category` from the submission:
+that field decides whether the site draws a route on the map as one of its own,
+so promoting a submission needs `--official` typed by a human. It also
+bounds-checks every coordinate — a transposed `[lon, lat]` pair parses perfectly
+and draws a line into the Indian Ocean — and refuses a stop with no name.
+
 The script gives the entry a unique `id`, fills today's date, forces
 `status: "published"`, appends it to `data/suggestions.json`, and re-validates
 the file. Then review and publish:

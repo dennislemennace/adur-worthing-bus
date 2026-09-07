@@ -8,7 +8,9 @@ Handles three kinds on one endpoint (`POST /submit`): `idea`, `proposal`,
 `stop_issue`.
 
 **Nothing here publishes to the site.** Issues arrive labelled `unverified`; a
-maintainer still runs `scripts/add_suggestion.py` to publish. That moderation
+maintainer still runs `scripts/add_suggestion.py` (ideas) or
+`scripts/add_proposal.py` (route proposals) to publish, and those scripts clear
+the `unverified` label as they go. That moderation
 gate is deliberate — this is a public endpoint writing to a public tracker.
 
 ## First-time setup

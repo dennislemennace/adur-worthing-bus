@@ -5,7 +5,7 @@
       "name": "60X",
       "from": "Steyning",
       "to": "Brighton",
-      "summary": "Shoreham Flyover \u2192 Brighton North Street",
+      "summary": "Shoreham Flyover → Brighton North Street",
       "description": "This route would offer a high-quality fast way to travel from west to east towards Brighton. It has been a historical bus route which has been slowly removed from the map. With a little love and attention, this route can be slightly adapted to give many more people a local bus stop with quick access into the city centre.",
       "links": [
         {
@@ -3996,7 +3996,7 @@
       "name": "700X",
       "from": "Worthing",
       "to": "Brighton",
-      "summary": "Worthing Marine Parade \u2192 Brighton Old Steine",
+      "summary": "Worthing Marine Parade → Brighton Old Steine",
       "description": "A fast, limited-stop express running along the existing 700 Coastliner corridor between Brighton and Worthing. Following the A259 coast road and calling only at the busiest stops, the 700X would cut the end-to-end journey time while keeping the through link the 700 already provides. This is achievable with no extra buses. Route 700 already runs frequently along the coast corridor, so re-badging half of the existing 700 trips as 700X gives every stop the same reliable frequent service AND gives commuters a faster express option into the city centres.",
       "links": [],
       "color": "#1e88e5",
@@ -7542,8 +7542,8 @@
       "is_night": true,
       "from": "Brighton",
       "to": "Shoreham, Steyning & Worthing",
-      "summary": "Night service splitting at Red Lion \u2014 one arm to Steyning, the other to Worthing via Lancing Station",
-      "description": "Restores the pre-2016 N2 night network. At the Red Lion in Shoreham the service forks: one direction continues north to Steyning along the existing route 2 corridor, the other heads west into Lancing \u2014 reaching Lancing Station via the Police Station and deliberately skipping the Lisher Road / Shadwells Road / Woodard Road housing estate to keep journey times tight at night. From the station it follows the route 9 corridor inland (Leconfield Road and the Ennerdale Drive neighbourhood) rather than dropping straight to the seafront, before reaching Worthing Marine Parade.",
+      "summary": "Night service splitting at Red Lion — one arm to Steyning, the other to Worthing via Lancing Station",
+      "description": "Restores the pre-2016 N2 night network. At the Red Lion in Shoreham the service forks: one direction continues north to Steyning along the existing route 2 corridor, the other heads west into Lancing — reaching Lancing Station via the Police Station and deliberately skipping the Lisher Road / Shadwells Road / Woodard Road housing estate to keep journey times tight at night. From the station it follows the route 9 corridor inland (Leconfield Road and the Ennerdale Drive neighbourhood) rather than dropping straight to the seafront, before reaching Worthing Marine Parade.",
       "color": "#006838",
       "frequency_class": "limited",
       "polylines": [
@@ -20907,6 +20907,507 @@
           "name": "Old Steine",
           "lat": 50.82108,
           "lon": -0.13802
+        }
+      ]
+    },
+    {
+      "id": "shoreham-southwick-beach-3",
+      "name": "Shoreham - Southwick Beach 3",
+      "summary": "A summer-time service going between Shoreham and Southwick beaches via Train Stations",
+      "category": "community",
+      "description": "A peak-time, summer service. This would perfectly connect people to summer-time activities along the coast, giving people a direct connection from a train station or town centre to a local beach. Going from Shoreham Beach/Widewater to Shoreham and Southwick Train Stations and going along the coast to Hove Lagoon and continuing towards Carats Cafe at Southwick Beach.",
+      "color": "#f5c211",
+      "frequency_class": "frequent_all_day",
+      "polyline": [
+        [
+          50.82854,
+          -0.25247
+        ],
+        [
+          50.82769,
+          -0.25263
+        ],
+        [
+          50.82779,
+          -0.25565
+        ],
+        [
+          50.82786,
+          -0.26038
+        ],
+        [
+          50.82792,
+          -0.26402
+        ],
+        [
+          50.82799,
+          -0.26848
+        ],
+        [
+          50.82803,
+          -0.27109
+        ],
+        [
+          50.82764,
+          -0.27634
+        ],
+        [
+          50.82748,
+          -0.27719
+        ],
+        [
+          50.82795,
+          -0.27819
+        ],
+        [
+          50.82774,
+          -0.27917
+        ],
+        [
+          50.82855,
+          -0.28381
+        ],
+        [
+          50.82848,
+          -0.28502
+        ],
+        [
+          50.82801,
+          -0.28627
+        ],
+        [
+          50.82794,
+          -0.2865
+        ],
+        [
+          50.82789,
+          -0.28674
+        ],
+        [
+          50.82773,
+          -0.28708
+        ],
+        [
+          50.82794,
+          -0.28754
+        ],
+        [
+          50.82881,
+          -0.28759
+        ],
+        [
+          50.82952,
+          -0.28522
+        ],
+        [
+          50.83024,
+          -0.28393
+        ],
+        [
+          50.83251,
+          -0.2786
+        ],
+        [
+          50.83228,
+          -0.27784
+        ],
+        [
+          50.83184,
+          -0.27572
+        ],
+        [
+          50.83166,
+          -0.27474
+        ],
+        [
+          50.83285,
+          -0.26918
+        ],
+        [
+          50.83288,
+          -0.2673
+        ],
+        [
+          50.83343,
+          -0.26737
+        ],
+        [
+          50.83348,
+          -0.26815
+        ],
+        [
+          50.83397,
+          -0.27097
+        ],
+        [
+          50.83405,
+          -0.27251
+        ],
+        [
+          50.83479,
+          -0.27236
+        ],
+        [
+          50.8343,
+          -0.26467
+        ],
+        [
+          50.8331,
+          -0.26492
+        ],
+        [
+          50.83343,
+          -0.26733
+        ],
+        [
+          50.83288,
+          -0.26727
+        ],
+        [
+          50.83303,
+          -0.26493
+        ],
+        [
+          50.83232,
+          -0.25916
+        ],
+        [
+          50.8319,
+          -0.2533
+        ],
+        [
+          50.83114,
+          -0.24952
+        ],
+        [
+          50.83119,
+          -0.24322
+        ],
+        [
+          50.83128,
+          -0.24078
+        ],
+        [
+          50.83147,
+          -0.23695
+        ],
+        [
+          50.83156,
+          -0.23572
+        ],
+        [
+          50.83235,
+          -0.23567
+        ],
+        [
+          50.83238,
+          -0.23548
+        ],
+        [
+          50.83225,
+          -0.23539
+        ],
+        [
+          50.83213,
+          -0.23558
+        ],
+        [
+          50.83158,
+          -0.23559
+        ],
+        [
+          50.83154,
+          -0.23277
+        ],
+        [
+          50.83134,
+          -0.22966
+        ],
+        [
+          50.83173,
+          -0.2267
+        ],
+        [
+          50.83181,
+          -0.22183
+        ],
+        [
+          50.83112,
+          -0.21808
+        ],
+        [
+          50.83072,
+          -0.21622
+        ],
+        [
+          50.83067,
+          -0.21453
+        ],
+        [
+          50.83019,
+          -0.21125
+        ],
+        [
+          50.8297,
+          -0.20958
+        ],
+        [
+          50.82928,
+          -0.20717
+        ],
+        [
+          50.82898,
+          -0.20551
+        ],
+        [
+          50.82903,
+          -0.2033
+        ],
+        [
+          50.8286,
+          -0.2003
+        ],
+        [
+          50.82823,
+          -0.19859
+        ],
+        [
+          50.82817,
+          -0.19808
+        ],
+        [
+          50.828,
+          -0.19761
+        ],
+        [
+          50.82794,
+          -0.1973
+        ],
+        [
+          50.82776,
+          -0.19708
+        ],
+        [
+          50.82827,
+          -0.20038
+        ],
+        [
+          50.82698,
+          -0.20087
+        ],
+        [
+          50.82666,
+          -0.20109
+        ],
+        [
+          50.82923,
+          -0.2353
+        ]
+      ],
+      "stops": [
+        {
+          "atco_code": "4400AD0157",
+          "name": "Kingston Bay Road",
+          "lat": 50.82854,
+          "lon": -0.25247
+        },
+        {
+          "atco_code": "4400AD0158",
+          "name": "The Burrells",
+          "lat": 50.82779,
+          "lon": -0.25565
+        },
+        {
+          "atco_code": "4400AD0159",
+          "name": "Feversham Close",
+          "lat": 50.82786,
+          "lon": -0.26038
+        },
+        {
+          "atco_code": "4400AD0160",
+          "name": "Shingle Road",
+          "lat": 50.82792,
+          "lon": -0.26402
+        },
+        {
+          "atco_code": "4400AD0150",
+          "name": "Old Fort Road",
+          "lat": 50.82799,
+          "lon": -0.26848
+        },
+        {
+          "atco_code": "4400AD0151",
+          "name": "Ferry Road",
+          "lat": 50.82803,
+          "lon": -0.27109
+        },
+        {
+          "atco_code": "4400AD0152",
+          "name": "Weald Dyke",
+          "lat": 50.82764,
+          "lon": -0.27634
+        },
+        {
+          "atco_code": "4400AD0161",
+          "name": "Beach Green",
+          "lat": 50.82774,
+          "lon": -0.27917
+        },
+        {
+          "atco_code": "4400AD0163",
+          "name": "Mardyke",
+          "lat": 50.82855,
+          "lon": -0.28381
+        },
+        {
+          "atco_code": "4400AD0164",
+          "name": "The Longshore",
+          "lat": 50.82794,
+          "lon": -0.28754
+        },
+        {
+          "atco_code": "4400AD0356",
+          "name": "Adur Recreation Ground",
+          "lat": 50.83024,
+          "lon": -0.28393
+        },
+        {
+          "atco_code": "4400AD0203",
+          "name": "High Street",
+          "lat": 50.83228,
+          "lon": -0.27784
+        },
+        {
+          "atco_code": "4400AD0202",
+          "name": "Footbridge",
+          "lat": 50.83184,
+          "lon": -0.27572
+        },
+        {
+          "atco_code": "4400AD0317",
+          "name": "Duke of Wellington",
+          "lat": 50.83285,
+          "lon": -0.26918
+        },
+        {
+          "atco_code": "4400AD0309",
+          "name": "Skate Park",
+          "lat": 50.83348,
+          "lon": -0.26815
+        },
+        {
+          "atco_code": "4400AD0312",
+          "name": "Ham Road",
+          "lat": 50.83397,
+          "lon": -0.27097
+        },
+        {
+          "atco_code": "4400AD0314",
+          "name": "Shoreham-by-Sea Railway Station",
+          "lat": 50.83479,
+          "lon": -0.27236
+        },
+        {
+          "atco_code": "4400AD0306",
+          "name": "Eastern Close",
+          "lat": 50.8343,
+          "lon": -0.26467
+        },
+        {
+          "atco_code": "4400AD0319",
+          "name": "Eastern Avenue",
+          "lat": 50.83303,
+          "lon": -0.26493
+        },
+        {
+          "atco_code": "4400AD0321",
+          "name": "Amenity Tip",
+          "lat": 50.83232,
+          "lon": -0.25916
+        },
+        {
+          "atco_code": "4400AD0323",
+          "name": "Kingston Wharf",
+          "lat": 50.8319,
+          "lon": -0.2533
+        },
+        {
+          "atco_code": "4400AD0324",
+          "name": "Lighthouse",
+          "lat": 50.83114,
+          "lon": -0.24952
+        },
+        {
+          "atco_code": "4400AD0326",
+          "name": "Kingston Lane",
+          "lat": 50.83119,
+          "lon": -0.24322
+        },
+        {
+          "atco_code": "4400AD0328",
+          "name": "Shoreham Terminal",
+          "lat": 50.83128,
+          "lon": -0.24078
+        },
+        {
+          "atco_code": "4400AD0329",
+          "name": "Shoreham Port",
+          "lat": 50.83147,
+          "lon": -0.23695
+        },
+        {
+          "atco_code": "4400AD0331",
+          "name": "Colebrook Road",
+          "lat": 50.83154,
+          "lon": -0.23277
+        },
+        {
+          "atco_code": "4400AD0334",
+          "name": "The Gardens",
+          "lat": 50.83173,
+          "lon": -0.2267
+        },
+        {
+          "atco_code": "4400AD0336",
+          "name": "The Albion Inn",
+          "lat": 50.83181,
+          "lon": -0.22183
+        },
+        {
+          "atco_code": "4400AD0338",
+          "name": "Mill Road",
+          "lat": 50.83112,
+          "lon": -0.21808
+        },
+        {
+          "atco_code": "149000006116",
+          "name": "Church Road",
+          "lat": 50.83067,
+          "lon": -0.21453
+        },
+        {
+          "atco_code": "149000007115",
+          "name": "Station Road",
+          "lat": 50.8297,
+          "lon": -0.20958
+        },
+        {
+          "atco_code": "149000006114",
+          "name": "St Keyna Avenue South",
+          "lat": 50.82903,
+          "lon": -0.2033
+        },
+        {
+          "atco_code": "149000006112",
+          "name": "Tandridge Road",
+          "lat": 50.82666,
+          "lon": -0.20109
+        },
+        {
+          "atco_code": "149000007111",
+          "name": "Wish Road South",
+          "lat": 50.82923,
+          "lon": -0.2353
         }
       ]
     }
