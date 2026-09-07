@@ -39,9 +39,11 @@ fits within the existing envelope.
   a 2,000 min / month cap.
 - Release asset size: up to 2 GB per asset (the weekly `timetable-latest`
   release sits well under this).
-- GitHub Pages (likely the frontend host based on `ALLOWED_ORIGIN` in
-  `render.yaml`): 100 GB / month soft bandwidth cap, 1 GB site size,
-  10 builds / hour.
+- GitHub Pages hosts the frontend at **worthingbrightonbus.co.uk** (custom
+  domain via the root `CNAME` file; the `dennislemennace.github.io` URL 301s
+  across): 100 GB / month soft bandwidth cap, 1 GB site size, 10 builds / hour.
+  Cloudflare serves DNS only — it is not proxying, so it absorbs none of that
+  bandwidth and none of these limits are shared with it.
 - `.github/workflows/update-timetable.yml` runs weekly — keep that cadence.
   Increasing the schedule eats into the (currently unlimited) public-repo
   budget needlessly.

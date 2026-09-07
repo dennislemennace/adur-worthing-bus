@@ -15,12 +15,17 @@
 #        Service → Environment → Add Environment Variable
 #      Add:
 #        BODS_API_KEY   = <your BODS API key>
-#        ALLOWED_ORIGIN = https://yourusername.github.io   (your GitHub Pages URL)
+#        ALLOWED_ORIGIN = https://your-site.example   (only for an extra origin)
 #
 #      ALLOWED_ORIGIN is the CORS allowlist and IS read by api/main.py.
-#      Comma-separate to add a second origin. Unset defaults to the published
-#      Pages URL rather than a wildcard, so a missing value fails closed. Any
-#      localhost port is always allowed, for the local preview flow.
+#      It is OPTIONAL: api.main already carries the site's canonical origins
+#      (worthingbrightonbus.co.uk and the dennislemennace.github.io URL it
+#      replaced) in DEFAULT_ALLOWED_ORIGINS, and this var ADDS to them rather
+#      than replacing them — so a stale dashboard value cannot take the site
+#      off its own API. Set it only to allow an extra origin, such as a preview
+#      deployment; comma-separate for several. Unset fails closed on the
+#      canonical origins rather than opening a wildcard. Any localhost port is
+#      always allowed, for the local preview flow.
 #
 #      Optional:
 #        DEBUG_ENABLED  = 1   exposes /api/debug/* and /docs. LEAVE UNSET in

@@ -44,7 +44,7 @@ line references are to `f498865` — re-verify if the tree has moved.
 
 ## Phase 0 — where things stand
 
-Working, live at <https://dennislemennace.github.io/adur-worthing-bus/>:
+Working, live at <https://worthingbrightonbus.co.uk/>:
 
 - **Live Bus Tracking** — BODS SIRI-VM vehicles (20 s poll), TransportAPI
   predictions over the GTFS timetable with a timetable-only fallback when the
@@ -249,7 +249,7 @@ stop-issue:other
 | 0 | ~~Create the 11 labels above~~ **DONE 2026-08-30** — all 11 exist on the live repo | Claude |
 | 1 | Cloudflare account — free, no card required | **you** |
 | 2 | `cd worker && npx wrangler kv namespace create RATE_LIMIT`, paste the id over `REPLACE_WITH_KV_NAMESPACE_ID` at `wrangler.toml:28` | Claude |
-| 3 | Turnstile → Add site → **Managed** widget. Domains: `dennislemennace.github.io`, plus `127.0.0.1` only while testing | **you** |
+| 3 | Turnstile → Add site → **Managed** widget. Domains: `worthingbrightonbus.co.uk` and `dennislemennace.github.io` (the Pages URL still redirects across, and stays allowed so a rollback needs no dashboard change), plus `127.0.0.1` only while testing | **you** |
 | 4 | Fine-grained PAT: this repo only, **Issues: Read and write**, nothing else. Set an expiry you will notice; diary the rotation | **you** |
 | 5 | `npx wrangler secret put GITHUB_TOKEN / TURNSTILE_SECRET / IP_SALT` (`openssl rand -hex 32` for the salt) | Claude |
 | 6 | `npx wrangler deploy`, note the URL | Claude |
