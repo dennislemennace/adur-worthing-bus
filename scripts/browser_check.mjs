@@ -246,7 +246,7 @@ const TRUNCATION_SCAN = `(() => {
     (typeof el.className === "string" && el.className.trim())
       ? "." + el.className.trim().split(/\\s+/)[0]
       : el.tagName.toLowerCase();
-  const sel = ".header-title, .header-subtitle, .section-nav-label," +
+  const sel = ".header-title, .section-nav-label," +
               " .panel-tab-label, h1, h2, h3, button";
   const bad = [];
   for (const el of document.querySelectorAll(sel)) {
@@ -506,6 +506,52 @@ async function checkInteractiveSurfaces(page) {
   check("the boundary label is a real button", labelIsButton,
     "a div with a click handler is unreachable by keyboard");
 
+  // ── The line itself is hoverable, not just its label ──
+  //
+  // The visible boundary is a 5px dash and cannot be hit; an invisible 22px
+  // line carries the pointer events and lights it through .is-hot. Hovering
+  // is dispatched as a real mouse move at the hit path's own midpoint —
+  // calling the handler directly, or toggling the class in script, would
+  // pass whether or not the hit line exists, which is the whole question.
+  const hitBox = await page.evaluate(`
+    (() => {
+      const hit = document.querySelector(".council-boundary-hit");
+      if (!hit) return "null";
+      const r = hit.getBoundingClientRect();
+      const t = hit.getTotalLength ? hit.getTotalLength() / 2 : 0;
+      const p = hit.getPointAtLength ? hit.getPointAtLength(t) : null;
+      // getPointAtLength is in the SVG's user space; the pane is translated,
+      // so convert through the element's own screen matrix.
+      const m = hit.getScreenCTM && hit.getScreenCTM();
+      const x = (p && m) ? p.x * m.a + p.y * m.c + m.e : r.x + r.width / 2;
+      const y = (p && m) ? p.x * m.b + p.y * m.d + m.f : r.y + r.height / 2;
+      return JSON.stringify({ x, y, w: r.width, h: r.height });
+    })()`);
+  const hit = hitBox === "null" ? null : JSON.parse(hitBox);
+  check("the boundary line has a hit target of its own", !!hit,
+    "a 5px dashed line is under half the 24px target floor — unhittable in practice");
+
+  if (hit) {
+    const strokeOf = () => page.evaluate(
+      `parseFloat(getComputedStyle(document.querySelector(".council-boundary-line")).strokeWidth)`);
+    const cold = await strokeOf();
+    await page.send("Input.dispatchMouseEvent",
+      { type: "mouseMoved", x: Math.round(hit.x), y: Math.round(hit.y), buttons: 0 });
+    await sleep(300);
+    const hot = await strokeOf();
+    const labelLit = await page.evaluate(
+      `!!document.querySelector(".council-boundary-label.is-hot")`);
+    // Move away again so nothing downstream inherits a hovered line.
+    await page.send("Input.dispatchMouseEvent",
+      { type: "mouseMoved", x: 5, y: 5, buttons: 0 });
+    await sleep(200);
+
+    check("hovering anywhere on the boundary line reacts", hot > cold,
+      `stroke-width stayed at ${cold} — the line does not respond to the cursor`);
+    check("hovering the line also lights its label", labelLit,
+      "the line and the label are one object; highlighting only one splits them");
+  }
+
   if (labelIsButton) {
     await page.evaluate(`(document.querySelector(".council-boundary-label").click(), 1)`);
     await sleep(1400);
@@ -759,6 +805,138 @@ async function checkPanelCollapse(page) {
     (await page.evaluate("document.body.classList.contains('panel-collapsed')")) === false);
 }
 
+/**
+ * "Email your councillor", from the objective card to the open dialog.
+ *
+ * Two things worth checking here that unit tests cannot see. First, the button
+ * only appears where there is actually a councillor to write to — an objective
+ * that only an operator can act on must not offer one, because a button that
+ * leads to "no councillors" is worse than no button. Second, the card was
+ * restructured to get this button out of the middle of another button; nested
+ * interactive elements are invalid, and the links that were already in there
+ * were awkward to activate as a result.
+ *
+ * The postcode lookup itself is not exercised: it calls a live third-party
+ * service, and a check that goes red when postcodes.io has a bad afternoon is
+ * a check people learn to ignore. tests/test_councillor.mjs covers that logic
+ * against fixtures.
+ */
+async function checkCouncillorContact(page) {
+  await page.evaluate(`setViewMode('network')`);
+  await sleep(900);
+  await page.evaluate(`setNetworkTab('objectives')`);
+  await sleep(700);
+
+  // One objective an authority is involved in, picked from the live data so
+  // this does not go red the next time an objective is added or reassigned —
+  // and one only operators can act on, which is *injected*, because every
+  // objective currently published involves a council. Waiting for the data to
+  // grow such a case would leave this branch never running, which is the same
+  // as not having written it.
+  const picked = await page.evaluate(`
+    (() => {
+      const os = state.objectives || [];
+      const withAuthority = os.find(o => objectiveAuthorities(o).length > 0);
+      const probe = {
+        id: "__operator-only-probe", title: "Operator-only probe",
+        summary: "Injected by browser_check.mjs", description: "",
+        status: "not_considered", links: [], category: "Information",
+        lead: ["BHBC"], shared: ["SCSO"], featured: false,
+      };
+      os.push(probe);
+      return JSON.stringify({
+        withAuthority: withAuthority ? withAuthority.id : null,
+        operatorOnly: probe.id,
+      });
+    })()`);
+  const { withAuthority, operatorOnly } = JSON.parse(picked);
+
+  check("an objective names an authority someone can write to", !!withAuthority,
+    "no objective involves a council, so the contact route is unreachable");
+  if (!withAuthority) return;
+
+  const contactShown = async (id) => {
+    await page.evaluate(
+      `(state.selectedObjectiveId = ${JSON.stringify(id)}, renderObjectivesList(), 1)`);
+    await sleep(400);
+    return page.evaluate(
+      `!!document.querySelector('[data-contact-objective=${JSON.stringify(id)}]')`);
+  };
+
+  check("an objective a council must act on offers to email a councillor",
+    await contactShown(withAuthority));
+
+  if (operatorOnly) {
+    check("an operator-only objective offers no councillor",
+      (await contactShown(operatorOnly)) === false,
+      "route and timetable decisions are commercial — a councillor cannot make them");
+  }
+
+  // Drop the probe again so nothing downstream renders it.
+  await page.evaluate(
+    `(state.objectives = state.objectives.filter(o => o.id !== "__operator-only-probe"), 1)`);
+
+  // Back to one that has the button.
+  //
+  // There is deliberately no "the button is not nested inside the card button"
+  // check here. One was written and it passed with the nesting restored: the
+  // HTML parser closes an open <button> when it meets another, so assigning
+  // that markup through innerHTML never produces a nested button in the DOM at
+  // all. The check could not fail, which makes it a tautology rather than a
+  // guard. The structural fix is real — it is what stops the parser scrambling
+  // the card — but the DOM is the wrong place to look for evidence of it.
+  await contactShown(withAuthority);
+
+  await page.evaluate(`(document.querySelector("[data-contact-objective]").click(), 1)`);
+  await sleep(700);
+  const open = await page.evaluate(`!!document.getElementById("councillor-dialog").open`);
+  check("the councillor dialog opens", open);
+
+  if (open) {
+    const hasForm = await page.evaluate(
+      `!!document.getElementById("councillor-postcode") && !!document.getElementById("councillor-form")`);
+    check("the dialog asks for a postcode", hasForm);
+    await freezeMotion(page);
+    await screenshot(page, "councillor-dialog");
+    await checkLayout(page, "councillor dialog");
+    await checkContrastBothThemes(page, "councillor dialog");
+    await page.evaluate(`(document.getElementById("councillor-dialog").close(), 1)`);
+    await sleep(300);
+  }
+}
+
+/**
+ * The header's three controls — section nav, live-status pill, theme toggle —
+ * are meant to read as one row. They drifted to 52px, 44px and 44px, which is
+ * visible as a ragged row long before anyone can say why.
+ *
+ * Checks height, not rounding: the theme toggle is deliberately a circle while
+ * the other two share a radius, so a single "same rounding" assertion would be
+ * wrong. Under 700px the pill leaves the header for the map, so only the
+ * controls actually in the row at that width are compared.
+ */
+async function checkHeaderControlRow(page, where) {
+  const raw = await page.evaluate(`
+    (() => {
+      const ids = ["section-nav-trigger", "dark-mode-btn"];
+      const out = {};
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        if (el && el.offsetParent !== null) out[id] = Math.round(el.getBoundingClientRect().height);
+      }
+      const pill = document.getElementById("live-status-pill");
+      if (pill && getComputedStyle(pill).position !== "fixed") {
+        out["live-status-pill"] = Math.round(pill.getBoundingClientRect().height);
+      }
+      return JSON.stringify(out);
+    })()`);
+  const heights = JSON.parse(raw);
+  const values = Object.values(heights);
+  check(`header controls share one height — ${where}`,
+    values.length > 1 && new Set(values).size === 1,
+    Object.entries(heights).map(([k, v]) => `${k} ${v}px`).join(", "));
+}
+
 // ── Run ─────────────────────────────────────────────────────
 
 try {
@@ -770,11 +948,13 @@ try {
 
 const page = await openPage(VIEWPORTS[0]);
 await checkBasemap(page);
+await checkHeaderControlRow(page, VIEWPORTS[0].name);
 await checkLayout(page, "live view");
 await checkDepartureBoard(page);
 await checkViews(page);
 await checkReachableAcrossViews(page, VIEWPORTS[0].name);
 await checkInteractiveSurfaces(page);
+await checkCouncillorContact(page);
 await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
 
@@ -785,6 +965,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   const p = await openPage(vp);
   await screenshot(p, `live-${vp.name}`);
   await checkLayout(p, vp.name);
+  await checkHeaderControlRow(p, vp.name);
   await checkContrastBothThemes(p, vp.name);
   await checkReachableAcrossViews(p, vp.name);
   p.ws.close();

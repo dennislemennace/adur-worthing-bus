@@ -129,6 +129,16 @@
      under the usability numbers is a free reason to dismiss it. */
   --target-min: 44px;
 
+  /* The three header controls — section nav, status pill, theme toggle — were
+     52px, 44px and 44px, so a row meant to read as one set of controls was
+     visibly ragged. One token gives them a single height; it is deliberately
+     equal to --target-min, so unifying them does not quietly trade away the
+     AAA target size above. --header-control-r is a little rounder than the
+     --radius-md they used to share, and is scoped to this row rather than
+     applied to the token, which the whole site draws on. */
+  --header-control-h: 44px;
+  --header-control-r: 10px;
+
   --focus-ring-width:  2px;
   --focus-ring-offset: 2px;
   --focus-ring-color:  var(--color-accent);
@@ -307,19 +317,6 @@ html.dark-mode .header-title {
   color: var(--color-accent);
 }
 
-.header-subtitle {
-  font-size: var(--font-size-xs);
-  /* 0.6 measured 4.31:1 on the light-mode header — just under AA. */
-  color: rgba(var(--color-on-fill-rgb), 0.7);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-top: 2px;
-}
-
-html.dark-mode .header-subtitle {
-  color: var(--color-text-muted);
-}
-
 .header-controls {
   display: flex;
   align-items: center;
@@ -348,19 +345,28 @@ html.dark-mode .last-updated {
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
-  padding: 3px 4px 3px 10px;
+  /* 44px total, holding 44px toggles. The border is an inset shadow rather
+     than a real border so it costs no box height: with a 1px border the
+     content box would be 42px, and the toggles would have to shrink below
+     the 44px target size the site holds. The pill used to be 52px for
+     exactly that reason — 44px toggles plus padding plus border. */
+  height: var(--header-control-h);
+  padding: 0 4px 0 10px;
   background: rgba(var(--color-on-fill-rgb), 0.15);
-  border: 1px solid rgba(var(--color-on-fill-rgb), 0.25);
-  border-radius: var(--radius-md);
+  box-shadow: inset 0 0 0 1px rgba(var(--color-on-fill-rgb), 0.25);
+  border-radius: var(--header-control-r);
 }
 html.dark-mode .status-pill {
   background: var(--color-surface-2);
-  border-color: var(--color-border);
+  box-shadow: inset 0 0 0 1px var(--color-border);
 }
 .status-pill .btn-icon.status-pill-toggle {
+  /* Full 44px: these are the targets, not the pill. Shrinking them to fit a
+     shorter pill trades away the target size rather than the padding, which
+     is the wrong half of the problem to solve. */
   width: var(--target-min);
   height: var(--target-min);
-  border-radius: calc(var(--radius-md) - 4px);
+  border-radius: calc(var(--header-control-r) - 3px);
   background: transparent;
   border: none;
 }
@@ -424,9 +430,9 @@ html.dark-mode .last-updated.is-error .loading-dots { color: #ffb84d; }
   gap: var(--space-xs);
   background: rgba(var(--color-on-fill-rgb), 0.15);
   border: 1px solid rgba(var(--color-on-fill-rgb), 0.25);
-  border-radius: var(--radius-md);
+  border-radius: var(--header-control-r);
   color: var(--color-on-fill);
-  min-height: var(--target-min);
+  height: var(--header-control-h);
   font-family: inherit;
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -532,6 +538,10 @@ html.dark-mode .btn-icon:hover {
    dark mode. Reads as a global preference control, not a sibling of the
    live-data icons inside the status pill. */
 .btn-icon.btn-theme {
+  /* Sized with the row so the three line up, but still a circle: it is a
+     global preference, not a sibling of the live-data controls. */
+  width: var(--header-control-h);
+  height: var(--header-control-h);
   border-radius: 50%;
   background: linear-gradient(135deg,
               rgba(255,210,140,0.30),
@@ -816,6 +826,10 @@ html.dark-mode .map-loading {
 .evidence-dialog {
   width: min(560px, calc(100vw - 32px));
   max-height: min(80vh, 780px);
+  /* A modal <dialog> is centred by the UA's own `margin: auto`, which the
+     universal reset near the top of this file sets to 0 along with everything
+     else. Without this both dialogs open pinned to the top-left corner. */
+  margin: auto;
   padding: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -1336,6 +1350,36 @@ html.dark-mode .map-loading {
   border-radius: 50%;
   background: var(--color-accent, #d98324);
   border: 1px solid var(--color-surface);
+}
+
+/* ===== COUNCIL BOUNDARY LINE =====
+   The visible line is a 5px dash, which is far too thin to hover and much too
+   thin to hit. A second, invisible 22px line sits on top of it carrying the
+   pointer events, and lights this one up through .is-hot — so the whole length
+   of the boundary responds, not just the small floating label. */
+.council-boundary-hit { cursor: pointer; }
+
+.council-boundary-line.is-hot {
+  /* Both weight and opacity, because the line is dashed: thickening alone
+     reads as a blur at low zoom, and brightening alone is lost against a
+     busy basemap. The glow is what makes it look picked up rather than
+     merely redrawn. */
+  stroke-width: 9;
+  stroke-opacity: 1;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .council-boundary-line {
+    transition: stroke-width 120ms ease-out, stroke-opacity 120ms ease-out;
+  }
+}
+
+/* Hovering the line lights its label too, so the two read as one object.
+   Matches the label's own :hover treatment exactly — the source of the
+   pointer should not change what the highlight looks like. */
+.council-boundary-label.is-hot {
+  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+  border-color: var(--color-border);
 }
 
 /* ===== COUNCIL BOUNDARY LABEL =====
@@ -2775,51 +2819,57 @@ html.dark-mode .header-wave-front { fill: var(--color-surface); }
 .header-brand { gap: 14px; min-width: 0; }
 .header-brand > div { min-width: 0; }
 
+/* The mark is a self-contained disc with its own white ring, so it needs no
+   tile behind it. The old translucent plate existed to give a line-art glyph
+   an edge; giving one to the disc as well reads as a sticker stuck onto the
+   header — which is exactly how the supplied artwork's baked-in pill read. */
 .header-icon {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
-  background: rgba(var(--color-on-fill-rgb), 0.12);
-  border: 1px solid rgba(var(--color-on-fill-rgb), 0.18);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-on-fill);
+  flex: 0 0 auto;
 }
-.header-icon .icon { width: 22px; height: 22px; }
-html.dark-mode .header-icon {
-  background: rgba(var(--color-accent-rgb), 0.12);
-  border-color: rgba(var(--color-accent-rgb), 0.28);
-  color: var(--color-accent);
+/* An <img>, not an inline svg: the mark is a raster illustration and the
+   header serves it at 1x/2x/3x. object-fit guards the aspect if a future
+   export is not square — the build script squares it, but the CSS should not
+   depend on that being remembered. */
+.brand-mark {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
 }
 
 .header-title {
-  font-family: var(--font-brand);
+  /* Outfit, not Fraunces: the wordmark's own voice is a geometric sans, and
+     the page already loads this family for UI. A sans lockup above serif
+     headings is a deliberate pairing, where setting the brand in the heading
+     face gave the header two competing voices. */
+  font-family: var(--font-family);
   /* Fluid scale, capped at the same 1.9rem as before so wide desktop is
      unchanged. The slope is shallower than it was because the old one put
      the title at 26px on a 768px tablet, where it needed 431px of a 390px
      brand column and rendered 80% of itself. */
   font-size: clamp(1.05rem, 0.35rem + 1.85vw, 1.9rem);
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.05;
   letter-spacing: -0.015em;
   color: var(--color-on-fill);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* Fraunces' "A" has left-side bearing that combined with negative
-     letter-spacing extends slightly outside the layout box; overflow:hidden
-     then clips the first glyph. Tiny left padding gives the bearing room. */
   padding-left: 2px;
 }
-.header-subtitle {
-  font-size: clamp(0.6rem, 0.52rem + 0.25vw, 0.72rem);
-  margin-top: 4px;
-  letter-spacing: 0.1em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+
+/* Two-tone wordmark. #56edfd is the artwork's own cyan, kept because it
+   measures 6.29:1 on the light header (#1a4b82) and 12.97:1 on the dark one
+   (#0d1525) — AA on both, so the design's colour survives unmodified. The
+   accent stays fixed across themes: a logo that changes hue with the colour
+   scheme stops reading as a logo. */
+.brand-word--accent { color: #56edfd; }
+html.dark-mode .header-title { color: var(--color-on-fill); }
 
 /* Tablet: tighten control spacing and drop the non-essential timestamp
    before it collides with the toggle. */
@@ -2844,11 +2894,12 @@ html.dark-mode .header-icon {
     top: calc(var(--header-height) + var(--space-sm));
     right: var(--space-sm);
     z-index: 850;
-    padding: 3px;
+    padding: 0 3px;
     gap: 2px;
     background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    box-shadow: var(--shadow-md);
+    /* Inset ring for the edge, drop shadow for the float — a real border
+       would push this past the 44px the header row is unified on. */
+    box-shadow: inset 0 0 0 1px var(--color-border), var(--shadow-md);
   }
   .status-pill .btn-icon.status-pill-toggle {
     color: var(--color-text-muted);
@@ -2857,13 +2908,10 @@ html.dark-mode .header-icon {
     color: var(--color-accent-text);
     background: var(--color-surface-2);
   }
-  /* Shorten the brand to a lockup rather than clipping it: below this width
-     the controls do not leave room for the full phrase, and "Adur &
-     Worthing" is the half that tells you where you are. The icon and
-     strapline go with it — the title is what has to survive. */
-  .header-title-lead { display: none; }
-  .header-icon       { display: none; }
-  .header-subtitle   { display: none; }
+  /* The mark now earns its place at this width instead of being dropped. It
+     is the most compact form the brand has — 32px against the wordmark's
+     ~150 — so hiding it and keeping only text gets the trade backwards. */
+  .header-icon     { width: 32px; height: 32px; }
   /* Panel stacks below the map on mobile, so the wave spans full width. */
   .header-wave { width: 100%; height: 16px; }
   .header-inner { gap: var(--space-sm); padding: 0 var(--space-md); }
@@ -2871,10 +2919,20 @@ html.dark-mode .header-icon {
   .header-brand > div { min-width: 0; }
   .header-controls { flex-shrink: 0; gap: var(--space-sm); }
   .section-nav-trigger { padding: 5px 9px; font-size: var(--font-size-xs); }
-  .header-title    { font-size: clamp(1rem, 3.4vw, 1.35rem); }
+  /* Two lines, because one is not available: the brand column measures 140px
+     here and the wordmark needs 143px at 14px type — below the point where it
+     is worth reading. So it wraps instead of truncating, and at 16px it breaks
+     itself after "Brighton" (125px) without a <br> that desktop would inherit.
+     Truncation was putting "Worthing Brighto…" in the header. */
+  .header-title {
+    font-size: clamp(1rem, 3.4vw, 1.35rem);
+    white-space: normal;
+    overflow: visible;
+    line-height: 1.08;
+  }
 }
 @media (max-width: 480px) {
-  /* The icon, strapline and "Better buses for" are already gone by 700px. */
+  /* The mark shrank at 700px rather than being hidden, and stays. */
   .header-inner { padding: 0 var(--space-sm); }
 }
 
@@ -3537,6 +3595,228 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px dashed var(--color-border);
+}
+
+/* ---- Objective cards: wrapper, not one big button ----------------------
+   An objective card used to be a single <button> containing its own expanded
+   detail, which put links — and now a "write to your councillor" button —
+   inside a button. Those are invalid nested interactives and were awkward to
+   activate. The card chrome moves out to a wrapper, the button keeps only the
+   summary row it actually toggles, and the detail becomes a sibling.
+   Everything else using .proposal-card (proposals, ticket zones, ideas) is
+   unwrapped and keeps the original rule untouched. */
+.proposal-card-wrap {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: background var(--transition);
+}
+.proposal-card-wrap.selected {
+  background: var(--color-surface);
+  box-shadow: 0 0 0 2px var(--color-accent, var(--color-primary)) inset;
+}
+/* The inner button is now only the hit area, so it gives up the card's skin
+   and takes the full width of it — a summary row that stopped short of the
+   edges would read as a button sitting on a card rather than as the card. */
+.proposal-card-wrap > .proposal-card,
+.proposal-card-wrap > .proposal-card.selected {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  width: 100%;
+  transform: none;
+}
+@media (hover: hover) {
+  .proposal-card-wrap:hover { background: var(--color-surface); }
+  .proposal-card-wrap > .proposal-card:hover {
+    background: none;
+    transform: none;
+  }
+}
+.proposal-card-wrap > .proposal-detail {
+  margin-top: 0;
+  padding: 8px 12px 12px;
+}
+
+/* ---- "Email your councillor" ------------------------------------------- */
+.objective-contact-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  min-height: var(--target-min);
+  padding: 8px 12px;
+  background: var(--color-primary);
+  color: var(--color-on-fill);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter var(--transition);
+}
+.objective-contact-btn .icon { width: 16px; height: 16px; flex: 0 0 auto; }
+@media (hover: hover) {
+  .objective-contact-btn:hover { filter: brightness(1.08); }
+}
+.objective-contact-note {
+  margin-top: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+
+/* ---- Councillor dialog -------------------------------------------------
+   Shares .evidence-dialog's frame; only the contents inside it are new. */
+.councillor-intro,
+.councillor-draft-note,
+.councillor-privacy,
+.councillor-checked {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin-top: 8px;
+}
+.councillor-privacy,
+.councillor-checked { font-size: var(--font-size-xs); }
+
+/* Which authority to write to, when an objective needs more than one. */
+.councillor-bodies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-top: 12px;
+}
+.councillor-body-btn {
+  appearance: none;
+  min-height: var(--target-min);
+  padding: 8px 12px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.councillor-body-btn.selected {
+  background: var(--color-surface);
+  border-color: var(--color-accent, var(--color-primary));
+  box-shadow: 0 0 0 1px var(--color-accent, var(--color-primary)) inset;
+}
+
+.councillor-form { margin-top: 14px; }
+.councillor-label {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 6px;
+}
+.councillor-row {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+.councillor-input {
+  flex: 1 1 10ch;
+  min-width: 0;
+  min-height: var(--target-min);
+  padding: 8px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  /* Postcodes are read back character by character; letter-spacing helps, and
+     uppercasing means the field matches what is actually sent rather than
+     correcting it silently after the fact. */
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.councillor-submit { flex: 0 0 auto; min-height: var(--target-min); }
+
+.councillor-status {
+  margin-top: 8px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  min-height: 1.2em;   /* holds its line so the dialog does not jump */
+}
+/* --color-danger is defined on bare :root and re-defined for dark mode, so
+   this needs no theme branch of its own. */
+.councillor-status.is-error { color: var(--color-danger); }
+
+.councillor-result { margin-top: 16px; }
+.councillor-members {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.councillor-member {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--space-xs);
+  padding: 8px 10px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.councillor-member-name { font-weight: 700; color: var(--color-text); }
+.councillor-member-party {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+/* The address is shown as text as well as being wired into the mailto, so it
+   can be copied by anyone whose browser will not hand off a mailto: link. */
+.councillor-member-email {
+  flex-basis: 100%;
+  font-size: var(--font-size-sm);
+  color: var(--color-link);
+  word-break: break-all;
+}
+
+.councillor-draft {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  resize: vertical;
+}
+.councillor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-top: 12px;
+}
+.councillor-actions > * { min-height: var(--target-min); }
+/* The mail link is an <a> wearing a button's clothes; anchors do not inherit
+   the button's centring. */
+.councillor-actions a.editor-action-btn { text-decoration: none; }
+.councillor-warn,
+.councillor-empty {
+  margin-top: 10px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
 }
 
 .proposal-detail-heading {

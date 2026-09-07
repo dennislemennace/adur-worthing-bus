@@ -131,6 +131,32 @@ flag — the schema is a map of the surface.
   allowance — not a constraint, but don't add per-submission API chatter
   (label lookups, project-board moves) without rechecking.
 
+## postcodes.io — postcode to councillor lookup
+
+- Free, no API key, no registration, CORS-enabled. Run by Ideal Postcodes as a
+  public service over ONS ONSPD data.
+- No published hard rate limit; fair use applies. Bulk lookups are explicitly
+  supported via `POST /postcodes` (100 at a time) if that is ever needed.
+- **Called from the browser, not the backend.** One request per postcode the
+  reader actually types, in the "Email your councillor" flow. Nothing is
+  cached, because nothing is repeated: a reader looks up their own postcode
+  once.
+- This costs no Render, Worker or BODS quota, and the reader's postcode never
+  reaches a server this project controls. Keep it that way — proxying it
+  through the API would add a cold-start-prone hop and turn a lookup nobody
+  stores into one we would have to promise not to.
+
+**Implications**
+
+- Do not pre-fetch, warm, or batch-validate postcodes. The only acceptable
+  volume here is one call per deliberate user action.
+- `data/representatives.json` is committed, so the councillor half of the
+  lookup costs no request at all. It is rebuilt by
+  `scripts/build_representatives.py`, which hits each council's ModernGov
+  directory and the ONS Open Geography Portal — a build-time cost, not a
+  runtime one, and one that should be re-run after an election rather than on
+  a schedule.
+
 ## OpenStreetMap — `tile.openstreetmap.org` (both themes)
 
 - Tile usage policy: https://operations.osmfoundation.org/policies/tiles/

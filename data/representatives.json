@@ -1,0 +1,2979 @@
+{
+  "_comment": "Who to write to about an objective, keyed by ONS area code. postcodes.io returns codes.ced and codes.admin_ward for a postcode at runtime; these are the same codes. Built by scripts/build_representatives.py from each council's own published directory — no address here is derived from a name pattern, and a councillor whose official address is not published is absent rather than guessed. Re-run after an election.",
+  "generated_on": "2026-09-07",
+  "geography": {
+    "source": "ONS Open Geography Portal",
+    "datasets": [
+      "WD25_LAD25_CTY25_CED25_EN_LU",
+      "WD25_LAD25_CTYUA25_RGN25_CTRY25_UK_LU"
+    ],
+    "licence": "Open Government Licence v3.0",
+    "attribution": "Contains OS data © Crown copyright and database right 2025. Contains National Statistics data © Crown copyright and database right 2025."
+  },
+  "areas": {
+    "E05007562": {
+      "name": "Buckingham",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Kate Davis",
+          "email": "kate.davis@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=588"
+        },
+        {
+          "name": "David Devoy",
+          "email": "david.devoy@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=644"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007563": {
+      "name": "Churchill",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Mike Mendoza",
+          "email": "mike.mendoza@adur.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=645"
+        },
+        {
+          "name": "Nigel Sweet",
+          "email": "nigel.sweet@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=529"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007564": {
+      "name": "Cokeham",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Jim Doubtfire",
+          "email": "jim.doubtfire@adur.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=646"
+        },
+        {
+          "name": "Carolyn Fuhrmann",
+          "email": "carolyn.fuhrmann@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=520"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007565": {
+      "name": "Eastbrook",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Andrew Harvey",
+          "email": "andrew.harvey@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=518"
+        },
+        {
+          "name": "David Lovelidge",
+          "email": "david.lovelidge@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=648"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007566": {
+      "name": "Hillside",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Nigel Corston",
+          "email": "nigel.corston@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=532"
+        },
+        {
+          "name": "Rhys Grinstead",
+          "email": "rhys.grinstead@adur.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=650"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007567": {
+      "name": "Manor",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Carol Albury",
+          "email": "carol.albury@adur.gov.uk",
+          "party": "Adur Independents",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=107"
+        },
+        {
+          "name": "Carson Albury",
+          "email": "carson.albury@adur.gov.uk",
+          "party": "Adur Independents",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=111"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007568": {
+      "name": "Marine",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Joss Loader",
+          "email": "joss.loader@adur.gov.uk",
+          "party": "Shoreham Beach Residents' Association",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=142"
+        },
+        {
+          "name": "Julia Watts",
+          "email": "julia.watts@adur.gov.uk",
+          "party": "Shoreham Beach Residents' Association",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=428"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007569": {
+      "name": "Mash Barn",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Lee Cowen",
+          "email": "lee.cowen@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=131"
+        },
+        {
+          "name": "Sharon Sluman",
+          "email": "sharon.sluman@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=365"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007570": {
+      "name": "Peverel",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Saffa Jan",
+          "email": "saffa.jan@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=527"
+        },
+        {
+          "name": "Stuart Parsons",
+          "email": "stuart.parsons@adur.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=652"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007571": {
+      "name": "St Mary's",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Becky Allinson",
+          "email": "becky.allinson@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=531"
+        },
+        {
+          "name": "Jeremy Gardner",
+          "email": "jeremy.gardner@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=369"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007572": {
+      "name": "St Nicolas",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Gerry Thompson",
+          "email": "gerry.thompson@adur.gov.uk",
+          "party": "Green",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=525"
+        },
+        {
+          "name": "Liam Tidy",
+          "email": "liam.tidy@adur.gov.uk",
+          "party": "Green",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=655"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007573": {
+      "name": "Southlands",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Nigel Hepworth",
+          "email": "nigel.hepworth@adur.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=656"
+        },
+        {
+          "name": "Debs Stainforth",
+          "email": "debs.stainforth@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=151"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007574": {
+      "name": "Southwick Green",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Robina Baine",
+          "email": "robina.baine@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=368"
+        },
+        {
+          "name": "Dan Flower",
+          "email": "dan.flower@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=429"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007575": {
+      "name": "Widewater",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Pauline Higgins",
+          "email": "pauline.higgins@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=526"
+        },
+        {
+          "name": "Adrienne Lowe",
+          "email": "adrienne.lowe@adur.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=517"
+        },
+        {
+          "name": "Joe Pannell",
+          "email": "joe.pannell@adur.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=657"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007694": {
+      "name": "Broadwater",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Cathy Glynn-Davies",
+          "email": "cathy.glynn-davies@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=372"
+        },
+        {
+          "name": "Dawn Smith",
+          "email": "dawn.smith@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=180"
+        },
+        {
+          "name": "Jimi Taylor",
+          "email": "jimi.taylor@worthing.gov.uk",
+          "party": "Green and Independent Alliance",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=636"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007695": {
+      "name": "Castle",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Sophie Cox",
+          "email": "sophie.cox@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=466"
+        },
+        {
+          "name": "Lionel Harman",
+          "email": "lionel.harman@worthing.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=637"
+        },
+        {
+          "name": "Samuel Theodoridi",
+          "email": "samuel.theodoridi@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=433"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007696": {
+      "name": "Central",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Caroline Baxter",
+          "email": "caroline.baxter@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=467"
+        },
+        {
+          "name": "Natasha Davie",
+          "email": "natasha.davie@worthing.gov.uk",
+          "party": "Green and Independent Alliance",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=638"
+        },
+        {
+          "name": "Rosey Whorlow",
+          "email": "rosey.whorlow@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=378"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007697": {
+      "name": "Durrington",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Josh Harris",
+          "email": "josh.harris@worthing.gov.uk",
+          "party": "Conservatives",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=519"
+        },
+        {
+          "name": "Charles James",
+          "email": "charles.james@worthing.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=157"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007698": {
+      "name": "Gaisford",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Ferdousi Henna Chowdhury",
+          "email": "henna.chowdhury@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=178"
+        },
+        {
+          "name": "Claire Hatfield",
+          "email": "claire.hatfield@worthing.gov.uk",
+          "party": "Green and Independent Alliance",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=639"
+        },
+        {
+          "name": "John Turley",
+          "email": "john.turley@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=374"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007699": {
+      "name": "Goring",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Ian Davey",
+          "email": "ian.davey@worthing.gov.uk",
+          "party": "Green and Independent Alliance",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=521"
+        },
+        {
+          "name": "Claire Hunt",
+          "email": "claire.hunt@worthing.gov.uk",
+          "party": "Green and Independent Alliance",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=469"
+        },
+        {
+          "name": "Jasmine Watkins",
+          "email": "jasmine.watkins@worthing.gov.uk",
+          "party": "Green and Independent Alliance",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=640"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007700": {
+      "name": "Heene",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Helen Abrahams",
+          "email": "helen.abrahams@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=470"
+        },
+        {
+          "name": "Tom Ellum",
+          "email": "tom.ellum@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=522"
+        },
+        {
+          "name": "Debbie Woudman",
+          "email": "debbie.woudman@worthing.gov.uk",
+          "party": "Green and Independent Alliance",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=641"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007701": {
+      "name": "Marine",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Martin McCabe",
+          "email": "martin.mccabe@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=642"
+        },
+        {
+          "name": "Thomas Taylor",
+          "email": "thomas.taylor@worthing.gov.uk",
+          "party": "Conservatives",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=551"
+        },
+        {
+          "name": "Vicki Wells",
+          "email": "vicki.wells@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=411"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007702": {
+      "name": "Northbrook",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Dom Ford",
+          "email": "dom.ford@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=523"
+        },
+        {
+          "name": "Rob Venn",
+          "email": "rob.venn@worthing.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=643"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007703": {
+      "name": "Offington",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Jeremy Carter",
+          "email": "jeremy.carter@worthing.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=647"
+        },
+        {
+          "name": "Daniel Humphreys",
+          "email": "daniel.humphreys@worthing.gov.uk",
+          "party": "Conservatives",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=155"
+        },
+        {
+          "name": "Elizabeth Sparkes",
+          "email": "elizabeth.sparkes@worthing.gov.uk",
+          "party": "Conservatives",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=167"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007704": {
+      "name": "Salvington",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Noel Atkins",
+          "email": "noel.atkins@worthing.gov.uk",
+          "party": "Conservatives",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=115"
+        },
+        {
+          "name": "Karen Harman",
+          "email": "karen.harman@worthing.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=649"
+        },
+        {
+          "name": "Richard Nowak",
+          "email": "richard.nowak@worthing.gov.uk",
+          "party": "Conservatives",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=302"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007705": {
+      "name": "Selden",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Jon Roser",
+          "email": "jon.roser@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=377"
+        },
+        {
+          "name": "Katie Thornton",
+          "email": "katie.thornton@worthing.gov.uk",
+          "party": "Green and Independent Alliance",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=651"
+        },
+        {
+          "name": "Carl Walker",
+          "email": "carl.walker@worthing.gov.uk",
+          "party": "Green and Independent Alliance",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=183"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05007706": {
+      "name": "Tarring",
+      "body": "ADUR_WORTHING",
+      "council": "Adur District Council and Worthing Borough Council",
+      "members": [
+        {
+          "name": "Hilary Schan",
+          "email": "hilary.schan@worthing.gov.uk",
+          "party": "Green and Independent Alliance",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=472"
+        },
+        {
+          "name": "Lysanne Skinner",
+          "email": "lysanne.skinner@worthing.gov.uk",
+          "party": "Labour",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=524"
+        },
+        {
+          "name": "Hazel Thorpe",
+          "email": "hazel.thorpe@worthing.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.adur-worthing.gov.uk/mgUserInfo.aspx?UID=653"
+        }
+      ],
+      "source_url": "https://democracy.adur-worthing.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015398": {
+      "name": "Brunswick & Adelaide",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Andrei Czolak",
+          "email": "andrei.czolak@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231402"
+        },
+        {
+          "name": "Ollie Sykes",
+          "email": "ollie.sykes@brighton-hove.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=3922"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015399": {
+      "name": "Central Hove",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Emma Daniel",
+          "email": "emma.daniel@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=23156"
+        },
+        {
+          "name": "Joy Robinson",
+          "email": "joy.robinson@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=113950"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015400": {
+      "name": "Coldean & Stanmer",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Mitchie Alexander",
+          "email": "mitchie.alexander@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=61598"
+        },
+        {
+          "name": "Tobias Sheard",
+          "email": "tobias.sheard@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231414"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015401": {
+      "name": "Goldsmid",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Nadia Barton Ahmad",
+          "email": "nadia.bartonahmad@brighton-hove.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=243378"
+        },
+        {
+          "name": "Birgit Miller",
+          "email": "birgit.miller@brighton-hove.gov.uk",
+          "party": "Independent",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=113979"
+        },
+        {
+          "name": "Trevor Muten",
+          "email": "trevor.muten@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231417"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015402": {
+      "name": "Hangleton & Knoll",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Faiza Baghoth",
+          "email": "faiza.baghoth@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231419"
+        },
+        {
+          "name": "Amanda Grimshaw BEM",
+          "email": "amanda.grimshaw@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=114004"
+        },
+        {
+          "name": "John Hewitt",
+          "email": "john.hewitt@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=113977"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015403": {
+      "name": "Hanover & Elm Grove",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Ty Galvin",
+          "email": "ty.galvin@brighton-hove.gov.uk",
+          "party": "Independent",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231421"
+        },
+        {
+          "name": "Tim Rowkins",
+          "email": "tim.rowkins@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231425"
+        },
+        {
+          "name": "Maureen Winder",
+          "email": "maureen.winder@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=49711"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015404": {
+      "name": "Hollingdean & Fiveways",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Mohammed Asaduzzaman",
+          "email": "mohammed.asaduzzaman@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=3883"
+        },
+        {
+          "name": "Bruno De Oliveira",
+          "email": "bruno.deoliveira@brighton-hove.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=193932"
+        },
+        {
+          "name": "Theresa Fowler",
+          "email": "theresa.fowler@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=113993"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015405": {
+      "name": "Kemptown",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Theresa Mackey",
+          "email": "theresa.mackey@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231463"
+        },
+        {
+          "name": "Gary Wilkinson",
+          "email": "gary.wilkinson@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=113956"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015406": {
+      "name": "Moulsecoomb & Bevendean",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Amanda Evans",
+          "email": "amanda.evans@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=114075"
+        },
+        {
+          "name": "Ty Goddard",
+          "email": "ty.goddard@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231441"
+        },
+        {
+          "name": "Jacob Taylor",
+          "email": "jacob.taylor@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231446"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015407": {
+      "name": "North Portslade",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Peter Atkinson",
+          "email": "peter.atkinson@brighton-hove.gov.uk",
+          "party": "Independent",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=49564"
+        },
+        {
+          "name": "Lucy Helliwell",
+          "email": "lucy.helliwell@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231449"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015408": {
+      "name": "Patcham & Hollingbury",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Alistair McNair",
+          "email": "alistair.mcnair@brighton-hove.gov.uk",
+          "party": "Conservative Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=114118"
+        },
+        {
+          "name": "Anne Meadows",
+          "email": "anne.meadows@brighton-hove.gov.uk",
+          "party": "Conservative Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=176"
+        },
+        {
+          "name": "Carol Theobald",
+          "email": "carol.theobald@brighton-hove.gov.uk",
+          "party": "Conservative Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=150"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015409": {
+      "name": "Preston Park",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Steve Davis",
+          "email": "steve.davis@brighton-hove.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=114107"
+        },
+        {
+          "name": "Liz Loughran",
+          "email": "liz.loughran@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231462"
+        },
+        {
+          "name": "Kerry Pickett",
+          "email": "kerry.pickett@brighton-hove.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231465"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015410": {
+      "name": "Queen's Park",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Marina Lademacher",
+          "email": "marina.lademacher@brighton-hove.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=240072"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015411": {
+      "name": "Regency",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Chloe Goldsmith",
+          "email": "chloe.goldsmith@brighton-hove.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231476"
+        },
+        {
+          "name": "Alison Thomson",
+          "email": "alison.thomson@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231479"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015412": {
+      "name": "Rottingdean & West Saltdean",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Mark Earthey",
+          "email": "mark.earthey@brighton-hove.gov.uk",
+          "party": "Brighton & Hove Independents",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231480"
+        },
+        {
+          "name": "Bridget Fishleigh",
+          "email": "bridget.fishleigh@brighton-hove.gov.uk",
+          "party": "Brighton & Hove Independents",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=114088"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015413": {
+      "name": "Round Hill",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Raphael Hill",
+          "email": "raphael.hill@brighton-hove.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=113969"
+        },
+        {
+          "name": "Pete West",
+          "email": "pete.west@brighton-hove.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=122"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015414": {
+      "name": "South Portslade",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Josh Guilmant",
+          "email": "josh.guilmant@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=114108"
+        },
+        {
+          "name": "Alan Robins",
+          "email": "alan.robins@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=3920"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015415": {
+      "name": "West Hill & North Laine",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Ellen McLeay",
+          "email": "ellen.mcleay@brighton-hove.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231499"
+        },
+        {
+          "name": "Sue Shanks",
+          "email": "susan.shanks@brighton-hove.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=114100"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015416": {
+      "name": "Westbourne & Poets' Corner",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Julie Cattell",
+          "email": "julie.a.cattell@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=49581"
+        },
+        {
+          "name": "Sam Parrott",
+          "email": "sam.parrott@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=238973"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015417": {
+      "name": "Westdene & Hove Park",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Samer Bagaeen",
+          "email": "samer.bagaeen@brighton-hove.gov.uk",
+          "party": "Independent",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=113997"
+        },
+        {
+          "name": "Emma Hogan",
+          "email": "emma.hogan@brighton-hove.gov.uk",
+          "party": "Conservative Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=128590"
+        },
+        {
+          "name": "Ivan Lyons",
+          "email": "ivan.lyons@brighton-hove.gov.uk",
+          "party": "Conservative Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231506"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015418": {
+      "name": "Whitehawk & Marina",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "David McGregor",
+          "email": "david.mcgregor@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231511"
+        },
+        {
+          "name": "Gill Williams",
+          "email": "gilliane.williams@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=113964"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015419": {
+      "name": "Wish",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Paul Nann",
+          "email": "paul.nann@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231518"
+        },
+        {
+          "name": "Bella Sankey",
+          "email": "bella.sankey@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=225800"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E05015420": {
+      "name": "Woodingdean",
+      "body": "BHCC",
+      "council": "Brighton & Hove City Council",
+      "members": [
+        {
+          "name": "Jacob Allen",
+          "email": "jacob.allen@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231520"
+        },
+        {
+          "name": "Jacqui Simon",
+          "email": "jacqui.simon@brighton-hove.gov.uk",
+          "party": "Labour Party",
+          "url": "https://democracy.brighton-hove.gov.uk/mgUserInfo.aspx?UID=231522"
+        }
+      ],
+      "source_url": "https://democracy.brighton-hove.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000352": {
+      "name": "Arlington, East Hoathly & Hellingly ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "William Boone",
+          "email": "cllr.william.boone@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5296"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000353": {
+      "name": "Ashdown & Conquest ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Aidan Fisher",
+          "email": "cllr.aidan.fisher@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5130"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000354": {
+      "name": "Baird & Ore ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Jo Walker",
+          "email": "cllr.jo.walker@eastsussex.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5309"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000355": {
+      "name": "Battle & Crowhurst ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Kathryn Field",
+          "email": "cllr.kathryn.field@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=22"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000356": {
+      "name": "Bexhill East ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Martin Kenward",
+          "email": "cllr.martin.kenward@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5298"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000357": {
+      "name": "Bexhill North ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Donald Walmsley",
+          "email": "cllr.donald.walmsley@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5294"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000358": {
+      "name": "Bexhill South ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Victoria Carson",
+          "email": "cllr.victoria.carson@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5310"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000359": {
+      "name": "Bexhill West ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Pete Morley",
+          "email": "cllr.pete.morley@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5307"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000360": {
+      "name": "Braybrooke & Castle ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Becca Horn",
+          "email": "cllr.becca.horn@eastsussex.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5301"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000361": {
+      "name": "Brede Valley & Marsham ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Daniel Lach",
+          "email": "cllr.daniel.lach@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5317"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000362": {
+      "name": "Central St. Leonards & Gensing ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Amanda Jobson",
+          "email": "cllr.amanda.jobson@eastsussex.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5327"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000363": {
+      "name": "Chailey ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Charlotte Keenan",
+          "email": "cllr.charlotte.keenan@eastsussex.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5318"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000364": {
+      "name": "Crowborough North & Jarvis Brook ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Catherine Fielding",
+          "email": "cllr.catherine.fielding@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5311"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000365": {
+      "name": "Crowborough South & St. Johns ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Sarah Jury",
+          "email": "cllr.sarah.jury@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5314"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000366": {
+      "name": "Devonshire ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Stephen Holt",
+          "email": "cllr.stephen.holt@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=2309"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000367": {
+      "name": "Forest Row & Groombridge ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Georgia Taylor",
+          "email": "cllr.georgia.taylor@eastsussex.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=2298"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000368": {
+      "name": "Hailsham Market ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Neil Cleaver",
+          "email": "cllr.neil.cleaver@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5319"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000369": {
+      "name": "Hailsham New Town ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Paul Soane",
+          "email": "cllr.paul.soane@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5305"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000370": {
+      "name": "Hampden Park ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Colin Swansborough",
+          "email": "cllr.colin.swansborough@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=854"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000371": {
+      "name": "Heathfield & Mayfield ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Andy Woolley",
+          "email": "cllr.andy.woolley@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5300"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000372": {
+      "name": "Hollington & Wishing Tree ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Mark Estcourt",
+          "email": "cllr.mark.estcourt@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5322"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000373": {
+      "name": "Langney ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Alan Shuttleworth",
+          "email": "cllr.alan.shuttleworth@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=45"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000374": {
+      "name": "Lewes ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Wendy Maples",
+          "email": "cllr.wendy.maples@eastsussex.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=2311"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000375": {
+      "name": "Maresfield & Buxted ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Christina Coleman",
+          "email": "cllr.christina.coleman@eastsussex.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5306"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000376": {
+      "name": "Maze Hill & West St. Leonards ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Karen Simnett",
+          "email": "cllr.karen.simnett@eastsussex.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5295"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000377": {
+      "name": "Meads ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Jack Morrell",
+          "email": "cllr.jack.morrell@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5328"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000378": {
+      "name": "Newhaven & Bishopstone ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Lesley Boniface",
+          "email": "cllr.lesley.boniface@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5315"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000379": {
+      "name": "Northern Rother ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Paul Redstone",
+          "email": "cllr.paul.redstone@eastsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=2304"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000380": {
+      "name": "Old Hastings & Tressell ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Julia Hilton",
+          "email": "cllr.julia.hilton@eastsussex.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=2302"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000381": {
+      "name": "Old Town ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Peter Diplock",
+          "email": "cllr.peter.diplock@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5326"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000382": {
+      "name": "Ouse Valley West & Downs ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Sarah Osborne",
+          "email": "cllr.sarah.osborne@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=857"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000383": {
+      "name": "Peacehaven ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Tracy Pedro",
+          "email": "cllr.tracy.pedro@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5299"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000384": {
+      "name": "Pevensey & Stone Cross ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Roger Lincoln",
+          "email": "cllr.roger.lincoln@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5313"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000385": {
+      "name": "Polegate & Watermill ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Mickey Caira",
+          "email": "cllr.mickey.caira@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5323"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000386": {
+      "name": "Ratton ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Colin Belsey",
+          "email": "cllr.colin.belsey@eastsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=53"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000387": {
+      "name": "Ringmer & Lewes Bridge ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Johnny Denis",
+          "email": "cllr.johnny.denis@eastsussex.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=2313"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000388": {
+      "name": "Rother North West ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Mark Ashdown",
+          "email": "cllr.mark.ashdown@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5312"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000389": {
+      "name": "Rye & Eastern Rother ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Daniel Bradley",
+          "email": "cllr.daniel.bradley@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5308"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000390": {
+      "name": "Seaford North ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Jane Reeves",
+          "email": "cllr.jane.reeves@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5293"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000391": {
+      "name": "Seaford South ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Carolyn Lambert",
+          "email": "cllr.carolyn.lambert@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=24"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000392": {
+      "name": "Sovereign ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Roy Peché",
+          "email": "cllr.roy.peche@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5302"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000393": {
+      "name": "St. Anthony's ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Hugh Parker",
+          "email": "cllr.hugh.parker@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5325"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000394": {
+      "name": "St. Helens & Silverhill ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Shaun Dowling",
+          "email": "cllr.shaun.dowling@eastsussex.gov.uk",
+          "party": "Green Party",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5316"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000395": {
+      "name": "Telscombe ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Stephen Chapman",
+          "email": "cllr.stephen.chapman@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5320"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000396": {
+      "name": "Uckfield North ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Kelvin Williams",
+          "email": "cllr.kelvin.williams@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5304"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000397": {
+      "name": "Uckfield South with Framfield ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Peter Griffiths",
+          "email": "cllr.peter.griffiths@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5303"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000398": {
+      "name": "Upperton ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Kathy Ballard",
+          "email": "cllr.kathy.ballard@eastsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5321"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000399": {
+      "name": "Wealden East ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Stephen Potts",
+          "email": "cllr.stephen.potts@eastsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5297"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000400": {
+      "name": "Wealden North East ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Michael Lunn",
+          "email": "cllr.michael.lunn@eastsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=5324"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58000401": {
+      "name": "Willingdon & South Downs ED",
+      "body": "ESCC",
+      "council": "East Sussex County Council",
+      "members": [
+        {
+          "name": "Stephen Shing",
+          "email": "cllr.stephen.shing@eastsussex.gov.uk",
+          "party": "Independent",
+          "url": "https://democracy.eastsussex.gov.uk/mgUserInfo.aspx?UID=43"
+        }
+      ],
+      "source_url": "https://democracy.eastsussex.gov.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001599": {
+      "name": "Angmering & Findon ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Deborah Urquhart",
+          "email": "deborah.urquhart@westsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=213"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001600": {
+      "name": "Arundel & Courtwick ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Frank Bonfield",
+          "email": "frank.bonfield@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8241"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001601": {
+      "name": "Bersted ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Gary Markwell",
+          "email": "gary.markwell@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=260"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001602": {
+      "name": "Bewbush & Ifield West ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Grainne Conway",
+          "email": "grainne.conway@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8324"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001603": {
+      "name": "Billingshurst ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Mark Baynham",
+          "email": "mark.baynham@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=5191"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001604": {
+      "name": "Bognor Regis East ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Elizabeth Meadows",
+          "email": "elizabeth.meadows@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8252"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001605": {
+      "name": "Bognor Regis West & Aldwick ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Giuliano Pinnelli",
+          "email": "giuliano.pinnelli@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8335"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001606": {
+      "name": "Bourne ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Tracie Bangert",
+          "email": "tracie.bangert@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=1064"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001607": {
+      "name": "Bramber Castle ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Victoria Finnegan",
+          "email": "victoria.finnegan@westsussex.gov.uk",
+          "party": "Green",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8255"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001608": {
+      "name": "Broadbridge ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Colin Minto",
+          "email": "colin.minto@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8337"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001609": {
+      "name": "Broadfield ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Brian Quinn",
+          "email": "brian.quinn@westsussex.gov.uk",
+          "party": "Labour",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=165"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001610": {
+      "name": "Broadwater ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Jimi Taylor",
+          "email": "jimi.taylor@westsussex.gov.uk",
+          "party": "Green",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8260"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001611": {
+      "name": "Burgess Hill East ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Richard Cherry",
+          "email": "richard.cherry@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=1601"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001612": {
+      "name": "Burgess Hill North ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Jane Davey",
+          "email": "jane.davey@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=7345"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001613": {
+      "name": "Chichester East ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Matt Hedge",
+          "email": "matt.hedge@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8263"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001614": {
+      "name": "Chichester North ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Jack Lovejoy",
+          "email": "jack.lovejoy@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8341"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001615": {
+      "name": "Chichester South ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Nicholas Russell",
+          "email": "nicholas.russell@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8414"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001616": {
+      "name": "Chichester West ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Richard Bates",
+          "email": "richard.bates@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=6261"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001617": {
+      "name": "Cissbury ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Elizabeth Sparkes",
+          "email": "elizabeth.sparkes@westsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=233"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001618": {
+      "name": "Cuckfield & Lucastes ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Lauren Lloyd",
+          "email": "lauren.lloyd@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8419"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001619": {
+      "name": "Durrington & Salvington ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Charles James",
+          "email": "charles.james@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8266"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001620": {
+      "name": "East Grinstead Meridian ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Lorraine Carvalho",
+          "email": "lorraine.carvalho@westsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8348"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001621": {
+      "name": "East Grinstead South & Ashurst Wood ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Jacquie Russell",
+          "email": "jacquie.russell@westsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=237"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001622": {
+      "name": "East Preston & Ferring ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Roger Elkins",
+          "email": "roger.elkins@westsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=248"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001623": {
+      "name": "Felpham ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "David Darling",
+          "email": "david.darling@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=2401"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001624": {
+      "name": "Fontwell ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Sue Wallsgrove",
+          "email": "sue.wallsgrove@westsussex.gov.uk",
+          "party": "Green",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8427"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001625": {
+      "name": "Goring ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Ian Davey",
+          "email": "ian.davey@westsussex.gov.uk",
+          "party": "Green",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=1641"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001626": {
+      "name": "Hassocks & Burgess Hill South ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Erika Woodhurst-Trueman",
+          "email": "erika.woodhurst-trueman@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=7353"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001627": {
+      "name": "Haywards Heath East ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Kirsten Sutton",
+          "email": "kirsten.sutton@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8433"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001628": {
+      "name": "Haywards Heath Town ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Caroline Ward",
+          "email": "caroline.ward@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8277"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001629": {
+      "name": "Henfield ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Roger Noel",
+          "email": "roger.noel@westsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8356"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001630": {
+      "name": "Holbrook ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Steve Makin",
+          "email": "steve.makin@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8435"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001631": {
+      "name": "Horsham East ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Jay Mercer",
+          "email": "jay.mercer@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=1685"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001632": {
+      "name": "Horsham Hurst ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Nigel Dennis",
+          "email": "nigel.dennis@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=128"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001633": {
+      "name": "Horsham Riverside ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Louise Potter",
+          "email": "louise.potter@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=6770"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001634": {
+      "name": "Hurstpierpoint & Bolney ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Rodney Jackson",
+          "email": "rodney.jackson@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8285"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001635": {
+      "name": "Imberdown ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Gary Dowsett",
+          "email": "gary.dowsett@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8361"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001636": {
+      "name": "Lancing ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Mike Mendoza",
+          "email": "mike.mendoza@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8442"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001637": {
+      "name": "Langley Green & Ifield East ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Oliver Pickstock",
+          "email": "oliver.pickstock@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8287"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001638": {
+      "name": "Lindfield & High Weald ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Cavan Wood",
+          "email": "cavan.wood@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=1667"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001639": {
+      "name": "Littlehampton East ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Paul Cornford",
+          "email": "paul.cornford@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8447"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001640": {
+      "name": "Littlehampton Town ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Ricky Borrett",
+          "email": "ricky.borrett@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8290"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001641": {
+      "name": "Maidenbower & Worth ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Riszard Rzepa",
+          "email": "riszard.rzepa@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8369"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001642": {
+      "name": "Middleton ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Alison Littleboy",
+          "email": "alison.littleboy@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8452"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001643": {
+      "name": "Midhurst ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Yvonne Gravely",
+          "email": "yvonne.gravely@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=6759"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001644": {
+      "name": "Northbrook ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Rob Venn",
+          "email": "rob.venn@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8371"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001645": {
+      "name": "Northgate & West Green ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Callum Johnson",
+          "email": "callum.johnson@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8454"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001646": {
+      "name": "Nyetimber ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Trevor Bence",
+          "email": "trevor.bence@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=1652"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001647": {
+      "name": "Petworth ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Janet Duncton",
+          "email": "janet.duncton@westsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=129"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001648": {
+      "name": "Pound Hill ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "James Tidy",
+          "email": "james.tidy@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8460"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001649": {
+      "name": "Pulborough ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Tom Crofts",
+          "email": "tom.crofts@westsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=6758"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001650": {
+      "name": "Rother Valley ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Tom Richardson",
+          "email": "tom.richardson@westsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=1731"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001651": {
+      "name": "Rustington ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Alison Cooper",
+          "email": "alison.cooper@westsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=1068"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001652": {
+      "name": "Selsey ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Donna Johnson",
+          "email": "donna.johnson@westsussex.gov.uk",
+          "party": "Local Alliance",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=991"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001653": {
+      "name": "Shoreham North ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Adrienne Lowe",
+          "email": "adrienne.lowe@westsussex.gov.uk",
+          "party": "Labour",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8383"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001654": {
+      "name": "Shoreham South ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Gerry Thompson",
+          "email": "gerry.thompson@westsussex.gov.uk",
+          "party": "Green",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8469"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001655": {
+      "name": "Sompting & North Lancing ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Jim Doubtfire",
+          "email": "jim.doubtfire@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8327"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001656": {
+      "name": "Southgate & Gossops Green ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Tim Charters",
+          "email": "tim.charters@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8385"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001657": {
+      "name": "Southwater & Nuthurst ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Alex Jeffery",
+          "email": "alex.jeffery@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8473"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001658": {
+      "name": "Southwick ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Nigel Corston",
+          "email": "nigel.corston@westsussex.gov.uk",
+          "party": "Labour",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=6295"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001659": {
+      "name": "St. Leonard's Forest ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Sam Raby",
+          "email": "sam.raby@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=1708"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001660": {
+      "name": "Storrington ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Paul Marshall",
+          "email": "paul.marshall@westsussex.gov.uk",
+          "party": "Conservative",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=259"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001661": {
+      "name": "Tarring ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Henna Chowdhury",
+          "email": "henna.chowdhury@westsussex.gov.uk",
+          "party": "Labour",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=1688"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001662": {
+      "name": "The Witterings ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Izabela Mayne",
+          "email": "izabela.mayne@westsussex.gov.uk",
+          "party": "Liberal Democrats",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8389"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001663": {
+      "name": "Three Bridges ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Emma Whiteoak",
+          "email": "emma.whiteoak@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8481"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001664": {
+      "name": "Tilgate & Furnace Green ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Sarah LeTissier",
+          "email": "sarah.letissier@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8317"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001665": {
+      "name": "Worth Forest ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Mel Winn",
+          "email": "mel.winn@westsussex.gov.uk",
+          "party": "Reform UK",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8395"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001666": {
+      "name": "Worthing East ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Katie Thornton",
+          "email": "katie.thornton@westsussex.gov.uk",
+          "party": "Green",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8485"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001667": {
+      "name": "Worthing Pier ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Natasha Davie",
+          "email": "natasha.davie@westsussex.gov.uk",
+          "party": "Green",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=8319"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    },
+    "E58001668": {
+      "name": "Worthing West ED",
+      "body": "WSCC",
+      "council": "West Sussex County Council",
+      "members": [
+        {
+          "name": "Martin McCabe",
+          "email": "martin.mccabe@westsussex.gov.uk",
+          "party": "Labour",
+          "url": "https://westsussex.moderngov.co.uk/mgUserInfo.aspx?UID=7352"
+        }
+      ],
+      "source_url": "https://westsussex.moderngov.co.uk/mgMemberIndex.aspx",
+      "checked_on": "2026-09-07"
+    }
+  }
+}

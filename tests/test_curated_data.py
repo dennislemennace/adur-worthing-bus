@@ -14,6 +14,7 @@ Run with:  pytest
 """
 
 import json
+import re
 from datetime import date
 from pathlib import Path
 
@@ -697,3 +698,96 @@ def test_served_icons_are_small_enough_to_ship():
     total = sum(p.stat().st_size for p in _served_icons())
     assert total < 120 * 1024, (
         f"served icons total {total/1024:.0f} KB — the build produces about 45 KB")
+
+
+# ── representatives.json ────────────────────────────────────
+#
+# Who to write to about an objective. Schema only, not values: the people
+# change at every election, and a test that pinned names would fail on a
+# correct rebuild. What must never change is that every published address is
+# traceable — a councillor's email shown without a source is a claim this site
+# cannot stand behind, and a resident emailing a stranger is worse than a
+# resident emailing nobody.
+
+
+def _representatives():
+    return json.loads((DATA_DIR / "representatives.json").read_text())
+
+
+# Bodies the frontend's BODY_AREA table knows how to resolve a postcode for.
+# An area filed under anything else is unreachable from the UI.
+REPRESENTATIVE_BODIES = {"WSCC", "ESCC", "ADUR_WORTHING", "BHCC"}
+
+
+def test_representatives_are_keyed_by_ons_area_code():
+    """postcodes.io returns codes.ced / codes.admin_ward; these are those codes.
+
+    Keyed on codes rather than names on purpose — council directories and ONS
+    spell the same ward differently ("Buckingham Ward, Shoreham-by-Sea" against
+    "Buckingham"), and the join is done once at build time where a mismatch is
+    a build error rather than a resident emailing nobody.
+    """
+    areas = _representatives()["areas"]
+    assert areas, "no areas — the file would render the feature dead"
+    for code in areas:
+        assert re.fullmatch(r"E(05|58)\d{6}", code), (
+            f"{code!r} is not an ONS ward (E05…) or electoral division (E58…) code, "
+            "so no postcode lookup can ever match it"
+        )
+
+
+def test_every_representative_has_a_working_address():
+    areas = _representatives()["areas"]
+    for code, area in areas.items():
+        assert area["body"] in REPRESENTATIVE_BODIES, (
+            f"{code}: body {area['body']!r} is not one the frontend can resolve"
+        )
+        assert area.get("name"), f"{code}: no area name to show the reader"
+        assert area.get("council"), f"{code}: no council named"
+        assert area.get("members"), f"{code}: listed with no councillors at all"
+        for m in area["members"]:
+            assert m.get("name"), f"{code}: a member with no name"
+            assert re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-z.]+", m.get("email", "")), (
+                f"{code}: {m.get('name')!r} has no usable email address"
+            )
+
+
+def test_every_representative_is_traceable_and_dated():
+    """Provenance, the same contract every other curated file here carries.
+
+    `checked_on` is shown to the reader next to the address, because these go
+    stale at every election and a silently outdated address looks identical to
+    a current one.
+    """
+    doc = _representatives()
+    for code, area in doc["areas"].items():
+        assert area.get("source_url", "").startswith("https://"), (
+            f"{code}: no source to check the addresses against"
+        )
+        checked = date.fromisoformat(area["checked_on"])
+        assert checked <= date.today(), f"{code}: checked_on is in the future"
+    assert doc.get("geography", {}).get("attribution"), (
+        "the ONS geography this is keyed on is Open Government Licence data, "
+        "which requires attribution"
+    )
+
+
+def test_representative_emails_are_official_council_addresses():
+    """No personal addresses, and nothing derived from a name pattern.
+
+    Every address here comes out of the council's own published directory. A
+    domain outside the council's is either a personal address that should not
+    be republished, or a sign the build script matched the wrong thing.
+    """
+    allowed = {
+        "WSCC": {"westsussex.gov.uk"},
+        "ESCC": {"eastsussex.gov.uk"},
+        "ADUR_WORTHING": {"adur.gov.uk", "worthing.gov.uk"},
+        "BHCC": {"brighton-hove.gov.uk"},
+    }
+    for code, area in _representatives()["areas"].items():
+        for m in area["members"]:
+            domain = m["email"].rsplit("@", 1)[-1].lower()
+            assert domain in allowed[area["body"]], (
+                f"{code}: {m['email']} is not an official {area['body']} address"
+            )

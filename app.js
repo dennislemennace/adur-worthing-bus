@@ -180,6 +180,7 @@ const state = {
   ticketZones:             null,   // data/ticket_zones.json (array); null = not loaded
   journeyLayers:           [],     // the checked journey, drawn on the map
   councilBoundaryLayers:   {},     // boundary id → L.polyline / L.polygon
+  councilBoundaryHits:     {},     // boundary id → invisible fat L.polyline, hover/click target
   councilBoundaryLabels:   {},     // boundary id → [L.tooltip] naming each side
   _councilBoundariesPromise: null,
   ticketZoneLayers:        {},     // zone id → L.polygon (only for zones with geometry)
@@ -194,6 +195,10 @@ const state = {
   networkTab:              "objectives", // "objectives" | "ideas"
   expandedBodies:          null,        // Set of responsible-body codes expanded
   objectives:              null,    // data/objectives.json (array); null = not loaded
+  representatives:         null,    // data/representatives.json; null = not loaded
+  councillorObjective:     null,    // objective id the councillor dialog is about
+  councillorBody:          null,    // which authority of that objective is being written to
+  councillorResult:        null,    // rendered result HTML, kept so a re-render does not lose it
   suggestions:             null,    // data/suggestions.json (array); null = not loaded
   selectedObjectiveId:     null,    // expanded objective card in the list
   _networkPromise:         null,
@@ -831,6 +836,23 @@ async function loadCouncilBoundariesImpl() {
       className: "council-boundary-line",
     });
 
+    // A second line, invisible and fat, doing the pointer work. The visible
+    // boundary is a 5px dash — under half the 24px WCAG target floor, and in
+    // practice unhittable — so the line looked inert even though it is the
+    // way into the evidence. Kept separate from the visible line rather than
+    // widening it, because the dash pattern is the thing that says "this is
+    // an administrative edge, not a route".
+    state.councilBoundaryHits[b.id] = L.polyline(b.polyline, {
+      color:   colour,
+      weight:  22,
+      opacity: 0,
+      interactive: true,
+      bubblingMouseEvents: false,
+      pane: "councilBoundaryPane",
+      className: "council-boundary-hit",
+    });
+    bindCouncilBoundaryHover(b.id);
+
     state.councilBoundaryLabels[b.id] = (b.label_at || [])
       .filter(at => Array.isArray(at) && at.length === 2)
       .map(at => L.tooltip({
@@ -842,6 +864,50 @@ async function loadCouncilBoundariesImpl() {
         pane:        "councilBoundaryLabelPane",
       }).setLatLng(at).setContent(councilBoundaryLabelHtml(b)));
   }
+}
+
+/**
+ * Make the boundary react to the cursor along its whole length.
+ *
+ * Hover lights the line *and* its label, so the two read as one object rather
+ * than a decoration that happens to sit near a button. Click goes to the same
+ * place the label goes — the evidence — because a line that highlights under
+ * the cursor and then does nothing when clicked is worse than one that never
+ * highlighted.
+ *
+ * This adds no focusable element: the label is already a real <button>, and it
+ * remains the keyboard route in. The hit line is a pointer affordance only.
+ */
+function bindCouncilBoundaryHover(id) {
+  const hit = state.councilBoundaryHits[id];
+  if (!hit) return;
+
+  const setHot = (on) => {
+    const line = state.councilBoundaryLayers[id];
+    if (line && line._path) line._path.classList.toggle("is-hot", on);
+    // The label is rebuilt by Leaflet each time the tooltip is re-added, so
+    // it is looked up per event rather than captured once.
+    document.querySelectorAll(`.council-boundary-label[data-boundary="${cssEscape(id)}"]`)
+      .forEach(el => el.classList.toggle("is-hot", on));
+  };
+
+  hit.on("mouseover", () => setHot(true));
+  hit.on("mouseout",  () => setHot(false));
+  hit.on("click", () => {
+    // Leaflet forwards layer clicks to the map, whose handler closes the
+    // panel. Same guard the label's own handler uses.
+    state._ignoreNextMapClick = true;
+    setHot(false);        // a tap never fires mouseout, so it would stay lit
+    openBoundaryEvidence();
+  });
+}
+
+/** CSS.escape where it exists, and a conservative fallback where it doesn't. */
+function cssEscape(value) {
+  const s = String(value);
+  return (window.CSS && typeof CSS.escape === "function")
+    ? CSS.escape(s)
+    : s.replace(/[^a-zA-Z0-9_-]/g, ch => "\\" + ch);
 }
 
 /**
@@ -1102,7 +1168,10 @@ const COUNCIL_LABEL_MIN_ZOOM = 11;
 function reconcileCouncilBoundaries() {
   if (!state.map) return;
   const show = state.viewMode === "improvements" || state.viewMode === "live";
-  for (const layer of Object.values(state.councilBoundaryLayers)) {
+  // The hit line is reconciled with the line it belongs to, not separately:
+  // one left behind is an invisible strip of map that opens a dialog.
+  for (const layer of [...Object.values(state.councilBoundaryLayers),
+                       ...Object.values(state.councilBoundaryHits)]) {
     if (show && !state.map.hasLayer(layer))      layer.addTo(state.map);
     else if (!show && state.map.hasLayer(layer)) state.map.removeLayer(layer);
   }
@@ -1117,7 +1186,8 @@ function reconcileCouncilBoundaries() {
 
 function hideCouncilBoundaries() {
   if (!state.map) return;
-  for (const layer of Object.values(state.councilBoundaryLayers)) {
+  for (const layer of [...Object.values(state.councilBoundaryLayers),
+                       ...Object.values(state.councilBoundaryHits)]) {
     if (state.map.hasLayer(layer)) state.map.removeLayer(layer);
   }
   for (const tips of Object.values(state.councilBoundaryLabels)) {
@@ -6709,6 +6779,16 @@ function objectiveStatusMeta(status) {
   return OBJECTIVE_STATUS[status] || { label: status || "", cls: "not-considered" };
 }
 
+/**
+ * One objective, as a card that expands.
+ *
+ * The card is a wrapper, not a single button. It used to be one <button>
+ * holding everything including the expanded detail — which put anchors and,
+ * later, a "write to your councillor" button inside a button. Nested
+ * interactive elements are invalid, and in practice the links inside were
+ * awkward to activate. Only the summary row toggles now; the detail is a
+ * sibling, so anything interactive in it works normally.
+ */
 function objectiveCardHtml(o) {
   const sel = (o.id === state.selectedObjectiveId);
   const st  = objectiveStatusMeta(o.status);
@@ -6728,20 +6808,44 @@ function objectiveCardHtml(o) {
           `).join("")}
         </ul>
       ` : ""}
+      ${objectiveContactHtml(o)}
     </div>` : "";
   return `
-    <button type="button"
-            class="proposal-card ${sel ? "selected" : ""}"
-            data-objective-id="${escapeAttr(o.id)}"
-            style="border-left-color:${escapeAttr(o.color || "#444")}">
-      <span class="objective-card-head">
-        <span class="proposal-card-name">${escapeHtml(o.title || o.id)}</span>
-        <span class="status-badge status-${st.cls}">${escapeHtml(st.label)}</span>
-      </span>
-      <span class="proposal-card-summary">${escapeHtml(o.summary || "")}</span>
-      <span class="objective-chips">${objectiveBodyChips(o)}</span>
+    <div class="proposal-card-wrap ${sel ? "selected" : ""}"
+         style="border-left-color:${escapeAttr(o.color || "#444")}">
+      <button type="button"
+              class="proposal-card ${sel ? "selected" : ""}"
+              data-objective-id="${escapeAttr(o.id)}"
+              aria-expanded="${sel ? "true" : "false"}">
+        <span class="objective-card-head">
+          <span class="proposal-card-name">${escapeHtml(o.title || o.id)}</span>
+          <span class="status-badge status-${st.cls}">${escapeHtml(st.label)}</span>
+        </span>
+        <span class="proposal-card-summary">${escapeHtml(o.summary || "")}</span>
+        <span class="objective-chips">${objectiveBodyChips(o)}</span>
+      </button>
       ${detail}
-    </button>`;
+    </div>`;
+}
+
+/** The "write to whoever has to act on this" row inside an expanded card. */
+function objectiveContactHtml(o) {
+  const bodies = objectiveAuthorities(o);
+  if (!bodies.length) return "";
+  // Named, so it is obvious before clicking who this is going to reach. The
+  // objectives whose lead is an operator still show this when an authority is
+  // needed alongside — "this needs the county on board" is a fair reason to
+  // write to a county councillor even when the operator leads.
+  const who = bodies.map(c => bodyName(c)).join(" or ");
+  return `
+    <p class="proposal-detail-heading">Make the case</p>
+    <button type="button" class="objective-contact-btn"
+            data-contact-objective="${escapeAttr(o.id)}">
+      <svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg>
+      <span>Email your councillor about this</span>
+    </button>
+    <p class="objective-contact-note">Finds whoever represents your postcode at
+      ${escapeHtml(who)}, and drafts a letter you can edit before sending.</p>`;
 }
 
 // ── Who is responsible ──────────────────────────────────────
@@ -6892,6 +6996,366 @@ function bodyGroupHtml(g, itemHtml, noun) {
     </section>`;
 }
 
+// ============================================================
+// WRITE TO YOUR COUNCILLOR
+//
+// An objective names the bodies that would have to act on it. This turns that
+// into a person: the reader's postcode goes to postcodes.io, which returns the
+// ONS codes for their electoral division and their ward, and
+// data/representatives.json maps those codes to the councillors who sit for
+// them. The tier follows the body — a county objective finds the county
+// councillor, a district one finds the district councillor — because writing
+// to the wrong tier about buses is how a letter gets politely forwarded and
+// forgotten.
+//
+// Nothing is sent from here. The draft opens in the reader's own mail client,
+// so the site cannot be used to send mail on anyone's behalf, and the letter
+// stays theirs to edit. That is deliberate, not a limitation to route around.
+// ============================================================
+
+// Which postcodes.io field identifies one of this body's areas, and where that
+// body's writ runs. A county council is bounded by its county, a district or
+// unitary one by its districts. A body absent from here has no councillors to
+// find — operators are companies, and the existing "Contact" link is the right
+// route for them.
+const BODY_AREA = {
+  WSCC:          { field: "ced",  counties: ["West Sussex"] },
+  // East Sussex matters because the corridor does not stop at Brighton: the
+  // integrated-plan objective needs all three authorities, and a reader in
+  // Lewes or Seaford has a county councillor with a say in it.
+  ESCC:          { field: "ced",  counties: ["East Sussex"] },
+  ADUR_WORTHING: { field: "ward", districts: ["Adur", "Worthing"] },
+  BHCC:          { field: "ward", districts: ["Brighton and Hove"] },
+};
+
+/** The authorities an objective needs, lead first. */
+function objectiveAuthorities(o) {
+  const seen = new Set();
+  const out = [];
+  // Lead before shared: whoever has to act is who you write to first. Both are
+  // included, because most objectives here are operator-led and would show no
+  // contact route at all if only leads counted.
+  for (const code of [...(o.lead || []), ...(o.shared || [])]) {
+    if (seen.has(code) || !BODY_AREA[code]) continue;
+    seen.add(code);
+    out.push(code);
+  }
+  return out;
+}
+
+/** data/representatives.json, fetched once. */
+async function loadRepresentatives() {
+  if (state.representatives) return state.representatives;
+  if (!state._representativesPromise) {
+    state._representativesPromise = (async () => {
+      try {
+        const res = await fetch("data/representatives.json");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        state.representatives = await res.json();
+      } catch (err) {
+        console.warn("Representatives unavailable:", err);
+        state.representatives = { areas: {} };
+      } finally {
+        state._representativesPromise = null;
+      }
+      return state.representatives;
+    })();
+  }
+  return state._representativesPromise;
+}
+
+/** UK postcode, loosely: enough to catch a typo, not enough to reject a valid one. */
+function normalisePostcode(raw) {
+  const s = String(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!/^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$/.test(s)) return null;
+  return `${s.slice(0, -3)} ${s.slice(-3)}`;
+}
+
+/**
+ * Postcode to areas, via postcodes.io.
+ *
+ * Free, no key, and CORS-enabled, so this runs from the page rather than
+ * through the backend — which keeps it off the free-tier budget entirely and
+ * means a postcode is never sent to a server this site controls.
+ */
+async function lookupPostcode(postcode) {
+  const url = `https://api.postcodes.io/postcodes/${encodeURIComponent(postcode)}`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const d = (await res.json()).result;
+  return {
+    district: d.admin_district,
+    // Null in a unitary area, which is how Brighton & Hove is told apart from
+    // the two-tier counties either side of it.
+    county: d.admin_county || null,
+    // E99999999 is ONS for "not applicable" — a unitary authority has wards
+    // but no electoral divisions, so Brighton & Hove always reads that way.
+    ced:  d.codes && d.codes.ced !== "E99999999" ? d.codes.ced : null,
+    ward: d.codes ? d.codes.admin_ward : null,
+  };
+}
+
+/** The area entry that answers for `body` at this postcode, or a reason it doesn't. */
+function resolveRepresentatives(reps, body, place) {
+  const spec = BODY_AREA[body];
+  if (!spec) return { error: "no-councillors" };
+  // Checked before the code lookup so the reason is specific. Falling through
+  // to "we don't hold your area" would be true but useless: a Worthing reader
+  // asking about East Sussex is not missing data, they are in the wrong county.
+  if (spec.counties && !spec.counties.includes(place.county)) {
+    return { error: "out-of-area" };
+  }
+  if (spec.districts && !spec.districts.includes(place.district)) {
+    return { error: "out-of-area" };
+  }
+  const code = spec.field === "ced" ? place.ced : place.ward;
+  const area = code && reps.areas ? reps.areas[code] : null;
+  if (!area || area.body !== body) return { error: "not-listed" };
+  return { area };
+}
+
+/**
+ * The draft.
+ *
+ * Left deliberately incomplete: the paragraph about the sender's own journeys
+ * is a prompt, not prose. A councillor's office can tell an identical template
+ * from a real letter at a glance, and the identical ones carry less weight —
+ * so the most useful thing this can do is give someone a structure and get out
+ * of the way.
+ */
+function councillorDraft(objective, area) {
+  const names = area.members.map(m => m.name).join(" and ");
+  const lines = [
+    `Dear ${names},`,
+    "",
+    `I am writing as one of your constituents in ${area.name} about bus services in Adur and Worthing.`,
+    "",
+    objective.title + (objective.summary ? `: ${objective.summary}` : ""),
+    "",
+    objective.description || "",
+    "",
+    "[Please add a sentence or two here about how this affects you — which journeys you make, what goes wrong, and what would change if this were fixed. This is the part that carries the most weight, and a letter without it reads as a template.]",
+    "",
+    "I would be grateful to know your view on this, and whether you would be willing to raise it.",
+    "",
+    "Yours sincerely,",
+    "",
+  ];
+  return {
+    subject: `Bus services in Adur and Worthing: ${objective.title}`,
+    body: lines.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n"),
+  };
+}
+
+/** A mailto: URL, and whether it is short enough to be trusted to survive one. */
+function councillorMailto(area, draft) {
+  const to = area.members.map(m => m.email).join(",");
+  // "@" and "," are legal in a mailto addr-spec (RFC 6068) and several clients
+  // mishandle them percent-encoded, so they are put back literally.
+  const url = `mailto:${encodeURIComponent(to).replace(/%40/g, "@").replace(/%2C/g, ",")}`
+            + `?subject=${encodeURIComponent(draft.subject)}`
+            + `&body=${encodeURIComponent(draft.body)}`;
+  // Some webmail clients silently truncate a long mailto body. Past this the
+  // copy button is the honest primary route rather than a fallback.
+  return { url, long: url.length > 1800 };
+}
+
+// ── The dialog ──────────────────────────────────────────────
+
+function openCouncillorDialog(objectiveId) {
+  const dialog = document.getElementById("councillor-dialog");
+  const objective = (state.objectives || []).find(o => o.id === objectiveId);
+  if (!dialog || !objective) return;
+  state.councillorObjective = objectiveId;
+  state.councillorBody = objectiveAuthorities(objective)[0] || null;
+  state.councillorResult = null;
+  renderCouncillorDialog();
+  if (!dialog.open) dialog.showModal();
+  const input = document.getElementById("councillor-postcode");
+  if (input) input.focus();
+}
+
+function renderCouncillorDialog(status) {
+  const body = document.getElementById("councillor-body");
+  const objective = (state.objectives || []).find(o => o.id === state.councillorObjective);
+  if (!body || !objective) return;
+
+  const bodies = objectiveAuthorities(objective);
+  const chosen = state.councillorBody || bodies[0];
+  const picker = bodies.length > 1 ? `
+    <div class="councillor-bodies" role="group" aria-label="Who to write to">
+      ${bodies.map(code => `
+        <button type="button" class="councillor-body-btn ${code === chosen ? "selected" : ""}"
+                data-councillor-body="${escapeAttr(code)}">${escapeHtml(bodyName(code))}</button>
+      `).join("")}
+    </div>` : "";
+
+  body.innerHTML = `
+    <button type="button" class="evidence-close" data-close-councillor
+            aria-label="Close">&times;</button>
+    <p class="evidence-eyebrow">Make the case</p>
+    <h2 class="evidence-title" id="councillor-title">${escapeHtml(objective.title)}</h2>
+    <p class="councillor-intro">Your postcode finds the ${
+      BODY_AREA[chosen] && BODY_AREA[chosen].field === "ced"
+        ? "county councillor for your electoral division"
+        : "councillors for your ward"}. Nothing is sent from this site — the
+      draft opens in your own email app, and it is yours to change.</p>
+    ${picker}
+    <form class="councillor-form" id="councillor-form">
+      <label class="councillor-label" for="councillor-postcode">Your postcode</label>
+      <div class="councillor-row">
+        <input class="councillor-input" id="councillor-postcode" name="postcode"
+               type="text" inputmode="text" autocomplete="postal-code"
+               placeholder="BN11 1AA" spellcheck="false">
+        <button class="editor-action-btn primary councillor-submit" type="submit">Find</button>
+      </div>
+      <p class="councillor-status ${status && status.error ? "is-error" : ""}"
+         id="councillor-status" aria-live="polite">${status ? escapeHtml(status.text) : ""}</p>
+    </form>
+    <div id="councillor-result">${state.councillorResult || ""}</div>
+    <p class="councillor-privacy">Postcode lookup is by
+      <a class="proposal-link" href="https://postcodes.io/" target="_blank"
+         rel="noopener noreferrer">postcodes.io</a>. Your postcode is not stored,
+      and never reaches this site's own servers.</p>`;
+  bindCouncillorDialog();
+}
+
+function bindCouncillorDialog() {
+  // Escape already closes a native <dialog>, but a visible control is the one
+  // most people reach for, and on touch there is no Escape key at all.
+  document.querySelectorAll("[data-close-councillor]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const d = document.getElementById("councillor-dialog");
+      if (d && d.open) d.close();
+    });
+  });
+  const form = document.getElementById("councillor-form");
+  if (form) form.addEventListener("submit", onCouncillorSubmit);
+  document.querySelectorAll("[data-councillor-body]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.councillorBody = btn.dataset.councillorBody;
+      state.councillorResult = null;
+      renderCouncillorDialog();
+    });
+  });
+  const copy = document.getElementById("councillor-copy");
+  if (copy) copy.addEventListener("click", onCouncillorCopy);
+}
+
+async function onCouncillorSubmit(e) {
+  e.preventDefault();
+  const raw = (document.getElementById("councillor-postcode") || {}).value;
+  const postcode = normalisePostcode(raw);
+  if (!postcode) {
+    state.councillorResult = null;
+    return renderCouncillorDialog({ error: true, text: "That doesn't look like a UK postcode." });
+  }
+  state.councillorResult = null;
+  renderCouncillorDialog({ text: "Looking up…" });
+
+  const objective = (state.objectives || []).find(o => o.id === state.councillorObjective);
+  const body = state.councillorBody;
+  let place;
+  try {
+    place = await lookupPostcode(postcode);
+  } catch (err) {
+    return renderCouncillorDialog({ error: true, text: "Couldn't reach the postcode service — please try again." });
+  }
+  if (!place) {
+    return renderCouncillorDialog({ error: true, text: `We couldn't find ${postcode}.` });
+  }
+
+  const reps = await loadRepresentatives();
+  const found = resolveRepresentatives(reps, body, place);
+  if (found.error) {
+    state.councillorResult = councillorFallbackHtml(body, place, found.error);
+    return renderCouncillorDialog();
+  }
+  state.councillorResult = councillorResultHtml(objective, found.area);
+  renderCouncillorDialog();
+}
+
+/**
+ * Why we have nothing, and what to do instead.
+ *
+ * Always says which, rather than one shrug for every case: "you live outside
+ * the area this body covers" and "we don't hold your ward yet" call for
+ * different next steps, and a reader who is told the wrong one gives up.
+ */
+function councillorFallbackHtml(bodyCode, place, reason) {
+  const b = RESPONSIBLE_BODIES[bodyCode] || {};
+  const spec = BODY_AREA[bodyCode] || {};
+  const where = (spec.counties && place.county) ? place.county : place.district;
+  const why = reason === "out-of-area"
+    ? `${escapeHtml(where)} is outside ${escapeHtml(bodyName(bodyCode))},
+       so they have no councillor for your address.`
+    : `We don't have a published address for your area yet.`;
+  const link = b.url
+    ? `<p><a class="proposal-link" href="${escapeAttr(b.url)}" target="_blank"
+             rel="noopener noreferrer">Contact ${escapeHtml(bodyName(bodyCode))} directly ↗</a></p>`
+    : "";
+  return `<div class="councillor-result"><p class="councillor-empty">${why}</p>${link}</div>`;
+}
+
+function councillorResultHtml(objective, area) {
+  const draft = councillorDraft(objective, area);
+  const { url, long } = councillorMailto(area, draft);
+  const people = area.members.map(m => `
+    <li class="councillor-member">
+      <span class="councillor-member-name">${escapeHtml(m.name)}</span>
+      ${m.party ? `<span class="councillor-member-party">${escapeHtml(m.party)}</span>` : ""}
+      <a class="councillor-member-email" href="mailto:${escapeAttr(m.email)}">${escapeHtml(m.email)}</a>
+    </li>`).join("");
+
+  return `
+    <div class="councillor-result">
+      <p class="proposal-detail-heading">${escapeHtml(area.name)} — ${escapeHtml(area.council)}</p>
+      <ul class="councillor-members">${people}</ul>
+      <p class="councillor-checked">Addresses published by the council and checked on
+        ${escapeHtml(area.checked_on)}.
+        <a class="proposal-link" href="${escapeAttr(area.source_url)}" target="_blank"
+           rel="noopener noreferrer">Verify ↗</a></p>
+
+      <p class="proposal-detail-heading">Your draft</p>
+      <p class="councillor-draft-note">Edit this before you send it. The bracketed
+        paragraph is the part that matters most — a letter in your own words
+        counts for far more than an identical one.</p>
+      <textarea class="councillor-draft" id="councillor-draft-text" rows="12"
+                aria-label="Draft email">${escapeHtml(draft.body)}</textarea>
+      <div class="councillor-actions">
+        ${long ? `
+          <button type="button" class="editor-action-btn primary" id="councillor-copy">Copy the draft</button>
+          <a class="editor-action-btn" href="${escapeAttr(url)}">Open in your email app</a>
+        ` : `
+          <a class="editor-action-btn primary" href="${escapeAttr(url)}">Open in your email app</a>
+          <button type="button" class="editor-action-btn" id="councillor-copy">Copy the draft</button>
+        `}
+      </div>
+      ${long ? `<p class="councillor-warn">Copying is offered first because this
+        draft is longer than some email apps will carry in a link — a few will
+        silently trim it. Opening it directly still works in most.</p>` : ""}
+    </div>`;
+}
+
+async function onCouncillorCopy() {
+  const ta = document.getElementById("councillor-draft-text");
+  const btn = document.getElementById("councillor-copy");
+  if (!ta || !btn) return;
+  try {
+    await navigator.clipboard.writeText(ta.value);
+    btn.textContent = "Copied";
+  } catch {
+    // Clipboard access is refused in plenty of ordinary situations (no
+    // permission, insecure context). Selecting the text still leaves the
+    // reader one keystroke away, which is better than a dead button.
+    ta.focus();
+    ta.select();
+    btn.textContent = "Press Ctrl+C to copy";
+  }
+  setTimeout(() => { btn.textContent = "Copy the draft"; }, 4000);
+}
+
 /** Wire up the body accordion headers inside a container. */
 function bindBodyGroups(container, rerender) {
   if (!state.expandedBodies) state.expandedBodies = new Set();
@@ -6942,6 +7406,11 @@ function renderObjectivesList() {
       state.selectedObjectiveId = (id === state.selectedObjectiveId) ? null : id;
       renderObjectivesList();
     });
+  });
+  // Bound separately from the card: the contact button is a sibling of the
+  // toggle now, not nested inside it, so its click must not collapse the card.
+  dom.objectivesList.querySelectorAll("[data-contact-objective]").forEach(btn => {
+    btn.addEventListener("click", () => openCouncillorDialog(btn.dataset.contactObjective));
   });
 }
 
@@ -7361,11 +7830,9 @@ const ROUTE_ICONS = {
   // Route 1 family — pink
   "BHBC:1":   "icons/BHBC-1.png",
   "BHBC:1X":  "icons/BHBC-1.png",
-  "BHBC:N1":  "icons/BHBC-1.png",
 
   // Route 7 — purple
   "BHBC:7":   "icons/BHBC-7.png",
-  "BHBC:N7":  "icons/BHBC-7.png",
 
   // Route 49 — blue, shared with 3X
   "BHBC:49":  "icons/BHBC-49.png",
@@ -7393,10 +7860,20 @@ const ROUTE_ICONS = {
   "BHBC:CSS": "icons/BHBC-CSS.png",
 };
 
-/** The livery for this service, falling back to the operator's generic bus. */
+/** The livery for this service, falling back to the operator's generic bus.
+ *
+ *  A miss on "N29" retries on "29", because a night service is the same route
+ *  after dark — same vehicles, same livery. Without the retry only the routes
+ *  someone remembered to list twice looked right: the N1 wore its pink because
+ *  ROUTE_ICONS happened to carry a "BHBC:N1" entry, while the N14 and N29 fell
+ *  all the way through to Brighton & Hove's generic red bus. The retry cannot
+ *  over-claim, because it only ever resolves to a livery already asserted for
+ *  that exact route on that exact operator. */
 function iconForService(operatorRef, service) {
-  const key = `${operatorRef}:${String(service || "").trim().toUpperCase()}`;
-  return ROUTE_ICONS[key] || OPERATOR_ICONS[operatorRef];
+  const svc = String(service || "").trim().toUpperCase();
+  return ROUTE_ICONS[`${operatorRef}:${svc}`]
+      || ROUTE_ICONS[`${operatorRef}:${stripNightPrefix(svc)}`]
+      || OPERATOR_ICONS[operatorRef];
 }
 
 const OPERATOR_ICONS = {
@@ -7547,7 +8024,12 @@ const ROUTE_COLOURS = {
 function getRouteColour(service, operatorRef) {
   if (!service) return getOperatorColour(operatorRef);
   const key = String(service).trim().toUpperCase();
-  return ROUTE_COLOURS[key] || getOperatorColour(operatorRef);
+  // Night variants inherit the day route's colour — see iconForService. The
+  // table lists N1, N5, N7, N25 and N700 but not N12, N14, N29 or N48, so
+  // those four were drawing in the operator's colour instead of their own.
+  return ROUTE_COLOURS[key]
+      || ROUTE_COLOURS[stripNightPrefix(key)]
+      || getOperatorColour(operatorRef);
 }
 
 /**
@@ -7560,6 +8042,8 @@ function getLineColour(service, operator) {
   if (!service) return "#888";
   const key = String(service).trim().toUpperCase();
   if (ROUTE_COLOURS[key]) return ROUTE_COLOURS[key];
+  // Night variant of a branded route — the N14 is the 14 after dark.
+  if (ROUTE_COLOURS[stripNightPrefix(key)]) return ROUTE_COLOURS[stripNightPrefix(key)];
   // Fall back to the operator's brand colour before the hash. Lets every
   // Compass route render burgundy, Stagecoach blue, B&H red, etc., without
   // needing a per-route entry in ROUTE_COLOURS.

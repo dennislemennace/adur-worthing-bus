@@ -13,62 +13,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import vm from "node:vm";
+import { loadApp, ROOT } from "./load_app.mjs";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const zonesData = JSON.parse(readFileSync(join(ROOT, "data/ticket_zones.json"), "utf8"));
-
-// ── Load app.js under a stub DOM ────────────────────────────
-
-function loadApp() {
-  const noop = () => {};
-  const stubEl = new Proxy({}, {
-    get(_t, prop) {
-      if (prop === "classList") return { add: noop, remove: noop, toggle: noop, contains: () => false };
-      if (prop === "dataset") return {};
-      if (prop === "style") return {};
-      if (prop === "addEventListener") return noop;
-      if (prop === "querySelector" || prop === "closest") return () => stubEl;
-      if (prop === "querySelectorAll") return () => [];
-      if (prop === "appendChild") return noop;
-      if (prop === "setAttribute" || prop === "removeAttribute") return noop;
-      if (prop === "focus" || prop === "reset") return noop;
-      if (prop === "value" || prop === "textContent" || prop === "innerHTML") return "";
-      return undefined;
-    },
-    set() { return true; },
-  });
-
-  const sandbox = {
-    document: {
-      getElementById: () => stubEl,
-      createElement: () => stubEl,
-      addEventListener: noop,
-      querySelector: () => stubEl,
-      querySelectorAll: () => [],
-      head: stubEl,
-      body: stubEl,
-    },
-    window: { addEventListener: noop },
-    navigator: { userAgent: "node" },
-    location: { hash: "", search: "" },
-    localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
-    console,
-    fetch: async () => ({ ok: false, status: 500, json: async () => ({}) }),
-    setTimeout, clearTimeout, setInterval, clearInterval,
-    requestAnimationFrame: (fn) => setTimeout(fn, 0),
-    // Leaflet is only touched inside map functions we don't call.
-    L: new Proxy({}, { get: () => () => stubEl }),
-  };
-  sandbox.globalThis = sandbox;
-
-  const code = readFileSync(join(ROOT, "app.js"), "utf8");
-  const ctx = vm.createContext(sandbox);
-  vm.runInContext(code, ctx, { filename: "app.js" });
-  return ctx;
-}
 
 const app = loadApp();
 
