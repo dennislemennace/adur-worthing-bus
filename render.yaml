@@ -41,9 +41,9 @@ services:
     name: adur-worthing-bus-api
     runtime: python
     # Pinned. Without it Render picks a default that can move under the
-    # service, and the audit environment (3.14) and CI (3.11) had already
-    # diverged from each other with nothing recording which was intended.
-    runtimeVersion: "3.11"
+    # service, and the audit environment (3.14) had already diverged from
+    # deployment with nothing recording which was intended.
+    runtimeVersion: "3.12"
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
