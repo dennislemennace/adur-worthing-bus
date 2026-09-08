@@ -5411,10 +5411,15 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 .panel-mode > .service-mode-toggle {
   flex: 0 0 auto;
 }
-.panel-mode > .filter-disclosure {
-  flex: 0 1 auto;
-  min-height: 0;
-  overflow-y: auto;
+/* The filter disclosure now lives inside the About tab, scrolling with the
+   route list it filters, so it is no longer a flex child of .panel-mode and
+   needs no shrink rules. It briefly had them, and because the sheet is
+   over-full on a phone the flex algorithm squashed the *closed* control to
+   14px — "Filter services" became an unreadable, unhittable sliver between
+   the Day/Night toggle and the tab strip. Moving it removed the constraint
+   that caused that, and 45px of fixed chrome with it. */
+.filter-disclosure {
+  margin-bottom: var(--space-sm);
 }
 .panel-mode > .panel-tab-content {
   flex: 1 1 auto;
@@ -5478,4 +5483,90 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   align-items: center;
   gap: 0.4rem;
   margin: 0.35rem 0 0.6rem;
+}
+
+
+/* ── Route view chrome on a phone ─────────────────────────────
+   At 390x844 the sheet is 405px and the fixed chrome above the content —
+   Day/Night toggle, filter summary, tab strip — took 150px of it, leaving
+   255px for a tab whose content is 787px. The controls all keep their 44px
+   targets; what goes is the padding around them. */
+/* Short *or* narrow. A 740x360 landscape phone is as cramped as a 320x568
+   portrait one, and keying these to width alone left it with 23px of content:
+   the trims did not apply at 740px wide, but the sheet was still a sheet. */
+@media (max-width: 700px), (max-height: 500px) {
+  .service-mode-toggle {
+    padding: 4px var(--space-sm);
+  }
+  .filter-disclosure-summary {
+    padding: 0 var(--space-sm);
+    font-size: var(--font-size-xs);
+  }
+  /* The route list is the reason this tab exists; give its chips the room
+     the prose above them was taking. */
+  .improvements-intro {
+    font-size: var(--font-size-sm);
+  }
+}
+
+
+/* One footer or the other, never both. */
+.site-footer-compact { display: none; }
+@media (max-width: 700px), (max-height: 500px) {
+  .site-footer > p:not(.site-footer-compact) { display: none; }
+  .site-footer-compact {
+    display: block;
+    margin: 0;
+    line-height: 1.5;
+  }
+  .site-footer-independent-short {
+    display: block;
+    opacity: 0.7;
+  }
+}
+
+
+/* On a phone the half detent gave Route view 273px at 320x568, of which 98px
+   is chrome the sheet cannot do without — a 131px window onto a list of
+   sixteen services. The map keeps the larger share at every size; this just
+   stops the smaller share being unusable. The drag handle still moves it. */
+@media (max-width: 700px), (max-height: 500px) {
+  :root {
+    --sheet-half: 58vh;
+    --sheet-half: 58svh;
+  }
+}
+
+/* Shorter still. In landscape the map is a 90px strip whichever way the sheet
+   is sized, so the sheet takes the larger share — the list is the part that
+   can still do its job at this height. The drag handle reverses it. */
+/* Shorter still — a landscape phone. A percentage is the wrong instrument
+   here: 74svh of 360px is more than the whole layout area, so the sheet ate
+   the map entirely, and capping it afterwards left 39px of content. What
+   matters at this height is not a ratio but the fixed costs. Above the sheet:
+   a 52px header and a 47px footer. Inside it, before any content: a 44px drag
+   handle, a 53px Day/Night toggle and a 45px tab strip — 142px, not the 98px
+   a first count of the panel's own children suggests, because the handle is a
+   sibling of them rather than one of them. Reserve the lot and the sheet gets
+   what is left, which at 360px tall is one row of services over a 63px map. */
+@media (max-height: 430px) {
+  :root {
+    --sheet-half: calc(100vh - 170px);
+    --sheet-half: calc(100svh - 170px);
+  }
+}
+
+
+/* In landscape the whole tab gets ~111px. `.route-filters` spends 16px of
+   padding top and bottom plus a 10px gap before the list starts, which is
+   most of a chip row. The controls keep their sizes; the space around them
+   does not. */
+@media (max-height: 430px) {
+  .route-filters {
+    padding: var(--space-sm) var(--space-md);
+    gap: var(--space-xs);
+  }
+  .route-filters-title {
+    font-size: var(--font-size-sm);
+  }
 }

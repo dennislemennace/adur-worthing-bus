@@ -574,11 +574,69 @@ async function checkReadingLayout(page) {
   await sleep(600);
 }
 
+/**
+ * Route view has to be usable on a phone.
+ *
+ * Two things went wrong here and neither was visible to any existing check.
+ * The closed "Filter services" disclosure was a flex child of an over-full
+ * sheet, so the flex algorithm squashed it to 14px — a control with a 44px
+ * min-height rule, rendered unreadable and unhittable. And the fixed chrome
+ * above the tab content came to 143px of a 405px sheet, leaving a 218px
+ * window onto a list of sixteen services.
+ *
+ * So: every control keeps its target size, and the list the tab exists for is
+ * actually on screen when the tab opens.
+ */
+async function checkRouteViewOnAPhone(page, where) {
+  await page.evaluate("setViewMode('improvements')");
+  await sleep(1400);
+  const m = JSON.parse(await page.evaluate(`
+    (() => {
+      const g = el => el ? el.getBoundingClientRect() : null;
+      const panel = document.getElementById("departure-panel");
+      const chips = document.getElementById("route-filter-chips");
+      const summary = document.querySelector(".filter-disclosure-summary");
+      const pr = g(panel), cr = g(chips), sr = g(summary);
+      const content = document.getElementById("tab-content-about");
+      return JSON.stringify({
+        summaryH: sr ? Math.round(sr.height) : null,
+        contentH: content ? content.clientHeight : 0,
+        chipsVisible: (pr && cr)
+          ? Math.max(0, Math.round(Math.min(cr.bottom, pr.bottom) - cr.top)) : 0,
+        chipsH: cr ? Math.round(cr.height) : 0,
+      });
+    })()`));
+
+  // 44px is this project's target-size convention, and the summary carries a
+  // min-height saying so. A flex parent can override that; nothing should.
+  check(`the filter control keeps its target size — ${where}`,
+    m.summaryH !== null && m.summaryH >= 40, JSON.stringify(m));
+
+  // Not "all of it" — a long list should scroll. But opening the tab on a
+  // sliver of its own content is what made this unusable.
+  // One row of chips, reachable without scrolling. Not "all of them": a
+  // landscape phone is 360px tall and the list is longer than that at any
+  // sensible split with the map, so demanding the whole list would be
+  // measuring the list's length rather than whether the reader can use it.
+  // A row is 44px; below that the tab opens on nothing.
+  const wanted = Math.min(44, m.chipsH);
+  check(`the service list is on screen when Route view opens — ${where}`,
+    m.chipsH > 0 && m.chipsVisible >= wanted, JSON.stringify({ ...m, wanted }));
+
+  // Leave the page as it was found: the header-row check that follows
+  // measures the live status pill, which only Live view shows.
+  await page.evaluate("setViewMode('live')");
+  await sleep(600);
+}
+
 async function checkFailureIsVisible(page, where) {
-  await page.evaluate(`setStatusLabel({ text: "Update failed — retrying", loading: true, error: true })`);
-  await sleep(250);
+  // Set and measure in one evaluation. Done as two, a vehicle poll landing in
+  // between put the label back to "Updated HH:MM:SS" and the check failed on
+  // its own timing rather than on the page — which it did, once, after four
+  // clean runs.
   const state = await page.evaluate(`
     (() => {
+      setStatusLabel({ text: "Update failed — retrying", loading: true, error: true });
       const el = document.querySelector(".live-status-pill") || document.getElementById("last-updated-label");
       if (!el) return JSON.stringify({ found: false });
       const cs = getComputedStyle(el);
@@ -1126,6 +1184,7 @@ await checkBasemap(page);
 await checkHeaderControlRow(page, VIEWPORTS[0].name);
 await checkLayout(page, "live view");
 await checkFailureIsVisible(page, VIEWPORTS[0].name);
+await checkRouteViewOnAPhone(page, VIEWPORTS[0].name);
 await checkDepartureBoard(page);
 await checkViews(page);
 await checkReachableAcrossViews(page, VIEWPORTS[0].name);
@@ -1143,6 +1202,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await screenshot(p, `live-${vp.name}`);
   await checkLayout(p, vp.name);
   await checkFailureIsVisible(p, vp.name);
+  if (vp.mobile) await checkRouteViewOnAPhone(p, vp.name);
   await checkHeaderControlRow(p, vp.name);
   await checkContrastBothThemes(p, vp.name);
   if (vp.name === "desktop") await checkReadingLayout(p);

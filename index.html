@@ -548,27 +548,6 @@
              the filter block came to 132px, and Route view was spending 61% of
              a phone sheet on chrome before any content. <details> gives the
              collapse, the keyboard behaviour and the aria for free. -->
-        <!-- Closed by default. The filters are a refinement, not the first
-             thing to do here, and open they took 160px of the sheet before
-             any content — on a 320px screen that pushed the tab strip below
-             the fold entirely. -->
-        <details class="filter-disclosure">
-          <summary class="filter-disclosure-summary">
-            <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
-            <span>Filter services</span>
-            <svg class="icon filter-disclosure-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-          </summary>
-        <div class="filter-strip-group" aria-label="Service filters">
-          <div class="filter-strip-row">
-            <span class="filter-strip-label">Type</span>
-            <div class="filter-strip" id="service-category-toggle"></div>
-          </div>
-          <div class="filter-strip-row">
-            <span class="filter-strip-label">Operator</span>
-            <div class="filter-strip" id="service-operator-toggle"></div>
-          </div>
-        </div>
-        </details>
 
         <!-- Tab strip + close button -->
         <div class="panel-tabs-bar">
@@ -605,6 +584,14 @@
                 <button class="btn-text" id="routes-none-btn">Hide all</button>
               </div>
             </div>
+            <div class="route-filter-chips" id="route-filter-chips" aria-live="polite">
+              <p class="route-filters-empty">Loading route list…</p>
+            </div>
+
+            <!-- Below the list, not above it. On a phone the sheet gives this
+                 tab ~350px; anything sitting above the chips is height the
+                 list does not get, and the list is what the tab is for. Both
+                 of these refine it, so they follow it. -->
             <!-- Moved out of "Filter services": this is the one control that
                  changes what the list itself contains, so it belongs with the
                  list rather than behind a collapsed disclosure. -->
@@ -612,9 +599,28 @@
               <input type="checkbox" id="show-limited-services">
               <span>Show limited services</span>
             </label>
-            <div class="route-filter-chips" id="route-filter-chips" aria-live="polite">
-              <p class="route-filters-empty">Loading route list…</p>
+
+          <!-- Closed by default. The filters are a refinement, not the first
+               thing to do here, and open they took 160px of the sheet before
+               any content — on a 320px screen that pushed the tab strip below
+               the fold entirely. -->
+          <details class="filter-disclosure">
+            <summary class="filter-disclosure-summary">
+              <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
+              <span>Filter services</span>
+              <svg class="icon filter-disclosure-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+            </summary>
+          <div class="filter-strip-group" aria-label="Service filters">
+            <div class="filter-strip-row">
+              <span class="filter-strip-label">Type</span>
+              <div class="filter-strip" id="service-category-toggle"></div>
             </div>
+            <div class="filter-strip-row">
+              <span class="filter-strip-label">Operator</span>
+              <div class="filter-strip" id="service-operator-toggle"></div>
+            </div>
+          </div>
+          </details>
           </div>
 
           <div class="improvements-intro">
@@ -1037,6 +1043,22 @@
     <p class="site-footer-independent">
       An independent volunteer project. Not run by, funded by or endorsed by
       any bus operator, train operator or council.
+    </p>
+
+    <!-- The same credits, short enough for a phone. On a 390px screen the
+         three paragraphs above wrap to six lines and take 110px — an eighth of
+         the viewport, permanently, pushing the sheet up. The map carries its
+         own OpenStreetMap attribution, so nothing here is the only place a
+         licence is satisfied. One of these two is visible at any width. -->
+    <p class="site-footer-compact">
+      Data:
+      <a href="https://www.bus-data.dft.gov.uk/" target="_blank" rel="noopener">BODS</a> ·
+      <a href="https://www.realtimetrains.co.uk/" target="_blank" rel="noopener">Realtime Trains</a> ·
+      <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> ·
+      <a href="about.html">About</a> ·
+      <a href="https://github.com/dennislemennace/adur-worthing-bus/issues"
+         target="_blank" rel="noopener">Report an error</a>
+      <span class="site-footer-independent-short">Independent project.</span>
     </p>
   </footer>
 

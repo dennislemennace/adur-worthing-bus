@@ -2661,6 +2661,26 @@ const VIEW_DEFAULT_DETENT = {
   updates:      "full",   // panel-only, same as the network view
 };
 
+/** The detent a view opens at, given how much screen there is.
+ *
+ * On a landscape phone — 740x360 is the case that forced this — the fixed
+ * chrome comes to 241px of a 360px viewport: a 52px header, a 47px footer,
+ * and inside the sheet a 44px drag handle, a 53px Day/Night toggle and a 45px
+ * tab strip. There is no split of what remains that gives both a usable map
+ * and a visible row of services, so the choice has to be made rather than
+ * averaged: open on the content, because that is what someone who opened
+ * Route view came for, and leave the handle to drag the map back.
+ */
+const SHORT_VIEWPORT_HEIGHT = 430;
+
+function defaultDetentForViewport() {
+  const preferred = VIEW_DEFAULT_DETENT[state.viewMode] || "half";
+  if (window.innerHeight > SHORT_VIEWPORT_HEIGHT) return preferred;
+  // "peek" is a fixed 248px and would be taller than the whole layout here,
+  // so it is left alone; everything else opens full.
+  return preferred === "peek" ? preferred : "full";
+}
+
 function isSheetLayout() {
   return window.innerWidth <= MOBILE_BREAKPOINT;
 }
@@ -3047,9 +3067,7 @@ function bindUIEvents() {
   });
   initSheet();
   // First paint gets the same per-view default a view change would give it.
-  setSheetDetent(isSheetLayout()
-    ? (VIEW_DEFAULT_DETENT[state.viewMode] || "half")
-    : "half");
+  setSheetDetent(isSheetLayout() ? defaultDetentForViewport() : "half");
   window.addEventListener("resize", syncPanelCollapsedToWidth);
 
   // Improvements panel: tab switching + close
@@ -3564,9 +3582,7 @@ async function applyViewMode() {
   // it used to outlive the view that set it and hide the incoming view's
   // content too — unrecoverably in Ticket view, which had no control to undo
   // it. Desktop has no sheet, so it always opens expanded.
-  setSheetDetent(isSheetLayout()
-    ? (VIEW_DEFAULT_DETENT[state.viewMode] || "half")
-    : "half");
+  setSheetDetent(isSheetLayout() ? defaultDetentForViewport() : "half");
 
   const live = state.viewMode === "live";
   // The "show buses" toggle only does anything in Live view.
