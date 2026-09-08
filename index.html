@@ -7,8 +7,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#1a4b82" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#090e1a" media="(prefers-color-scheme: dark)" />
-  <title>Adur &amp; Worthing Live Bus Tracker</title>
-  <meta name="description" content="Live bus departure boards and vehicle tracking for Adur and Worthing, West Sussex." />
+  <!-- The title and description described a live tracker, which is now the
+       smaller half of what this is: it also carries fares, route proposals,
+       campaign objectives and updates, under a different name. A campaign
+       site meant to be pasted into emails and local groups was rendering as
+       a bare URL with no title, description or image anywhere it was shared. -->
+  <title>Worthing Brighton Bus — live buses, fares and a case for better service</title>
+  <meta name="description" content="Live bus and rail departures for Adur, Worthing and the Brighton coast, a ticket-boundary checker that shows what a journey really costs, and the evidence behind an independent campaign for better coastal bus service." />
+  <link rel="canonical" href="https://worthingbrightonbus.co.uk/" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Worthing Brighton Bus" />
+  <meta property="og:url" content="https://worthingbrightonbus.co.uk/" />
+  <meta property="og:title" content="Worthing Brighton Bus" />
+  <meta property="og:description" content="Live bus and rail departures for Adur, Worthing and the Brighton coast, a ticket-boundary checker that shows what a journey really costs, and the evidence behind an independent campaign for better coastal bus service." />
+  <meta property="og:image" content="https://worthingbrightonbus.co.uk/brand/mark-512.png" />
+  <meta property="og:image:alt" content="The Worthing Brighton Bus mark: a circular illustration of the pier, pavilion and seafront." />
+  <meta property="og:locale" content="en_GB" />
+
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Worthing Brighton Bus" />
+  <meta name="twitter:description" content="Live departures, what a journey really costs, and the evidence behind a campaign for better coastal bus service." />
+  <meta name="twitter:image" content="https://worthingbrightonbus.co.uk/brand/mark-512.png" />
 
   <!-- All three come from brand/mark-source.png via scripts/prepare_brand_mark.py,
        so the tab and the header can never drift apart. There is no SVG icon: the
@@ -364,6 +384,26 @@
         <div class="panel-prompt" id="panel-prompt">
           <svg class="icon panel-prompt-icon" aria-hidden="true"><use href="#i-pin"/></svg>
           <p>Click any bus stop on the map to see live departures.</p>
+          <!-- Pointing at a marker was the only way in, which left keyboard
+               and screen-reader users with no route to the core task at all.
+               Same stop index the journey checker uses. -->
+          <form class="stop-search" id="stop-search-form" role="search">
+            <label class="stop-search-label" for="stop-search-input">
+              Or search for a stop or station
+            </label>
+            <div class="stop-search-row">
+              <input class="stop-search-input" id="stop-search-input" type="search"
+                     name="stop" autocomplete="off" placeholder="e.g. Marine Parade"
+                     aria-describedby="stop-search-hint"
+                     aria-controls="stop-search-results" aria-expanded="false">
+              <button class="stop-search-go" type="submit">Search</button>
+            </div>
+            <p class="stop-search-hint" id="stop-search-hint">
+              Type at least two letters, then choose from the list.
+            </p>
+            <ul class="stop-search-results" id="stop-search-results"
+                aria-label="Matching stops and stations"></ul>
+          </form>
         </div>
 
         <!-- Departure list populated by JS -->
@@ -917,10 +957,15 @@
       Live train data from <a href="https://www.realtimetrains.co.uk/" target="_blank" rel="noopener">Realtime Trains</a>.
       Map &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
     </p>
-    <!--
-      FUTURE EXTENSION POINT:
-      Add links to "Service Alerts", "Route Maps", "Ticketing Info" pages here.
-    -->
+    <p class="site-footer-links">
+      <a href="about.html">About, privacy &amp; corrections</a> ·
+      <a href="https://github.com/dennislemennace/adur-worthing-bus/issues"
+         target="_blank" rel="noopener">Report an error</a>
+    </p>
+    <p class="site-footer-independent">
+      An independent volunteer project. Not run by, funded by or endorsed by
+      any bus operator, train operator or council.
+    </p>
   </footer>
 
   <!-- Leaflet JS -->

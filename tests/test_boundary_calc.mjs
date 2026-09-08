@@ -236,8 +236,10 @@ test("an unrestricted ticket is valid at any time, including unknown", () => {
 test("the Gold Nightrider is only valid inside its evening window", () => {
   const night = byId["sc-gold-nightrider"];
   assert.equal(app.ticketValidAtTime(night, "12:00"), false, "midday");
-  assert.equal(app.ticketValidAtTime(night, "19:29"), false, "just before 19:30");
-  assert.equal(app.ticketValidAtTime(night, "19:30"), true, "start of the window");
+  // Stagecoach's published fares table effective 1 June 2026 says "after 7pm".
+  // This asserted 19:30, matching a valid_from_time that was simply wrong.
+  assert.equal(app.ticketValidAtTime(night, "18:59"), false, "just before 19:00");
+  assert.equal(app.ticketValidAtTime(night, "19:00"), true, "start of the window");
   assert.equal(app.ticketValidAtTime(night, "23:59"), true, "late evening");
 });
 
@@ -320,18 +322,19 @@ test("no reform is offered when one ticket already covers the journey", () => {
 });
 
 test("the merge saving is quoted against the Gold DayRider, per week", () => {
+  const gold = { kind: "network", total: 900, tickets: 1,
+                 zone: { name: "Gold Dayrider" }, supplement: null };
   const html = app.reformComparisonHtml(
-    { kind: "network", total: 900, tickets: 1, zone: { name: "Gold Dayrider" }, supplement: null },
-    ["sc-worthing-dayrider", "sc-brighton-dayrider"], byId, META);
+    gold, gold, ["sc-worthing-dayrider", "sc-brighton-dayrider"], byId, META);
   assert.ok(/would cost <strong>£6\.00<\/strong>/.test(html), `got: ${html}`);
   // (£9.00 - £6.00) x 5 days = £15.00
   assert.ok(/saving £15\.00 a week/.test(html), `got: ${html}`);
 });
 
 test("no reform is claimed when it wouldn't be cheaper", () => {
+  const at_cost = { kind: "network", total: 600, tickets: 1, zone: {}, supplement: null };
   const html = app.reformComparisonHtml(
-    { kind: "network", total: 600, tickets: 1, zone: {}, supplement: null },
-    ["sc-worthing-dayrider", "sc-brighton-dayrider"], byId, META);
+    at_cost, at_cost, ["sc-worthing-dayrider", "sc-brighton-dayrider"], byId, META);
   assert.equal(html, "", "must not claim a saving at or below break-even");
 });
 
@@ -384,9 +387,9 @@ test("the Discovery headline names and links the ticket", () => {
 
 test("merging zones is measured against Discovery when Discovery is cheapest", () => {
   // £10 today vs £6 merged = £4/day x 5 = £20 a week.
+  const discovery = { kind: "unified", total: 1000, tickets: 1, zone: {}, supplement: null };
   const html = app.reformComparisonHtml(
-    { kind: "unified", total: 1000, tickets: 1, zone: {}, supplement: null },
-    ["sc-worthing-dayrider", "sc-brighton-dayrider"], byId, META);
+    discovery, discovery, ["sc-worthing-dayrider", "sc-brighton-dayrider"], byId, META);
   assert.ok(/would cost <strong>£6\.00<\/strong>/.test(html), `got: ${html}`);
   assert.ok(/saving £20\.00 a week/.test(html), `got: ${html}`);
 });

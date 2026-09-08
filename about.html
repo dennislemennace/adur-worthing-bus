@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1a4b82" />
+  <title>About, privacy and corrections — Worthing Brighton Bus</title>
+  <meta name="description" content="Who runs Worthing Brighton Bus, how to correct something on it, what it does with your data, and how accessible it is." />
+  <link rel="canonical" href="https://worthingbrightonbus.co.uk/about.html" />
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Outfit:wght@400;600&display=swap" />
+  <style>
+    /* Deliberately self-contained. This page has to work when the map, the
+       API and the whole application script are unavailable — which is exactly
+       when someone is most likely to be looking for who to tell. */
+    :root { color-scheme: light dark; --ink: #12202f; --bg: #fbfaf7; --rule: #d8d3c8; --link: #1a4b82; }
+    @media (prefers-color-scheme: dark) {
+      :root { --ink: #e8eef5; --bg: #090e1a; --rule: #263349; --link: #7fb3e8; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink);
+           font: 16px/1.65 Outfit, system-ui, -apple-system, sans-serif; }
+    .wrap { max-width: 44rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    h1, h2 { font-family: Fraunces, Georgia, serif; line-height: 1.2; }
+    h1 { font-size: 1.9rem; margin: 0 0 .25rem; }
+    h2 { font-size: 1.25rem; margin: 2.25rem 0 .5rem; }
+    .lede { font-size: 1.05rem; opacity: .9; margin-top: 0; }
+    a { color: var(--link); }
+    .back { display: inline-block; margin-bottom: 1.5rem; font-weight: 600; }
+    dt { font-weight: 600; margin-top: .9rem; }
+    dd { margin: .15rem 0 0; }
+    footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule);
+             font-size: .875rem; opacity: .8; }
+    .note { border-left: 3px solid var(--rule); padding-left: 1rem; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="./">← Back to the map</a>
+
+  <h1>About this site</h1>
+  <p class="lede">
+    Worthing Brighton Bus shows live buses and trains along the Adur, Worthing
+    and Brighton coast, works out what a journey actually costs in tickets,
+    and sets out a case for better service across the council boundary at
+    Shoreham.
+  </p>
+
+  <p>
+    It is <strong>independent</strong>. It is not run by, funded by, or
+    endorsed by any bus operator, train operator, or council. Operator names,
+    route numbers and liveries appear here to identify services — that is all
+    they mean. Where the site quotes a fare or a departure count, it says
+    where the figure came from and when it was checked.
+  </p>
+
+  <h2>Correcting something</h2>
+  <p>
+    If something here is wrong, please say so — a campaign site that gets its
+    facts wrong is worse than no campaign site. The quickest route is to open
+    an issue on the
+    <a href="https://github.com/dennislemennace/adur-worthing-bus/issues"
+       rel="noopener">public issue tracker</a>, which is where the project's
+    work happens in the open.
+  </p>
+  <p>
+    That includes asking for something to be taken down. If you submitted an
+    idea, a route or a stop report and want it removed, say so on the same
+    tracker and it will be removed from the site. Note that a submission also
+    creates a public issue, so ask for that to be deleted too and it will be.
+  </p>
+
+  <h2>What this site does with your information</h2>
+  <dl>
+    <dt>Submissions</dt>
+    <dd>
+      Ideas, route proposals and stop reports are sent to a Cloudflare Worker,
+      which files them as <strong>public issues on GitHub straight away</strong>
+      — before anyone has reviewed them. A person then decides whether they
+      appear on the site. "Moderated before appearing here" is not the same as
+      "private until approved", so please don't put anything in a submission
+      you would not want published, including your email address. The forms
+      don't ask for one.
+    </dd>
+
+    <dt>The name you put on a submission</dt>
+    <dd>
+      Optional, and published with it if you give one.
+    </dd>
+
+    <dt>Rate limiting</dt>
+    <dd>
+      To stop the submission form being abused, your IP address is hashed with
+      a secret and a counter is kept against that hash for up to two days. The
+      address itself is never stored.
+    </dd>
+
+    <dt>Postcode lookup</dt>
+    <dd>
+      "Email your councillor" sends the postcode you type to
+      <a href="https://postcodes.io/" rel="noopener">postcodes.io</a> to find
+      which ward and electoral division you are in. Nothing is stored here and
+      nothing is sent anywhere else. The draft letter is composed in your
+      browser and handed to your own email app — this site never sees it and
+      never sends it.
+    </dd>
+
+    <dt>Things kept in your browser</dt>
+    <dd>
+      Your theme choice, your filter settings and any unsent route draft are
+      stored locally on your device. They stay there and are not transmitted.
+    </dd>
+
+    <dt>Other services your browser contacts</dt>
+    <dd>
+      Map tiles from OpenStreetMap, fonts from Google Fonts, the map library
+      from unpkg, an anti-spam challenge from Cloudflare Turnstile on the
+      forms, and this project's own API on Render for live departures. Each of
+      those sees your IP address, as any site you visit does. There is no
+      analytics and there are no advertising trackers.
+    </dd>
+  </dl>
+
+  <h2>Accessibility</h2>
+  <p>
+    The site aims at WCAG 2.2 AA, with 44&nbsp;px targets and AAA text
+    contrast where it can manage them. Known gaps, stated rather than
+    hidden: the map itself is difficult to operate without a pointer, which
+    is why the live view carries a stop and station search that does the same
+    job from the keyboard. If something is unusable for you, that is a bug —
+    please report it on the tracker and say what you were trying to do.
+  </p>
+
+  <h2>Where the data comes from</h2>
+  <p>
+    Timetables from the Department for Transport's
+    <a href="https://www.bus-data.dft.gov.uk/" rel="noopener">Bus Open Data
+    Service</a>, rebuilt weekly. Live vehicle positions from the same service.
+    Train times from
+    <a href="https://www.realtimetrains.co.uk/" rel="noopener">Realtime
+    Trains</a>. Maps © OpenStreetMap contributors. Boundary geography from the
+    ONS Open Geography Portal under the Open Government Licence. Councillor
+    names and addresses come from each council's own published member
+    directory and are never derived from a name pattern.
+  </p>
+  <p class="note">
+    Service comparisons on this site count <em>scheduled</em> departures from
+    the published timetable. That is not the same as buses that actually ran,
+    and a difference in service either side of a boundary is not on its own
+    proof that the boundary caused it. The full method, denominators and
+    caveats are published with the figures.
+  </p>
+
+  <h2>Licences and credits</h2>
+  <p>
+    Third-party licences are listed in
+    <a href="https://github.com/dennislemennace/adur-worthing-bus/blob/main/THIRD_PARTY_NOTICES.md"
+       rel="noopener">THIRD_PARTY_NOTICES.md</a>, and what this site owns
+    versus what it borrows is recorded in
+    <a href="https://github.com/dennislemennace/adur-worthing-bus/blob/main/docs/ASSET_RIGHTS.md"
+       rel="noopener">the asset rights register</a>.
+  </p>
+
+  <footer>
+    Worthing Brighton Bus is an independent volunteer project.
+    <a href="./">Back to the map</a>.
+  </footer>
+</div>
+</body>
+</html>

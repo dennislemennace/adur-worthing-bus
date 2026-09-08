@@ -688,8 +688,12 @@ html.dark-mode .map-loading {
     width: 100%;
     border-left: none;
     border-top: none;
-    height: var(--sheet-h, var(--sheet-half));
-    max-height: var(--sheet-full);
+    /* Capped to the area the sheet is actually positioned in, not just to a
+       fraction of the viewport. `--sheet-full` is 88svh, which at 320x568 is
+       taller than the 445px the layout leaves between header and footer — so
+       the sheet's top went above the header and took its tabs with it. */
+    height: min(var(--sheet-h, var(--sheet-half)), 100%);
+    max-height: min(var(--sheet-full), 100%);
     /* Keeps the last row clear of the home indicator. Non-zero only because
        of viewport-fit=cover on the viewport meta. */
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -2878,6 +2882,15 @@ html.dark-mode .header-title { color: var(--color-on-fill); }
 }
 @media (max-width: 880px) {
   .last-updated { display: none; }
+  /* ...but never the failure state. This rule exists to reclaim header space
+     from "Updated 14:32", which nobody needs to read. It took "Update failed
+     — retrying" with it, so on every screen below 880px a broken live feed
+     and a quiet one looked exactly alike: an empty map either way, with
+     nothing to say which. Below 700px the pill floats on the map and has
+     room; above it the title can truncate for the duration of an outage,
+     which is the right way round. */
+  .last-updated.is-error,
+  .last-updated.is-loading { display: inline-flex; }
 }
 
 /* Below 700px the header cannot hold everything: measured at 390px, the
@@ -5001,10 +5014,16 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   object-fit: cover;
   object-position: left center;
   border-radius: 11px;
+  /* Faded in by a delegated load listener, hidden by a delegated error one.
+     These were inline onload/onerror attributes; they are handlers in
+     app.js now so the markup carries no executable attributes at all. */
   opacity: 0;
+  transition: opacity 120ms linear;
   z-index: 1;
   pointer-events: none;
 }
+.rail-train-livery.is-loaded { opacity: 1; }
+.rail-train-livery.is-broken { display: none; }
 
 /* Pulse ring tracks the pill itself (it's a child of .rail-train-icon).
    `inset: -2px` so the ring sits just outside the pill border at scale 1
@@ -5277,4 +5296,176 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   flex-direction: column;
   width: 100%;
   text-align: left;
+}
+
+/* ── Stop and station search (live view) ──────────────────────
+   Added because pointing at a map marker was the only route to a departure
+   board, which is no route at all for a keyboard or a screen reader. */
+.stop-search {
+  width: 100%;
+  max-width: 34rem;
+  margin: 1.25rem auto 0;
+  text-align: left;
+}
+.stop-search-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.stop-search-row {
+  display: flex;
+  gap: 0.5rem;
+}
+.stop-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  font: inherit;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+.stop-search-go {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 1rem;
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--accent, #1a4b82);
+  color: #fff;
+  cursor: pointer;
+}
+.stop-search-hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+.stop-search-results {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.stop-search-result {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  text-align: left;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+.stop-search-result:hover,
+.stop-search-result:focus-visible {
+  border-color: var(--accent, #1a4b82);
+}
+.stop-search-empty {
+  padding: 0.5rem 0.25rem;
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+
+/* The badge in a departure row is a button now, so the row's action has a
+   keyboard route. It must not look like one. */
+.service-badge-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  line-height: 0;
+}
+.service-badge-btn:focus-visible {
+  outline: 2px solid var(--accent, #1a4b82);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+
+/* ── Short screens: the sheet's chrome comes first ────────────
+   At 320x568 Route view's sheet is 273px tall and its contents came to 402px:
+   a 61px mode toggle, a 160px filter disclosure, then the tab strip — which
+   landed at y=581, thirteen pixels below the fold, inside a panel with
+   `overflow: hidden`. Nothing on screen suggested it existed.
+
+   The rule is priority, not height: the tab strip and the collapse control
+   never shrink, the filter block shrinks and scrolls inside itself, and the
+   tab content takes what is left. */
+.panel-mode {
+  min-height: 0;
+}
+.panel-mode > .panel-tabs-bar,
+.panel-mode > .service-mode-toggle {
+  flex: 0 0 auto;
+}
+.panel-mode > .filter-disclosure {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.panel-mode > .panel-tab-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The badge in a departure row is the row's action, so it carries the
+   target size the rest of the site holds to. The badge itself keeps its
+   drawn size; the button is the 44px box around it. */
+.service-badge-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin: -10px 0;
+}
+
+/* Footer: who runs this, and how to tell them it's wrong. Both were missing,
+   and operator branding on an independent site needs the disclaimer near it. */
+.site-footer-links { margin: 0.5rem 0 0; }
+.site-footer-independent {
+  margin: 0.35rem 0 0;
+  opacity: 0.75;
+  font-size: 0.85em;
+}
+
+/* A load that failed is not the same as a section with nothing in it. */
+.proposals-empty--error { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
+
+
+/* ── Reading views get room to be read ────────────────────────
+   Network Objectives and Updates have no map layers of their own — see
+   applyViewMode, which tears every overlay down on entering them. On a 1440px
+   screen they nevertheless kept a full-width map alongside a 360px column,
+   so a councillor letter and a news article were being read four or five
+   words at a time next to a picture of nothing in particular.
+
+   Routes and fares keep the map-first layout, where the map is the answer. */
+@media (min-width: 1100px) {
+  body[data-view="network"],
+  body[data-view="updates"] {
+    --panel-width: min(46rem, 52vw);
+  }
+}
+
+/* Wider is not automatically more readable: past about 75 characters the eye
+   loses the start of the next line. The column may grow; the measure does not. */
+.update-card-body,
+.objective-detail-body,
+.proposal-detail-text,
+.councillor-draft-note {
+  max-width: 38rem;
 }

@@ -468,6 +468,9 @@ async function init() {
 
   initMap();
   bindUIEvents();
+  bindStopSearch();
+  bindLoaderRetries();
+  syncFilterDisclosure();
 
   // Restore any proposal drafts saved in localStorage from a previous session.
   state.editorDrafts = loadDraftsFromStorage();
@@ -530,6 +533,21 @@ function initMap() {
     maxZoom: CONFIG.MAP_ZOOM_MAX,
     zoomControl: true,
   });
+
+  // Train livery images fade in when they load and disappear when they don't.
+  // These were inline onload/onerror attributes on markup built by string
+  // concatenation. `load` and `error` do not bubble, so the listeners are
+  // registered in the capture phase on the map container — one pair for every
+  // marker, rather than an executable attribute on each.
+  const liveryState = (cls) => (e) => {
+    const img = e.target;
+    if (img && img.classList && img.classList.contains("rail-train-livery")) {
+      img.classList.add(cls);
+    }
+  };
+  const mapEl = state.map.getContainer();
+  mapEl.addEventListener("load",  liveryState("is-loaded"), true);
+  mapEl.addEventListener("error", liveryState("is-broken"), true);
 
   // Tile layer — one source for both themes; dark mode is a CSS filter.
   state.tileLayer = L.tileLayer(TILES.url, {
@@ -598,7 +616,10 @@ async function loadStops() {
     applyStopVisibility();   // honour any view/service mode set from URL before stops arrived
   } catch (err) {
     console.error("Failed to load stops:", err);
-    showToast("Could not load bus stops. Check your API configuration.");
+    // Passenger-facing copy. "Check your API configuration" is an instruction
+    // to the person who deployed this, shown to someone waiting for a bus.
+    showToast("Couldn't load the bus stops — the live service isn't "
+              + "responding. Timetables are still available in Ticket view.");
   }
 }
 
@@ -634,7 +655,7 @@ function renderStopMarker(stop) {
   // Bind the popup content lazily — Leaflet evaluates this function only
   // when the popup actually opens. Building ~1400 HTML strings eagerly at
   // load was a measurable chunk of initial render time.
-  marker.bindPopup(() => buildStopPopupHtml(stop.atco_code, stop.name),
+  marker.bindPopup(() => buildStopPopup(stop.atco_code, stop.name),
                    { maxWidth: 220 });
 
   // Clicking anywhere on the marker opens the departure panel
@@ -1198,17 +1219,37 @@ function hideCouncilBoundaries() {
 }
 
 
-/** Popup body for a stop — built on demand (see renderStopMarker). */
-function buildStopPopupHtml(atcoCode, name) {
-  return `
-    <div>
-      <p class="popup-stop-name">${escapeHtml(name)}</p>
-      <p class="popup-stop-id">Stop: ${escapeHtml(atcoCode)}</p>
-      <button class="popup-btn" onclick="openDepartures('${atcoCode}', '${escapeAttr(name)}')">
-        <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
-        <span>Live departures</span>
-      </button>
-    </div>`;
+/** Popup body for a stop — built on demand (see renderStopMarker).
+ *
+ * Returns an element, not a string. Leaflet accepts either, and an element
+ * cannot be built by concatenation: the stop name goes in as a text node and
+ * the button carries a real listener, so there is no attribute for a quote to
+ * close and no JavaScript context for an entity to decode into. The previous
+ * version interpolated the name into an `onclick`, which broke every stop with
+ * an apostrophe in its name and made a crafted one executable.
+ */
+function buildStopPopup(atcoCode, name) {
+  const wrap = document.createElement("div");
+
+  const title = document.createElement("p");
+  title.className = "popup-stop-name";
+  title.textContent = name;
+
+  const id = document.createElement("p");
+  id.className = "popup-stop-id";
+  id.textContent = `Stop: ${atcoCode}`;
+
+  const btn = document.createElement("button");
+  btn.className = "popup-btn";
+  btn.type = "button";
+  btn.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>'
+                + "<span>Live departures</span>";
+  btn.addEventListener("click", () => { openDepartures(atcoCode, name); });
+
+  wrap.appendChild(title);
+  wrap.appendChild(id);
+  wrap.appendChild(btn);
+  return wrap;
 }
 
 // ============================================================
@@ -1556,7 +1597,7 @@ function buildBusPopupHtml(vehicle, label) {
     : "service-badge--light-text";
 
   const iconHtml = iconUrl
-    ? `<img class="bus-popup-icon" src="${escapeAttr(iconUrl)}" alt="">`
+    ? `<img class="bus-popup-icon" src="${escapeAttr(safeUrl(iconUrl))}" alt="">`
     : `<div class="bus-popup-icon bus-popup-icon-fallback" style="background:${colour}"></div>`;
 
   let statusHtml = "";
@@ -1594,7 +1635,7 @@ function createBusIcon(operatorRef, label, bearing) {
   let inner;
   if (iconUrl) {
     inner = `
-      <img class="bus-icon-img" src="${escapeAttr(iconUrl)}" alt=""
+      <img class="bus-icon-img" src="${escapeAttr(safeUrl(iconUrl))}" alt=""
            width="56" height="56" decoding="async"
            style="transform:${transform}">
       <span class="bus-icon-label">${escapeHtml(label)}</span>`;
@@ -1759,8 +1800,11 @@ async function fetchStopSpan(atcoCode) {
     if (pos) url += `&lat=${pos.lat}&lon=${pos.lon}`;
     const data = await apiFetch(url);
     // A stop the user has since navigated away from must not paint over the
-    // one they are looking at now.
-    if (state.selectedStop && state.selectedStop.atcoCode !== atcoCode) return;
+    // one they are looking at now. The old test was `selectedStop &&
+    // selectedStop.atcoCode !== atcoCode`, which is false when `selectedStop`
+    // is null — exactly the state selecting a rail station leaves behind — so
+    // the span rendered anyway.
+    if (!state.selectedStop || state.selectedStop.atcoCode !== atcoCode) return;
     renderStopSpan(data);
   } catch (err) {
     // A missing span is a missing extra, not a broken panel. The departure
@@ -1856,16 +1900,66 @@ function renderStopSpan(data) {
   dom.stopSpan.classList.remove("hidden");
 }
 
+/**
+ * Async ownership.
+ *
+ * Several loaders write into the same places — the departure panel is shared
+ * by the bus board and the rail board, the journey box by every check — and a
+ * response that arrives after the reader has moved on has no right to render.
+ * Nothing enforced that, so a slow bus board painted itself under a rail
+ * station's heading in production, 19 seconds after the reader had asked for
+ * something else.
+ *
+ * `claimRender(slot)` records that this request is now the one that owns
+ * `slot`, and returns a predicate to ask before rendering. The predicate is
+ * false once a later request has claimed the same slot, or once the reader has
+ * changed view — a result belonging to a section they have left is as wrong as
+ * one belonging to a stop they have left.
+ *
+ * Callers check it on success *and* on failure: an obsolete request's error is
+ * no more entitled to replace a good board than its data is.
+ *
+ * This does not cancel anything. Cancellation would save a little bandwidth
+ * and cannot be relied on for correctness — a request already past the wire is
+ * still going to resolve — so the guard is the mechanism and cancellation, if
+ * it is ever added, is an optimisation on top.
+ */
+const renderClaims = Object.create(null);
+let renderClaimSeq = 0;
+
+function claimRender(slot) {
+  const token = ++renderClaimSeq;
+  const view = state.viewMode;
+  renderClaims[slot] = token;
+  return function stillOurs() {
+    return renderClaims[slot] === token && state.viewMode === view;
+  };
+}
+
+/** The panel is one place. Bus boards and rail boards share this slot, which
+ *  is what makes one unable to paint over the other. */
+const PANEL_SLOT = "panel";
+
 async function fetchDepartures(atcoCode) {
+  const stillOurs = claimRender(PANEL_SLOT);
+  // Still the stop the reader is looking at, and still the request that owns
+  // the panel. The second condition is the one that stops a rail station
+  // being painted over: selecting one clears `selectedStop` and claims the
+  // panel, so this board has nowhere legitimate to go.
+  const mine = () => stillOurs()
+    && state.selectedStop && state.selectedStop.atcoCode === atcoCode;
+
   showPanelState("loading");
   try {
     let url = `/api/departures?stopId=${encodeURIComponent(atcoCode)}`;
     const pos = state.stopData[atcoCode];
     if (pos) url += `&lat=${pos.lat}&lon=${pos.lon}`;
     const data = await apiFetch(url);
+    if (!mine()) return;
     renderDepartures(data);
   } catch (err) {
     console.error("Departures fetch failed:", err);
+    if (!mine()) return;
     showPanelState("error", err.message || "Could not load departure data.");
   }
 }
@@ -1915,6 +2009,14 @@ function renderDepartures(data) {
     .map(dep => buildDepartureRow(dep))
     .join("");
 
+  // Say when this was fetched. A board that cannot tell you how old it is
+  // asks you to trust a number it has no way of keeping true.
+  const asOf = new Date().toLocaleTimeString("en-GB",
+    { hour: "2-digit", minute: "2-digit" });
+  dom.departuresCount.textContent =
+    `${departures.length} departure${departures.length !== 1 ? "s" : ""} · as of ${asOf}`;
+
+  startDepartureTicker();
   showPanelState("results");
 }
 
@@ -1941,9 +2043,14 @@ function buildDepartureRow(dep) {
 
   return `
     <tr class="departure-row" data-service="${escapeHtml(service)}" title="Show this bus on the map">
-      <td><span class="service-badge ${badgeTextCls}" style="background:${badgeColour}">${escapeHtml(service)}</span></td>
+      <td><button type="button" class="service-badge-btn"
+                  data-service="${escapeAttr(service)}"
+                  aria-label="Show service ${escapeAttr(service)} on the map"
+          ><span class="service-badge ${badgeTextCls}" style="background:${badgeColour}">${escapeHtml(service)}</span></button></td>
       <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span></td>
-      <td><span class="due-time ${isImminent ? "due-imminent" : ""}">${escapeHtml(dueText)}</span></td>
+      <td><span class="due-time ${isImminent ? "due-imminent" : ""}"
+                ${displayTime ? `data-due-at="${escapeAttr(displayTime)}"` : ""}
+          >${escapeHtml(dueText)}</span></td>
       <td><span class="status-chip ${cssClass}">${escapeHtml(label)}</span></td>
     </tr>`;
 }
@@ -2016,12 +2123,18 @@ function buildStatusChip(dep) {
   return { label: "Scheduled", cssClass: "status-scheduled" };
 }
 
-/** Format an ISO datetime string as a due-time label */
-function formatDueTime(isoString) {
+/** Format an ISO datetime string as a due-time label.
+ *
+ * `now` is a parameter so the ticker below can re-derive every label against
+ * one consistent instant, and so a test can age a board without waiting. The
+ * label used to be produced once at render time and never revisited: a board
+ * left open kept saying "5 mins" indefinitely, which is worse than saying
+ * nothing.
+ */
+function formatDueTime(isoString, now = new Date()) {
   try {
     const d = new Date(isoString);
     if (isNaN(d.getTime())) return isoString; // Return as-is if not parseable
-    const now = new Date();
     const diffMs = d - now;
     const diffMins = Math.round(diffMs / 60_000);
 
@@ -2149,7 +2262,7 @@ function renderBusTab() {
   const ticketHtml   = buildTicketInfoHtml(v.operator_ref, null, service);
 
   const iconHtml = iconUrl
-    ? `<img class="bus-info-icon" src="${escapeAttr(iconUrl)}" alt="">`
+    ? `<img class="bus-info-icon" src="${escapeAttr(safeUrl(iconUrl))}" alt="">`
     : `<div class="bus-info-icon bus-info-icon-fallback" style="background:${colour}"></div>`;
 
   const lostBanner = state.selectedVehicleLost
@@ -2309,13 +2422,13 @@ function buildTicketInfoHtml(operatorRef, liveData = null, service = "") {
       <div class="ticket-row">
         <span class="ticket-label">Mobile app</span>
         <span class="ticket-value">
-          <a href="${escapeAttr(info.app.url)}" target="_blank" rel="noopener">${escapeHtml(info.app.name)}</a>
+          <a href="${escapeAttr(safeUrl(info.app.url))}" target="_blank" rel="noopener">${escapeHtml(info.app.name)}</a>
         </span>
       </div>`);
   }
 
   const footerLink = info?.url
-    ? `<a class="ticket-more-link" href="${escapeAttr(info.url)}" target="_blank" rel="noopener">Full fares &amp; tickets →</a>`
+    ? `<a class="ticket-more-link" href="${escapeAttr(safeUrl(info.url))}" target="_blank" rel="noopener">Full fares &amp; tickets →</a>`
     : "";
 
   return `
@@ -2645,12 +2758,64 @@ function initSheet() {
   });
 }
 
+/**
+ * Keep an open departure board honest about the passage of time.
+ *
+ * The rows are rendered once, from a response that may already be a minute
+ * old, and then sat there. A probe during the pre-release audit advanced the
+ * clock and the board still read "5 mins" — for a bus that had gone. Vehicle
+ * polling updates the map, not this.
+ *
+ * So every thirty seconds each label is re-derived from the time the row
+ * carries, rows whose bus has actually left are removed, and the count line
+ * says when the data was fetched. No network call: this is arithmetic on data
+ * already on the page, which is why it can run this often.
+ */
+const DEPARTURE_TICK_MS = 30_000;
+
+function ageDepartureBoard(now = new Date()) {
+  const cells = document.querySelectorAll(".due-time[data-due-at]");
+  if (!cells || !cells.length) return 0;
+  let removed = 0;
+  cells.forEach(cell => {
+    const iso = cell.dataset.dueAt;
+    const when = new Date(iso).getTime();
+    const row = cell.closest && cell.closest("tr");
+    if (!isNaN(when) && (when - now.getTime()) < -30_000) {
+      if (row && row.remove) { row.remove(); removed += 1; }
+      return;
+    }
+    cell.textContent = formatDueTime(iso, now);
+    if (cell.classList) {
+      cell.classList.toggle("due-imminent", isWithinMinutes(iso, 2));
+    }
+  });
+  return removed;
+}
+
+function startDepartureTicker() {
+  stopDepartureTicker();
+  state.departureTicker = setInterval(() => {
+    // Nothing to age once the reader has closed or replaced the board.
+    if (!state.selectedStop) return stopDepartureTicker();
+    ageDepartureBoard();
+  }, DEPARTURE_TICK_MS);
+}
+
+function stopDepartureTicker() {
+  if (state.departureTicker) {
+    clearInterval(state.departureTicker);
+    state.departureTicker = null;
+  }
+}
+
 function closePanel() {
   // If the proposal editor is open, close it first (persists the draft).
   if (state.editor) closeEditor();
 
   // Clear stop selection
   state.selectedStop = null;
+  stopDepartureTicker();
   showPanelState("prompt");
   dom.panelStopName.textContent = "Select a stop";
   if (dom.stopSpan) {
@@ -2726,11 +2891,14 @@ function bindUIEvents() {
     if (cancel) cancel.addEventListener("click", () => toggleReportStopForm(false));
   }
 
-  // Click a departure row → open the matching live vehicle in the Bus tab
+  // Click a departure row → open the matching live vehicle in the Bus tab.
+  // The whole row stays clickable for pointer users; the badge inside it is a
+  // real button so the same action has a keyboard route. A <tr> with a click
+  // listener has none — it cannot be focused and Enter does nothing on it.
   dom.departuresTbody.addEventListener("click", (e) => {
-    const tr = e.target.closest("tr.departure-row");
-    if (!tr) return;
-    const service = tr.dataset.service;
+    const btn = e.target.closest("button.service-badge-btn");
+    const tr  = e.target.closest("tr.departure-row");
+    const service = (btn && btn.dataset.service) || (tr && tr.dataset.service);
     if (service) openBusFromService(service);
   });
 
@@ -3115,7 +3283,7 @@ function updateCardHtml(u, opts = {}) {
   // gets real alt text or none at all — never a filename.
   const media = img ? `
       <figure class="update-card-media">
-        <img src="${escapeAttr(img.src)}" alt="${escapeAttr(img.alt || "")}"
+        <img src="${escapeAttr(safeUrl(img.src))}" alt="${escapeAttr(img.alt || "")}"
              loading="lazy" decoding="async"
              style="object-position:${escapeAttr(img.focus || "50% 50%")}">
         ${img.credit ? `<figcaption class="update-card-credit">${escapeHtml(img.credit)}</figcaption>` : ""}
@@ -3125,7 +3293,7 @@ function updateCardHtml(u, opts = {}) {
     ? `<footer class="update-card-sources">
          <p class="update-card-sources-title">Sources</p>
          <ul class="proposal-links">${u.links.map(l => `
-           <li><a class="proposal-link" href="${escapeAttr(l.url)}"
+           <li><a class="proposal-link" href="${escapeAttr(safeUrl(l.url))}"
                   target="_blank" rel="noopener noreferrer">${escapeHtml(l.label || l.url)} ↗</a></li>`
          ).join("")}</ul>
        </footer>`
@@ -3359,18 +3527,27 @@ async function applyViewMode() {
     closePanel();
   }
 
+  // A view's data can take seconds on a cold load, and the reader is free to
+  // leave in the meantime. Everything below this point is drawn *into a view*,
+  // so each await has to be followed by "is this still the view we are in?" —
+  // without it, a slow route-lines response put 35 route layers on the map
+  // underneath Network Objectives.
+  const mine = claimRender("view");
+
   if (state.viewMode === "improvements") {
     hideTicketZones();
     clearJourneyLayers();
     ensureMapOverlayControls();
     try {
       await Promise.all([loadRouteLines(), loadProposals(), loadCouncilBoundaries()]);
+      if (!mine()) return;
       showRouteLines();
       reconcileCouncilBoundaries();
       reconcileProposalLayers();
       if (state.selectedProposalId) showProposal(state.selectedProposalId);
     } catch (err) {
       console.warn("Route view data fetch failed:", err);
+      if (!mine()) return;
       showToast("Could not load route data. Try again later.");
     }
   } else if (state.viewMode === "tickets") {
@@ -3382,10 +3559,12 @@ async function applyViewMode() {
     clearJourneyLayers();
     try {
       await loadTicketZones();
+      if (!mine()) return;
       showTicketZones();
       renderJourneyPresets();     // examples for the checker; failure is silent
     } catch (err) {
       console.warn("Ticket view data fetch failed:", err);
+      if (!mine()) return;
       showToast("Could not load ticket data. Try again later.");
     }
   } else if (state.viewMode === "updates") {
@@ -3398,6 +3577,7 @@ async function applyViewMode() {
     clearJourneyLayers();
     try {
       await loadUpdates();
+      if (!mine()) return;
       renderUpdates();
     } catch (err) {
       console.warn("Updates fetch failed:", err);
@@ -3412,8 +3592,10 @@ async function applyViewMode() {
     clearJourneyLayers();
     try {
       await loadNetworkData();
+      if (!mine()) return;
     } catch (err) {
       console.warn("Network plan data fetch failed:", err);
+      if (!mine()) return;
       showToast("Could not load network plan data. Try again later.");
     }
   } else {
@@ -3426,6 +3608,7 @@ async function applyViewMode() {
     clearJourneyLayers();
     try {
       await loadCouncilBoundaries();
+      if (!mine()) return;
       reconcileCouncilBoundaries();
     } catch (err) {
       console.warn("Council boundary unavailable:", err);
@@ -4044,7 +4227,7 @@ function renderProposalsList() {
           <ul class="proposal-links">
             ${p.links.map(l => `
               <li><a class="proposal-link"
-                     href="${escapeAttr(l.url)}"
+                     href="${escapeAttr(safeUrl(l.url))}"
                      target="_blank"
                      rel="noopener noreferrer">${escapeHtml(l.label || l.url)}</a></li>
             `).join("")}
@@ -4441,7 +4624,7 @@ function renderTicketZonesList() {
         ${meta ? `<span class="proposal-card-summary">${escapeHtml(meta)}</span>` : ""}
         ${z.coverage ? `<span class="proposal-card-summary">${escapeHtml(z.coverage)}</span>` : ""}
         ${z.restrictions ? `<span class="ticket-zone-restrict">${escapeHtml(z.restrictions)}</span>` : ""}
-        ${z.official_map_url ? `<a class="ticket-zone-link" href="${escapeAttr(z.official_map_url)}" target="_blank" rel="noopener noreferrer">View official zone map ↗</a>` : ""}
+        ${z.official_map_url ? `<a class="ticket-zone-link" href="${escapeAttr(safeUrl(z.official_map_url))}" target="_blank" rel="noopener noreferrer">View official zone map ↗</a>` : ""}
         ${note ? `<span class="ticket-zone-note">${escapeHtml(note)}</span>` : ""}
       </div>`;
   };
@@ -4532,7 +4715,14 @@ function renderTicketZonesList() {
     };
     card.addEventListener("click", activate);
     card.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(e); }
+      if (e.key !== "Enter" && e.key !== " ") return;
+      // Check where the key came from *before* cancelling it. This used to
+      // preventDefault first and test afterwards, so pressing Enter on "View
+      // official zone map" cancelled the link's navigation and then did
+      // nothing — a link that worked with a mouse and not with a keyboard.
+      if (e.target.closest("a")) return;
+      e.preventDefault();
+      activate(e);
     });
   });
 }
@@ -4908,6 +5098,139 @@ function stopPickerIndex() {
   return state._stopIndex;
 }
 
+/**
+ * Stop and station search for the live view.
+ *
+ * Until now the only way to open a departure board was to point at a marker.
+ * That is not a route a keyboard has, and clusters are 34px targets besides,
+ * so the site's primary task had no accessible path to it at all. This reuses
+ * the cluster index the journey checker already builds, and adds rail
+ * stations, which have the same problem for the same reason.
+ *
+ * Results are real buttons in a list, so Tab reaches them and Enter activates
+ * them, with no dependence on the map having focus or even being visible.
+ */
+const STOP_SEARCH_LIMIT = 12;
+
+function stopSearchMatches(query) {
+  const q = (query || "").trim().toLowerCase();
+  if (q.length < 2) return [];
+  const out = [];
+  for (const c of stopPickerIndex()) {
+    if (!c.label.toLowerCase().includes(q)) continue;
+    out.push({ kind: "stop", label: c.label, atco: c.atcos[0] });
+    if (out.length >= STOP_SEARCH_LIMIT) return out;
+  }
+  for (const st of (state.railStations || [])) {
+    if (!st.name || !st.name.toLowerCase().includes(q)) continue;
+    out.push({ kind: "rail", label: `${st.name} station`, crs: st.crs });
+    if (out.length >= STOP_SEARCH_LIMIT) break;
+  }
+  return out;
+}
+
+function renderStopSearchResults(listEl, matches, query) {
+  if (!listEl) return;
+  if (!matches.length) {
+    listEl.innerHTML = (query || "").trim().length >= 2
+      ? `<li class="stop-search-empty">No stop or station matches that.</li>`
+      : "";
+    return;
+  }
+  listEl.innerHTML = matches.map(m => `
+    <li>
+      <button type="button" class="stop-search-result"
+              data-kind="${escapeAttr(m.kind)}"
+              data-atco="${escapeAttr(m.atco || "")}"
+              data-crs="${escapeAttr(m.crs || "")}"
+              data-label="${escapeAttr(m.label)}">
+        <span class="stop-search-result-name">${escapeHtml(m.label)}</span>
+      </button>
+    </li>`).join("");
+}
+
+/**
+ * On a short screen the route filters start closed.
+ *
+ * They are 160px of a 273px sheet at 320x568, which pushed the tab strip and
+ * the collapse control off the bottom of a panel that clips its overflow. The
+ * CSS now stops them squeezing the chrome out, but a filter block that fills
+ * the sheet still leaves nothing to look at, so on a short viewport the
+ * reader starts with the list and opens the filters when they want them.
+ *
+ * Only ever closes what the reader has not touched: once they open it, it
+ * stays open for the session, including through a rotation.
+ */
+const SHORT_VIEWPORT_PX = 700;
+
+function syncFilterDisclosure() {
+  const details = document.querySelector(".filter-disclosure");
+  if (!details) return;
+  if (!state._filterDisclosureTouched) {
+    details.addEventListener("toggle", () => {
+      state._filterDisclosureTouched = true;
+    }, { once: true });
+  }
+  const apply = () => {
+    if (state._filterDisclosureTouched) return;
+    details.open = window.innerHeight > SHORT_VIEWPORT_PX;
+  };
+  apply();
+  window.addEventListener("resize", apply);
+}
+
+/** "Try again" wherever a loader failed.
+ *
+ *  Delegated, so it survives the rerender that follows a retry, and keyed by
+ *  what failed rather than by which button was pressed. */
+function bindLoaderRetries() {
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-retry]");
+    if (!btn) return;
+    const what = btn.dataset.retry;
+    if (what === "objectives") {
+      state.objectivesError = null;
+      state.objectives = null;
+      state._networkPromise = null;
+      loadNetworkData().catch(() => {});
+    }
+  });
+}
+
+function bindStopSearch() {
+  const form  = document.getElementById("stop-search-form");
+  const input = document.getElementById("stop-search-input");
+  const list  = document.getElementById("stop-search-results");
+  if (!form || !input || !list) return;
+
+  const update = () => {
+    const matches = stopSearchMatches(input.value);
+    renderStopSearchResults(list, matches, input.value);
+    input.setAttribute("aria-expanded", matches.length ? "true" : "false");
+  };
+
+  input.addEventListener("input", update);
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    update();
+    // Enter in the box goes straight to the only sensible answer rather than
+    // making the reader Tab to a list of one.
+    const first = list.querySelector("button.stop-search-result");
+    if (first && stopSearchMatches(input.value).length === 1) first.click();
+    else if (first) first.focus();
+  });
+
+  list.addEventListener("click", (e) => {
+    const btn = e.target.closest("button.stop-search-result");
+    if (!btn) return;
+    if (btn.dataset.kind === "rail") {
+      selectRailStation(btn.dataset.crs, btn.dataset.label.replace(/ station$/, ""));
+    } else if (btn.dataset.atco) {
+      openDepartures(btn.dataset.atco, btn.dataset.label);
+    }
+  });
+}
+
 /** Rebuild a datalist with the places matching what's been typed so far. */
 function fillStopDatalist(listEl, query) {
   if (!listEl) return;
@@ -5083,9 +5406,13 @@ async function checkJourney() {
     return;
   }
 
+  const mine = claimRender("journey");
   setJourneyStatus("Checking…");
   clearJourneyLayers();
   await loadTicketZones();
+  // Ticket zones can take a moment on a cold load; the reader may already
+  // have asked for a different journey, or left the view entirely.
+  if (!mine()) return;
 
   let journey;
   try {
@@ -5094,9 +5421,11 @@ async function checkJourney() {
       + `&to=${encodeURIComponent(toAtco)}`
       + `&at=${encodeURIComponent(JOURNEY_TIME_ANCHOR)}`);
   } catch (err) {
+    if (!mine()) return;
     setJourneyStatus("Couldn't look up that journey — please try again.", true);
     return;
   }
+  if (!mine()) return;
   setJourneyStatus("");
   renderJourneyResult(journey, fromAtco, toAtco);
 }
@@ -5447,6 +5776,12 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // A journey with no direct bus needs at least two buses each way.
   const legs = option ? 1 : 2;
   const singlesOption = singlesBaseline(meta, legs);
+  // What an unlimited day costs today, with singles deliberately excluded:
+  // the reform asks replace a day ticket, so this is the like-for-like
+  // baseline for "what would change". The null is written out rather than
+  // dropped — an argument quietly omitted is what produced the £12.50 claim.
+  const dayBaseline = cheapestRealOption(best, networkOption, supplement,
+                                         unifiedOption, null);
 
   const routeLine = option
     ? `<p class="journey-note">Following the ${escapeHtml(option.service)} — ${option.stop_count} stops, ${escapeHtml(option.depart)} to ${escapeHtml(option.arrive)}.</p>`
@@ -5462,7 +5797,8 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // This is a boundary penalty in its own right: the zone tickets stop short,
   // so the passenger is pushed onto the operator's pricier network ticket.
   if (!best && networkOption && uncovered === 0) {
-    const only = cheapestRealOption(null, networkOption, supplement, unifiedOption);
+    const only = cheapestRealOption(null, networkOption, supplement,
+                                    unifiedOption, singlesOption);
     host.innerHTML = header + `
       <div class="journey-alert journey-alert--penalty">
         <p><strong>No zone day ticket covers this whole journey</strong> — the
@@ -5471,7 +5807,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
                : `<p class="journey-basis">The only ticket that covers it is
                   ${escapeHtml(networkOption.zone.name)}, but we don't have a
                   current price for it.</p>`}
-        ${reformComparisonHtml(only, coveringZoneIds(coverPerStop), byId, meta)}
+        ${reformComparisonHtml(only, dayBaseline, coveringZoneIds(coverPerStop), byId, meta)}
       </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared);
     return;
   }
@@ -5479,24 +5815,41 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // ── The two ends share no operator ────────────────────────
   //
   // Not a gap in our data — a fact about the network, and the sharpest thing
-  // this calculator can say. If no company runs a bus at both ends, no day
-  // ticket spans the journey at any price, so the honest answer is what two
-  // tickets or a handful of singles actually cost.
+  // this calculator can say. But it is a statement about *operators' own*
+  // tickets, and it used to be written as though it were a statement about
+  // every ticket in existence: "no single ticket can cover this journey",
+  // printed on a route for which this same file configures, prices and
+  // recommends the all-operator South Downs Discovery Ticket.
+  //
+  // An empty operator intersection means no company's own day ticket spans
+  // the journey. It does not mean no ticket does. The two questions get
+  // separate answers now.
   if (operatorsKnown && shared && shared.length === 0) {
-    const legFare = singlesBaseline(meta, legs);
-    const sf = meta.single_fare;
+    const singles = singlesOption
+      ? Object.assign({}, singlesOption, { noSpanningTicket: !unifiedOption })
+      : null;
+    const crossing = cheapestRealOption(null, null, supplement, unifiedOption, singles);
+    const opPhrase = `${escapeHtml(operatorPhrase(endpointOperators[0]))}
+        at one end, ${escapeHtml(operatorPhrase(endpointOperators[endpointOperators.length - 1]))}
+        at the other`;
+
+    const verdict = unifiedOption
+      ? `<p><strong>No operator's own ticket covers this journey.</strong> No bus
+         company runs a service at both ends of it &mdash; ${opPhrase} &mdash; so
+         whichever operator's day ticket you buy stops working when you change.</p>`
+      : `<p><strong>No single ticket can cover this journey.</strong> No bus company
+         runs a service at both ends of it &mdash; ${opPhrase} &mdash; so whichever
+         ticket you buy stops working when you change.</p>`;
+
     host.innerHTML = header + `
       <div class="journey-alert journey-alert--penalty">
-        <p><strong>No single ticket can cover this journey.</strong> No bus company
-        runs a service at both ends of it &mdash; ${escapeHtml(operatorPhrase(endpointOperators[0]))}
-        at one end, ${escapeHtml(operatorPhrase(endpointOperators[endpointOperators.length - 1]))}
-        at the other &mdash; so whichever ticket you buy stops working when you change.</p>
-        ${(legFare && sf) ? `<p class="journey-basis">Two buses each way at the
-        ${escapeHtml(formatGbp(sf.price_pence))} single fare is
-        <strong>${escapeHtml(formatGbp(legFare.total))}</strong> for the return trip.
-        A day ticket from either operator would cover only half of it.</p>` : ""}
+        ${verdict}
+        ${crossing ? penaltyMoneyHtml(crossing, meta, service)
+                   : `<p class="journey-basis">We don't have a current price for
+                      any ticket that would cross this boundary, so we're not
+                      showing a total.</p>`}
       </div>
-      ${reformComparisonHtml(legFare, coveringZoneIds(coverPerStop), byId, meta)}`
+      ${reformComparisonHtml(crossing, dayBaseline, coveringZoneIds(coverPerStop), byId, meta)}`
       + zoneListHtml(coverPerStop, byId, droppedForOperator, shared);
     return;
   }
@@ -5552,7 +5905,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
           ends.</p>`}
         ${singlesLine}
       </div>`
-      + reformComparisonHtml(cheapest, coveringZoneIds(coverPerStop), byId, meta)
+      + reformComparisonHtml(cheapest, dayBaseline, coveringZoneIds(coverPerStop), byId, meta)
       + zoneListHtml(coverPerStop, byId, droppedForOperator, shared)
       + faresProvenanceHtml(best.zones, byId);
     return;
@@ -5565,7 +5918,8 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // combination. On a Worthing-to-Brighton Stagecoach run the two zone tickets
   // come to £12, but a Gold DayRider covers the same journey for £8.50, so
   // claiming £12 would be plainly wrong and would discredit the point.
-  const cheapest = cheapestRealOption(best, networkOption, supplement, unifiedOption);
+  const cheapest = cheapestRealOption(best, networkOption, supplement,
+                                      unifiedOption, singlesOption);
   const money = cheapest
     ? penaltyMoneyHtml(cheapest, meta, service)
     : `<p class="journey-basis">We don't have current prices for all of these
@@ -5578,7 +5932,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
       It crosses ${best.zones.length} ticket zones:</p>
       ${zoneCostHtml(best, byId)}
       ${money}
-      ${reformComparisonHtml(cheapest, best.zones, byId, meta)}
+      ${reformComparisonHtml(cheapest, dayBaseline, best.zones, byId, meta)}
     </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared) + faresProvenanceHtml(best.zones, byId);
 }
 
@@ -5691,7 +6045,7 @@ function penaltyMoneyHtml(cheapest, meta, service) {
     const name = escapeHtml(cheapest.zone.name);
     parts.push(`<p class="journey-headline">
       The cheapest ticket covering it is the
-      <strong>${src ? `<a href="${escapeAttr(src)}" target="_blank" rel="noopener noreferrer">${name}</a>` : name}</strong>
+      <strong>${src ? `<a href="${escapeAttr(safeUrl(src))}" target="_blank" rel="noopener noreferrer">${name}</a>` : name}</strong>
       at ${formatGbp(cheapest.total)} — the only day ticket that's valid on every
       operator, priced as a day-out rover rather than a local fare.</p>`);
   } else if (cheapest.kind === "singles") {
@@ -5699,15 +6053,21 @@ function penaltyMoneyHtml(cheapest, meta, service) {
     // the cheapest honest answer. Saying so is the point: the cost is the
     // interchange, not the distance.
     const legs = cheapest.legs;
+    // Why singles win differs by journey, and asserting the wrong reason is
+    // its own kind of wrong answer: on a cross-operator trip no day ticket
+    // spans the journey at all, but on a Stagecoach-only run one does — it is
+    // just dearer than two capped singles. Only the first is a boundary fact.
+    const why = cheapest.noSpanningTicket
+      ? ", because no day ticket is valid on every operator that serves these stops"
+      : " — cheaper here than any day ticket covering the journey";
     parts.push(`<p class="journey-headline">
       The cheapest way to make this journey is
       <strong>${formatGbp(cheapest.total)}</strong> in single fares —
       ${legs} bus${legs === 1 ? "" : "es"} each way at
-      ${formatGbp(cheapest.each)}, because no day ticket is valid on every
-      operator that serves these stops.</p>`);
+      ${formatGbp(cheapest.each)}${why}.</p>`);
     if (cheapest.source_url) {
       parts.push(`<p class="journey-basis">Single fares are capped nationally:
-        <a href="${escapeAttr(cheapest.source_url)}" target="_blank"
+        <a href="${escapeAttr(safeUrl(cheapest.source_url))}" target="_blank"
            rel="noopener noreferrer">${escapeHtml(cheapest.label)}</a>.</p>`);
     }
   } else if (cheapest.kind === "network") {
@@ -5775,11 +6135,17 @@ function reformsForJourney(zoneIds, byId, meta) {
   const fares = zoneIds.map(id => zoneDayFare(byId[id])).filter(p => p !== null);
   const cheapestSingle = fares.length ? Math.min(...fares) : null;
 
+  // Only geographic zones can be merged. An operator-wide ticket has no
+  // polygon and no boundary — counting the Gold DayRider as a second "zone"
+  // is how "if the Worthing and Brighton zones were merged" came to be
+  // offered on a journey that never entered the Brighton zone.
+  const zonal = zoneIds.filter(id => ((byId[id] || {}).coverage_rule || "polygon") === "polygon");
+
   const out = [];
   for (const r of reforms) {
     let price = null;
     if (r.applies === "same_operator_multi_zone") {
-      if (operators.size !== 1 || zoneIds.length < 2) continue;
+      if (operators.size !== 1 || zonal.length < 2) continue;
       price = typeof r.price_pence === "number" ? r.price_pence : cheapestSingle;
     } else if (r.applies === "multi_operator") {
       if (operators.size < 2) continue;
@@ -5800,25 +6166,41 @@ function reformsForJourney(zoneIds, byId, meta) {
  * test on their own commute. Each ask is only shown when it would actually make
  * this journey cheaper.
  */
-function reformComparisonHtml(cheapest, zoneIds, byId, meta) {
+function reformComparisonHtml(cheapest, dayBaseline, zoneIds, byId, meta) {
   if (!cheapest) return "";
   const days = meta && meta.commute_days_per_week;
-  const applicable = reformsForJourney(zoneIds, byId, meta)
-    .filter(r => cheapest.total - r.price_pence > 0);
-  if (!applicable.length) return "";
 
-  const rows = applicable.map(r => {
+  // A saving is only a saving against what the reader would otherwise pay.
+  // Measuring it against a selected expensive product instead — a £8.50 Gold
+  // DayRider on a return trip two £3 capped singles cover for £6 — produced a
+  // "£12.50 a week" that no passenger could ever have saved.
+  //
+  // The ask still stands when it beats no price: these reforms replace an
+  // unlimited day ticket, and a day ticket is what someone travelling more
+  // than twice buys. That case is shown without a weekly headline figure,
+  // because the number would not describe the journey on screen.
+  const rows = reformsForJourney(zoneIds, byId, meta).map(r => {
     const saving = cheapest.total - r.price_pence;
-    const perWeek = typeof days === "number" ? saving * days : null;
+    const dayOnly = dayBaseline ? dayBaseline.total - r.price_pence : 0;
+    if (saving <= 0 && dayOnly <= 0) return "";
+
+    const perWeek = (saving > 0 && typeof days === "number") ? saving * days : null;
+    const headline = saving > 0
+      ? `this journey would cost <strong>${formatGbp(r.price_pence)}</strong>${
+          perWeek !== null ? ` — saving ${formatGbp(perWeek)} a week` : ""}.`
+      : `a day's travel here would cost <strong>${formatGbp(r.price_pence)}</strong>
+         instead of ${formatGbp(dayBaseline.total)}.`;
+    const caveat = saving > 0 ? "" : `
+        <span class="journey-basis">This particular return is already
+        ${formatGbp(cheapest.total)} in capped single fares, so the change would
+        tell on days you travel more than twice.</span>`;
     return `
       <li>
-        <span class="journey-reform-head">${escapeHtml(r.headline)}, this journey
-        would cost <strong>${formatGbp(r.price_pence)}</strong>${
-          perWeek !== null ? ` — saving ${formatGbp(perWeek)} a week` : ""
-        }.</span>
-        <span class="journey-basis">${escapeHtml(r.detail || "")}</span>
+        <span class="journey-reform-head">${escapeHtml(r.headline)}, ${headline}</span>
+        <span class="journey-basis">${escapeHtml(r.detail || "")}</span>${caveat}
       </li>`;
-  }).join("");
+  }).filter(Boolean).join("");
+  if (!rows) return "";
 
   return `
     <div class="journey-reform">
@@ -5877,13 +6259,32 @@ function operatorPhrase(ops) {
 /** Every price shown must carry its source and the date it was checked. */
 function faresProvenanceHtml(zoneIds, byId) {
   const rows = [];
+  const today = new Date().toISOString().slice(0, 10);
   for (const id of zoneIds) {
     const f = byId[id] && byId[id].fares;
     if (!f || !f.source_url) continue;
+
+    // A price the operator publishes differently is not a footnote. Showing
+    // one figure as *the* fare, when a sourced table says another, is the
+    // kind of thing a councillor's office checks first.
+    const c = f.conflicts_with;
+    const conflict = (c && typeof c.price_pence === "number")
+      ? ` — Stagecoach's <a href="${escapeAttr(safeUrl(c.source_url || f.source_url))}"
+          target="_blank" rel="noopener noreferrer">published table</a>
+          (${escapeHtml(c.effective_from || "")}) lists
+          ${escapeHtml(formatGbp(c.price_pence))}`
+      : "";
+
+    // Fares expire. An advocacy site quoting a stale one is worse than one
+    // quoting none, so the page says so rather than waiting to be caught.
+    const stale = (f.review_by && f.review_by < today)
+      ? ` <strong class="journey-stale">due for re-checking</strong>`
+      : "";
+
     rows.push(
-      `<li>${escapeHtml(byId[id].name)}: <a href="${escapeAttr(f.source_url)}" ` +
+      `<li>${escapeHtml(byId[id].name)}: <a href="${escapeAttr(safeUrl(f.source_url))}" ` +
       `target="_blank" rel="noopener noreferrer">published fare</a>, ` +
-      `checked ${escapeHtml(f.checked_on || "—")}</li>`);
+      `checked ${escapeHtml(f.checked_on || "—")}${conflict}${stale}</li>`);
   }
   if (!rows.length) return "";
   return `<div class="journey-sources"><p class="journey-zones-title">Where these prices come from</p><ul>${rows.join("")}</ul></div>`;
@@ -6249,6 +6650,16 @@ function renderEditor() {
       </button>
       <span class="editor-status" id="ed-status"></span>
       <div class="suggest-turnstile" id="ed-turnstile"></div>
+
+      <!-- At the action, not only behind the help button. What a submission
+           does — a public issue, immediately, reviewed afterwards — is
+           something to know before pressing Submit, not after. -->
+      <p class="suggest-privacy editor-submit-note">
+        Submitting posts your route, and the name you put on it, to the
+        project's public issue tracker straight away. A person reviews it
+        before anything appears on the site. Don't include anything you
+        wouldn't want published.
+      </p>
 
       <div class="editor-help-popover hidden" id="ed-help-popover" role="dialog"
            aria-labelledby="ed-help-title" aria-modal="false">
@@ -6685,6 +7096,19 @@ function setEditorStatus(msg) {
   setEditorStatus._t = setTimeout(() => { el.textContent = ""; }, 2500);
 }
 
+/** A status line that stays put.
+ *
+ *  `setEditorStatus` clears itself after 2.5 seconds, which is right for
+ *  "Sending…" and wrong for the one message carrying a link to the reader's
+ *  own submission — the only record they have of where it went.
+ */
+function setEditorStatusHtml(html) {
+  const el = dom.proposalEditor && dom.proposalEditor.querySelector("#ed-status");
+  if (!el) return;
+  clearTimeout(setEditorStatus._t);
+  el.innerHTML = html;
+}
+
 async function copyDraftJson() {
   if (!state.editor) return;
   const json = JSON.stringify(draftToProposalJson(state.editor), null, 2);
@@ -6750,8 +7174,12 @@ async function submitProposal() {
   resetTurnstile(widget);
 
   if (result.ok) {
-    setEditorStatus(result.url ? "Sent — opening your proposal…" : "Sent — thank you!");
-    if (result.url) window.open(result.url, "_blank", "noopener");
+    // The link stays on the page rather than being opened for the reader:
+    // after an await the gesture has expired and the popup is blocked, which
+    // loses the only reference they have to their own submission.
+    setEditorStatusHtml(submissionReceiptHtml(result));
+  } else if (result.reason === "in-flight" || result.reason === "timeout") {
+    setEditorStatus(result.message);
   } else if (result.reason === "unconfigured") {
     setEditorStatus("Submissions aren't switched on yet — use Copy JSON for now.");
   } else {
@@ -6781,6 +7209,13 @@ const OBJECTIVE_STATUS = {
 function loadNetworkData() {
   if (!state._networkPromise) {
     state._networkPromise = Promise.all([loadObjectives(), loadCommunityIdeas()])
+      .then(result => {
+        // Both loaders swallow their own errors, so this promise resolves even
+        // when nothing loaded. Drop the memo in that case, or the retry the
+        // loaders now allow can never actually happen.
+        if (!state.objectives || !state.suggestions) state._networkPromise = null;
+        return result;
+      })
       .catch(err => { state._networkPromise = null; throw err; });
   }
   return state._networkPromise;
@@ -6794,8 +7229,11 @@ async function loadObjectives() {
     const data = await res.json();
     state.objectives = Array.isArray(data.objectives) ? data.objectives : [];
   } catch (err) {
+    // Left unset, so the next visit to the view retries. Set to `[]` this
+    // read as "there are no objectives", which is both wrong and permanent.
     console.warn("Objectives load failed:", err);
-    state.objectives = [];
+    state.objectives = null;
+    state.objectivesError = err.message || "Could not load the objectives.";
   }
   renderObjectivesList();
   populateObjectiveSelect();
@@ -6810,7 +7248,8 @@ async function loadCommunityIdeas() {
     state.suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
   } catch (err) {
     console.warn("Suggestions load failed:", err);
-    state.suggestions = [];
+    state.suggestions = null;
+    state.suggestionsError = err.message || "Could not load community ideas.";
   }
   renderCommunityIdeas();
 }
@@ -6843,7 +7282,7 @@ function objectiveCardHtml(o) {
         <p class="proposal-detail-heading">Links</p>
         <ul class="proposal-links">
           ${o.links.map(l => `
-            <li><a class="proposal-link" href="${escapeAttr(l.url)}"
+            <li><a class="proposal-link" href="${escapeAttr(safeUrl(l.url))}"
                    target="_blank" rel="noopener noreferrer">${escapeHtml(l.label || l.url)}</a></li>
           `).join("")}
         </ul>
@@ -7017,7 +7456,7 @@ function bodyGroupHtml(g, itemHtml, noun) {
     inner += `<p class="ticket-operator-footnote">${escapeHtml(body.note)}</p>`;
   }
   if (body.url) {
-    inner += `<a class="ticket-zone-link" href="${escapeAttr(body.url)}"
+    inner += `<a class="ticket-zone-link" href="${escapeAttr(safeUrl(body.url))}"
                  target="_blank" rel="noopener noreferrer">Contact ${escapeHtml(g.label)} ↗</a>`;
   }
 
@@ -7201,6 +7640,28 @@ function councillorMailto(area, draft) {
   return { url, long: url.length > 1800 };
 }
 
+/**
+ * The mailto: for the draft as it stands right now.
+ *
+ * The dialog asks the reader to rewrite the letter in their own words, and
+ * then used to hand their email app a link built when the dialog first
+ * rendered — so the words that arrived were the generated ones, including any
+ * the reader had deliberately deleted. Copy used the edited text; the email
+ * button did not. Now both read the same textarea, at the moment they are
+ * used.
+ */
+function councillorMailtoFromDraft(text) {
+  const ctx = state.councillorDraftContext;
+  if (!ctx) return null;
+  return councillorMailto(ctx.area, { subject: ctx.subject, body: String(text ?? "") });
+}
+
+/** Whatever is in the draft box, or "" if it isn't on the page. */
+function currentCouncillorDraft() {
+  const ta = document.getElementById("councillor-draft-text");
+  return ta ? ta.value : "";
+}
+
 // ── The dialog ──────────────────────────────────────────────
 
 function openCouncillorDialog(objectiveId) {
@@ -7281,6 +7742,28 @@ function bindCouncillorDialog() {
   });
   const copy = document.getElementById("councillor-copy");
   if (copy) copy.addEventListener("click", onCouncillorCopy);
+
+  // Both actions now read the same box at the moment they are used.
+  const openMail = document.getElementById("councillor-open-mail");
+  if (openMail) openMail.addEventListener("click", onCouncillorOpenMail);
+
+  // And the "this may be trimmed" warning follows what is actually in it,
+  // rather than describing the draft the reader started from.
+  const draftBox = document.getElementById("councillor-draft-text");
+  const warn = document.getElementById("councillor-long-warn");
+  if (draftBox && warn) {
+    draftBox.addEventListener("input", () => {
+      const built = councillorMailtoFromDraft(draftBox.value);
+      warn.hidden = !(built && built.long);
+    });
+  }
+}
+
+/** Hand the reader's current draft to their email app. */
+function onCouncillorOpenMail() {
+  const built = councillorMailtoFromDraft(currentCouncillorDraft());
+  if (!built) return;
+  window.location.href = built.url;
 }
 
 async function onCouncillorSubmit(e) {
@@ -7332,7 +7815,7 @@ function councillorFallbackHtml(bodyCode, place, reason) {
        so they have no councillor for your address.`
     : `We don't have a published address for your area yet.`;
   const link = b.url
-    ? `<p><a class="proposal-link" href="${escapeAttr(b.url)}" target="_blank"
+    ? `<p><a class="proposal-link" href="${escapeAttr(safeUrl(b.url))}" target="_blank"
              rel="noopener noreferrer">Contact ${escapeHtml(bodyName(bodyCode))} directly ↗</a></p>`
     : "";
   return `<div class="councillor-result"><p class="councillor-empty">${why}</p>${link}</div>`;
@@ -7340,7 +7823,9 @@ function councillorFallbackHtml(bodyCode, place, reason) {
 
 function councillorResultHtml(objective, area) {
   const draft = councillorDraft(objective, area);
-  const { url, long } = councillorMailto(area, draft);
+  // Kept so the click handler can rebuild the link from the edited text.
+  state.councillorDraftContext = { area, subject: draft.subject };
+  const { long } = councillorMailto(area, draft);
   const people = area.members.map(m => `
     <li class="councillor-member">
       <span class="councillor-member-name">${escapeHtml(m.name)}</span>
@@ -7354,7 +7839,7 @@ function councillorResultHtml(objective, area) {
       <ul class="councillor-members">${people}</ul>
       <p class="councillor-checked">Addresses published by the council and checked on
         ${escapeHtml(area.checked_on)}.
-        <a class="proposal-link" href="${escapeAttr(area.source_url)}" target="_blank"
+        <a class="proposal-link" href="${escapeAttr(safeUrl(area.source_url))}" target="_blank"
            rel="noopener noreferrer">Verify ↗</a></p>
 
       <p class="proposal-detail-heading">Your draft</p>
@@ -7366,15 +7851,16 @@ function councillorResultHtml(objective, area) {
       <div class="councillor-actions">
         ${long ? `
           <button type="button" class="editor-action-btn primary" id="councillor-copy">Copy the draft</button>
-          <a class="editor-action-btn" href="${escapeAttr(url)}">Open in your email app</a>
+          <button type="button" class="editor-action-btn" id="councillor-open-mail">Open in your email app</button>
         ` : `
-          <a class="editor-action-btn primary" href="${escapeAttr(url)}">Open in your email app</a>
+          <button type="button" class="editor-action-btn primary" id="councillor-open-mail">Open in your email app</button>
           <button type="button" class="editor-action-btn" id="councillor-copy">Copy the draft</button>
         `}
       </div>
-      ${long ? `<p class="councillor-warn">Copying is offered first because this
-        draft is longer than some email apps will carry in a link — a few will
-        silently trim it. Opening it directly still works in most.</p>` : ""}
+      <p class="councillor-warn" id="councillor-long-warn" ${long ? "" : "hidden"}>Copying is
+        offered first because this draft is longer than some email apps will
+        carry in a link — a few will silently trim it. Opening it directly
+        still works in most.</p>
     </div>`;
 }
 
@@ -7416,6 +7902,16 @@ function bindBodyGroups(container, rerender) {
 
 function renderObjectivesList() {
   if (!dom.objectivesList) return;
+  // "None published" and "we could not load them" are different facts, and
+  // the second one has something the reader can do about it.
+  if (state.objectivesError) {
+    dom.objectivesList.innerHTML = `
+      <p class="proposals-empty proposals-empty--error">
+        Couldn't load the objectives just now.
+        <button type="button" class="btn-text" data-retry="objectives">Try again</button>
+      </p>`;
+    return;
+  }
   const objectives = state.objectives || [];
   if (objectives.length === 0) {
     dom.objectivesList.innerHTML = `<p class="proposals-empty">No objectives published yet.</p>`;
@@ -7590,14 +8086,32 @@ function resetTurnstile(container) {
  * POST a submission to the Worker, which files it as a GitHub issue.
  * Returns {ok, reason, url, number} — `url` links the sender to their issue.
  */
+// A form has no built-in idea of "already sending". Without one, an impatient
+// second click files a second issue — and the reader, having seen nothing
+// happen, has every reason to click again.
+const SUBMIT_TIMEOUT_MS = 20_000;
+const submissionsInFlight = new Set();
+
 async function postSubmission(kind, fields, turnstileContainer) {
   const endpoint = CONFIG.SUBMIT_ENDPOINT;
   if (!endpoint || endpoint.includes("YOUR-WORKER")) {
     return { ok: false, reason: "unconfigured" };
   }
+  if (submissionsInFlight.has(kind)) {
+    return { ok: false, reason: "in-flight",
+             message: "That's already sending — give it a moment." };
+  }
+  submissionsInFlight.add(kind);
+
+  // The request had no time limit of its own, so a Worker that never answered
+  // left the form saying "Sending…" forever with no way back to it.
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), SUBMIT_TIMEOUT_MS);
+
   try {
     const res = await fetch(endpoint, {
       method:  "POST",
+      signal:  abort.signal,
       headers: { "Content-Type": "application/json", "Accept": "application/json" },
       body:    JSON.stringify({
         kind,
@@ -7611,8 +8125,33 @@ async function postSubmission(kind, fields, turnstileContainer) {
     }
     return { ok: false, reason: data.error || `HTTP ${res.status}` };
   } catch (err) {
+    if (err && err.name === "AbortError") {
+      return { ok: false, reason: "timeout",
+               message: "That took too long. Your draft is still here — try again." };
+    }
     return { ok: false, reason: err.message || "Network error" };
+  } finally {
+    clearTimeout(timer);
+    submissionsInFlight.delete(kind);
   }
+}
+
+/**
+ * What a reader is told after a submission is accepted.
+ *
+ * Two things this has to get right. "Sent" on its own reads as "published",
+ * and it is not: a submission becomes an entry on a public tracker and waits
+ * for a person to review it. And the link has to stay on the page — it used
+ * to be handed to `window.open` after an await, which browsers block as a
+ * popup because the user gesture is long gone, so the only record of where
+ * the submission went could vanish silently.
+ */
+function submissionReceiptHtml(result) {
+  const link = result.url
+    ? ` <a href="${escapeAttr(safeUrl(result.url))}" target="_blank"
+           rel="noopener noreferrer">View it${result.number ? ` (#${escapeHtml(String(result.number))})` : ""} ↗</a>`
+    : "";
+  return `Received for review — it isn't on the site yet.${link}`;
 }
 
 /** Validate + file a community suggestion as a public GitHub issue. */
@@ -7750,11 +8289,13 @@ async function submitStopIssue() {
     if (result.url) {
       dom.reportStopStatus.classList.remove("is-error");
       dom.reportStopStatus.innerHTML =
-        `Thanks! <a href="${escapeAttr(result.url)}" target="_blank" ` +
-        `rel="noopener noreferrer">Track it here</a>.`;
+        `Thanks — received for review. <a href="${escapeAttr(safeUrl(result.url))}" ` +
+        `target="_blank" rel="noopener noreferrer">Track it here</a>.`;
     } else {
-      setReportStopStatus("Thanks — your report has been sent.");
+      setReportStopStatus("Thanks — your report has been received for review.");
     }
+  } else if (result.reason === "in-flight" || result.reason === "timeout") {
+    setReportStopStatus(result.message, true);
   } else if (result.reason === "unconfigured") {
     setReportStopStatus("Reporting isn't switched on yet — please try later.", true);
   } else {
@@ -7770,11 +8311,16 @@ function renderSuggestSuccess(url) {
   if (!dom.suggestStatus) return;
   dom.suggestStatus.classList.remove("is-error");
   if (url) {
+    // "on the tracker" is the honest description: the issue is public
+    // immediately, and appearing on the site is a separate, later decision by
+    // a person. Saying "published" here would be wrong in both directions.
     dom.suggestStatus.innerHTML =
-      `Thanks! Your idea is now <a href="${escapeAttr(url)}" target="_blank" ` +
-      `rel="noopener noreferrer">on the tracker</a> — follow it there.`;
+      `Thanks — received for review. Your idea is on the ` +
+      `<a href="${escapeAttr(safeUrl(url))}" target="_blank" ` +
+      `rel="noopener noreferrer">public tracker</a>; it isn't on the site yet.`;
   } else {
-    dom.suggestStatus.textContent = "Thanks! Your idea has been sent.";
+    dom.suggestStatus.textContent =
+      "Thanks — received for review. It isn't on the site yet.";
   }
 }
 
@@ -8320,9 +8866,7 @@ function railTrainDivIcon(colour, label, opts = {}) {
   const cls = ["rail-train-icon-wrap"];
   if (opts.pulse) cls.push("rail-train-icon-wrap--pulse");
   const liveryHtml = opts.liveryUrl
-    ? `<img class="rail-train-livery" src="${escapeHtml(opts.liveryUrl)}" alt=""
-           onerror="this.style.display='none'"
-           onload="this.style.opacity='1'">`
+    ? `<img class="rail-train-livery" src="${escapeAttr(safeUrl(opts.liveryUrl))}" alt="">`
     : "";
   const html = `
     <div class="${cls.join(' ')}" style="--rail-train-bg:${bg};">
@@ -8347,8 +8891,14 @@ async function loadRailStations() {
     state.railStationByCrs = Object.fromEntries(state.railStations.map(s => [s.crs, s]));
     return state.railStations;
   } catch (err) {
+    // Not `[]`. An empty array is a perfectly good answer to "which stations
+    // are there", and the guard at the top of this function treats it as one —
+    // so a single transient failure meant "no stations" for the rest of the
+    // page's life, with nothing the reader could do about it. Leaving the
+    // state unset is what lets the next call try again.
     console.warn("Failed to load rail stations:", err);
-    state.railStations = [];
+    state.railStations = null;
+    state.railStationsError = err.message || "Could not load rail stations.";
     return [];
   }
 }
@@ -8404,18 +8954,27 @@ async function openRailBoard(crs, name) {
   renderRailBoard();           // shows "loading" rows while we fetch
   dom.departurePanel.scrollIntoView({ behavior: "smooth", block: "end" });
 
+  // Same slot as the bus board — they write to the same panel, so the later
+  // selection must win whichever kind it is.
+  const stillOurs = claimRender(PANEL_SLOT);
+  const mine = () => stillOurs()
+    && state.selectedRailStation && state.selectedRailStation.crs === crs;
+
   try {
     const data = await apiFetch(`/api/rail-departures?crs=${encodeURIComponent(crs)}`);
-    if (!state.selectedRailStation || state.selectedRailStation.crs !== crs) return;
+    if (!mine()) return;
     state.railBoard = data;
   } catch (err) {
     console.warn("Rail board fetch failed:", err);
-    if (state.selectedRailStation && state.selectedRailStation.crs === crs) {
-      state.railBoard = { error: err?.message || "Could not load rail data." };
-    }
+    if (!mine()) return;
+    state.railBoard = { error: err?.message || "Could not load rail data." };
   } finally {
-    state.railBoardLoading = false;
-    renderRailBoard();
+    // `finally` runs for the superseded request too, and clearing the loading
+    // flag or repainting there would undo the board that replaced it.
+    if (mine()) {
+      state.railBoardLoading = false;
+      renderRailBoard();
+    }
   }
 }
 
@@ -8985,6 +9544,48 @@ function escapeHtml(str) {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * A URL safe to put in an href or src, or "" if it is not one.
+ *
+ * Escaping a URL stops it breaking out of the attribute; it does nothing
+ * about what the URL then does. `javascript:alert(1)` survives every HTML
+ * escape intact and runs on click. Most of these values come from curated
+ * data files, but proposals and updates are published through a moderation
+ * script, and a moderator reading JSON should not have to be the check.
+ *
+ * Relative paths are kept — `media/updates/x.jpg` is how every image on the
+ * site is referenced — and anything with a scheme must use one of the three
+ * that make sense here.
+ */
+const SAFE_URL_SCHEMES = new Set(["http:", "https:", "mailto:"]);
+
+function safeUrl(url) {
+  const raw = String(url == null ? "" : url).trim();
+  if (!raw) return "";
+  // A control character before the colon is how "java\tscript:" gets past a
+  // naive prefix test; the URL parser below would also normalise it away, but
+  // relative paths never reach the parser, so strip them first.
+  const cleaned = raw.replace(/[\u0000-\u001F\u007F]/g, "");
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(cleaned)) {
+    // No scheme: a relative path, a fragment or a protocol-relative URL.
+    // The last of these inherits the page's scheme, which is fine.
+    return cleaned;
+  }
+  try {
+    const parsed = new URL(cleaned, "https://worthingbrightonbus.co.uk/");
+    return SAFE_URL_SCHEMES.has(parsed.protocol) ? cleaned : "";
+  } catch {
+    return "";
+  }
+}
+
 function escapeAttr(str) {
-  return String(str).replace(/'/g, "\\'").replace(/"/g, "&quot;");
+  // HTML attribute escaping, and only that. This used to mix in JavaScript
+  // string escaping — a backslash before an apostrophe — because values were
+  // interpolated into inline onclick handlers. That put a literal backslash
+  // into every stop named like "Church Place St Mary's Hall", and left
+  // ampersands alone, so "&#39;" survived to be decoded by the HTML parser
+  // and then read as JavaScript. There are no inline handlers now, so there
+  // is no second context to escape for.
+  return escapeHtml(str);
 }

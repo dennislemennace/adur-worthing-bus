@@ -170,7 +170,12 @@ def close_issue(number: int, entry_id: str) -> None:
     try:
         subprocess.run(
             ["gh", "issue", "close", str(number),
-             "--comment", f"Published to the site as `{entry_id}`. Thanks!"],
+             # "Approved for publication", not "published": at this point
+             # a local file has been written and nothing has been committed
+             # or deployed. Saying published would be a promise this script
+             # is in no position to keep.
+             "--comment", f"Approved for publication as `{entry_id}` — it will "
+                          f"appear on the site with the next deploy. Thanks!"],
             cwd=ROOT, check=True, capture_output=True, text=True,
         )
         print(f"Closed issue #{number}.")

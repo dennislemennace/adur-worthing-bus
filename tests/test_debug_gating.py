@@ -120,9 +120,15 @@ def test_debug_routes_stay_out_of_the_schema(debug_on):
 # ── Real routes keep working ────────────────────────────────
 
 def test_health_endpoint_is_unaffected():
+    # Still 200 whatever the state — the process is alive, and Render uses
+    # this as a liveness check. `status` now distinguishes ok from degraded,
+    # and `ready` says whether there is a timetable to answer from: it used to
+    # say "ok" with nothing loaded at all.
     resp = TestClient(main.app).get("/")
     assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
+    body = resp.json()
+    assert body["status"] in ("ok", "degraded")
+    assert body["status"] == ("ok" if body["ready"] else "degraded")
 
 
 # ── CORS ────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ import os
 import sqlite3
 import threading
 import time
+import shutil
 import urllib.request
 from pathlib import Path
 from typing import Iterator, Optional
@@ -141,12 +142,107 @@ TIMETABLE_URL = os.environ.get(
 # SHA-256 over 63 MB on every warm cold start.
 _LOCAL_HASH_SUFFIX = ".sha256.local"
 _SIDECAR_TIMEOUT = 5  # seconds — sidecar is ~64 bytes, this is generous.
+# The database is ~63 MB. Generous, but bounded: `urlretrieve` had no timeout
+# at all, so a stalled transfer blocked the hourly refresh — and with it every
+# request sharing the event loop — for as long as the socket stayed open.
+_DOWNLOAD_TIMEOUT = 120  # seconds
+
+
+_DAY_COLUMNS = ("monday", "tuesday", "wednesday", "thursday",
+                "friday", "saturday", "sunday")
+
+
+def service_runs_on(calendar: dict, calendar_dates: dict,
+                    service_id: str, day) -> bool:
+    """Whether a GTFS service runs on `day`. The single answer to that question.
+
+    There were two implementations of this, and they disagreed. This one is
+    the strict reading, and it is the correct one:
+
+      * `calendar_dates` wins over `calendar`, which is what makes a bank
+        holiday behave like a Sunday;
+      * a service with no `calendar` row does **not** therefore run every day.
+        GTFS permits a service defined only by `calendar_dates`, and a date
+        that is not listed is the absence of permission to run, not a gap to
+        fill in optimistically. The API's departure boards used to return True
+        here, inventing service on every unlisted date for every such trip.
+    """
+    stamp = day.strftime("%Y%m%d")
+    exceptions = calendar_dates.get(service_id) or {}
+    if stamp in exceptions:
+        return str(exceptions[stamp]) == "1"
+    cal = calendar.get(service_id)
+    if not cal:
+        return False
+    start, end = cal.get("start_date", ""), cal.get("end_date", "")
+    if start and stamp < start:
+        return False
+    if end and stamp > end:
+        return False
+    return str(cal.get(_DAY_COLUMNS[day.weekday()])) == "1"
+
+
+# The tables and content a file must have before it is allowed to become the
+# live timetable. Checked in full: a truncated download, an HTML error page
+# saved under a .sqlite name, and a half-built release asset all open without
+# complaint under SQLite's lazy schema reading, and all of them used to be
+# swapped straight in on top of a working database.
+_REQUIRED_TABLES = ("stops", "routes", "trips", "stop_times")
+
+
+def db_is_usable(path) -> bool:
+    """Whether `path` is a timetable this service can serve from.
+
+    Deliberately strict, and deliberately cheap: an integrity check on a 63 MB
+    file at every startup would cost more than it saves, so this asks the
+    questions that separate a real timetable from the things that actually go
+    wrong — is it a database, does it have the tables, does it have any
+    departures in it.
+    """
+    path = Path(path)
+    if not path.exists() or path.stat().st_size < 1024:
+        return False
+    con = None
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        names = {r[0] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        if not set(_REQUIRED_TABLES).issubset(names):
+            log.error("Candidate timetable is missing tables: %s",
+                      sorted(set(_REQUIRED_TABLES) - names))
+            return False
+        for table in ("stops", "routes", "trips", "stop_times"):
+            if con.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is None:
+                log.error("Candidate timetable has an empty %s table", table)
+                return False
+        return True
+    except sqlite3.Error as exc:
+        log.error("Candidate timetable is not a usable database: %s", exc)
+        return False
+    finally:
+        if con is not None:
+            try:
+                con.close()
+            except sqlite3.Error:
+                pass
 
 
 class Timetable:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self._lock = threading.Lock()
+        # One read-only connection per thread, not one shared across all of
+        # them. The queries here run in a worker thread now (see the API's
+        # route handlers), and a single connection handed round a threadpool
+        # is a lifetime nobody had examined: it happens to work for read-only
+        # traffic under CPython, which is not the same as being designed.
+        #
+        # `_generation` invalidates them. A thread that opened its connection
+        # before a reload is holding one to the previous file, so it reopens
+        # on its next use rather than serving from a database that has been
+        # replaced underneath it.
+        self._local = threading.local()
+        self._generation = 0
         self._con: Optional[sqlite3.Connection] = None
         self.stops: dict = {}
         self.routes: dict = {}
@@ -161,7 +257,9 @@ class Timetable:
         self._sid_to_stop: dict = {}
         self._tid_to_trip: dict = {}
         # Lazily built {short_name: noc}; see noc_for_short_name().
+        # `_noc_by_rid` is the per-route map that noc_for_route() prefers.
         self._noc_map: Optional[dict] = None
+        self._noc_by_rid: Optional[dict] = None
         # Lazily built {stop name: [stop_id, ...]}; see sibling_stops().
         self._stops_by_name: Optional[dict] = None
         self.loaded_at: float = 0.0
@@ -173,9 +271,25 @@ class Timetable:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.db_path.with_suffix(self.db_path.suffix + ".tmp")
         try:
-            urllib.request.urlretrieve(TIMETABLE_URL, tmp)
+            # A timeout, because a stalled download on a shared event loop
+            # holds up every other request behind it indefinitely.
+            with urllib.request.urlopen(TIMETABLE_URL, timeout=_DOWNLOAD_TIMEOUT) as resp:
+                with tmp.open("wb") as out:
+                    shutil.copyfileobj(resp, out, length=1 << 20)
+
+            # Verified *before* the swap. This used to be `urlretrieve` then
+            # `tmp.replace(db_path)` with nothing in between, so a truncated
+            # transfer or an error page saved under a .sqlite name replaced a
+            # working timetable with something unusable — and the last known
+            # good copy was already gone by the time anyone noticed.
+            if not db_is_usable(tmp):
+                log.error("Downloaded timetable failed verification — keeping "
+                          "the existing file")
+                tmp.unlink(missing_ok=True)
+                return False
+
             tmp.replace(self.db_path)
-            log.info("Timetable DB downloaded: %d bytes",
+            log.info("Timetable DB downloaded and verified: %d bytes",
                      self.db_path.stat().st_size)
             return True
         except Exception as exc:
@@ -263,11 +377,57 @@ class Timetable:
         if self._fetch_db():
             self._local_hash()  # rewrite cache to match the new file
 
+    def _open_connection(self) -> Optional[sqlite3.Connection]:
+        if not self.db_path.exists():
+            return None
+        con = sqlite3.connect(
+            f"file:{self.db_path}?mode=ro",
+            uri=True,
+            check_same_thread=False,
+        )
+        con.execute("PRAGMA query_only = 1")
+        con.execute("PRAGMA temp_store = MEMORY")
+        return con
+
+    def _conn(self) -> Optional[sqlite3.Connection]:
+        """This thread's read-only connection, or None if there is no database.
+
+        Opened on first use and reopened after a reload. Cheap: SQLite's
+        connect is a file open, and the page cache it matters for is the OS's.
+        """
+        if self._con is None:
+            return None
+        gen = self._generation
+        cached = getattr(self._local, "con", None)
+        if cached is not None and getattr(self._local, "gen", None) == gen:
+            return cached
+        if cached is not None:
+            try:
+                cached.close()
+            except sqlite3.Error:
+                pass
+        con = self._open_connection()
+        self._local.con = con
+        self._local.gen = gen
+        return con
+
+    def _clear_derived(self) -> None:
+        """Drop everything computed from the database file.
+
+        One method rather than a list at each call site, because the list was
+        incomplete: `_span_cache` was not on it, so service spans — sampled
+        from a week of the timetable — survived `reload()` and went on
+        describing a timetable that had been replaced.
+        """
+        self._noc_map = None
+        self._noc_by_rid = None
+        self._stops_by_name = None
+        self._span_cache = {}
+
     def _open_and_preload(self) -> None:
         self._ensure_fresh()
         # Drop memoized derivations — reload() lands here with a new DB file.
-        self._noc_map = None
-        self._stops_by_name = None
+        self._clear_derived()
         if not self.db_path.exists():
             log.error("Timetable DB missing: %s", self.db_path)
             self._con = None
@@ -346,6 +506,7 @@ class Timetable:
 
         # Atomic swap.
         with self._lock:
+            self._generation += 1     # every thread's connection is now stale
             old_con = self._con
             self._con = con
             self.stops = stops
@@ -392,7 +553,7 @@ class Timetable:
         tid_to_trip = self._tid_to_trip
         return [
             (dep_secs, tid_to_trip[tid])
-            for dep_secs, tid in self._con.execute(
+            for dep_secs, tid in self._conn().execute(
                 "SELECT dep_secs, tid FROM stop_times "
                 "WHERE sid=? ORDER BY dep_secs",
                 (sid,),
@@ -410,7 +571,7 @@ class Timetable:
         sid_to_stop = self._sid_to_stop
         return [
             (dep_secs, sid_to_stop[sid])
-            for dep_secs, sid in self._con.execute(
+            for dep_secs, sid in self._conn().execute(
                 "SELECT dep_secs, sid FROM stop_times "
                 "WHERE tid=? ORDER BY seq",
                 (tid,),
@@ -531,8 +692,36 @@ class Timetable:
                 out.append(other)
         return out
 
+    def noc_for_route(self, route_id: str) -> str:
+        """Operator NOC for a route, or "" if unknown. The right lookup.
+
+        A route number is not a company. This feed carries 23 short names used
+        by more than one operator — Brighton & Hove and Compass both run a
+        "5", Compass and Stagecoach both run a "47" — so asking "who runs the
+        5?" has no single answer, while asking "who runs *this route*?" always
+        does. `noc_for_short_name` below cannot tell them apart and its answer
+        fed ticket eligibility, not just a badge colour.
+
+        The routes table is small (a few hundred rows), so the whole map is
+        built once and kept.
+        """
+        if self._noc_by_rid is None:
+            self._noc_by_rid = {}
+            if self._con is not None:
+                for route_id_text, noc in self._conn().execute(
+                        "SELECT route_id, noc FROM routes"):
+                    self._noc_by_rid[route_id_text] = noc or ""
+        noc = self._noc_by_rid.get(route_id, "")
+        route = self.routes.get(route_id) or {}
+        return self._OPERATOR_OVERRIDES.get(route.get("short_name", ""), noc)
+
     def noc_for_short_name(self, short_name: str) -> str:
         """Operator NOC for a route short_name, or "" if unknown.
+
+        Last-row-wins across every operator using that number, so prefer
+        `noc_for_route` wherever a route or trip is in hand. Kept for the
+        callers that genuinely have only a number — a GTFS-RT vehicle
+        reporting a line with no trip reference.
 
         Memoized — `_noc_by_short_name` runs a query and builds the whole map
         each call, which is fine once but not once per journey option.
@@ -554,7 +743,7 @@ class Timetable:
             return []
         sid_to_stop = self._sid_to_stop
         out = []
-        for seq, sid, dep_secs in self._con.execute(
+        for seq, sid, dep_secs in self._conn().execute(
             "SELECT seq, sid, dep_secs FROM stop_times "
             "WHERE tid=? AND seq BETWEEN ? AND ? ORDER BY seq",
             (trip["_tid"], from_seq, to_seq),
@@ -597,7 +786,7 @@ class Timetable:
         if not sids:
             return []
         placeholders = ",".join("?" * len(sids))
-        rows = self._con.execute(
+        rows = self._conn().execute(
             f"""SELECT DISTINCT r.short_name, r.noc
                   FROM stop_times st
                   JOIN trips  t ON t.tid = st.tid
@@ -624,7 +813,7 @@ class Timetable:
             return
         tid_to_trip = self._tid_to_trip
         sid_to_stop = self._sid_to_stop
-        for tid, first_sid, last_sid, first_secs in self._con.execute(
+        for tid, first_sid, last_sid, first_secs in self._conn().execute(
             "SELECT tid, first_sid, last_sid, first_secs "
             "FROM trip_endpoints WHERE short_name=?",
             (short_name,),
@@ -670,7 +859,7 @@ class Timetable:
         tuesday_starts: list = []
 
         tid_to_trip = self._tid_to_trip
-        for tid, first_secs in self._con.execute(
+        for tid, first_secs in self._conn().execute(
             "SELECT tid, first_secs FROM trip_endpoints WHERE short_name=?",
             (short_name,),
         ):
@@ -732,6 +921,10 @@ class Timetable:
     def runs_on(self, service_id: str, day) -> bool:
         """Whether a GTFS service actually runs on a given date.
 
+        Thin wrapper over `service_runs_on` so that this class and the API's
+        departure boards cannot drift apart — they had, and the API's copy
+        answered `True` for a service with no calendar row at all.
+
         Not "does its calendar row mention this weekday" — that question has a
         much larger answer. This feed carries 112 calendars over 14 different
         date ranges, so a single real bus is described by several service_ids
@@ -744,19 +937,8 @@ class Timetable:
         `calendar_dates` wins over `calendar`, which is what makes a bank
         holiday behave like a Sunday.
         """
-        cal = self.calendar.get(service_id)
-        exceptions = self.calendar_dates.get(service_id, {})
-        stamp = day.strftime("%Y%m%d")
-        if stamp in exceptions:
-            return exceptions[stamp] == "1"
-        if not cal:
-            return False
-        start, end = cal.get("start_date", ""), cal.get("end_date", "")
-        if start and stamp < start:
-            return False
-        if end and stamp > end:
-            return False
-        return cal.get(self._DAY_COLS[day.weekday()]) == "1"
+        return service_runs_on(self.calendar, self.calendar_dates,
+                               service_id, day)
 
     def sample_week(self, from_day=None) -> dict:
         """A concrete week to measure, as {day name: date}.
@@ -835,12 +1017,12 @@ class Timetable:
         def paths_from(sids):
             out, seen = [], set()
             for sid in sids:
-                for (tid,) in self._con.execute(
+                for (tid,) in self._conn().execute(
                         "SELECT DISTINCT tid FROM stop_times WHERE sid=?", (sid,)):
                     if tid in seen or not trip_runs(tid):
                         continue
                     seen.add(tid)
-                    out.append((tid, self._con.execute(
+                    out.append((tid, self._conn().execute(
                         "SELECT seq, sid, dep_secs FROM stop_times "
                         "WHERE tid=? ORDER BY seq", (tid,)).fetchall()))
             return out
@@ -935,14 +1117,9 @@ class Timetable:
             trip_id = self._tid_to_trip.get(leg["tid"])
             trip = self.trips.get(trip_id) or {}
             route = self.routes.get(trip.get("route_id", "")) or {}
-            # The in-memory routes dict carries no NOC, and noc_for_short_name is
-            # last-row-wins across operators sharing a number. Read the row.
-            noc = ""
-            rid = route.get("_rid")
-            if rid is not None:
-                row = self._con.execute(
-                    "SELECT noc FROM routes WHERE rid=?", (rid,)).fetchone()
-                noc = (row[0] if row else "") or ""
+            # By route, never by number — see noc_for_route. This used to run
+            # its own SELECT per leg for the same reason.
+            noc = self.noc_for_route(trip.get("route_id", ""))
             return {
                 "service": route.get("short_name", ""),
                 "operator": noc,
@@ -1016,7 +1193,7 @@ class Timetable:
             return {}
 
         placeholders = ",".join("?" * len(sids))
-        rows = self._con.execute(
+        rows = self._conn().execute(
             f"""SELECT st.dep_secs, t.service_id, r.short_name
                   FROM stop_times st
                   JOIN trips  t ON t.tid = st.tid
@@ -1088,7 +1265,7 @@ class Timetable:
             return cached
         if self._con is None:
             return frozenset()
-        ids = frozenset(row[0] for row in self._con.execute("""
+        ids = frozenset(row[0] for row in self._conn().execute("""
             SELECT DISTINCT s.stop_id
             FROM stop_times st
             JOIN trips  t ON t.tid = st.tid
@@ -1175,13 +1352,13 @@ class Timetable:
         if self._con is None:
             return []
 
-        stop_counts = dict(self._con.execute(
+        stop_counts = dict(self._conn().execute(
             "SELECT tid, COUNT(*) FROM stop_times GROUP BY tid"
         ))
 
         stop_info = {
             sid: (lat, lon, name)
-            for sid, lat, lon, name in self._con.execute(
+            for sid, lat, lon, name in self._conn().execute(
                 "SELECT sid, lat, lon, name FROM stops"
             )
         }
@@ -1195,7 +1372,7 @@ class Timetable:
         if bbox is not None:
             min_lat, max_lat, min_lon, max_lon = bbox
             bbox_trip_ids = {
-                row[0] for row in self._con.execute(
+                row[0] for row in self._conn().execute(
                     "SELECT DISTINCT st.tid FROM stop_times st "
                     "JOIN stops s ON s.sid = st.sid "
                     "WHERE s.lat BETWEEN ? AND ? AND s.lon BETWEEN ? AND ?",
@@ -1204,7 +1381,7 @@ class Timetable:
             }
 
         trips_by_route: dict = {}
-        for short_name, tid, first_sid, last_sid in self._con.execute(
+        for short_name, tid, first_sid, last_sid in self._conn().execute(
             "SELECT short_name, tid, first_sid, last_sid FROM trip_endpoints"
         ):
             if short_name in self._EXCLUDED_SERVICES:
@@ -1228,7 +1405,7 @@ class Timetable:
         # long stop-to-stop trip. Tolerates older blobs without the
         # shape_id column by leaving the set empty (sort key still works).
         try:
-            shaped_tids = {row[0] for row in self._con.execute(
+            shaped_tids = {row[0] for row in self._conn().execute(
                 "SELECT tid FROM trips WHERE shape_id != ''")}
         except sqlite3.OperationalError:
             shaped_tids = set()
@@ -1262,7 +1439,7 @@ class Timetable:
             # is just an edge stop).
             chosen_tids = [t[0] for t in chosen_trips]
             placeholders = ",".join("?" * len(chosen_tids))
-            chosen_headsigns = dict(self._con.execute(
+            chosen_headsigns = dict(self._conn().execute(
                 f"SELECT tid, headsign FROM trips WHERE tid IN ({placeholders})",
                 chosen_tids,
             )) if chosen_tids else {}
@@ -1283,7 +1460,7 @@ class Timetable:
                 pts = self._shape_points_for_trip(tid)
                 used_fallback = pts is None or len(pts) < 2
                 if used_fallback:
-                    pts = self._con.execute(
+                    pts = self._conn().execute(
                         "SELECT s.lat, s.lon FROM stop_times st "
                         "JOIN stops s ON s.sid = st.sid "
                         "WHERE st.tid=? ORDER BY st.seq", (tid,)
@@ -1385,13 +1562,13 @@ class Timetable:
         if self._con is None:
             return {}
         try:
-            cols = {row[1] for row in self._con.execute("PRAGMA table_info(routes)")}
+            cols = {row[1] for row in self._conn().execute("PRAGMA table_info(routes)")}
         except sqlite3.Error:
             return {}
         if "noc" not in cols:
             return {}
         out: dict = {}
-        for short, noc in self._con.execute(
+        for short, noc in self._conn().execute(
             "SELECT short_name, noc FROM routes WHERE COALESCE(noc, '') <> ''"
         ):
             # If multiple route_ids share a short_name with different
@@ -1405,12 +1582,12 @@ class Timetable:
         blob predates the shapes table / shape_id column.
         """
         try:
-            row = self._con.execute(
+            row = self._conn().execute(
                 "SELECT shape_id FROM trips WHERE tid=?", (tid,)
             ).fetchone()
             if not row or not row[0]:
                 return None
-            pts = self._con.execute(
+            pts = self._conn().execute(
                 "SELECT lat, lon FROM shapes WHERE shape_id=? ORDER BY seq",
                 (row[0],),
             ).fetchall()

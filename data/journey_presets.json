@@ -5,12 +5,12 @@
     {
       "id": "lancing-to-brighton",
       "label": "Lancing → Brighton",
-      "note": "One ticket will not do it",
+      "note": "Two buses, and a zone boundary between them",
       "from": "4400AD0117",
       "from_name": "Lancing Station",
       "to": "149000007830",
       "to_name": "Old Steine",
-      "why": "Lancing is served by Stagecoach; Old Steine by Brighton & Hove, Compass and Stagecoach. No direct bus, so this is two legs and, in practice, two operators."
+      "why": "Lancing is served by Stagecoach; Old Steine by Brighton & Hove, Compass and Stagecoach. There is no direct bus, so this is two legs — and both can be Stagecoach, on the 9 and then the 700, which is what the checker usually finds. The cost here is the interchange and the DayRider zone boundary it crosses, not a change of company. Said plainly because the checker will show a network ticket covering it, and a preset that promised otherwise would be contradicted by its own result."
     },
     {
       "id": "worthing-to-brighton",

@@ -2094,11 +2094,24 @@
       "fares": {
         "adult_day": {
           "price_pence": 600,
-          "label": "Worthing DayRider"
+          "label": "Worthing DayRider",
+          "confirmed_against": {
+            "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/Miscellaneous/South/Stagecoach%20South%20Fares%20Table%20June%202026.pdf",
+            "effective_from": "2026-06-01",
+            "checked_on": "2026-09-08",
+            "note": "The \"Basingstoke | Brighton | Worthing\" adult Day fare in the published table is £6, matching the price recorded here."
+          }
         },
         "adult_day_cash": null,
         "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Worthing%20Network%20Map%200425.pdf",
-        "checked_on": "2026-08-09"
+        "checked_on": "2026-08-09",
+        "adult_flexi5": {
+          "price_pence": 2400,
+          "label": "Flexi5 (5 days)",
+          "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/Miscellaneous/South/Stagecoach%20South%20Fares%20Table%20June%202026.pdf",
+          "checked_on": "2026-09-08"
+        },
+        "review_by": "2026-12-31"
       },
       "valid_on_operators": [
         "SCSO"
@@ -3707,11 +3720,24 @@
       "fares": {
         "adult_day": {
           "price_pence": 600,
-          "label": "Brighton DayRider"
+          "label": "Brighton DayRider",
+          "confirmed_against": {
+            "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/Miscellaneous/South/Stagecoach%20South%20Fares%20Table%20June%202026.pdf",
+            "effective_from": "2026-06-01",
+            "checked_on": "2026-09-08",
+            "note": "The \"Basingstoke | Brighton | Worthing\" adult Day fare in the published table is £6, matching the price recorded here."
+          }
         },
         "adult_day_cash": null,
         "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Brighton%20Network%20Map%200424.pdf",
-        "checked_on": "2026-08-09"
+        "checked_on": "2026-08-09",
+        "adult_flexi5": {
+          "price_pence": 2400,
+          "label": "Flexi5 (5 days)",
+          "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/Miscellaneous/South/Stagecoach%20South%20Fares%20Table%20June%202026.pdf",
+          "checked_on": "2026-09-08"
+        },
+        "review_by": "2026-12-31"
       },
       "valid_on_operators": [
         "SCSO"
@@ -3998,12 +4024,30 @@
       "fares": {
         "adult_day": {
           "price_pence": 850,
-          "label": "Gold DayRider"
+          "label": "Gold DayRider",
+          "note": "£8.50 is the fare as sold in the Stagecoach app, checked locally on 1 September 2026. Stagecoach's own published fares table effective 1 June 2026 lists the Gold adult day ticket at £9 — see `conflicts_with` below. Both are recorded because we cannot show which channel a given passenger buys through; the app fare is the lower of the two, so quoting it does not overstate the cost of travelling.",
+          "channel": "app"
         },
         "adult_day_cash": null,
         "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Gold%20Network%20Map%20Aug%2023.pdf",
         "checked_on": "2026-09-01",
-        "note": "The linked network map is the source for the coverage, not the price: Stagecoach publishes Gold fares in the app rather than on the map. \u00a38.50 is the fare as sold locally, checked 1 September 2026."
+        "note": "The linked network map is the source for the coverage, not the price: Stagecoach publishes Gold fares in the app rather than on the map. £8.50 is the fare as sold locally, checked 1 September 2026.",
+        "conflicts_with": {
+          "price_pence": 900,
+          "label": "Gold Day (published fares table)",
+          "channel": "published table",
+          "effective_from": "2026-06-01",
+          "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/Miscellaneous/South/Stagecoach%20South%20Fares%20Table%20June%202026.pdf",
+          "checked_on": "2026-09-08"
+        },
+        "adult_flexi5": {
+          "price_pence": 3600,
+          "label": "Gold Flexi5 (5 days)",
+          "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/Miscellaneous/South/Stagecoach%20South%20Fares%20Table%20June%202026.pdf",
+          "checked_on": "2026-09-08",
+          "note": "£36 for five days is £7.20 a day — cheaper than five separate day tickets, and the reason a five-day commute should not be costed as five day tickets without saying so."
+        },
+        "review_by": "2026-12-31"
       },
       "valid_on_operators": [
         "SCSO"
@@ -4021,16 +4065,20 @@
       "fares": {
         "adult_day": {
           "price_pence": 400,
-          "label": "Gold Nightrider (evenings only)"
+          "label": "Gold Nightrider (evenings only)",
+          "note": "Same coverage as the Gold DayRider, valid after 7pm. The published fares table effective 1 June 2026 states \"after 7pm\"; this file previously said 19:30, which would have withheld the £4 fare from half an hour of evening journeys it actually covers.",
+          "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/Miscellaneous/South/Stagecoach%20South%20Fares%20Table%20June%202026.pdf",
+          "checked_on": "2026-09-08"
         },
         "source_url": "https://tiscon-maps-stagecoachbus.s3.amazonaws.com/RouteMaps/South/Gold%20Network%20Map%20Aug%2023.pdf",
         "checked_on": "2026-08-09",
-        "note": "Same coverage as the Gold DayRider, valid from 19:30."
+        "note": "Same coverage as the Gold DayRider, valid from 19:30.",
+        "review_by": "2026-12-31"
       },
       "valid_on_operators": [
         "SCSO"
       ],
-      "valid_from_time": "19:30",
+      "valid_from_time": "19:00",
       "valid_to_time": "04:00"
     }
   ],
@@ -4040,8 +4088,8 @@
   "fares_meta": {
     "currency": "GBP",
     "commute_days_per_week": 5,
-    "basis_note": "Based on a five-day commute, buying a day ticket each day.",
-    "checked_on": "2026-08-09",
+    "basis_note": "Journey costs are what one return trip costs today. Where a day ticket is compared, it is a single day's unlimited travel; Stagecoach also sells Flexi5 bundles (£24 local, £36 Gold) that work out cheaper per day than buying five, so a five-day commute should not be costed as five separate day tickets without saying so.",
+    "checked_on": "2026-09-08",
     "unified_ticket": {
       "price_pence": 1000,
       "name": "South Downs Discovery Ticket",
@@ -4094,6 +4142,7 @@
       "checked_on": "2026-08-31",
       "review_by": "2026-12-31",
       "review_note": "The £3 cap is funded to March 2027, and a £2 cap is announced from 1 January 2027. Re-check before quoting — an advocacy site running on an expired fare cap is worse than one quoting none."
-    }
+    },
+    "review_by": "2026-12-31"
   }
 }

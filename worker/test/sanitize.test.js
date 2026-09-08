@@ -142,15 +142,66 @@ test("a submitted email address never reaches the issue body", () => {
 
 // ── buildIssue: proposals ───────────────────────────────────
 
+/** The minimum scripts/add_proposal.py will publish. */
+const PROPOSAL = {
+  id: "98x", name: "98X", summary: "A faster coastal link",
+  polyline: [[50.8285, -0.2524], [50.8277, -0.2556]],
+};
+
 test("a proposal with valid JSON builds an issue", () => {
   const built = buildIssue({
-    kind: "proposal",
-    title: "98X",
-    proposalJson: JSON.stringify({ id: "98x", name: "98X" }),
+    kind: "proposal", title: "98X",
+    proposalJson: JSON.stringify(PROPOSAL),
   });
   assert.equal(built.title, "Proposal: 98X");
   assert.ok(built.labels.includes("proposal"));
   assert.ok(built.body.includes('"98x"'));
+});
+
+// ── The two ends agree about what a proposal is ─────────────
+//
+// The Worker used to accept any JSON that parsed, so a submission could be
+// filed onto the public tracker and then be unpublishable by the moderation
+// script — wasting the submitter's effort and leaving a maintainer to explain
+// why. These mirror the refusals in tests/test_add_proposal.py.
+
+test("a proposal with no route line is refused before it is filed", () => {
+  assert.throws(() => buildIssue({
+    kind: "proposal", title: "Nowhere",
+    proposalJson: JSON.stringify({ name: "X", summary: "Y" }),
+  }), /route line/);
+});
+
+test("a proposal with transposed coordinates is refused, and told why", () => {
+  assert.throws(() => buildIssue({
+    kind: "proposal", title: "Swapped",
+    proposalJson: JSON.stringify({
+      ...PROPOSAL, polyline: [[-0.2524, 50.8285], [-0.2556, 50.8277]],
+    }),
+  }), /\[lon, lat\]/);
+});
+
+test("a proposal for somewhere else entirely is refused", () => {
+  assert.throws(() => buildIssue({
+    kind: "proposal", title: "London",
+    proposalJson: JSON.stringify({
+      ...PROPOSAL, polyline: [[51.5074, -0.1278], [51.5080, -0.1280]],
+    }),
+  }), /not in this area/);
+});
+
+test("a proposal with no summary is refused", () => {
+  assert.throws(() => buildIssue({
+    kind: "proposal", title: "Unsummarised",
+    proposalJson: JSON.stringify({ name: "X", polyline: PROPOSAL.polyline }),
+  }), /summary/);
+});
+
+test("a colour that is not a colour is refused", () => {
+  assert.throws(() => buildIssue({
+    kind: "proposal", title: "Red",
+    proposalJson: JSON.stringify({ ...PROPOSAL, color: "red" }),
+  }), /#rrggbb/);
 });
 
 test("a proposal with unparseable JSON is rejected", () => {
@@ -220,8 +271,17 @@ test("origin allowlist admits only listed origins", () => {
   assert.equal(isAllowedOrigin("", allowed), false);
 });
 
-test("an empty allowlist is permissive, for local dev only", () => {
-  assert.equal(isAllowedOrigin("https://anything.example", []), true);
+test("an empty allowlist refuses everything unless dev is asked for by name", () => {
+  // This used to be permissive "for local dev only". A blanked
+  // ALLOWED_ORIGINS in production is indistinguishable from an unset one, and
+  // the result was an open relay to the GitHub Issues API.
+  assert.equal(isAllowedOrigin("https://anything.example", [], {}), false);
+  assert.equal(isAllowedOrigin("https://anything.example", [], undefined), false);
+  assert.equal(
+    isAllowedOrigin("https://anything.example", [], { DEV_UNSAFE: "1" }), true);
+  // Nothing else opens it: not a truthy-looking value, not a neighbouring key.
+  assert.equal(
+    isAllowedOrigin("https://anything.example", [], { DEV_UNSAFE: "true" }), false);
 });
 
 // ── fileIssue: 422 fallback ─────────────────────────────────

@@ -20,6 +20,13 @@ GITHUB_REPO = "dennislemennace/adur-worthing-bus"
 # entry only while testing locally, and take it out again before deploying.
 ALLOWED_ORIGINS = "https://worthingbrightonbus.co.uk,https://dennislemennace.github.io"
 
+# DEV_UNSAFE = "1" turns off the two checks that stand between this endpoint
+# and the GitHub Issues API: the origin allowlist and the requirement that the
+# RATE_LIMIT namespace is bound. It exists so `wrangler dev` works without
+# either, and it must never be set on a deployed environment. Both checks now
+# refuse rather than wave a request through when their configuration is
+# missing, so this is the only way to open them.
+
 # Rate-limit counters. Create with:
 #   npx wrangler kv namespace create RATE_LIMIT
 # then paste the returned id below.

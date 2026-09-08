@@ -41,6 +41,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "data" / "representatives.json"
 
+# How much of the previous file's coverage a rebuild must keep. Elections do
+# move boundaries, so this is not 100%; it is set to catch a directory that
+# has moved or a feed answering partially, not ordinary churn.
+COVERAGE_FLOOR = 0.9
+
 UA = {"User-Agent": "adur-worthing-bus/1.0 (+https://github.com/dennislemennace/adur-worthing-bus)"}
 
 ONS = ("https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services"
@@ -266,6 +271,44 @@ def main() -> None:
 
     if not areas:
         sys.exit("No areas resolved — refusing to write an empty file.")
+
+    # Non-empty is a very low bar for a file that decides who a resident's
+    # letter is addressed to. A council site that reorganises its directory,
+    # or a feed that answers partially, produces a smaller file rather than an
+    # error — and the failure is invisible, because what is left still looks
+    # perfectly correct.
+    #
+    # So the new file is compared against the one it would replace, and a
+    # material loss of coverage stops the run. --force is for the case where
+    # the loss is real, which does happen: boundaries change at an election.
+    previous = {}
+    if OUT.exists():
+        try:
+            previous = json.loads(OUT.read_text()).get("areas", {})
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"Note: couldn't read the existing {OUT.name} ({exc}) — "
+                  "publishing without a coverage comparison.")
+
+    if previous:
+        lost = sorted(set(previous) - set(areas))
+        was = sum(len(a.get("members", [])) for a in previous.values())
+        now = sum(len(a.get("members", [])) for a in areas.values())
+        print(f"\nCoverage: {len(previous)} → {len(areas)} areas, "
+              f"{was} → {now} councillors")
+        if lost:
+            print(f"{len(lost)} areas would disappear:")
+            for code in lost[:20]:
+                print(f"  {code}  {previous[code].get('name', '?')} "
+                      f"({previous[code].get('council', '?')})")
+        shrunk = (len(areas) < len(previous) * COVERAGE_FLOOR
+                  or now < was * COVERAGE_FLOOR)
+        if shrunk and "--force" not in sys.argv:
+            sys.exit(
+                f"\nRefusing to write: coverage fell below "
+                f"{COVERAGE_FLOOR:.0%} of the existing file. A resident whose "
+                f"area vanished is told there is nobody to write to, which "
+                f"reads as a fact about their council rather than a broken "
+                f"build. Re-run with --force if the loss is real.")
 
     OUT.write_text(json.dumps({
         "_comment": (

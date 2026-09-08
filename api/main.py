@@ -20,20 +20,28 @@ Environment variables:
 
 import json
 import math
+import asyncio
+import functools
 import os
+import threading
 import time
 import logging
 import xml.etree.ElementTree as ET
+# `time` is aliased: this module also imports the stdlib `time` module, and
+# an unqualified `datetime.time` would shadow it — as it briefly did.
 from datetime import datetime, date, timedelta, timezone
+from datetime import time as clock_time
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
 
 import httpx
+from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.timetable_db import NIGHT_ENDS_SECS, Timetable, path_has_time_gap
+from api.timetable_db import (NIGHT_ENDS_SECS, Timetable,
+                              path_has_time_gap, service_runs_on)
 
 # ── Logging ──────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO,
@@ -168,6 +176,33 @@ def _nb_quota_bump(delta: int = 1) -> None:
 
 _nb_quota: dict = _nb_quota_load()
 
+# A ceiling on the response cache.
+#
+# Expiry used to happen only in `cache_get`, and only for the key being read.
+# Journey combinations and per-service rail keys are mostly asked for once, so
+# nothing ever removed them: the store grew for the life of the process with
+# no bound. The number is generous — this is a small site — and its purpose is
+# to make "unbounded" impossible rather than to be tuned.
+CACHE_MAX_ENTRIES = 512
+
+# In-flight work, keyed the same way as `_cache`. Twelve concurrent requests
+# for the same uncached key used to make twelve upstream calls; on a metered
+# free tier that is the difference between working and out of quota.
+_inflight: dict = {}
+_inflight_lock = threading.Lock()
+
+
+def _cache_evict(now: Optional[float] = None) -> None:
+    """Drop what has expired, then the oldest entries if still over the cap."""
+    now = now if now is not None else time.time()
+    for key in [k for k, (_d, exp) in _cache.items() if now > exp]:
+        _cache.pop(key, None)
+    while len(_cache) > CACHE_MAX_ENTRIES:
+        # dicts preserve insertion order and cache_get re-inserts on a hit,
+        # so the first key is the least recently used.
+        _cache.pop(next(iter(_cache)), None)
+
+
 def cache_get(key: str):
     entry = _cache.get(key)
     if not entry:
@@ -176,10 +211,86 @@ def cache_get(key: str):
     if time.time() > expires_at:
         del _cache[key]
         return None
+    # Move to the end: this is what makes the eviction above least-recently-used
+    # rather than first-inserted.
+    _cache[key] = _cache.pop(key)
     return data
 
 def cache_set(key: str, data, ttl: int) -> None:
+    _cache.pop(key, None)
     _cache[key] = (data, time.time() + ttl)
+    _cache_evict()
+
+
+def cache_single_flight(key: str, produce, ttl: int):
+    """Return the cached value for `key`, computing it at most once.
+
+    Concurrent callers that miss the cache wait on the first one's work
+    instead of repeating it. A failure is not cached and does not leave the
+    key wedged — the next caller is free to try again.
+
+    `produce` is synchronous; this is used from threads, not from the event
+    loop's own coroutine.
+    """
+    hit = cache_get(key)
+    if hit is not None:
+        return hit
+
+    with _inflight_lock:
+        event = _inflight.get(key)
+        leader = event is None
+        if leader:
+            event = threading.Event()
+            _inflight[key] = event
+
+    if not leader:
+        event.wait(timeout=30)
+        hit = cache_get(key)
+        if hit is not None:
+            return hit
+        # The leader failed, or took longer than we waited. Do it ourselves
+        # rather than returning nothing.
+        return produce()
+
+    try:
+        value = produce()
+        cache_set(key, value, ttl)
+        return value
+    finally:
+        with _inflight_lock:
+            _inflight.pop(key, None)
+        event.set()
+
+_inflight_async: dict = {}
+
+
+async def cache_single_flight_async(key: str, produce, ttl: int):
+    """The coroutine version of `cache_single_flight`.
+
+    The vehicle feed and the rail boards are awaited, not threaded, so they
+    need a coalescer that lives on the event loop. Twelve simultaneous
+    requests for the same uncached key used to make twelve upstream calls;
+    every one of those spends metered quota.
+    """
+    hit = cache_get(key)
+    if hit is not None:
+        return hit
+
+    existing = _inflight_async.get(key)
+    if existing is not None:
+        # Shielded: a client disconnecting and cancelling its own await must
+        # not cancel the work every other waiter is depending on.
+        return await asyncio.shield(existing)
+
+    task = asyncio.ensure_future(produce())
+    _inflight_async[key] = task
+    try:
+        value = await asyncio.shield(task)
+    finally:
+        _inflight_async.pop(key, None)
+    cache_set(key, value, ttl)
+    return value
+
 
 # ── Timetable store ───────────────────────────────────────────
 _timetable: Optional[Timetable] = None
@@ -282,8 +393,14 @@ debug_router = APIRouter(
 @app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     t = _timetable
+    # This returned "ok" unconditionally, and Render uses it as the health
+    # check — so a deployment with no timetable at all reported healthy.
+    # Liveness and readiness are separated: the process being up is not the
+    # same as it being able to answer anything.
+    ready = t is not None and t.ok()
     return {
-        "status":              "ok",
+        "status":              "ok" if ready else "degraded",
+        "ready":               ready,
         "bods_key_configured": bool(BODS_API_KEY),
         "timetable_loaded":    t is not None and t.ok(),
         "timetable_file":      str(TIMETABLE_PATH),
@@ -798,7 +915,7 @@ async def get_route_lines():
         return cached
     tt = await _get_timetable()
     bbox = (BBOX_MIN_LAT, BBOX_MAX_LAT, BBOX_MIN_LON, BBOX_MAX_LON)
-    routes = tt.representative_polylines(bbox=bbox)
+    routes = await off_loop(tt.representative_polylines, bbox=bbox)
     result = {"routes": routes, "count": len(routes)}
     cache_set("route_lines", result, 3600)
     log.info("Serving %d route polylines from timetable", len(routes))
@@ -874,13 +991,16 @@ async def debug_vehicles_raw(q: str = Query("")):
 async def get_vehicles():
     """Live bus positions from BODS SIRI-VM. Cached 15 s."""
     _check_api_key()
-    cached = cache_get("vehicles")
-    if cached is None:
+
+    async def fetch_and_match():
         vehicles = await _fetch_siri_vm()
         tt       = await _get_timetable()
-        _enrich_vehicles_with_trip_match(vehicles, tt)
-        cached   = {"vehicles": vehicles, "count": len(vehicles)}
-        cache_set("vehicles", cached, 15)
+        # Matching every vehicle against the timetable is a synchronous walk
+        # over SQLite results — 86 vehicles at peak, on the event loop.
+        await off_loop(_enrich_vehicles_with_trip_match, vehicles, tt)
+        return {"vehicles": vehicles, "count": len(vehicles)}
+
+    cached = await cache_single_flight_async("vehicles", fetch_and_match, 15)
     # 'calls' and 'trip_id' are internal; strip from the public payload
     # to keep responses small. 'trip_headsign' is what the client needs.
     hidden = {"calls", "trip_id", "origin_ref", "destination_ref"}
@@ -1249,7 +1369,10 @@ async def get_departures(
     the stopId has no timetable entry (e.g. OSM node IDs that don't match
     NaPTAN ATCO codes), the nearest timetable stop within 100 m is used.
     """
-    _check_api_key()
+    # No BODS gate. That key is for the live vehicle map; this route reads the
+    # local SQLite timetable and, if predictions are configured, overlays them.
+    # Refusing with 503 when it was absent withheld a perfectly good schedule —
+    # and a schedule is what somebody wants most when live data is down.
     if not stopId or len(stopId) > 30:
         raise HTTPException(status_code=400, detail="Invalid stopId.")
 
@@ -1259,10 +1382,16 @@ async def get_departures(
     cache_key = f"dep:{resolved}"
     base = cache_get(cache_key)
     if base is None:
-        base = _departures_for_stop(tt, resolved)
+        base = await off_loop(_departures_for_stop, tt, resolved)
         cache_set(cache_key, base, 60)
 
-    return await _apply_live_overlay(base, resolved)
+    result = await _apply_live_overlay(base, resolved)
+    if "live" not in result and not (NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY):
+        # Say so rather than letting scheduled times pass as live ones.
+        result = {**result, "live": False, "live_reason": "not_configured"}
+    # Cached `base` can be up to a minute old, and the grace window deliberately
+    # keeps recently-scheduled rows, so the final cut happens per request.
+    return _drop_departed(result)
 
 
 # ── /api/stop-span ────────────────────────────────────────────
@@ -1297,7 +1426,7 @@ async def get_stop_span(
     if cached is not None:
         return cached
 
-    span = tt.service_span(resolved)
+    span = await off_loop(tt.service_span, resolved)
     result = {
         "atco": resolved,
         "name": (tt.stops.get(resolved) or {}).get("name", ""),
@@ -1420,7 +1549,10 @@ async def get_journey(
             "service":     trip["short_name"],
             "headsign":    trip["headsign"],
             "trip_id":     trip["trip_id"],
-            "operator":    tt.noc_for_short_name(trip["short_name"]),
+            # By route, not by number: 23 short names in this feed are used
+            # by more than one operator, and this value decides which
+            # tickets the frontend says are valid for the journey.
+            "operator":    tt.noc_for_route(trip.get("route_id", "")),
             "depart":      _secs_to_hhmm(trip["depart_secs"]),
             "arrive":      _secs_to_hhmm(trip["arrive_secs"]),
             "stop_count":  len(stops),
@@ -2207,20 +2339,74 @@ def _upcoming_stops_from_calls(vehicle: dict, tt: Timetable) -> list:
     return out
 
 # ── Timetable loader ──────────────────────────────────────────
+#
+# Every route in this file is `async def`, which means FastAPI runs it on the
+# event loop and offloads nothing. The SQLite queries, the SHA-256 hashing and
+# the database download underneath them are all synchronous, so until now they
+# ran *on* the loop: one slow call held up every other request in the process.
+# A warm production sample during the pre-release audit had vehicles at 13.0s,
+# route lines at 6.2s and bus departures at 19.2s.
+#
+# `off_loop` is the one way that work leaves the loop. Paired with the
+# per-thread SQLite connections in timetable_db, that is the whole concurrency
+# strategy, and it is deliberately small enough to state in a sentence.
+async def off_loop(fn, *args, **kwargs):
+    return await run_in_threadpool(functools.partial(fn, *args, **kwargs))
+
+
+_timetable_lock = threading.Lock()
+
+
+def _get_timetable_sync() -> Timetable:
+    global _timetable
+    # Opening and reloading both read the file and rebuild the reference
+    # tables. Two requests arriving during a cold start used to do that twice.
+    with _timetable_lock:
+        if _timetable is None:
+            log.info("Opening timetable DB %s", TIMETABLE_PATH)
+            _timetable = Timetable(TIMETABLE_PATH)
+        elif (time.time() - _timetable.loaded_at) >= TIMETABLE_CACHE_TTL:
+            log.info("Reloading timetable reference tables")
+            _timetable.reload()
+        return _timetable
+
+
 async def _get_timetable() -> Timetable:
     """Return the process-wide Timetable, refreshing from disk hourly."""
-    global _timetable
-    if _timetable is None:
-        log.info("Opening timetable DB %s", TIMETABLE_PATH)
-        _timetable = Timetable(TIMETABLE_PATH)
-    elif (time.time() - _timetable.loaded_at) >= TIMETABLE_CACHE_TTL:
-        log.info("Reloading timetable reference tables")
-        _timetable.reload()
-    return _timetable
+    return await off_loop(_get_timetable_sync)
 
 # ── Departure calculation ─────────────────────────────────────
+# How long after its scheduled time a departure is still worth showing, so a
+# late-running bus survives to have its prediction applied. Buses more than
+# this far behind are either gone or not coming.
+DELAY_GRACE_SECS = 15 * 60
+
+
+def _drop_departed(payload: dict, now: Optional[datetime] = None) -> dict:
+    """Remove departures whose *effective* time has passed.
+
+    Effective means expected where a prediction exists, scheduled otherwise.
+    Applying this after the live overlay rather than before it is the whole
+    point: a delayed bus is filtered on when it will actually leave, and an
+    early one on when it actually left.
+    """
+    now = now or datetime.now(UK_TZ)
+    kept = []
+    for dep in payload.get("departures") or []:
+        when = (_parse_iso_datetime(dep.get("expected_departure"))
+                or _parse_iso_datetime(dep.get("aimed_departure")))
+        if when is None or when >= now:
+            kept.append(dep)
+    return {**payload, "departures": kept}
+
+
 def _service_day_start(day: date) -> datetime:
-    """Return the GTFS service-day epoch: local noon minus twelve elapsed hours."""
+    """Midnight at the start of `day`, GTFS's way.
+
+    GTFS defines a service day's zero point as noon minus twelve hours, which
+    is midnight on every ordinary day and stays correct on the two days a year
+    when the clocks move and midnight is not twelve hours after noon.
+    """
     noon = datetime(day.year, day.month, day.day, 12, tzinfo=UK_TZ)
     return noon.astimezone(timezone.utc) - timedelta(hours=12)
 
@@ -2254,28 +2440,51 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
             ),
         }
 
+    # Two service days, not one.
+    #
+    # A GTFS time of 24:05 is five past midnight at the *end* of its service
+    # day, so at 23:50 tonight the next bus may be a 24:05 on today's calendar,
+    # and at 00:01 tomorrow it may still be that same 24:05 — filed under
+    # yesterday. A board that only ever asks about today therefore loses every
+    # departure in the small hours, which is exactly when a passenger most
+    # wants to know whether one is coming.
     departures = []
+    seen = set()
     for offset_days in (-1, 0, 1):
-        service_day = today + timedelta(days=offset_days)
-        day_start = _service_day_start(service_day)
+        service_day  = today + timedelta(days=offset_days)
+        day_start    = _service_day_start(service_day)
+        # Seconds from the start of *that* service day to now. On the previous
+        # day this is a little over 86400, which is precisely the range the
+        # 24:xx times live in.
         elapsed = (now_local - day_start).total_seconds()
-        for dep_secs, trip_id in raw_times:
-            if dep_secs < elapsed or dep_secs > elapsed + lookahead:
+
+        for (dep_secs, trip_id) in raw_times:
+            # The window opens `DELAY_GRACE_SECS` *before* now. A bus scheduled
+            # at 12:00 and running ten minutes late has not left at 12:05, and
+            # filtering on the scheduled time here removed the row before any
+            # prediction could be applied to it — the board went blank exactly
+            # when the passenger was still waiting. `_drop_departed` does the
+            # final filtering, on the effective time, after the live overlay.
+            if dep_secs < elapsed - DELAY_GRACE_SECS or dep_secs > elapsed + lookahead:
                 continue
-            trip = tt.trips.get(trip_id, {})
+            trip  = tt.trips.get(trip_id, {})
             route = tt.routes.get(trip.get("route_id", ""), {})
-            service_id = trip.get("service_id", "")
-            if not tt.runs_on(service_id, service_day):
+            sid   = trip.get("service_id", "")
+            if not tt.runs_on(sid, service_day):
                 continue
-            departure = (day_start + timedelta(seconds=dep_secs)).astimezone(UK_TZ)
+            key = (trip_id, dep_secs, service_day)
+            if key in seen:
+                continue
+            seen.add(key)
+            dep_dt = (day_start + timedelta(seconds=dep_secs)).astimezone(UK_TZ)
             departures.append({
-                "service": route.get("short_name", "?"),
-                "destination": trip.get("headsign", "Unknown"),
-                "aimed_departure": departure.isoformat(),
-                "expected_departure": None,
-                "status": "Scheduled",
-                "delay_seconds": None,
-                "_trip_id": trip_id,
+                "service":            route.get("short_name", "?"),
+                "destination":        trip.get("headsign", "Unknown"),
+                "aimed_departure":    dep_dt.isoformat(),
+                "expected_departure": None,   # Phase 2: filled from GTFS-RT
+                "status":             "Scheduled",
+                "delay_seconds":      None,   # Phase 2: filled from GTFS-RT
+                "_trip_id":           trip_id,
             })
 
     departures.sort(key=lambda d: d["aimed_departure"])
@@ -2284,18 +2493,16 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
 
 def _runs_today(service_id: str, today: date, today_str: str,
                 dow: int, calendar: dict, calendar_dates: dict) -> bool:
-    exceptions = calendar_dates.get(service_id, {})
-    if today_str in exceptions:
-        return exceptions[today_str] == "1"
-    cal = calendar.get(service_id)
-    if not cal:
-        return True   # no calendar info — assume it runs
-    if (today_str < cal.get("start_date", "")
-            or today_str > cal.get("end_date", "99991231")):
-        return False
-    days = ["monday","tuesday","wednesday","thursday",
-            "friday","saturday","sunday"]
-    return cal.get(days[dow], "0") == "1"
+    """Whether a service runs on `today`. Delegates, deliberately.
+
+    This used to be a second implementation of the question `Timetable.runs_on`
+    already answered, and the two disagreed: a service with no `calendar` row
+    returned True here — "no calendar info — assume it runs" — and False there.
+    So the departure boards and the evidence figures could describe the same
+    bus differently. `today_str` and `dow` are kept in the signature because
+    the callers compute them anyway; they are derivable from `today`.
+    """
+    return service_runs_on(calendar, calendar_dates, service_id, today)
 
 # ── Helpers ───────────────────────────────────────────────────
 def _check_api_key():

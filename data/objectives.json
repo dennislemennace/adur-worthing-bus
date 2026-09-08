@@ -4,7 +4,7 @@
       "id": "integrated-sussex-plan",
       "title": "A joined-up plan with our neighbours",
       "summary": "An integrated Bus Service Improvement Plan across Sussex",
-      "description": "Buses along this coast are planned by three separate authorities — West Sussex, Brighton & Hove and East Sussex — and the effect shows up in the timetable. Counting scheduled departures from the published timetable, Lancing has 65 bus stops averaging 32.8 departures each on a weekday. South Portslade, four miles along the same coast road but on the Brighton & Hove side of the boundary, has 43 stops averaging 116.8. That is roughly three and a half times the service per stop, for a comparable seaside neighbourhood on the same corridor.\n\nPassengers do not experience a council boundary. They experience a bus that turns back, a ticket that stops being valid, and a timetable that thins out for no reason they can see.\n\nThe ask is that West Sussex works with Brighton & Hove City Council and East Sussex County Council on a genuinely integrated Bus Service Improvement Plan for the Sussex coast — one network planned end to end, with shared targets for frequency, hours and through-ticketing, rather than three plans that each stop at a line on a map.",
+      "description": "Buses along this coast are planned by three separate authorities — West Sussex, Brighton & Hove and East Sussex — and the effect shows up in the timetable. Counting scheduled departures from the published timetable, Lancing has 65 bus stops averaging 32.8 departures each on a weekday. South Portslade, four miles along the same coast road but on the Brighton & Hove side of the boundary, has 43 stops averaging 116.8. That is roughly three and a half times the service per stop, for a comparable seaside neighbourhood on the same corridor.\n\nThose figures are counted, not estimated: they come from the published timetable for a dated weekday, and the method, the denominators and the caveats are set out in full on the Route view's boundary evidence — including the one that matters most, which is that this measures scheduled service, not buses that actually ran, and that being near a council boundary is not on its own proof that the boundary caused the gap.\n\nPassengers do not experience a council boundary. They experience a bus that turns back, a ticket that stops being valid, and a timetable that thins out for no reason they can see.\n\nThe ask is that West Sussex works with Brighton & Hove City Council and East Sussex County Council on a genuinely integrated Bus Service Improvement Plan for the Sussex coast — one network planned end to end, with shared targets for frequency, hours and through-ticketing, rather than three plans that each stop at a line on a map.",
       "status": "not_considered",
       "color": "#0e7c86",
       "links": [],
@@ -16,7 +16,33 @@
         "BHCC",
         "ESCC"
       ],
-      "featured": true
+      "featured": true,
+      "evidence_claims": [
+        {
+          "quoted": "65",
+          "source": "boundary_evidence.json",
+          "path": "places.west.stops",
+          "unit": "bus stops"
+        },
+        {
+          "quoted": "32.8",
+          "source": "boundary_evidence.json",
+          "path": "places.days.monday.west.departures_per_stop",
+          "unit": "scheduled departures per stop, one weekday"
+        },
+        {
+          "quoted": "43",
+          "source": "boundary_evidence.json",
+          "path": "places.east.stops",
+          "unit": "bus stops"
+        },
+        {
+          "quoted": "116.8",
+          "source": "boundary_evidence.json",
+          "path": "places.days.monday.east.departures_per_stop",
+          "unit": "scheduled departures per stop, one weekday"
+        }
+      ]
     },
     {
       "id": "extend-existing-routes",
@@ -41,7 +67,7 @@
       "id": "express-commuter-routes",
       "title": "Express buses for commuters",
       "summary": "Faster peak-time links between Worthing and Brighton, and a second operator running them",
-      "description": "Getting between Worthing and Brighton at peak times is slow, and there is effectively only one company doing it. Both problems have the same fix.\n\nBrighton & Hove Buses stop dead at Shoreham. Across the Adur and Worthing corridor they serve 576 stops, but not one in Lancing or Worthing. Their westernmost stop is Dacre Gardens, and the 28 stops they reach beyond Shoreham are all on routes 2, 2B, 59 and 59A running north up the Adur valley towards Steyning and Upper Beeding — not west along the coast.\n\nWest of Shoreham there are 736 stops with a bus service. Compass reaches 395 of them and Stagecoach 386. Brighton & Hove reaches 28, all of them in the valley. So Lancing and Worthing sit on the edge of Brighton's network and are served by everyone except the operator whose network they most need to reach. A Worthing passenger has no Brighton & Hove option at all, and no competitive alternative on the corridor.\n\nBrighton & Hove served Lancing and Worthing within living memory. Bringing those services back west would give the coast a second operator, a real choice of bus, and a direct link into the Brighton network that today needs a change and a second ticket.\n\nThere is also a cheap way to make the existing service faster: split a frequent route so that at peak times every other journey runs express, calling only at the main stops. That needs no extra vehicles and no extra drivers — it is a timetable change — and it would cut the journey time for people travelling the full length of the corridor.",
+      "description": "Getting between Worthing and Brighton at peak times is slow, and there is effectively only one company doing it. Both problems have the same fix.\n\nBrighton & Hove Buses stop dead at Shoreham. Across the Adur and Worthing corridor they serve 576 stops, but not one in Lancing or Worthing. Their westernmost stop is Dacre Gardens, and the 28 stops they reach beyond Shoreham are all on routes 2, 2B, 59 and 59A running north up the Adur valley towards Steyning and Upper Beeding — not west along the coast.\n\nWest of Shoreham there are 736 stops with a bus service. Compass reaches 395 of them and Stagecoach 386. Brighton & Hove reaches 28, all of them in the valley. So Lancing and Worthing sit on the edge of Brighton's network and are served by everyone except the operator whose network they most need to reach. A Worthing passenger has no Brighton & Hove option at all, and no competitive alternative on the corridor.\n\nBrighton & Hove served Lancing and Worthing within living memory. Bringing those services back west would give the coast a second operator, a real choice of bus, and a direct link into the Brighton network that today needs a change and a second ticket.\n\nThere may also be a cheap way to make the existing service faster: split a frequent route so that at peak times every other journey runs express, calling only at the main stops. The attraction is that it could be done within the existing fleet — a faster round trip can free the running time it needs — but whether it actually is depends on the route's cycle time, its layover and its peak vehicle requirement, and we have not seen those worked through. We are asking the operator and West Sussex County Council to evaluate it and publish the result, not asserting that it costs nothing.",
       "status": "not_considered",
       "color": "#1a70b5",
       "links": [],
@@ -59,7 +85,7 @@
       "id": "fairer-ticketing-zones",
       "title": "Merge the Stagecoach DayRider zones",
       "summary": "One coastal DayRider covering Worthing and Brighton, at the £6 each already costs",
-      "description": "Stagecoach sells a Worthing DayRider and a Brighton DayRider at £6 each, and the two zones do not overlap anywhere. Of the stops Stagecoach serves, 361 sit in the Worthing zone and 186 in the Brighton zone, and not a single one sits in both. Every journey along the coast between the two towns therefore crosses a boundary.\n\nThat leaves two options, and both are bad. Buy both tickets, at £12. Or buy a Gold DayRider at £8.50 — a ticket valid across Hampshire, Surrey and Berkshire, bought purely to travel from Worthing to Brighton and back.\n\nFor someone commuting five days a week, the Gold ticket costs about £12.50 a week more than a single zone ticket would if one covered the trip — roughly £575 a year, paid by people making one of the most ordinary journeys in the area.\n\nThe ask is simple, and it costs the operator nothing in new mileage: one coastal DayRider covering both zones, priced at the same £6 the two separate tickets already cost.",
+      "description": "Stagecoach sells a Worthing DayRider and a Brighton DayRider at £6 each, and the two zones do not overlap anywhere. Of the stops Stagecoach serves, 361 sit in the Worthing zone and 186 in the Brighton zone, and not a single one sits in both. Every journey along the coast between the two towns therefore crosses a boundary.\n\nFor a simple return trip that boundary costs nothing extra today, because England's national fare cap holds a single at £3: two buses, £6, and no day ticket needed. The boundary bites the moment you need more than two journeys in a day — a school run, a shift with an errand on the way home, a day's work in the other town. Then you are buying a day ticket, and there is no day ticket for this stretch of coast. You buy both zones at £12, or a Gold DayRider valid across Hampshire, Surrey and Berkshire bought purely to travel between Worthing and Brighton.\n\nStagecoach sells that Gold ticket at £8.50 in its app; its published fares table effective 1 June 2026 lists it at £9. Against a merged coastal DayRider at the £6 each zone already costs, that is £2.50 to £3 a day, paid by people making one of the most ordinary journeys in the area. Stagecoach's Flexi5 bundle brings a regular traveller's cost down to £7.20 a day, which narrows the gap without closing it — and still requires buying network-wide coverage to cross one line.\n\nThe ask is simple, and it costs the operator nothing in new mileage: one coastal DayRider covering both zones, priced at the same £6 the two separate tickets already cost.",
       "status": "not_considered",
       "color": "#bc3220",
       "links": [
@@ -128,7 +154,7 @@
       "id": "accessible-buses-stops",
       "title": "Accessible buses and stops for everyone",
       "summary": "Audio-visual next-stop information on every bus",
-      "description": "Every bus should announce and display the route, the direction of travel and the next stop. Without it, a passenger who cannot see the street or cannot hear the driver has no reliable way of knowing where they are, and the practical result is that people stop travelling independently.\n\nThis is not simply a request — it is the law, and the deadline has almost run out. The Public Service Vehicles (Accessible Information) Regulations 2023 (SI 2023/715) require audible and visible route, direction and next-stop information on local bus services, phased by vehicle age: vehicles first used from 1 October 2019 had to comply by 1 October 2024; those first used between October 2014 and September 2019 by 1 October 2025; and the rest of the fleet, anything first used before 30 September 2014, by 1 October 2026.\n\nThe ask is that operators confirm publicly which of their vehicles serving Adur and Worthing are compliant and which are not, with a date for the rest; and that the councils, as the bodies funding supported services and letting contracts, make compliance a condition of that funding.",
+      "description": "Every bus should announce and display the route, the direction of travel and the next stop. Without it, a passenger who cannot see the street or cannot hear the driver has no reliable way of knowing where they are, and the practical result is that people stop travelling independently.\n\nThis is not simply a request — it is the law, and the deadline has almost run out. The Public Service Vehicles (Accessible Information) Regulations 2023 (SI 2023/715) require audible and visible route, direction and next-stop information on local bus services, phased by vehicle age: vehicles first used from 1 October 2019 had to comply by 1 October 2024; those first used between October 2014 and September 2019 by 1 October 2025; and the remainder by 1 October 2026.\n\nThat last deadline is not a blanket rule about every older vehicle. The regulations carry published exemptions, and the Department for Transport maintains a current list of them (https://www.gov.uk/government/publications/providing-accessible-information-onboard-local-bus-and-coach-services/current-exemptions-from-the-public-service-vehicles-accessible-information-regulations-2023). Some services and some vehicles are outside the requirement or have been granted more time. So the right question to put to an operator is not \"why is this old bus not compliant\" but \"which of your vehicles here are in scope, which are exempt, and on what date will the rest comply\" — which is what the ask below sets out.\n\nThe ask is that operators confirm publicly which of their vehicles serving Adur and Worthing are compliant and which are not, with a date for the rest; and that the councils, as the bodies funding supported services and letting contracts, make compliance a condition of that funding.",
       "status": "in_progress",
       "color": "#1c7844",
       "links": [],

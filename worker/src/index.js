@@ -63,7 +63,7 @@ export default {
     if (request.method !== "POST") {
       return json({ ok: false, error: "Method not allowed" }, 405, origin, allowed);
     }
-    if (!isAllowedOrigin(origin, allowed)) {
+    if (!isAllowedOrigin(origin, allowed, env)) {
       // Not a CORS nicety — this is the check that stops the endpoint being
       // driven from anywhere but the site itself.
       return json({ ok: false, error: "Forbidden" }, 403, origin, allowed);
@@ -84,6 +84,12 @@ export default {
     try {
       payload = JSON.parse(raw);
     } catch {
+      return json({ ok: false, error: "Malformed submission" }, 400, origin, allowed);
+    }
+    // `null`, `42` and `[1,2]` are all valid JSON. Only an object has the
+    // fields everything below reads, and `null.botcheck` threw the whole
+    // request rather than answering the sender.
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
       return json({ ok: false, error: "Malformed submission" }, 400, origin, allowed);
     }
 
@@ -115,7 +121,20 @@ export default {
     }
 
     // ── Rate limits ───────────────────────────────────────────
-    const verdict = await checkRateLimit(env, request);
+    // Inside the error boundary. This sat above it, so a KV write failure
+    // rejected the whole fetch and the sender lost their submission with no
+    // usable answer — and a KV write failure is not exotic: Cloudflare allows
+    // one write per second to the same key.
+    let verdict;
+    try {
+      verdict = await checkRateLimit(env, request);
+    } catch (err) {
+      console.error("Rate limit check failed:", err && err.message);
+      return json(
+        { ok: false, error: "We couldn't check your submission just now — please try again shortly." },
+        503, origin, allowed,
+      );
+    }
     if (verdict === "client") {
       return json(
         { ok: false, error: "You've sent a few already — please try again later." },
@@ -211,6 +230,47 @@ function buildIdea(p) {
   };
 }
 
+// The coast this site covers. Mirrors LAT_RANGE/LON_RANGE in
+// scripts/add_proposal.py — a point outside it is almost always a
+// transposed [lon, lat] pair, which parses perfectly and draws a line into
+// the Indian Ocean.
+const PROPOSAL_LAT_RANGE = [50.5, 51.2];
+const PROPOSAL_LON_RANGE = [-1.2, 0.4];
+
+function assertPublishableProposal(obj) {
+  if (obj === null || typeof obj !== "object" || Array.isArray(obj)) {
+    throw new Error("Proposal data must be an object");
+  }
+  if (!String(obj.name || "").trim()) {
+    throw new Error("The proposal needs a name");
+  }
+  if (!String(obj.summary || "").trim()) {
+    throw new Error("The proposal needs a one-line summary");
+  }
+  const line = obj.polyline;
+  if (!Array.isArray(line) || line.length < 2) {
+    throw new Error("The proposal needs a route line with at least two points");
+  }
+  for (const point of line) {
+    if (!Array.isArray(point) || point.length < 2
+        || typeof point[0] !== "number" || typeof point[1] !== "number") {
+      throw new Error("Every route point must be a [latitude, longitude] pair");
+    }
+    const [lat, lon] = point;
+    if (lat < PROPOSAL_LAT_RANGE[0] || lat > PROPOSAL_LAT_RANGE[1]
+        || lon < PROPOSAL_LON_RANGE[0] || lon > PROPOSAL_LON_RANGE[1]) {
+      const swapped = lat >= PROPOSAL_LON_RANGE[0] && lat <= PROPOSAL_LON_RANGE[1]
+                   && lon >= PROPOSAL_LAT_RANGE[0] && lon <= PROPOSAL_LAT_RANGE[1];
+      throw new Error(
+        `Route point [${lat}, ${lon}] is not in this area`
+        + (swapped ? " — that reads as [lon, lat]; this format is [lat, lon]" : ""));
+    }
+  }
+  if (obj.color != null && !/^#[0-9a-fA-F]{6}$/.test(String(obj.color))) {
+    throw new Error("Colour must be a #rrggbb value");
+  }
+}
+
 function buildProposal(p) {
   const title = required(p.title, "title", LIMITS.title, "a name for the proposal");
   const name  = optional(p.name, LIMITS.name);
@@ -226,6 +286,13 @@ function buildProposal(p) {
   } catch {
     throw new Error("Proposal data was not valid JSON");
   }
+  // ...and must be a proposal the moderation script could actually publish.
+  // These two ends enforced different contracts, so a submission could be
+  // accepted onto the public tracker and then be unpublishable — which wastes
+  // the submitter's effort and leaves a maintainer to explain why. The rules
+  // here are the subset scripts/add_proposal.py refuses on; the script stays
+  // the authority, and keeps its own checks.
+  assertPublishableProposal(parsed);
 
   const body = [
     "**Route proposal** submitted from the in-app proposal editor.",
@@ -402,33 +469,67 @@ async function verifyTurnstile(secret, token, ip) {
 // RATE LIMITING (KV)
 // ============================================================
 
-/** Returns "ok" | "client" | "global". */
+/** How many keys the site-wide daily counter is spread across.
+ *
+ *  Cloudflare allows one write per second to a *single* key. Every accepted
+ *  submission used to write one shared `rl:global:<date>`, so two people
+ *  submitting in the same second made each other's writes fail — an ordinary
+ *  event dressed up as an outage. Spreading the count over several keys and
+ *  summing them on read gives that many writes per second instead of one,
+ *  which is far more headroom than this site will ever need.
+ */
+const GLOBAL_SHARDS = 8;
+
+/** Returns "ok" | "client" | "global". Throws only if reads fail. */
 async function checkRateLimit(env, request) {
   const kv = env.RATE_LIMIT;
-  if (!kv) return "ok";   // unbound in dev — don't block local testing
+  if (!kv) {
+    // An unbound namespace used to mean "no limits", which is the wrong
+    // default for the one control standing between a public form and the
+    // GitHub API. In production it is a misconfiguration, not a dev
+    // convenience, and the sender is told to try later rather than waved past.
+    if (isDevUnsafe(env)) return "ok";
+    console.error("RATE_LIMIT namespace is not bound — refusing submissions");
+    return "global";
+  }
 
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
   const id = await hashIp(ip, env.IP_SALT || "");
   const now = new Date();
   const hourKey = `rl:${id}:${now.toISOString().slice(0, 13)}`;
   const dayKey  = `rl:${id}:${now.toISOString().slice(0, 10)}`;
-  const globalKey = `rl:global:${now.toISOString().slice(0, 10)}`;
+  const day     = now.toISOString().slice(0, 10);
+  const shardKeys = Array.from(
+    { length: GLOBAL_SHARDS }, (_, i) => `rl:global:${day}:${i}`);
 
-  const [h, d, g] = await Promise.all([
-    kv.get(hourKey), kv.get(dayKey), kv.get(globalKey),
+  // Reads decide the verdict, so a read failure is a real failure and
+  // propagates to the caller, which answers 503.
+  const [h, d, ...shards] = await Promise.all([
+    kv.get(hourKey), kv.get(dayKey), ...shardKeys.map(k => kv.get(k)),
   ]);
+  const globalCount = shards.reduce((sum, v) => sum + toInt(v), 0);
 
   if (toInt(h) >= PER_HOUR_LIMIT) return "client";
   if (toInt(d) >= PER_DAY_LIMIT)  return "client";
-  if (toInt(g) >= GLOBAL_DAY_LIMIT) return "global";
+  if (globalCount >= GLOBAL_DAY_LIMIT) return "global";
 
-  // Read-modify-write races can undercount under concurrency. That's an
-  // acceptable trade here: these are coarse abuse bounds, not accounting.
-  await Promise.all([
+  // Writes are best effort. Read-modify-write races can undercount under
+  // concurrency, and so can a dropped write; both are acceptable here because
+  // these are coarse abuse bounds, not accounting. What is *not* acceptable is
+  // losing someone's submission because a counter could not be incremented.
+  const shard = Math.floor(Math.random() * GLOBAL_SHARDS);
+  const writes = [
     kv.put(hourKey, String(toInt(h) + 1), { expirationTtl: 7200 }),
     kv.put(dayKey,  String(toInt(d) + 1), { expirationTtl: 172800 }),
-    kv.put(globalKey, String(toInt(g) + 1), { expirationTtl: 172800 }),
-  ]);
+    kv.put(shardKeys[shard], String(toInt(shards[shard]) + 1),
+           { expirationTtl: 172800 }),
+  ];
+  const results = await Promise.allSettled(writes);
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("Rate limit counter write failed:", r.reason && r.reason.message);
+    }
+  }
   return "ok";
 }
 
@@ -533,9 +634,24 @@ function allowedOrigins(env) {
     .split(",").map(s => s.trim()).filter(Boolean);
 }
 
-function isAllowedOrigin(origin, allowed) {
-  if (allowed.length === 0) return true;   // unset in dev
+function isAllowedOrigin(origin, allowed, env) {
+  // This used to return true when the list was empty — "unset in dev". But a
+  // typo blanking ALLOWED_ORIGINS in production has the same shape as an
+  // unset one, and the result is a public endpoint relaying anything to the
+  // GitHub Issues API. Missing configuration is now a refusal, and the
+  // development escape hatch has to be asked for by name.
+  if (allowed.length === 0) return isDevUnsafe(env);
   return allowed.includes(origin);
+}
+
+/** The one explicit opt-out of the production safety checks.
+ *
+ *  Deliberately not inferable from anything else: no "if localhost", no "if
+ *  the config looks empty". Set DEV_UNSAFE=1 in a local wrangler config and
+ *  nowhere near a deployment.
+ */
+function isDevUnsafe(env) {
+  return String((env && env.DEV_UNSAFE) || "") === "1";
 }
 
 function corsHeaders(origin, allowed) {
@@ -570,9 +686,38 @@ async function readCapped(request, max) {
   const declared = request.headers.get("Content-Length");
   if (declared && parseInt(declared, 10) > max) return null;
 
-  const buf = await request.arrayBuffer();
-  if (buf.byteLength > max) return null;
-  return new TextDecoder().decode(buf);
+  // Read incrementally and stop at the cap. `arrayBuffer()` buffered the whole
+  // body first and only then measured it, so a sender who simply omitted
+  // Content-Length could make the Worker hold as much as it liked before the
+  // limit was consulted — the check ran, but after the cost was paid.
+  const body = request.body;
+  if (!body) return "";
+
+  const reader = body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch (err) {
+    // A truncated or aborted upload is the sender's problem to retry, not a
+    // reason for the request to end without an answer.
+    console.error("Reading request body failed:", err && err.message);
+    return null;
+  }
+
+  const joined = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) { joined.set(c, at); at += c.byteLength; }
+  return new TextDecoder().decode(joined);
 }
 
 // Exported for tests.

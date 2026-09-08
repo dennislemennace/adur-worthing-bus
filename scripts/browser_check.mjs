@@ -47,6 +47,12 @@ const SHOTS = shotsIdx === -1 ? null : process.argv[shotsIdx + 1];
 
 const VIEWPORTS = [
   { name: "mobile",  width: 390,  height: 844,  mobile: true  },
+  // The narrowest phone still in common use, and a short landscape window.
+  // The three sizes above them all have enough vertical room to hide a sheet
+  // that is taller than its viewport, so the reachability checks passed while
+  // Route view's tab strip started 130px below the fold at 320x568.
+  { name: "narrow",    width: 320, height: 568, mobile: true },
+  { name: "landscape", width: 740, height: 360, mobile: true },
   { name: "tablet",  width: 768,  height: 1024, mobile: true  },
   { name: "desktop", width: 1440, height: 900,  mobile: false },
 ];
@@ -477,6 +483,126 @@ const CLIPPED_SCAN = `(() => {
   return bad;
 })()`;
 
+/**
+ * The panel itself has to fit on the screen.
+ *
+ * CLIPPED_SCAN asks whether an overflowing pane has something to scroll it.
+ * That is a different question from whether the sheet is inside the viewport
+ * at all, and it passed at every size while, at 320x568, Route view's tab
+ * strip began at y≈581 — thirteen pixels below the fold, with nothing above it
+ * to hint that it existed — and the Network and Updates sheets began at y≈−3,
+ * their tabs partly behind the fixed header.
+ *
+ * A control the reader cannot see is not reachable, however large it is.
+ */
+const SHEET_BOUNDS_SCAN = `(() => {
+  const bad = [];
+  const vh = window.innerHeight;
+  const header = document.querySelector(".app-header");
+  const headerBottom = header ? header.getBoundingClientRect().bottom : 0;
+
+  const panel = document.getElementById("departure-panel");
+  if (!panel || getComputedStyle(panel).display === "none") return bad;
+  const pr = panel.getBoundingClientRect();
+  if (pr.height < 1) return bad;
+
+  if (pr.top < headerBottom - 1) {
+    bad.push("panel starts " + Math.round(headerBottom - pr.top) +
+             "px above the usable area (behind the header)");
+  }
+
+  // The tab strip and the sheet's own controls are how a reader moves around
+  // inside it, so they are the ones that must not fall off the bottom.
+  for (const sel of [".panel-tabs", ".btn-collapse-panel", ".sheet-handle"]) {
+    for (const el of document.querySelectorAll(sel)) {
+      const mode = el.closest(".panel-mode");
+      if (mode && getComputedStyle(mode).display === "none") continue;
+      if (getComputedStyle(el).display === "none") continue;
+      const r = el.getBoundingClientRect();
+      if (r.height < 1 && r.width < 1) continue;
+      if (r.top >= vh) {
+        bad.push(sel + " starts " + Math.round(r.top - vh) + "px below the fold");
+      } else if (r.bottom > vh + 1 && r.top > vh - 8) {
+        bad.push(sel + " is cut off at the bottom of the screen");
+      }
+    }
+  }
+  return bad;
+})()`;
+
+async function checkSheetFitsViewport(page, where) {
+  const bad = await page.evaluate(SHEET_BOUNDS_SCAN);
+  check(`the panel fits the screen — ${where}`, bad.length === 0, bad.join(", "));
+}
+
+/**
+ * A failing live feed has to look different from a quiet one.
+ *
+ * `setStatusLabel` writes "Update failed — retrying" into `.last-updated`,
+ * and `.last-updated` is `display: none` below 880px. So on every phone the
+ * only signal that the live feed is broken was invisible, and a map with no
+ * buses on it looked exactly like a map with no buses due. This drives the
+ * failure state directly rather than waiting for a real outage.
+ */
+/**
+ * The two views that are all prose should not be read through a letterbox.
+ *
+ * Network Objectives and Updates carry no map layers of their own, yet on a
+ * desktop they kept the full map and a ~360px column — so an article, and a
+ * letter a resident is meant to edit and send to a councillor, were being
+ * read four or five words at a time.
+ */
+async function checkReadingLayout(page) {
+  const widths = {};
+  for (const mode of ["improvements", "network", "updates"]) {
+    await page.evaluate(`setViewMode('${mode}')`);
+    await sleep(900);
+    widths[mode] = await page.evaluate(
+      `Math.round(document.getElementById("departure-panel").getBoundingClientRect().width)`);
+  }
+  check("prose views get a wider column than the map views",
+    widths.network > widths.improvements + 100
+    && widths.updates > widths.improvements + 100,
+    JSON.stringify(widths));
+  // And the map must still have somewhere to be, so this is not just
+  // "make the panel full width".
+  const mapWidth = await page.evaluate(
+    `Math.round(document.getElementById("map").getBoundingClientRect().width)`);
+  check("the map keeps usable width in the prose views", mapWidth > 300,
+    `map ${mapWidth}px`);
+  await page.evaluate("setViewMode('live')");
+  await sleep(600);
+}
+
+async function checkFailureIsVisible(page, where) {
+  await page.evaluate(`setStatusLabel({ text: "Update failed — retrying", loading: true, error: true })`);
+  await sleep(250);
+  const state = await page.evaluate(`
+    (() => {
+      const el = document.querySelector(".live-status-pill") || document.getElementById("last-updated-label");
+      if (!el) return JSON.stringify({ found: false });
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      // Walk up: a visible label inside a hidden ancestor is still hidden.
+      let node = el, hidden = false;
+      while (node && node !== document.body) {
+        const s = getComputedStyle(node);
+        if (s.display === "none" || s.visibility === "hidden" || s.opacity === "0") hidden = true;
+        node = node.parentElement;
+      }
+      return JSON.stringify({
+        found: true, hidden,
+        text: (el.textContent || "").trim(),
+        w: Math.round(r.width), h: Math.round(r.height),
+      });
+    })()`);
+  const s = JSON.parse(state);
+  check(`a failing live feed is visible — ${where}`,
+    s.found && !s.hidden && s.w > 0 && s.h > 0 && /fail/i.test(s.text),
+    JSON.stringify(s));
+  await page.evaluate(`setStatusLabel({ text: "Updated", loading: false })`);
+}
+
 async function checkReachable(page, where) {
   const bad = await page.evaluate(CLIPPED_SCAN);
   check(`all panel content is reachable — ${where}`, bad.length === 0, bad.join(", "));
@@ -732,6 +858,7 @@ async function checkReachableAcrossViews(page, where) {
     await page.evaluate(`setViewMode('${mode}')`);
     await sleep(1200);
     await checkReachable(page, `${mode} view — ${where}`);
+    await checkSheetFitsViewport(page, `${mode} view — ${where}`);
     for (const [owner, fn, second, first] of [
       ["network", "setNetworkTab", "ideas",     "objectives"],
       ["updates", "setUpdatesTab", "community", "official"],
@@ -998,6 +1125,7 @@ const page = await openPage(VIEWPORTS[0]);
 await checkBasemap(page);
 await checkHeaderControlRow(page, VIEWPORTS[0].name);
 await checkLayout(page, "live view");
+await checkFailureIsVisible(page, VIEWPORTS[0].name);
 await checkDepartureBoard(page);
 await checkViews(page);
 await checkReachableAcrossViews(page, VIEWPORTS[0].name);
@@ -1014,8 +1142,10 @@ for (const vp of VIEWPORTS.slice(1)) {
   const p = await openPage(vp);
   await screenshot(p, `live-${vp.name}`);
   await checkLayout(p, vp.name);
+  await checkFailureIsVisible(p, vp.name);
   await checkHeaderControlRow(p, vp.name);
   await checkContrastBothThemes(p, vp.name);
+  if (vp.name === "desktop") await checkReadingLayout(p);
   await checkReachableAcrossViews(p, vp.name);
   p.ws.close();
 }

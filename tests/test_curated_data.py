@@ -791,3 +791,132 @@ def test_representative_emails_are_official_council_addresses():
             assert domain in allowed[area["body"]], (
                 f"{code}: {m['email']} is not an official {area['body']} address"
             )
+
+
+# ── Quoted figures stay tied to the generated ones ──────────
+
+def test_objective_prose_matches_the_evidence_it_cites():
+    """Objectives hardcode numbers that a weekly job recomputes elsewhere.
+
+    Only `boundary_evidence.json` is rebuilt by the timetable workflow;
+    nothing updates or invalidates the prose that quotes it, and that prose is
+    copied verbatim into letters to elected representatives. So each quoted
+    figure names the generated claim it came from, and this asserts the two
+    still agree — the drift is what would otherwise be invisible.
+    """
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    evidence = json.loads((root / "data" / "boundary_evidence.json").read_text())
+    objectives = json.loads((root / "data" / "objectives.json").read_text())
+    items = objectives if isinstance(objectives, list) else objectives["objectives"]
+
+    checked = 0
+    for obj in items:
+        for claim in obj.get("evidence_claims", []):
+            assert claim["source"] == "boundary_evidence.json", claim
+            node = evidence
+            for part in claim["path"].split("."):
+                assert part in node, f"{obj['id']}: no {claim['path']} in the evidence"
+                node = node[part]
+            assert str(node) == claim["quoted"], (
+                f"{obj['id']}: prose quotes {claim['quoted']} for "
+                f"{claim['path']}, but the generated evidence now says {node}")
+            assert claim["quoted"] in obj["description"], (
+                f"{obj['id']}: claims {claim['quoted']} but the description "
+                f"no longer contains it")
+            checked += 1
+
+    assert checked, "no objective binds a figure to the generated evidence"
+
+
+def test_every_bound_claim_carries_its_unit():
+    """A number with no denominator is not evidence. 32.8 what, over what?"""
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    objectives = json.loads((root / "data" / "objectives.json").read_text())
+    items = objectives if isinstance(objectives, list) else objectives["objectives"]
+    for obj in items:
+        for claim in obj.get("evidence_claims", []):
+            assert claim.get("unit"), f"{obj['id']}: {claim['path']} has no unit"
+
+
+# ── Asset provenance is recorded, not assumed ───────────────
+
+def test_a_published_image_has_a_credit_or_an_admitted_gap():
+    """Two update photographs shipped with an empty `credit` field.
+
+    Requiring a credit outright would have meant either removing them or
+    inventing an attribution, and an invented one is worse than a missing one.
+    So the rule is that provenance must be *recorded*: a real credit, or an
+    explicit admission that nobody knows. An empty string is neither.
+    """
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    updates = json.loads((root / "data" / "updates.json").read_text())
+    items = updates if isinstance(updates, list) else updates["updates"]
+
+    for entry in items:
+        for img in ([entry["image"]] if isinstance(entry.get("image"), dict)
+                    else entry.get("images") or []):
+            credited = str(img.get("credit") or "").strip()
+            admitted = img.get("credit_status") == "unconfirmed"
+            assert credited or admitted, (
+                f"{entry['id']}: {img.get('src')} has neither a credit nor an "
+                f"explicit credit_status of 'unconfirmed'")
+
+
+def test_the_asset_register_and_notices_exist():
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    for name in ("docs/ASSET_RIGHTS.md", "THIRD_PARTY_NOTICES.md"):
+        assert (root / name).exists(), f"{name} is missing"
+
+
+# ── Sharing metadata ────────────────────────────────────────
+
+def test_the_page_can_be_shared_without_becoming_a_bare_url():
+    """The site is meant to be pasted into emails and local groups. It had no
+    canonical link and no Open Graph tags at all, and its title still
+    described a live tracker for a differently-named product."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    html = (root / "index.html").read_text()
+
+    for needle in ('rel="canonical"', 'property="og:title"',
+                   'property="og:description"', 'property="og:image"',
+                   'name="twitter:card"'):
+        assert needle in html, f"index.html is missing {needle}"
+    assert "Worthing Brighton Bus" in html.split("</title>")[0], \
+        "the title does not name the product the site actually is"
+
+
+def test_the_preview_image_exists():
+    """A social preview pointing at a missing file is worse than none."""
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    html = (root / "index.html").read_text()
+    m = re.search(r'property="og:image" content="[^"]*?/([^"/]+)"', html)
+    assert m, "no og:image tag"
+    assert (root / "brand" / m.group(1)).exists(), \
+        f"og:image points at brand/{m.group(1)}, which does not exist"
+
+
+def test_the_about_page_answers_the_questions_a_reader_would_ask():
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    page = root / "about.html"
+    assert page.exists(), "there is no About page"
+    text = page.read_text()
+
+    # The distinction the audit singled out: filed publicly now, reviewed later.
+    assert "public issues on GitHub straight away" in text
+    assert "independent" in text.lower()
+    for topic in ("postcode", "Rate limiting", "Accessibility", "removed"):
+        assert topic in text, f"the About page does not cover {topic}"

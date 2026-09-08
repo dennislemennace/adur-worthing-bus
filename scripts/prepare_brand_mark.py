@@ -42,7 +42,11 @@ SOURCE = ROOT / "brand" / "mark-source.png"
 # The header renders the mark at 40px (32px under 700px wide). 1x/2x/3x covers
 # every display in use; 3x is the ceiling because beyond it the source itself
 # stops having detail to give.
-MARK_SIZES = [40, 80, 120]
+# 512 is the share-preview size: it is what Open Graph and Twitter fetch when
+# the site is pasted into a message or a local Facebook group, and it is the
+# only place the mark is ever seen large. Generated here rather than exported
+# by hand so it cannot drift from the header mark it is supposed to be.
+MARK_SIZES = [40, 80, 120, 512]
 
 # 32px is the browser-tab icon. 180px is what iOS uses for a home-screen
 # bookmark, and is the one size Apple actually asks for by name.

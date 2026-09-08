@@ -145,11 +145,29 @@ def read_issue(number: int) -> dict:
 
 
 def close_issue(number: int, entry_id: str) -> None:
-    """Close a published issue. Never fatal — the idea is already saved."""
+    """Close a published issue and drop its `unverified` label.
+
+    Never fatal — the idea is already saved by this point, and a tracker that
+    disagrees with the site is a smaller problem than losing the work.
+
+    Two things this says carefully. The comment says "approved for
+    publication", not "published": at this moment a local file has been
+    written and nothing has been committed or deployed, so a run that stops
+    here would otherwise have told the submitter their idea was live when it
+    was not.
+
+    And the label. `unverified` is what the Worker stamps on everything it
+    files, and it is the flag that means "nothing here has been looked at".
+    Leaving it on something now approved tells the next person to read the
+    tracker exactly the wrong thing. add_proposal.py has cleared it since it
+    was written; this script had not, so the two moderation paths left the
+    tracker in different states for the same decision.
+    """
     try:
         subprocess.run(
             ["gh", "issue", "close", str(number),
-             "--comment", f"Published to the site as `{entry_id}`. Thanks!"],
+             "--comment", f"Approved for publication as `{entry_id}` — it will "
+                          f"appear on the site with the next deploy. Thanks!"],
             cwd=ROOT, check=True, capture_output=True, text=True,
         )
         print(f"Closed issue #{number}.")
@@ -157,6 +175,17 @@ def close_issue(number: int, entry_id: str) -> None:
         detail = getattr(exc, "stderr", "") or str(exc)
         print(f"Note: couldn't close issue #{number} ({detail.strip()}). "
               f"The idea was still added — close it by hand.")
+        return
+
+    try:
+        subprocess.run(
+            ["gh", "issue", "edit", str(number), "--remove-label", "unverified"],
+            cwd=ROOT, check=True, capture_output=True, text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        detail = getattr(exc, "stderr", "") or str(exc)
+        print(f"Note: issue #{number} still carries the 'unverified' label "
+              f"({detail.strip()}) — remove it by hand.")
 
 
 def prompt_fields() -> dict:
