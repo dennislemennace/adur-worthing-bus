@@ -347,3 +347,128 @@ test("a non-422 error is not retried and still fails", async () => {
     assert.equal(calls.length, 1, "must not retry");
   } finally { restore(); }
 });
+
+// ── buildIssue: bus issues ──────────────────────────────────
+//
+// A bus fault is a different thing from a stop fault: it belongs to the
+// operator rather than the council, and it moves, so it threads by vehicle.
+
+test("a bus issue carries the vehicle as its dedupe key", () => {
+  const built = buildIssue({
+    kind: "bus_issue",
+    service: "700",
+    operator: "SCSO",
+    vehicleRef: "15234",
+    category: "full",
+    details: "Third one in a row too full to board at Marine Parade.",
+    lat: 50.8095, lon: -0.3730,
+  });
+  assert.equal(built.dedupeKey, "bus:SCSO:15234");
+  assert.ok(built.title.includes("700"));
+  assert.ok(built.labels.includes("bus-issue:full"));
+  assert.ok(built.body.includes("openstreetmap.org"));
+  // The report is a record, not a complaint to the operator — say so.
+  // The footer wraps, so the phrase spans a newline and a quote marker.
+  assert.match(built.body, /does not\n> reach the driver/);
+});
+
+test("a bus issue with no vehicle threads by service instead", () => {
+  const built = buildIssue({
+    kind: "bus_issue", service: "9", category: "cancelled",
+    details: "Did not turn up at all.",
+  });
+  assert.equal(built.dedupeKey, "svc:9");
+});
+
+test("an accessibility report cites the regulations and their exemptions", () => {
+  // This is the one category whose reports are evidence about a legal
+  // deadline, and the one most likely to be quoted at somebody.
+  for (const category of ["accessibility", "onboard-info"]) {
+    const built = buildIssue({
+      kind: "bus_issue", service: "700", category,
+      details: "No audible next-stop announcements for the whole journey.",
+    });
+    assert.match(built.body, /Accessible Information\) Regulations 2023/);
+    assert.match(built.body, /1 October 2026/);
+    assert.match(built.body, /exempt/,
+      `${category}: asserts non-compliance without mentioning exemptions`);
+  }
+});
+
+test("an ordinary bus issue does not lecture about the regulations", () => {
+  const built = buildIssue({
+    kind: "bus_issue", service: "700", category: "full",
+    details: "Too full to board.",
+  });
+  assert.doesNotMatch(built.body, /Regulations 2023/);
+});
+
+test("a bus issue with an unknown category is rejected", () => {
+  assert.throws(() => buildIssue({
+    kind: "bus_issue", service: "700", category: "nonsense", details: "d",
+  }), /Unknown issue category/);
+});
+
+test("a bus issue with no service is rejected", () => {
+  assert.throws(() => buildIssue({
+    kind: "bus_issue", category: "full", details: "d",
+  }), /a service/);
+});
+
+test("a reported time is kept only when it is a real timestamp", () => {
+  const good = buildIssue({
+    kind: "bus_issue", service: "700", category: "late",
+    details: "d", when: "2026-09-08T14:30",
+  });
+  assert.match(good.body, /Reported for:/);
+  const bad = buildIssue({
+    kind: "bus_issue", service: "700", category: "late",
+    details: "d", when: "yesterday-ish",
+  });
+  assert.doesNotMatch(bad.body, /Reported for:/);
+});
+
+// ── buildIssue: community news ──────────────────────────────
+
+test("a news submission builds a publishable JSON blob", () => {
+  const built = buildIssue({
+    kind: "news",
+    title: "New evening journeys on the 700",
+    summary: "Two later departures from Monday.",
+    details: "Stagecoach has added two evening journeys each way.",
+    topic: "Timetables",
+    name: "Sam",
+    sourceUrl: "https://www.stagecoachbus.com/news",
+  });
+  assert.equal(built.title, "News: New evening journeys on the 700");
+  assert.ok(built.labels.includes("news"));
+  assert.ok(built.labels.includes("unverified"));
+  assert.match(built.body, /```json/);
+  assert.match(built.body, /add_update\.py --from-issue/);
+});
+
+test("a news submission cannot publish itself", () => {
+  // `status` and `date` are the site's to set. A blob that could carry its
+  // own would be a submission deciding it was live.
+  const built = buildIssue({
+    kind: "news", title: "T", summary: "S", details: "D",
+    status: "published", date: "2020-01-01", id: "spoofed",
+  });
+  const blob = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(built.body)[1]);
+  assert.equal(blob.status, undefined);
+  assert.equal(blob.date, undefined);
+  assert.equal(blob.id, undefined);
+});
+
+test("a news source link must be a real link", () => {
+  assert.throws(() => buildIssue({
+    kind: "news", title: "T", summary: "S", details: "D",
+    sourceUrl: "javascript:alert(1)",
+  }), /must start with http/);
+});
+
+test("a news submission without its parts is rejected", () => {
+  assert.throws(() => buildIssue({ kind: "news", title: "T" }), /summary/);
+  assert.throws(() => buildIssue({ kind: "news", title: "T", summary: "S" }),
+                /the article itself/);
+});

@@ -1291,7 +1291,12 @@ def _parse_siri_vm(xml_text: str) -> list:
             "vehicle_ref":   jtext("VehicleRef"),
             "service_ref":   jtext("PublishedLineName") or jtext("LineRef"),
             "operator_ref":  jtext("OperatorRef"),
-            "destination":   jtext("DestinationName") or jtext("DirectionRef"),
+            # DestinationName only. `DirectionRef` used to stand in for it,
+            # and it is not a place — it is a SIRI direction code, whose
+            # values in this feed include the literal string "Destination".
+            # Brighton & Hove publish that on their non-timetabled workings,
+            # so the map showed buses "going to Destination".
+            "destination":   jtext("DestinationName"),
             "origin_ref":    jtext("OriginRef"),
             "destination_ref": jtext("DestinationRef"),
             "latitude":      lat,

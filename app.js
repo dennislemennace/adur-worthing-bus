@@ -469,8 +469,8 @@ async function init() {
   initMap();
   bindUIEvents();
   bindStopSearch();
+  bindNewsForm();
   bindLoaderRetries();
-  syncFilterDisclosure();
 
   // Restore any proposal drafts saved in localStorage from a previous session.
   state.editorDrafts = loadDraftsFromStorage();
@@ -2317,11 +2317,74 @@ function renderBusTab() {
 
     ${ticketHtml}
 
+    <div class="departures-meta bus-report-meta">
+      <button class="btn-text" id="report-bus-btn" type="button" aria-expanded="false"
+              aria-controls="report-bus-form"
+              aria-label="Report a problem with this bus">
+        <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+        <span>Report an issue</span>
+      </button>
+    </div>
+
+    <!-- A bus fault is the operator's, not the council's, and it moves — so
+         this is its own form rather than a category on the stop one. The two
+         accessibility options exist because a missing next-stop announcement
+         is evidence about a legal deadline and had nowhere to be recorded. -->
+    <form class="report-stop-form hidden" id="report-bus-form" novalidate>
+      <div class="editor-field">
+        <label for="rb-category">What's wrong?</label>
+        <select id="rb-category" name="category">
+          <option value="full">Too full to board</option>
+          <option value="cancelled">Didn't turn up</option>
+          <option value="late">Badly late</option>
+          <option value="accessibility">Access problem (ramp, wheelchair space, driver help)</option>
+          <option value="onboard-info">No audible or visible next-stop information</option>
+          <option value="other">Something else</option>
+        </select>
+      </div>
+      <div class="editor-field">
+        <label for="rb-details">Tell us more</label>
+        <textarea id="rb-details" name="details" maxlength="1000" required
+                  placeholder="What happened, and where were you?"></textarea>
+      </div>
+      <div class="editor-field">
+        <label for="rb-name">Your name (optional)</label>
+        <input id="rb-name" name="name" type="text" maxlength="60">
+      </div>
+
+      <!-- Honeypot -->
+      <div class="suggest-honeypot" aria-hidden="true">
+        <label for="rb-botcheck">Leave this field empty</label>
+        <input id="rb-botcheck" name="botcheck" type="checkbox" tabindex="-1" autocomplete="off">
+      </div>
+
+      <div class="suggest-turnstile" id="rb-turnstile"></div>
+
+      <p class="suggest-privacy">
+        This posts a public record to the project's issue tracker so it can be
+        counted and quoted. It is not a complaint to the operator and it does
+        not reach the driver — for that, contact
+        ${operatorComplaintLinkHtml(state.selectedVehicle && state.selectedVehicle.operator_ref)}.
+      </p>
+
+      <div class="suggest-actions">
+        <button class="editor-action-btn primary" id="rb-submit" type="submit">
+          <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
+          <span>Send report</span>
+        </button>
+        <button class="editor-action-btn" id="rb-cancel" type="button">Cancel</button>
+        <span class="editor-status" id="rb-status" role="status" aria-live="polite"></span>
+      </div>
+    </form>
+
     <p class="bus-info-footer">Live data · auto-refreshes every 20s</p>
   `;
 
   dom.busPanelPrompt.classList.add("hidden");
   dom.busInfoContainer.classList.remove("hidden");
+
+  // innerHTML above replaced the form, so its listeners went with it.
+  bindReportBusForm();
 
   const cb = document.getElementById("follow-bus-checkbox");
   if (cb) {
@@ -5147,36 +5210,6 @@ function renderStopSearchResults(listEl, matches, query) {
         <span class="stop-search-result-name">${escapeHtml(m.label)}</span>
       </button>
     </li>`).join("");
-}
-
-/**
- * On a short screen the route filters start closed.
- *
- * They are 160px of a 273px sheet at 320x568, which pushed the tab strip and
- * the collapse control off the bottom of a panel that clips its overflow. The
- * CSS now stops them squeezing the chrome out, but a filter block that fills
- * the sheet still leaves nothing to look at, so on a short viewport the
- * reader starts with the list and opens the filters when they want them.
- *
- * Only ever closes what the reader has not touched: once they open it, it
- * stays open for the session, including through a rotation.
- */
-const SHORT_VIEWPORT_PX = 700;
-
-function syncFilterDisclosure() {
-  const details = document.querySelector(".filter-disclosure");
-  if (!details) return;
-  if (!state._filterDisclosureTouched) {
-    details.addEventListener("toggle", () => {
-      state._filterDisclosureTouched = true;
-    }, { once: true });
-  }
-  const apply = () => {
-    if (state._filterDisclosureTouched) return;
-    details.open = window.innerHeight > SHORT_VIEWPORT_PX;
-  };
-  apply();
-  window.addEventListener("resize", apply);
 }
 
 /** "Try again" wherever a loader failed.
@@ -8238,6 +8271,192 @@ function setReportStopStatus(msg, isError = false) {
 }
 
 /** Validate + file a stop fault as a public GitHub issue. */
+/** Show or hide the bus report form. Mirrors toggleReportStopForm. */
+function toggleReportBusForm(show) {
+  const form = document.getElementById("report-bus-form");
+  const btn  = document.getElementById("report-bus-btn");
+  if (!form || !btn) return;
+  const open = show === undefined ? form.classList.contains("hidden") : show;
+  form.classList.toggle("hidden", !open);
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+  if (open) {
+    mountTurnstile(document.getElementById("rb-turnstile"));
+    const first = form.querySelector("#rb-details");
+    if (first) first.focus();
+  }
+}
+
+function setReportBusStatus(msg, isError = false) {
+  const el = document.getElementById("rb-status");
+  if (!el) return;
+  el.classList.toggle("is-error", !!isError);
+  el.textContent = msg;
+}
+
+/** Wire the bus report controls. Called after every renderBusTab, because
+ *  that rebuilds the panel's innerHTML and takes the listeners with it. */
+function bindReportBusForm() {
+  const btn = document.getElementById("report-bus-btn");
+  if (btn) btn.addEventListener("click", () => toggleReportBusForm());
+  const cancel = document.getElementById("rb-cancel");
+  if (cancel) cancel.addEventListener("click", () => toggleReportBusForm(false));
+  const form = document.getElementById("report-bus-form");
+  if (form) {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      submitBusIssue();
+    });
+  }
+}
+
+function setNewsStatus(msg, isError = false) {
+  const el = document.getElementById("nw-status");
+  if (!el) return;
+  el.classList.toggle("is-error", !!isError);
+  el.textContent = msg;
+}
+
+/** Community News submissions. Same path as ideas and reports: to the Worker,
+ *  into a public issue, published by hand with add_update.py --from-issue. */
+function bindNewsForm() {
+  const form = document.getElementById("news-form");
+  if (!form) return;
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    submitNews();
+  });
+  mountTurnstile(document.getElementById("nw-turnstile"));
+}
+
+async function submitNews() {
+  const form = document.getElementById("news-form");
+  if (!form) return;
+
+  const botcheck = form.querySelector("#nw-botcheck");
+  if (botcheck && botcheck.checked) {
+    setNewsStatus("Thanks!");
+    form.reset();
+    return;
+  }
+
+  const val = (id) => (form.querySelector(id)?.value || "").trim();
+  for (const [id, message] of [
+    ["#nw-title",   "Please add a headline."],
+    ["#nw-summary", "Please add a one-line summary."],
+    ["#nw-details", "Please say what happened."],
+  ]) {
+    if (!val(id)) {
+      setNewsStatus(message, true);
+      form.querySelector(id).focus();
+      return;
+    }
+  }
+
+  const submit = form.querySelector("#nw-submit");
+  if (submit) submit.disabled = true;
+  setNewsStatus("Sending…");
+  const result = await postSubmission("news", {
+    title:     val("#nw-title"),
+    summary:   val("#nw-summary"),
+    details:   val("#nw-details"),
+    topic:     val("#nw-topic"),
+    sourceUrl: val("#nw-source"),
+    name:      val("#nw-name"),
+  }, document.getElementById("nw-turnstile"));
+  if (submit) submit.disabled = false;
+  resetTurnstile(document.getElementById("nw-turnstile"));
+
+  if (result.ok) {
+    form.reset();
+    const el = document.getElementById("nw-status");
+    if (el && result.url) {
+      el.classList.remove("is-error");
+      el.innerHTML = `Thanks — received for review. It's on the `
+        + `<a href="${escapeAttr(safeUrl(result.url))}" target="_blank" `
+        + `rel="noopener noreferrer">public tracker</a>; it isn't on this page yet.`;
+    } else {
+      setNewsStatus("Thanks — received for review. It isn't on this page yet.");
+    }
+  } else if (result.reason === "in-flight" || result.reason === "timeout") {
+    setNewsStatus(result.message, true);
+  } else if (result.reason === "unconfigured") {
+    setNewsStatus("Submissions aren't switched on yet — please try later.", true);
+  } else {
+    setNewsStatus(/^HTTP \d+$/.test(result.reason || "")
+      ? "Couldn't send — please try again." : result.reason, true);
+  }
+}
+
+async function submitBusIssue() {
+  const form = document.getElementById("report-bus-form");
+  if (!form) return;
+
+  const botcheck = form.querySelector("#rb-botcheck");
+  if (botcheck && botcheck.checked) {
+    setReportBusStatus("Thanks!");
+    form.reset();
+    return;
+  }
+
+  // The panel can only be open on a selected bus, but a report with no
+  // service attached would be useless to whoever picks it up.
+  const v = state.selectedVehicle;
+  if (!v || !v.service_ref) {
+    setReportBusStatus("Select a bus first.", true);
+    return;
+  }
+
+  const details = form.querySelector("#rb-details").value.trim();
+  if (!details) {
+    setReportBusStatus("Please describe the problem.", true);
+    form.querySelector("#rb-details").focus();
+    return;
+  }
+
+  const submit = form.querySelector("#rb-submit");
+  const fields = {
+    service:    v.service_ref,
+    operator:   v.operator_ref || "",
+    vehicleRef: v.vehicle_ref || "",
+    category:   form.querySelector("#rb-category").value,
+    details,
+    name:       form.querySelector("#rb-name").value.trim(),
+    // Where the bus was when the report was written, and when — both are
+    // what make it checkable against the timetable afterwards.
+    lat:        v.latitude,
+    lon:        v.longitude,
+    when:       new Date().toISOString().slice(0, 16),
+  };
+
+  if (submit) submit.disabled = true;
+  setReportBusStatus("Sending…");
+  const result = await postSubmission("bus_issue", fields,
+                                      document.getElementById("rb-turnstile"));
+  if (submit) submit.disabled = false;
+  resetTurnstile(document.getElementById("rb-turnstile"));
+
+  if (result.ok) {
+    form.reset();
+    toggleReportBusForm(false);
+    const el = document.getElementById("rb-status");
+    if (el && result.url) {
+      el.classList.remove("is-error");
+      el.innerHTML = `Thanks — received for review. `
+        + `<a href="${escapeAttr(safeUrl(result.url))}" target="_blank" `
+        + `rel="noopener noreferrer">Track it here</a>.`;
+    } else {
+      setReportBusStatus("Thanks — your report has been received for review.");
+    }
+  } else if (result.reason === "in-flight" || result.reason === "timeout") {
+    setReportBusStatus(result.message, true);
+  } else if (result.reason === "unconfigured") {
+    setReportBusStatus("Reporting isn't switched on yet — please try later.", true);
+  } else {
+    setReportBusStatus(/^HTTP \d+$/.test(result.reason || "")
+      ? "Couldn't send — please try again." : result.reason, true);
+  }
+}
+
 async function submitStopIssue() {
   const form = dom.reportStopForm;
   if (!form) return;
@@ -8737,6 +8956,31 @@ const OPERATOR_NAMES = {
 
 function getOperatorName(operatorRef) {
   return OPERATOR_NAMES[operatorRef] || operatorRef || "Unknown operator";
+}
+
+/** Where an actual complaint about a bus should go.
+ *
+ * The report form files a public record; it does not reach the operator, and
+ * saying so is worth nothing unless the page also says where to go instead.
+ * Only operators whose contact page we have are linked — the rest get the
+ * honest "their own contact page", because guessing a URL here would send
+ * someone's complaint into a 404.
+ */
+const OPERATOR_COMPLAINT_URLS = {
+  "SCSO": "https://www.stagecoachbus.com/help-and-contact",
+  "SCSC": "https://www.stagecoachbus.com/help-and-contact",
+  "BHBC": "https://www.buses.co.uk/contact-us",
+  "CMPA": "https://compass-travel.co.uk/contact-us/",
+  "COMT": "https://compass-travel.co.uk/contact-us/",
+  "METR": "https://www.metrobus.co.uk/contact-us",
+};
+
+function operatorComplaintLinkHtml(operatorRef) {
+  const url = OPERATOR_COMPLAINT_URLS[operatorRef];
+  const name = escapeHtml(getOperatorName(operatorRef));
+  return url
+    ? `<a href="${escapeAttr(safeUrl(url))}" target="_blank" rel="noopener noreferrer">${name}</a> directly`
+    : `${name} directly`;
 }
 
 // ============================================================

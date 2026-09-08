@@ -548,7 +548,11 @@
              the filter block came to 132px, and Route view was spending 61% of
              a phone sheet on chrome before any content. <details> gives the
              collapse, the keyboard behaviour and the aria for free. -->
-        <details class="filter-disclosure" open>
+        <!-- Closed by default. The filters are a refinement, not the first
+             thing to do here, and open they took 160px of the sheet before
+             any content — on a 320px screen that pushed the tab strip below
+             the fold entirely. -->
+        <details class="filter-disclosure">
           <summary class="filter-disclosure-summary">
             <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
             <span>Filter services</span>
@@ -562,13 +566,6 @@
           <div class="filter-strip-row">
             <span class="filter-strip-label">Operator</span>
             <div class="filter-strip" id="service-operator-toggle"></div>
-          </div>
-          <div class="filter-strip-row">
-            <span class="filter-strip-label">Frequency</span>
-            <label class="filter-toggle" for="show-limited-services">
-              <input type="checkbox" id="show-limited-services">
-              <span>Show limited services</span>
-            </label>
           </div>
         </div>
         </details>
@@ -597,6 +594,29 @@
 
         <!-- ── ABOUT TAB ── -->
         <div class="panel-tab-content" id="tab-content-about" role="tabpanel" aria-labelledby="tab-about">
+          <!-- The route list comes first. It is what this tab is for — the
+               map is a picture of it — and it was below three paragraphs of
+               prose that only make sense once you have seen the list. -->
+          <div class="route-filters" id="route-filters">
+            <div class="route-filters-header">
+              <h3 class="route-filters-title">Existing services</h3>
+              <div class="route-filters-actions">
+                <button class="btn-text" id="routes-all-btn">Show all</button>
+                <button class="btn-text" id="routes-none-btn">Hide all</button>
+              </div>
+            </div>
+            <!-- Moved out of "Filter services": this is the one control that
+                 changes what the list itself contains, so it belongs with the
+                 list rather than behind a collapsed disclosure. -->
+            <label class="filter-toggle route-filters-limited" for="show-limited-services">
+              <input type="checkbox" id="show-limited-services">
+              <span>Show limited services</span>
+            </label>
+            <div class="route-filter-chips" id="route-filter-chips" aria-live="polite">
+              <p class="route-filters-empty">Loading route list…</p>
+            </div>
+          </div>
+
           <div class="improvements-intro">
             <h2 class="improvements-title">Better buses for Adur &amp; Worthing</h2>
             <p>
@@ -630,19 +650,6 @@
             </p>
           </div>
 
-          <!-- Route filter list populated by task 5 -->
-          <div class="route-filters" id="route-filters">
-            <div class="route-filters-header">
-              <h3 class="route-filters-title">Existing services</h3>
-              <div class="route-filters-actions">
-                <button class="btn-text" id="routes-all-btn">Show all</button>
-                <button class="btn-text" id="routes-none-btn">Hide all</button>
-              </div>
-            </div>
-            <div class="route-filter-chips" id="route-filter-chips" aria-live="polite">
-              <p class="route-filters-empty">Loading route list…</p>
-            </div>
-          </div>
         </div>
 
         <!-- ── PROPOSALS TAB ── -->
@@ -810,6 +817,71 @@
             </p>
           </div>
           <div class="proposals-section-cards" id="community-updates-list"></div>
+
+          <!-- Same route every other submission takes: to the Worker, into a
+               public issue, published with add_update.py --from-issue. -->
+          <section class="suggest-section">
+            <h3 class="proposals-section-title">Tell us something</h3>
+            <p class="proposals-section-blurb">
+              Noticed a change on the network? Send it in. Somebody reads
+              everything before it appears here.
+            </p>
+            <form class="suggest-form" id="news-form" novalidate>
+              <div class="editor-field">
+                <label for="nw-title">Headline</label>
+                <input id="nw-title" name="title" type="text" maxlength="120" required
+                       placeholder="e.g. Evening journeys added to the 700">
+              </div>
+              <div class="editor-field">
+                <label for="nw-summary">One-line summary</label>
+                <input id="nw-summary" name="summary" type="text" maxlength="120" required
+                       placeholder="The whole thing in a sentence">
+              </div>
+              <div class="editor-field">
+                <label for="nw-details">What happened?</label>
+                <textarea id="nw-details" name="details" maxlength="1000" required
+                          placeholder="What changed, where, and when did you notice?"></textarea>
+              </div>
+              <div class="editor-field">
+                <label for="nw-topic">Topic (optional)</label>
+                <input id="nw-topic" name="topic" type="text" maxlength="40"
+                       placeholder="e.g. Timetables, Fares, Stops">
+              </div>
+              <div class="editor-field">
+                <label for="nw-source">Source link (optional)</label>
+                <input id="nw-source" name="sourceUrl" type="url" maxlength="120"
+                       placeholder="https://…">
+              </div>
+              <div class="editor-field">
+                <label for="nw-name">Your name (optional)</label>
+                <input id="nw-name" name="name" type="text" maxlength="60">
+              </div>
+
+              <!-- Honeypot -->
+              <div class="suggest-honeypot" aria-hidden="true">
+                <label for="nw-botcheck">Leave this field empty</label>
+                <input id="nw-botcheck" name="botcheck" type="checkbox" tabindex="-1" autocomplete="off">
+              </div>
+
+              <div class="suggest-turnstile" id="nw-turnstile"></div>
+
+              <p class="suggest-privacy">
+                This posts to the project's public issue tracker straight away,
+                with the name you give. A person reviews it before anything
+                appears on this page. Don't include anything you wouldn't want
+                published, and don't put an email address in — we don't ask for
+                one.
+              </p>
+
+              <div class="suggest-actions">
+                <button class="editor-action-btn primary" id="nw-submit" type="submit">
+                  <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
+                  <span>Send it in</span>
+                </button>
+                <span class="editor-status" id="nw-status" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </section>
         </div>
       </div>
 

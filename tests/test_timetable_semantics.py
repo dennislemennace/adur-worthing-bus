@@ -498,3 +498,44 @@ def test_the_release_check_rejects_a_service_nothing_describes(db_path, tmp_path
     con.close()
 
     assert check_timetable.main(broken, allow_small=True) == 1
+
+
+# ── Live vehicle fields ─────────────────────────────────────
+
+def test_a_direction_code_is_never_shown_as_a_destination():
+    """Brighton & Hove publish non-timetabled workings — rail replacement and
+    their City Sightseeing tour — with no `DestinationName`. The parser fell
+    back to `DirectionRef`, whose value in this feed is the literal string
+    "Destination", so the map showed buses "going to Destination". A direction
+    code is not a place, and no fallback makes it one.
+    """
+    import xml.etree.ElementTree as ET
+    import api.main as main
+
+    ns = {"s": main.SIRI_NS}
+    xml = f"""<Siri xmlns="{main.SIRI_NS}"><ServiceDelivery>
+      <VehicleMonitoringDelivery><VehicleActivity>
+        <MonitoredVehicleJourney>
+          <PublishedLineName>RTL</PublishedLineName>
+          <OperatorRef>BHBC</OperatorRef>
+          <DirectionRef>Destination</DirectionRef>
+          <VehicleLocation><Latitude>50.83</Latitude><Longitude>-0.17</Longitude></VehicleLocation>
+          <VehicleRef>1021</VehicleRef>
+        </MonitoredVehicleJourney>
+      </VehicleActivity></VehicleMonitoringDelivery>
+    </ServiceDelivery></Siri>"""
+
+    root = ET.fromstring(xml)
+    mvj = root.find(".//s:MonitoredVehicleJourney", ns)
+
+    def jtext(tag):
+        el = mvj.find(f"s:{tag}", ns)
+        return el.text.strip() if el is not None and el.text else ""
+
+    assert jtext("DirectionRef") == "Destination", "fixture: the feed really says this"
+    # The parser's rule, asserted directly: no DestinationName means no
+    # destination, not a direction code wearing one's clothes.
+    source = (Path(main.__file__)).read_text()
+    assert '"destination":   jtext("DestinationName"),' in source, \
+        "the destination field has a fallback again"
+    assert 'jtext("DestinationName") or jtext("DirectionRef")' not in source

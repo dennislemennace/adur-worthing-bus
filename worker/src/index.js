@@ -52,6 +52,15 @@ const STOP_ISSUE_CATEGORIES = new Set([
   "shelter", "timetable-case", "rtpi-display", "accessibility", "lighting", "other",
 ]);
 
+// What can be wrong with the bus itself, as distinct from the stop it is
+// standing at. `accessibility` and `onboard-info` are the two the Public
+// Service Vehicles (Accessible Information) Regulations 2023 bear on — a
+// resident's report of a missing next-stop announcement is evidence about
+// compliance, and there is nowhere else on this site to put it.
+const BUS_ISSUE_CATEGORIES = new Set([
+  "full", "cancelled", "accessibility", "onboard-info", "late", "other",
+]);
+
 export default {
   async fetch(request, env, ctx) {
     const origin = request.headers.get("Origin") || "";
@@ -174,6 +183,8 @@ function buildIssue(p) {
     case "idea":       return buildIdea(p);
     case "proposal":   return buildProposal(p);
     case "stop_issue": return buildStopIssue(p);
+    case "bus_issue":  return buildBusIssue(p);
+    case "news":       return buildNews(p);
     default:           throw new Error("Unknown submission type");
   }
 }
@@ -312,6 +323,166 @@ function buildProposal(p) {
     title: `Proposal: ${title}`,
     body,
     labels: ["community-submission", "proposal", "unverified"],
+  };
+}
+
+/** A report about a bus, not about a stop.
+ *
+ * Deliberately not folded into buildStopIssue. A stop fault belongs to the
+ * council and stays put; a bus fault belongs to the operator and moves, so it
+ * dedupes by vehicle and service rather than by ATCO, and it says something
+ * different about who can act on it.
+ */
+/** A short article submitted by a reader, for Community News.
+ *
+ * Built server-side into the same ````json` shape `add_update.py` reads, so
+ * publishing is `--from-issue N` like every other submission rather than a
+ * copy-and-paste. The blob is composed here from validated fields, never
+ * taken from the browser: `status` and `date` are the site's to set, and a
+ * submission that could set its own would be publishing itself.
+ */
+function buildNews(p) {
+  const title   = required(p.title, "title", LIMITS.title, "a headline");
+  const summary = required(p.summary, "summary", LIMITS.title, "a one-line summary");
+  const details = required(p.details, "details", LIMITS.details, "the article itself");
+  const name    = optional(p.name, LIMITS.name);
+  const topic   = optional(p.topic, LIMITS.area);
+  const link    = optional(p.sourceUrl, LIMITS.objective);
+
+  // A source link is optional, but one that is not http(s) is not a source.
+  let sourceUrl = "";
+  if (link) {
+    if (!/^https?:\/\//i.test(link)) throw new Error("A source link must start with http:// or https://");
+    sourceUrl = link;
+  }
+
+  const publish = {
+    title,
+    summary,
+    body: details,
+    topic: topic || "Community",
+    name: name || "",
+  };
+  if (sourceUrl) publish.links = [{ label: "Source", url: sourceUrl }];
+
+  const body = [
+    "**Community news** submitted from the Updates tab.",
+    "",
+    `**From:** ${name || "anonymous"}`,
+    topic ? `**Topic:** ${topic}` : null,
+    sourceUrl ? `**Source:** ${sourceUrl}` : null,
+    "",
+    "### Summary",
+    "",
+    blockquote(summary),
+    "",
+    "### Article",
+    "",
+    blockquote(details),
+    "",
+    "---",
+    "",
+    "<details><summary>Ready to publish</summary>",
+    "",
+    "```json",
+    JSON.stringify(publish, null, 2),
+    "```",
+    "",
+    "</details>",
+    "",
+    "To publish: `python scripts/add_update.py --from-issue <this issue>`",
+    "",
+    "> Nothing here has been checked. A community article is somebody's account",
+    "> of something, and it is published under this site's name — read it, check",
+    "> what it asserts, and edit before publishing.",
+    "",
+    autoNote(),
+  ].filter(line => line !== null).join("\n");
+
+  return {
+    title: `News: ${title}`,
+    body,
+    labels: ["community-submission", "news", "unverified"],
+  };
+}
+
+function buildBusIssue(p) {
+  const service = required(p.service, "service", LIMITS.stopName, "a service");
+  const details = required(p.details, "details", LIMITS.details,
+                           "a description of the problem");
+  const name     = optional(p.name, LIMITS.name);
+  const operator = optional(p.operator, LIMITS.atco);
+  const vehicle  = optional(p.vehicleRef, LIMITS.atco);
+
+  const category = String(p.category || "other");
+  if (!BUS_ISSUE_CATEGORIES.has(category)) throw new Error("Unknown issue category");
+
+  // `when` is the reporter's own clock, and it is the field that makes a
+  // report checkable against the timetable later. Kept only if it parses.
+  const when = String(p.when || "").trim();
+  const whenOk = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(when) ? when : "";
+
+  const lat = num(p.lat), lon = num(p.lon);
+  const hasGeo = lat !== null && lon !== null;
+
+  const accessible = category === "accessibility" || category === "onboard-info";
+
+  const body = [
+    "**Bus issue** reported from the live bus panel.",
+    "",
+    `**Service:** ${service}`,
+    operator ? `**Operator:** \`${operator}\`` : null,
+    vehicle  ? `**Vehicle:** \`${vehicle}\`` : null,
+    `**Category:** ${category}`,
+    whenOk ? `**Reported for:** ${whenOk}` : null,
+    hasGeo ? `**Seen near:** ${lat.toFixed(6)}, ${lon.toFixed(6)}` : null,
+    hasGeo
+      ? `**Map:** [OpenStreetMap](https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=17/${lat}/${lon})`
+      : null,
+    `**From:** ${name || "anonymous"}`,
+    "",
+    "### Reported problem",
+    "",
+    blockquote(details),
+    "",
+    "---",
+    "",
+    "> A bus that is full, cancelled or inaccessible is the operator's to answer",
+    "> for, not the council's. This issue records the report so it can be counted",
+    "> and quoted; it is not a complaint lodged with the operator, and it does not",
+    "> reach the driver.",
+    accessible ? "" : null,
+    accessible
+      ? "> Reports of missing or broken audible and visible next-stop information"
+      : null,
+    accessible
+      ? "> are evidence about compliance with the Public Service Vehicles"
+      : null,
+    accessible
+      ? "> (Accessible Information) Regulations 2023, whose final deadline is"
+      : null,
+    accessible
+      ? "> 1 October 2026. Some vehicles and services are exempt — see the DfT's"
+      : null,
+    accessible
+      ? "> published exemptions before treating any one bus as non-compliant."
+      : null,
+    "",
+    autoNote(),
+  ].filter(line => line !== null).join("\n");
+
+  // One thread per vehicle where we know it, per service otherwise: repeat
+  // reports about the same bus belong together, and "the 700 is always full"
+  // is a pattern worth seeing in one place.
+  const dedupeKey = vehicle ? `bus:${operator || "?"}:${vehicle}` : `svc:${service}`;
+
+  return {
+    title: vehicle
+      ? `Bus issue: ${service} (vehicle ${vehicle})`
+      : `Bus issue: ${service}`,
+    body,
+    labels: ["community-submission", "bus-issue", `bus-issue:${category}`, "unverified"],
+    dedupeKey,
   };
 }
 

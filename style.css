@@ -5469,3 +5469,13 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 .councillor-draft-note {
   max-width: 38rem;
 }
+
+
+/* The limited-services toggle now sits with the route list it filters, not
+   inside the collapsed "Filter services" disclosure. */
+.route-filters-limited {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.35rem 0 0.6rem;
+}

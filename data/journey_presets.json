@@ -1,6 +1,6 @@
 {
   "_comment": "Worked examples for the Ticket view journey checker. Each one is a journey the campaign has something to say about, so the checker opens on a real case instead of an empty form. `from`/`to` are NaPTAN ATCO codes and are checked against data/timetable.sqlite by pytest — a preset pointing at a stop that is not in the timetable would fail silently at runtime.",
-  "checked_on": "2026-09-05",
+  "checked_on": "2026-09-08",
   "presets": [
     {
       "id": "lancing-to-brighton",
@@ -23,24 +23,24 @@
       "why": "A direct Coastliner run that still crosses the Worthing/Brighton DayRider boundary, so no single zone ticket covers it."
     },
     {
-      "id": "shoreham-to-university",
-      "label": "Shoreham → Brighton University",
-      "note": "No through service",
-      "from": "4400AD0314",
-      "from_name": "Shoreham-by-Sea Railway Station",
-      "to": "149000007212",
-      "to_name": "Brighton University",
-      "why": "A commute with no direct bus at all, across both a council and an operator boundary."
+      "id": "shoreham-to-universities",
+      "label": "Shoreham → Universities",
+      "note": "Universities",
+      "from": "4400AD0204",
+      "from_name": "Shoreham High Street",
+      "to": "149000006227",
+      "to_name": "Park Road",
+      "why": "Shoreham High Street to Park Road in Coldean — the closest stop this timetable has to the campuses. Deliberately labelled Universities rather than named for one of them: Park Road sits 1.4 km from the University of Sussex at Falmer and 1.6 km from the University of Brighton at Moulsecoomb, with halls, faculty buildings and student housing scattered along the whole corridor between them, so no single campus name describes the journey.\n\nFalmer itself is outside this dataset: the timetable ingest keeps stops west of longitude -0.10 and Falmer is at -0.087, so the last stop on the route we can price is this one. The fare picture across the Adur/Brighton & Hove boundary is the same either way — that boundary is crossed long before the campuses."
     },
     {
-      "id": "southwick-to-mile-oak",
-      "label": "Southwick → Mile Oak",
+      "id": "southwick-to-hole-in-the-wall",
+      "label": "Southwick → Hole in the Wall",
       "note": "Two miles, one change and a walk",
       "from": "4400AD0259",
       "from_name": "Southwick Square",
-      "to": "149000006483",
-      "to_name": "Mile Oak Gardens",
-      "why": "Both ends are Brighton & Hove and barely two miles apart, but the council line runs between them and there is no direct bus. The 46 and the 1X do not share a stop: the change is a short walk at Southern Cross. Mile Oak Road Shops, further up, cannot be reached at all — route 1 starts near there and runs the other way."
+      "to": "149000006480",
+      "to_name": "Hole in the Wall",
+      "why": "Southwick Square up to the top of Mile Oak — the full length of the route rather than the halfway point at Mile Oak Gardens, so the line on the map shows where the service actually ends. Both ends are Brighton & Hove; the interest here is how far a single operator's network reaches west of the city."
     },
     {
       "id": "worthing-to-hangleton",
@@ -51,6 +51,16 @@
       "to": "149000007677",
       "to_name": "Hangleton Road Shops",
       "why": "One of the corridors with no simple route: a change, two operators, and no express option across the boundary."
+    },
+    {
+      "id": "sompting-to-brighton-marina",
+      "label": "Sompting → Brighton Marina",
+      "note": "The long way along the coast",
+      "from": "4400AD0047",
+      "from_name": "Upton Farm House",
+      "to": "149000006756",
+      "to_name": "Brighton Marina",
+      "why": "End to end along the coast, from a Sompting housing estate to the Marina — about as far as this corridor goes in one trip. Sompting is Stagecoach and Compass territory; the Marina is Brighton & Hove's. It is the clearest case of a journey no single operator's ticket covers."
     }
   ]
 }
