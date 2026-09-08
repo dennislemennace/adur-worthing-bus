@@ -14,3 +14,8 @@
 -r requirements.txt
 
 pytest==8.2.2   # curated-data integrity checks in tests/
+# The image scripts import PIL. It was never in either requirements file, so
+# a clean checkout could not run scripts/build_icons.py or
+# scripts/prepare_brand_mark.py — which is how "reproducible" quietly stops
+# being true. Not in requirements.txt: the API never imports it.
+pillow==10.4.0
