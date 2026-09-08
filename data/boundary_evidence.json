@@ -6,17 +6,17 @@
     "east": "Brighton & Hove"
   },
   "headline": "Bus service is measurably thinner on the West Sussex side of the Brighton & Hove boundary.",
-  "as_of": "2026-09-06",
-  "computed_at": "2026-09-06T17:10:06+00:00",
+  "as_of": "2026-09-08",
+  "computed_at": "2026-09-08T14:58:34+00:00",
   "data_version": {
     "source": "Bus Open Data Service, South East regional GTFS bundle",
     "artefact": "data/timetable.sqlite",
-    "sha256": "ea47533a43d741ddfd19450695f8ed4d2b93612e18fc9988bdfee28e7dd58f48"
+    "sha256": "02109739ad1ba3d988368b1693eb0807a2a51305797eafdf11effc76fbd0927e"
   },
   "measured_week": {
-    "monday": "2026-09-07",
-    "saturday": "2026-09-12",
-    "sunday": "2026-09-13"
+    "monday": "2026-09-14",
+    "saturday": "2026-09-19",
+    "sunday": "2026-09-20"
   },
   "method": {
     "summary": "Stops in a 4 km band either side of the council boundary, along the same coastal strip, bucketed east or west of the line and compared per stop.",
@@ -109,7 +109,7 @@
         "departures": 11584,
         "departures_per_stop": 64.4,
         "routes": 15,
-        "departures_after_2300": 382,
+        "departures_after_2300": 581,
         "route_list": [
           "025",
           "1",
@@ -133,7 +133,7 @@
         "departures": 27738,
         "departures_per_stop": 86.7,
         "routes": 18,
-        "departures_after_2300": 929,
+        "departures_after_2300": 1269,
         "route_list": [
           "1",
           "1X",
@@ -166,7 +166,7 @@
         "departures": 10900,
         "departures_per_stop": 60.6,
         "routes": 11,
-        "departures_after_2300": 382,
+        "departures_after_2300": 581,
         "route_list": [
           "025",
           "1",
@@ -186,7 +186,7 @@
         "departures": 25927,
         "departures_per_stop": 81.0,
         "routes": 18,
-        "departures_after_2300": 934,
+        "departures_after_2300": 1272,
         "route_list": [
           "1",
           "1X",
@@ -219,7 +219,7 @@
         "departures": 6607,
         "departures_per_stop": 36.7,
         "routes": 9,
-        "departures_after_2300": 236,
+        "departures_after_2300": 409,
         "route_list": [
           "025",
           "1",
@@ -234,10 +234,10 @@
       },
       "east": {
         "stops": 320,
-        "departures": 16171,
-        "departures_per_stop": 50.5,
-        "routes": 16,
-        "departures_after_2300": 522,
+        "departures": 17191,
+        "departures_per_stop": 53.7,
+        "routes": 17,
+        "departures_after_2300": 766,
         "route_list": [
           "1",
           "1X",
@@ -247,6 +247,7 @@
           "3X",
           "46",
           "47",
+          "49",
           "5",
           "5B",
           "6",
@@ -258,8 +259,8 @@
         ]
       },
       "ratio": {
-        "departures_per_stop": 0.727,
-        "routes": 0.562
+        "departures_per_stop": 0.683,
+        "routes": 0.529
       }
     },
     "weekend": {
@@ -270,7 +271,7 @@
         "routes": 11,
         "routes_saturday": 11,
         "routes_sunday": 9,
-        "departures_after_2300": 618,
+        "departures_after_2300": 990,
         "route_list": [
           "025",
           "1",
@@ -287,12 +288,12 @@
       },
       "east": {
         "stops": 320,
-        "departures": 42098,
-        "departures_per_stop": 65.8,
+        "departures": 43118,
+        "departures_per_stop": 67.4,
         "routes": 18,
         "routes_saturday": 18,
-        "routes_sunday": 16,
-        "departures_after_2300": 1456,
+        "routes_sunday": 17,
+        "departures_after_2300": 2038,
         "route_list": [
           "1",
           "1X",
@@ -315,7 +316,7 @@
         ]
       },
       "ratio": {
-        "departures_per_stop": 0.739,
+        "departures_per_stop": 0.721,
         "routes": 0.611
       },
       "combines": [
@@ -353,7 +354,7 @@
           "departures": 2132,
           "departures_per_stop": 32.8,
           "routes": 9,
-          "departures_after_2300": 37,
+          "departures_after_2300": 95,
           "route_list": [
             "025",
             "16",
@@ -371,7 +372,7 @@
           "departures": 5024,
           "departures_per_stop": 116.8,
           "routes": 10,
-          "departures_after_2300": 178,
+          "departures_after_2300": 232,
           "route_list": [
             "1",
             "1X",
@@ -396,7 +397,7 @@
           "departures": 1925,
           "departures_per_stop": 29.6,
           "routes": 6,
-          "departures_after_2300": 37,
+          "departures_after_2300": 95,
           "route_list": [
             "025",
             "7",
@@ -411,7 +412,7 @@
           "departures": 4724,
           "departures_per_stop": 109.9,
           "routes": 10,
-          "departures_after_2300": 178,
+          "departures_after_2300": 232,
           "route_list": [
             "1",
             "1X",
@@ -436,7 +437,7 @@
           "departures": 1162,
           "departures_per_stop": 17.9,
           "routes": 4,
-          "departures_after_2300": 19,
+          "departures_after_2300": 65,
           "route_list": [
             "025",
             "700",
@@ -446,53 +447,10 @@
         },
         "east": {
           "stops": 43,
-          "departures": 3196,
-          "departures_per_stop": 74.3,
-          "routes": 9,
-          "departures_after_2300": 105,
-          "route_list": [
-            "1",
-            "1X",
-            "2",
-            "2B",
-            "46",
-            "6",
-            "700",
-            "N1",
-            "N700"
-          ]
-        },
-        "ratio": {
-          "departures_per_stop": 0.241,
-          "routes": 0.444
-        }
-      },
-      "weekend": {
-        "west": {
-          "stops": 65,
-          "departures": 3087,
-          "departures_per_stop": 23.7,
-          "routes": 6,
-          "routes_saturday": 6,
-          "routes_sunday": 4,
-          "departures_after_2300": 56,
-          "route_list": [
-            "025",
-            "7",
-            "700",
-            "701",
-            "9",
-            "N700"
-          ]
-        },
-        "east": {
-          "stops": 43,
-          "departures": 7920,
-          "departures_per_stop": 92.1,
+          "departures": 3229,
+          "departures_per_stop": 75.1,
           "routes": 10,
-          "routes_saturday": 10,
-          "routes_sunday": 9,
-          "departures_after_2300": 283,
+          "departures_after_2300": 142,
           "route_list": [
             "1",
             "1X",
@@ -507,7 +465,51 @@
           ]
         },
         "ratio": {
-          "departures_per_stop": 0.257,
+          "departures_per_stop": 0.238,
+          "routes": 0.4
+        }
+      },
+      "weekend": {
+        "west": {
+          "stops": 65,
+          "departures": 3087,
+          "departures_per_stop": 23.7,
+          "routes": 6,
+          "routes_saturday": 6,
+          "routes_sunday": 4,
+          "departures_after_2300": 160,
+          "route_list": [
+            "025",
+            "7",
+            "700",
+            "701",
+            "9",
+            "N700"
+          ]
+        },
+        "east": {
+          "stops": 43,
+          "departures": 7953,
+          "departures_per_stop": 92.5,
+          "routes": 10,
+          "routes_saturday": 10,
+          "routes_sunday": 10,
+          "departures_after_2300": 374,
+          "route_list": [
+            "1",
+            "1X",
+            "2",
+            "2B",
+            "46",
+            "49",
+            "6",
+            "700",
+            "N1",
+            "N700"
+          ]
+        },
+        "ratio": {
+          "departures_per_stop": 0.256,
           "routes": 0.6
         },
         "combines": [
