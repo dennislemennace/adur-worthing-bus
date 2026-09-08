@@ -2219,14 +2219,15 @@ async def _get_timetable() -> Timetable:
     return _timetable
 
 # ── Departure calculation ─────────────────────────────────────
+def _service_day_start(day: date) -> datetime:
+    """Return the GTFS service-day epoch: local noon minus twelve elapsed hours."""
+    noon = datetime(day.year, day.month, day.day, 12, tzinfo=UK_TZ)
+    return noon.astimezone(timezone.utc) - timedelta(hours=12)
+
+
 def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
     now_local = datetime.now(UK_TZ)
     today     = now_local.date()
-    dow       = today.weekday()
-    today_str = today.strftime("%Y%m%d")
-    now_secs  = (now_local.hour * 3600
-                 + now_local.minute * 60
-                 + now_local.second)
     lookahead = 7200   # 2 hours
 
     variants  = _normalise_atco(stop_id)
@@ -2254,29 +2255,28 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
         }
 
     departures = []
-    for (dep_secs, trip_id) in raw_times:
-        if dep_secs < now_secs or dep_secs > now_secs + lookahead:
-            continue
-        trip  = tt.trips.get(trip_id, {})
-        route = tt.routes.get(trip.get("route_id", ""), {})
-        sid   = trip.get("service_id", "")
-        if not _runs_today(sid, today, today_str, dow,
-                           tt.calendar, tt.calendar_dates):
-            continue
-        dep_h  = (dep_secs // 3600) % 24
-        dep_m  = (dep_secs % 3600) // 60
-        dep_dt = now_local.replace(
-            hour=dep_h, minute=dep_m, second=0, microsecond=0
-        )
-        departures.append({
-            "service":            route.get("short_name", "?"),
-            "destination":        trip.get("headsign", "Unknown"),
-            "aimed_departure":    dep_dt.isoformat(),
-            "expected_departure": None,   # Phase 2: filled from GTFS-RT
-            "status":             "Scheduled",
-            "delay_seconds":      None,   # Phase 2: filled from GTFS-RT
-            "_trip_id":           trip_id,
-        })
+    for offset_days in (-1, 0, 1):
+        service_day = today + timedelta(days=offset_days)
+        day_start = _service_day_start(service_day)
+        elapsed = (now_local - day_start).total_seconds()
+        for dep_secs, trip_id in raw_times:
+            if dep_secs < elapsed or dep_secs > elapsed + lookahead:
+                continue
+            trip = tt.trips.get(trip_id, {})
+            route = tt.routes.get(trip.get("route_id", ""), {})
+            service_id = trip.get("service_id", "")
+            if not tt.runs_on(service_id, service_day):
+                continue
+            departure = (day_start + timedelta(seconds=dep_secs)).astimezone(UK_TZ)
+            departures.append({
+                "service": route.get("short_name", "?"),
+                "destination": trip.get("headsign", "Unknown"),
+                "aimed_departure": departure.isoformat(),
+                "expected_departure": None,
+                "status": "Scheduled",
+                "delay_seconds": None,
+                "_trip_id": trip_id,
+            })
 
     departures.sort(key=lambda d: d["aimed_departure"])
     return {"stop_name": stop_name, "departures": departures[:15]}

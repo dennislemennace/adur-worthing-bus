@@ -113,9 +113,24 @@ def main() -> None:
     with JSON_PATH.open() as fh:
         tt = json.load(fh)
 
-    if DB_PATH.exists():
-        DB_PATH.unlink()
-    con = sqlite3.connect(DB_PATH)
+    convert(tt, DB_PATH)
+
+    size = DB_PATH.stat().st_size / 1_000_000
+    print(f"wrote {DB_PATH} ({size:.1f} MB) in {time.monotonic() - t0:.1f}s")
+
+
+def convert(tt: dict, db_path: Path) -> None:
+    """Write a parsed timetable to a fresh SQLite file at `db_path`.
+
+    Separated from main() so a test can round-trip a small GTFS archive
+    through the real converter. The seam between ingest and this file is
+    where overnight trips lost their order, and neither half looked wrong on
+    its own.
+    """
+    db_path = Path(db_path)
+    if db_path.exists():
+        db_path.unlink()
+    con = sqlite3.connect(db_path)
     con.executescript(SCHEMA)
 
     # --- surrogate id maps ---
@@ -171,16 +186,27 @@ def main() -> None:
     print(f"  trips: {len(trip_rows)}")
 
     # --- stop_times: invert stop-indexed map into per-trip list ---
-    per_trip: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    #
+    # Each entry carries the feed's own stop_sequence. This used to be
+    # (dep_secs, trip_id) only, and the order was re-derived below by sorting
+    # on departure seconds — which reversed every trip crossing midnight and
+    # could not separate two stops timed to the same minute.
+    per_trip: dict[int, list[tuple[int, int, int]]] = defaultdict(list)
     for stop_id_text, entries in tt["stop_times"].items():
         sid = stop_sid.get(stop_id_text)
         if sid is None:
             continue
-        for dep_secs, trip_id_text in entries:
+        for entry in entries:
+            # Tolerate a timetable.json written before stop_sequence was kept.
+            if len(entry) == 3:
+                dep_secs, trip_id_text, seq = entry
+            else:
+                dep_secs, trip_id_text = entry
+                seq = -1
             tid = trip_tid.get(trip_id_text)
             if tid is None:
                 continue
-            per_trip[tid].append((dep_secs, sid))
+            per_trip[tid].append((seq, dep_secs, sid))
 
     route_short = {
         route_rid[rid]: r.get("short_name", "")
@@ -189,12 +215,18 @@ def main() -> None:
 
     st_rows = []
     endpoint_rows = []
-    for tid, pairs in per_trip.items():
-        pairs.sort(key=lambda p: p[0])
-        for seq, (dep_secs, sid) in enumerate(pairs):
+    for tid, calls in per_trip.items():
+        # The feed's sequence decides the order; departure time is only a
+        # tiebreak for a feed that supplied no stop_sequence at all.
+        calls.sort(key=lambda c: (c[0], c[1]))
+        # `seq` is renumbered 0..n so it stays dense, but the order it
+        # preserves is the feed's, not this file's opinion of it.
+        for seq, (_src_seq, dep_secs, sid) in enumerate(calls):
             st_rows.append((tid, seq, sid, dep_secs))
-        first_dep, first_sid = pairs[0]
-        _, last_sid = pairs[-1]
+        # The trip's first stop, not its earliest clock time: on an overnight
+        # trip those are different rows, and GTFS-RT matching wants the first.
+        _, first_dep, first_sid = calls[0]
+        _, _, last_sid = calls[-1]
         short = route_short.get(trip_rid.get(tid, 0), "")
         endpoint_rows.append((tid, short, first_sid, last_sid, first_dep))
 
@@ -248,12 +280,9 @@ def main() -> None:
     con.close()
 
     # VACUUM outside the WAL transaction to compact final file.
-    con = sqlite3.connect(DB_PATH)
+    con = sqlite3.connect(db_path)
     con.execute("VACUUM")
     con.close()
-
-    size = DB_PATH.stat().st_size / 1_000_000
-    print(f"wrote {DB_PATH} ({size:.1f} MB) in {time.monotonic() - t0:.1f}s")
 
 
 if __name__ == "__main__":

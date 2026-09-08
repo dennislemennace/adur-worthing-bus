@@ -103,8 +103,8 @@ def main():
 
     # Convert stop_times tuples to lists for JSON serialisation
     timetable["stop_times"] = {
-        k: [[dep_secs, trip_id] for (dep_secs, trip_id) in v]
-        for k, v in timetable["stop_times"].items()
+        stop_id: [list(entry) for entry in entries]
+        for stop_id, entries in timetable["stop_times"].items()
     }
 
     log.info("Writing timetable to %s", OUTPUT_PATH)
@@ -301,8 +301,17 @@ def parse_gtfs(zip_path: str) -> dict:
                 dep_secs = _hms_to_secs(dep_time)
                 if dep_secs < 0 or not trip_id:
                     continue
+                # `stop_sequence` is the feed's own statement of what order
+                # this trip calls at its stops. It used to be discarded here
+                # and reconstructed downstream by sorting on departure time,
+                # which cannot separate two stops timed to the same minute and
+                # actively reverses a trip that crosses midnight.
+                try:
+                    seq = int(row.get("stop_sequence", ""))
+                except (TypeError, ValueError):
+                    seq = -1
                 timetable["stop_times"].setdefault(stop_id, []).append(
-                    (dep_secs, trip_id))
+                    (dep_secs, trip_id, seq))
                 needed_trip_ids.add(trip_id)
                 kept_count += 1
         log.info(
@@ -425,7 +434,12 @@ def parse_gtfs(zip_path: str) -> dict:
         # through that trip's stop sequence. Stored as a synthetic
         # shape (id "osrm:{tid}") so the runtime's shape-preferring
         # selection picks it up naturally with no special-casing.
-        _osrm_fill(timetable, ws_stop_ids, bbox_stop_ids)
+        # OSRM is a public demo server: a test round-tripping a synthetic
+        # archive has no business calling it, and no shapes to gain from it.
+        if os.getenv("SKIP_OSRM") == "1":
+            log.info("OSRM phase: skipped (SKIP_OSRM=1)")
+        else:
+            _osrm_fill(timetable, ws_stop_ids, bbox_stop_ids)
 
         # 5. calendar.txt
         if "calendar.txt" in names:
@@ -490,16 +504,23 @@ def _require(names: set, filename: str) -> None:
 
 def _hms_to_secs(t: str) -> int:
     """
-    Convert a GTFS HH:MM:SS time to seconds since midnight.
-    GTFS allows hours > 24 for overnight services — we mod by 86400
-    so they land in the next-day slot.
+    Convert a GTFS HH:MM:SS time to seconds since the start of its service day.
+
+    GTFS hours run past 24 for a service that crosses midnight, and 24:05 means
+    "five past midnight, still part of the day this trip belongs to" — not
+    00:05. This used to `% 86400`, which filed the tail of every overnight
+    trip under the wrong day and, because stop order was then re-derived by
+    sorting on this number, reordered the trip: A 23:55 → B 24:05 → C 24:10
+    came back out of the database as B, C, A.
+
+    Values above 86400 are expected and meaningful. Callers turn one into a
+    real time by adding it to the start of the service date.
     """
     if not t:
         return -1
     try:
         parts = t.strip().split(":")
-        secs = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-        return secs % 86400
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
     except (ValueError, IndexError):
         return -1
 
@@ -526,12 +547,14 @@ def _osrm_fill(timetable: dict, ws_stop_ids: set, bbox_stop_ids: set) -> None:
     }
 
     # Invert stop_times into per-trip ordered stop sequences.
-    per_trip: dict = {}   # tid -> [(dep_secs, stop_id)]
+    per_trip: dict = {}   # tid -> [(seq, dep_secs, stop_id)]
     for stop_id, entries in timetable["stop_times"].items():
-        for dep_secs, trip_id in entries:
-            per_trip.setdefault(trip_id, []).append((dep_secs, stop_id))
-    for tid, seq in per_trip.items():
-        seq.sort(key=lambda p: p[0])
+        for dep_secs, trip_id, seq in entries:
+            per_trip.setdefault(trip_id, []).append((seq, dep_secs, stop_id))
+    # Ordered by the feed's own stop_sequence, with departure time only as a
+    # tiebreak for a feed that omitted it (seq == -1 for all of them).
+    for tid, calls in per_trip.items():
+        calls.sort(key=lambda p: (p[0], p[1]))
 
     # Group trips by route short_name, filtered to trips that touch the
     # tight bbox — same condition as runtime bbox_trip_ids.
@@ -539,7 +562,7 @@ def _osrm_fill(timetable: dict, ws_stop_ids: set, bbox_stop_ids: set) -> None:
     for tid, t in timetable["trips"].items():
         if tid not in per_trip:
             continue
-        if not any(sid in tight_in_bbox_sids for _ds, sid in per_trip[tid]):
+        if not any(sid in tight_in_bbox_sids for _sq, _ds, sid in per_trip[tid]):
             continue
         route = timetable["routes"].get(t.get("route_id", ""))
         if not route:
@@ -562,14 +585,14 @@ def _osrm_fill(timetable: dict, ws_stop_ids: set, bbox_stop_ids: set) -> None:
         tids.sort(key=lambda tid: len(per_trip[tid]), reverse=True)
         primary = tids[0]
         targets.append(primary)
-        primary_first = per_trip[primary][0][1]
-        primary_last_id = per_trip[primary][-1][1]
+        primary_first = per_trip[primary][0][2]
+        primary_last_id = per_trip[primary][-1][2]
         last_coord = (stops[primary_last_id]["lat"],
                       stops[primary_last_id]["lon"]) if primary_last_id in stops else None
         if last_coord is None:
             continue
         for tid in tids[1:]:
-            first_id = per_trip[tid][0][1]
+            first_id = per_trip[tid][0][2]
             if first_id == primary_first:
                 continue
             fc = stops.get(first_id)
@@ -594,7 +617,7 @@ def _osrm_fill(timetable: dict, ws_stop_ids: set, bbox_stop_ids: set) -> None:
         # avoid asking OSRM to route through chunks we'll just clip
         # at runtime anyway.
         coords = []
-        for _ds, sid in seq:
+        for _sq, _ds, sid in seq:
             s = stops.get(sid)
             if not s:
                 continue

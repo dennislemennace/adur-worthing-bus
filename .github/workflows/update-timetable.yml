@@ -8,8 +8,20 @@ on:
 permissions:
   contents: write
 
+# Two runs of this must not interleave: they both push to main and both move
+# the same rolling release tag.
+concurrency:
+  group: timetable-release
+  cancel-in-progress: false
+
 jobs:
+  # Nothing is published unless the suites pass. This gate did not exist: the
+  # build compiled three scripts, counted rows, and shipped.
+  tests:
+    uses: ./.github/workflows/ci.yml
+
   build:
+    needs: tests
     runs-on: ubuntu-latest
 
     steps:
@@ -19,12 +31,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version-file: ".python-version"
+          cache: pip
 
+      # The pinned set, not an unpinned `pip install httpx`: the build that
+      # produces the published artefact should be the one the tests ran under.
       - name: Install dependencies
-        run: |
-          pip install httpx
-          python -c "import httpx; print('httpx', httpx.__version__, 'OK')"
+        run: pip install -r requirements-dev.txt
 
       - name: Compile check
         run: |
@@ -38,21 +51,60 @@ jobs:
       - name: Convert to SQLite
         run: python -u scripts/json_to_sqlite.py
 
+      # Non-empty is not the same as correct. This checks the properties the
+      # audit found broken — overnight times folded into the morning, stop
+      # order re-derived from departure times, services with no calendar at
+      # all — none of which a row count can see.
       - name: Check output
-        run: |
-          ls -lh data/
-          python -c "
-          import sqlite3
-          con = sqlite3.connect('data/timetable.sqlite')
-          rows = {t: con.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ['stops','routes','trips','stop_times','calendar','calendar_dates']}
-          for t, n in rows.items():
-              print(f'{t}: {n}')
-          if rows['stop_times'] == 0:
-              raise SystemExit('empty timetable — aborting')
-          "
+        run: python -u scripts/check_timetable.py data/timetable.sqlite
 
       - name: Recompute published statistics
         run: python -u scripts/build_evidence.py
+
+      - name: Validate refreshed statistics
+        run: python -m pytest -q tests/test_curated_data.py
+
+      - name: Generate SHA-256 sidecar
+        run: |
+          sha256sum data/timetable.sqlite | awk '{print $1}' > data/timetable.sqlite.sha256
+          echo "Sidecar:"
+          cat data/timetable.sqlite.sha256
+
+      # A dated release is created first and kept, then the rolling tag is
+      # updated in place. The old sequence deleted the rolling release and
+      # then created it, so any failure in between left the API with nothing
+      # to download and no previous version to fall back to.
+      - name: Publish a dated release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DATED="timetable-$(date -u +%Y-%m-%d-%H%M)"
+          echo "DATED_TAG=$DATED" >> "$GITHUB_ENV"
+          gh release create "$DATED" \
+            data/timetable.sqlite data/timetable.sqlite.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "Timetable $(date -u +%Y-%m-%d)" \
+            --notes "Built $(date -u +%Y-%m-%dT%H:%M:%SZ) by $GITHUB_WORKFLOW"
+
+      - name: Move the rolling release to it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="timetable-latest"
+          # --clobber replaces the assets on the existing release rather than
+          # deleting the release itself, so the download URL never 404s.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              data/timetable.sqlite data/timetable.sqlite.sha256 --clobber
+            gh release edit "$TAG" \
+              --title "Timetable $(date -u +%Y-%m-%d)" \
+              --notes "Built $(date -u +%Y-%m-%dT%H:%M:%SZ) from $DATED_TAG"
+          else
+            gh release create "$TAG" \
+              data/timetable.sqlite data/timetable.sqlite.sha256 \
+              --title "Timetable $(date -u +%Y-%m-%d)" \
+              --notes "Built $(date -u +%Y-%m-%dT%H:%M:%SZ) from $DATED_TAG"
+          fi
 
       # The site reads data/boundary_evidence.json from GitHub Pages, so fresh
       # figures have to land in the repo — publishing them to the release
@@ -71,21 +123,20 @@ jobs:
           git commit -m "Recompute boundary statistics from the $(date -u +%Y-%m-%d) timetable"
           git push
 
-      - name: Generate SHA-256 sidecar
-        run: |
-          sha256sum data/timetable.sqlite | awk '{print $1}' > data/timetable.sqlite.sha256
-          echo "Sidecar:"
-          cat data/timetable.sqlite.sha256
-
-      - name: Publish timetable to rolling release
+      # Rolling back is `gh release upload timetable-latest <assets from a
+      # dated release> --clobber`. Keeping the dated releases is what makes
+      # that possible; there was previously nothing to roll back to.
+      - name: Prune old dated releases
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="timetable-latest"
-          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" data/timetable.sqlite data/timetable.sqlite.sha256 \
-            --title "Timetable $(date -u +%Y-%m-%d)" \
-            --notes "Built $(date -u +%Y-%m-%dT%H:%M:%SZ) by $GITHUB_WORKFLOW"
+          gh release list --limit 100 --json tagName \
+            --jq '.[].tagName | select(startswith("timetable-2"))' \
+            | sort -r | tail -n +6 \
+            | while read -r old; do
+                echo "Removing $old"
+                gh release delete "$old" --yes --cleanup-tag || true
+              done
 
       - name: Trigger Render redeploy
         env:
