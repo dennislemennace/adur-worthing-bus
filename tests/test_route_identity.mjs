@@ -63,3 +63,40 @@ test("stripNightPrefix only strips N followed by digits", () => {
   assert.equal(app.stripNightPrefix("N29X"), "N29X");
   assert.equal(app.stripNightPrefix(""), "");
 });
+
+// ── Coaster family ──────────────────────────────────────────
+
+test("route 27 and its variants wear the Coaster livery", () => {
+  // 27 appears only in the live vehicle feed — there is no 27 anywhere in the
+  // GTFS timetable — so a missing entry here shows up as a generic red bus on
+  // the map rather than as an absent route, which is easy to miss. 27B and
+  // 27C are listed ahead of ever being seen for the same reason.
+  const coaster = app.iconForService("BHBC", "12");
+  for (const svc of ["27", "27B", "27C"]) {
+    assert.equal(app.iconForService("BHBC", svc), coaster,
+      `${svc} is not wearing the Coaster livery`);
+  }
+});
+
+test("the 27 family's colour matches the livery it wears", () => {
+  // A Coaster-painted bus with a differently-coloured badge and route line
+  // reads as a bug. These moved together, so they are asserted together.
+  const coasterColour = app.getRouteColour("12", "BHBC");
+  for (const svc of ["27", "27B", "27C"]) {
+    assert.equal(app.getRouteColour(svc, "BHBC"), coasterColour,
+      `${svc}'s colour has drifted from its livery`);
+  }
+});
+
+test("the Coaster livery did not leak onto neighbouring routes", () => {
+  // 26 and 28 sit either side of 27 in the colour table and are not Coaster.
+  const coaster = app.iconForService("BHBC", "12");
+  assert.notEqual(app.iconForService("BHBC", "26"), coaster);
+  assert.notEqual(app.iconForService("BHBC", "28"), coaster);
+  assert.notEqual(app.getRouteColour("28", "BHBC"), app.getRouteColour("27", "BHBC"));
+});
+
+test("a night 27 keeps the Coaster livery", () => {
+  // The night fallback strips the N and retries, so N27 should land on 27.
+  assert.equal(app.iconForService("BHBC", "N27"), app.iconForService("BHBC", "27"));
+});

@@ -8668,6 +8668,14 @@ const ROUTE_ICONS = {
   "BHBC:13X": "icons/BHBC-12.png",
   "BHBC:14":  "icons/BHBC-12.png",
   "BHBC:14C": "icons/BHBC-12.png",
+  // 27 and its variants run in Coaster colours too. Note that no 27 appears
+  // in the GTFS feed at all — like CSS, it exists here only as a livery for
+  // whatever the live vehicle feed reports, which is where it shows up. 27B
+  // and 27C have not been seen yet; they are listed so that they are right
+  // the first time one does, rather than a fortnight later.
+  "BHBC:27":  "icons/BHBC-12.png",
+  "BHBC:27B": "icons/BHBC-12.png",
+  "BHBC:27C": "icons/BHBC-12.png",
 
   // Regency 28 / 29 — magenta and purple
   "BHBC:28":  "icons/BHBC-28.png",
@@ -8813,8 +8821,13 @@ const ROUTE_COLOURS = {
   // 26 — purple
   "26":  "#6E2A8C",
 
-  // 27 — green
-  "27":  "#00A651",
+  // 27 / 27B / 27C — Coaster lime, not the older standalone green (#00A651).
+  // Kept in step with the livery above: a Coaster-painted bus wearing a
+  // different green on its badge and its route line reads as a bug rather
+  // than as two deliberate choices.
+  "27":  "#7AB800",
+  "27B": "#7AB800",
+  "27C": "#7AB800",
 
   // 28 / 29 / 29X — purple
   "28":  "#4E2A84",
