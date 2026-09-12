@@ -154,9 +154,22 @@ test("the proposal editor says what submitting does, at the submit button", () =
   const start = src.indexOf('id="ed-submit"');
   const end = src.indexOf('id="ed-help-popover"');
   assert.ok(start > 0 && end > start, "editor markup not found as expected");
-  const atTheAction = src.slice(start, end);
+  // Tags stripped: the notice emphasises "public", which otherwise splits the
+  // phrase this looks for and fails on the markup rather than the meaning.
+  // Tags stripped and whitespace collapsed: the notice emphasises "public",
+  // and the source wraps mid-phrase ("straight\n        away"), so a literal
+  // match fails on the formatting rather than on the meaning.
+  const atTheAction = src.slice(start, end)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ");
   assert.match(atTheAction, /public issue tracker/,
     "the notice is not next to the submit button");
-  assert.match(atTheAction, /before anything appears on the site/,
+  // Two separate facts, asserted separately so shortening the wording cannot
+  // quietly drop one: it is public *now*, and review happens *before* it is
+  // on the site. The notice was condensed when the editor's action area was
+  // found to be larger than the form it submits; both facts survived.
+  assert.match(atTheAction, /straight away/,
+    "it does not say the submission is public immediately");
+  assert.match(atTheAction, /before it appears on the site/,
     "it does not distinguish being filed from being published");
 });

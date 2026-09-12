@@ -1,0 +1,80 @@
+name: Keep the API warm
+
+# The backend runs on Render's free tier: it spins down after 15 minutes with
+# no traffic and takes about 20 seconds to come back. A measured cold start
+# was 22.4 seconds to first byte, against 0.15 seconds warm.
+#
+# So: a request every 10 minutes keeps it up, except overnight, when nobody is
+# checking for a bus and the instance hours are better saved.
+#
+# Allowance. Render gives 750 free instance-hours a month per workspace. The
+# last ping before 01:30 leaves the service up until roughly 01:45; the first
+# at 06:30 brings it back. That is 19.25 hours a day, about 597 in a 31-day
+# month, with a fifth of the allowance still in hand — enough that a manual
+# redeploy or a second service for a week does not overrun it.
+#
+# Ten minutes, not fourteen: scheduled workflows are regularly delayed at peak
+# times, and a slip past the 15-minute idle threshold would let the container
+# sleep and put a cold start in front of whoever arrives next.
+#
+# Note: GitHub disables scheduled workflows in a repository with no commits
+# for 60 days. If cold starts return, check that this is still enabled.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A backlog of delayed runs is worth nothing — the latest ping is the only one
+# that matters.
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    env:
+      API_URL: https://adur-worthing-bus.onrender.com/
+      # Local time, not UTC. A window fixed in UTC would be an hour out for
+      # half the year, and this one is chosen around when people travel.
+      QUIET_FROM: "0130"
+      QUIET_TO:   "0630"
+
+    steps:
+      - name: Skip overnight
+        id: window
+        run: |
+          NOW=$(TZ=Europe/London date +%H%M)
+          echo "London time: $NOW"
+          # String comparison is safe here: both are zero-padded HHMM, and the
+          # window does not cross midnight.
+          if [ "$NOW" \> "$QUIET_FROM" ] && [ "$NOW" \< "$QUIET_TO" ]; then
+            echo "Inside the quiet window ($QUIET_FROM–$QUIET_TO) — letting it sleep."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ping the API
+        if: steps.window.outputs.skip != 'true'
+        run: |
+          # Three tries. One failure is a blip and not worth a notification;
+          # three in a row over a minute is an outage the owner should hear
+          # about, so the job fails and GitHub says so.
+          for attempt in 1 2 3; do
+            # Generous timeout: waking the container *is* the job, and a cold
+            # start takes about 20 seconds.
+            if curl -fsS --max-time 60 -o /dev/null -w "attempt $attempt: HTTP %{http_code} in %{time_total}s\n" "$API_URL"; then
+              exit 0
+            fi
+            echo "attempt $attempt failed"
+            # Not `[ ... ] && sleep`: under `set -e` that AND-list returns
+            # non-zero on the last attempt and would exit before the message.
+            if [ "$attempt" -lt 3 ]; then sleep 20; fi
+          done
+          echo "::error::The API did not respond to three requests over a minute."
+          exit 1

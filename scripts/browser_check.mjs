@@ -587,23 +587,481 @@ async function checkReadingLayout(page) {
  * So: every control keeps its target size, and the list the tab exists for is
  * actually on screen when the tab opens.
  */
-async function checkRouteViewOnAPhone(page, where) {
+/**
+ * Search results, once there are some, in both themes.
+ *
+ * The existing contrast pass samples the *empty* search panel, so it never
+ * saw what the audit found: the block was styled with `--surface`, `--border`
+ * and `--accent`, none of which this project defines, so every one fell back
+ * to a hardcoded light colour. In dark mode that produced white cards with
+ * muted text at 3.5:1 — below the 4.5:1 this size of text needs.
+ *
+ * And it activates a railway result, because the handler for those called a
+ * function that had never existed and threw on every press while the unit
+ * tests, which only checked that the button was rendered, stayed green.
+ */
+/**
+ * The first useful action, and the answer to it, without learning the sheet.
+ *
+ * On a fresh 390x844 Live view the sheet occupied y=532-780 and the search
+ * input began at about y=863 — below the footer, off the visible panel, after
+ * a large placeholder icon and an instruction. And selecting a stop left the
+ * sheet at `peek`, so the first departure row began at exactly y=780, where
+ * the panel ends: ten rows in the DOM, none of them visible.
+ *
+ * Both are the same root cause — the peek detent is smaller than the content
+ * it is asked to present — so they are checked together.
+ */
+/**
+ * A campaign section must not wait on the live bus service.
+ *
+ * Opening #view=n while /api/stops was held for twelve seconds left the site
+ * on Live showing "Loading live bus data…", and the requested section did not
+ * appear until the stop request resolved or failed. The people this site is
+ * written for are sent these links; the link has to work when the bus feed
+ * does not.
+ *
+ * Uses CDP request interception rather than waiting for a real outage.
+ */
+/**
+ * The fare question, and the fields that answer it.
+ *
+ * On entry at 390x844 the Tickets sheet ended at y=780 while the origin field
+ * began around y=1066 — behind an explanation, a caveat and six worked
+ * examples. The examples are good; they are not what someone came to do.
+ *
+ * Also checks the input size: below 16px, mobile Safari zooms the page on
+ * focus and the reader ends up editing a strip of a magnified layout.
+ */
+/**
+ * There has to be room to edit in the editor.
+ *
+ * At the half detent on a 390x844 phone the editor got 348px, of which its
+ * own header and action area took 199 — leaving 149px of scrolling space for
+ * 544px of form, with the Name field clipped. The action area was larger than
+ * the form it submitted.
+ */
+/**
+ * Tabs that behave like the pattern they declare.
+ *
+ * Every element with role="tab" carried tabIndex=0, so a keyboard user tabbed
+ * through each one instead of arrowing between them — and ArrowRight on the
+ * Routes About tab moved nothing and selected nothing. The markup said tabs;
+ * the behaviour did not.
+ */
+/**
+ * A dialog closes when you click away from it, and not when you click in it.
+ *
+ * `showModal()` gives Escape and focus trapping but not backdrop dismissal —
+ * the backdrop is a pseudo-element with nothing to listen on. The geometric
+ * test matters: `e.target === dialog` is also true for a click on the
+ * dialog's own padding, which would close it while the reader was aiming at
+ * the text.
+ */
+async function checkDialogDismiss(page, where) {
+  for (const id of ["evidence-dialog", "councillor-dialog"]) {
+    const r = JSON.parse(await page.evaluate(`
+      (() => {
+        const d = document.getElementById("${id}");
+        if (!d || typeof d.showModal !== "function") return JSON.stringify({ skip: "${id}" });
+        if (!d.open) d.showModal();
+        const box = d.getBoundingClientRect();
+        const fire = (x, y) => d.dispatchEvent(new MouseEvent("click",
+          { clientX: x, clientY: y, bubbles: true, detail: 1 }));
+        // Inside first: this must NOT close it.
+        fire(Math.round(box.left + box.width / 2), Math.round(box.top + box.height / 2));
+        const afterInside = d.open;
+        // Then the backdrop.
+        fire(Math.round(box.left) - 20, Math.round(box.top) - 20);
+        const afterOutside = d.open;
+        if (d.open) d.close();
+        return JSON.stringify({ afterInside, afterOutside });
+      })()`));
+    if (r.skip) { check(`${r.skip} dismisses on backdrop click — ${where}`, true, "absent"); continue; }
+    check(`${id} survives a click inside it — ${where}`, r.afterInside === true, JSON.stringify(r));
+    check(`${id} closes on a backdrop click — ${where}`, r.afterOutside === false, JSON.stringify(r));
+  }
+}
+
+/**
+ * Selecting a bus opens the sheet far enough to read it.
+ *
+ * The same gap that hid departures behind the `peek` detent, carried over to
+ * buses and rail stations: the tab changed, the panel did not.
+ */
+async function checkBusSelectionReveals(page, where) {
+  await page.evaluate("setViewMode('live'); closePanel(); setSheetDetent('peek')");
+  await sleep(700);
+  const r = JSON.parse(await page.evaluate(`
+    (() => {
+      const ref = Object.keys(state.busMarkers || {})[0];
+      if (!ref) return JSON.stringify({ skip: "no live vehicles" });
+      const marker = state.busMarkers[ref];
+      openBusInfo(marker._vehicle);
+      const panel = document.getElementById("departure-panel");
+      const info = document.getElementById("bus-info-container");
+      const p = panel.getBoundingClientRect(), i = info.getBoundingClientRect();
+      return JSON.stringify({
+        detent: document.body.dataset.sheet,
+        visible: Math.round(Math.max(0, Math.min(i.bottom, p.bottom) - Math.max(i.top, p.top))),
+      });
+    })()`));
+  if (r.skip) { check(`selecting a bus reveals its details — ${where}`, true, r.skip); return; }
+  check(`selecting a bus reveals its details — ${where}`,
+    r.detent !== "peek" && r.visible > 80, JSON.stringify(r));
+}
+
+async function checkTabKeyboard(page, where) {
   await page.evaluate("setViewMode('improvements')");
   await sleep(1400);
+  const r = JSON.parse(await page.evaluate(`
+    (() => {
+      const list = document.querySelector('.panel-mode[data-mode="improvements"] [role="tablist"]');
+      if (!list) return JSON.stringify({ skip: "no tablist" });
+      const tabs = [...list.querySelectorAll('[role="tab"]')];
+      const first = tabs[0];
+      first.focus();
+      const stopsBefore = tabs.filter(t => t.tabIndex === 0).length;
+      first.dispatchEvent(new KeyboardEvent("keydown",
+        { key: "ArrowRight", bubbles: true }));
+      return JSON.stringify({
+        tabs: tabs.length,
+        tabStops: stopsBefore,
+        movedTo: document.activeElement
+          ? document.activeElement.getAttribute("aria-selected") : null,
+        selected: tabs.map(t => t.getAttribute("aria-selected")),
+      });
+    })()`));
+  if (r.skip) { check(`tabs respond to the arrow keys — ${where}`, true, r.skip); return; }
+  // One tab stop per tablist, and ArrowRight both moves focus and selects.
+  check(`a tablist is a single tab stop — ${where}`,
+    r.tabStops === 1, JSON.stringify(r));
+  check(`tabs respond to the arrow keys — ${where}`,
+    r.selected[1] === "true", JSON.stringify(r));
+  await page.evaluate("setViewMode('live')");
+  await sleep(600);
+}
+
+async function checkEditorHasRoom(page, where) {
+  await page.evaluate("setViewMode('improvements')");
+  await sleep(1500);
+  const r = JSON.parse(await page.evaluate(`
+    (() => {
+      if (typeof openEditor !== "function") return JSON.stringify({ skip: "no editor" });
+      openEditor();
+      const ed = document.getElementById("proposal-editor")
+              || document.querySelector(".proposal-editor");
+      if (!ed) return JSON.stringify({ skip: "editor did not open" });
+      const h = (el) => el ? Math.round(el.getBoundingClientRect().height) : 0;
+      const scroll = ed.querySelector(".editor-scroll");
+      const actions = ed.querySelector(".editor-actions");
+      const fields = [...ed.querySelectorAll(".editor-field")];
+      const sr = scroll ? scroll.getBoundingClientRect() : null;
+      const visibleFields = sr ? fields.filter(f => {
+        const b = f.getBoundingClientRect();
+        return b.height > 0 && b.top >= sr.top - 1 && b.bottom <= sr.bottom + 1;
+      }).length : 0;
+      return JSON.stringify({
+        editor: h(ed), form: h(scroll), actions: h(actions),
+        fields: fields.length, visibleFields,
+        detent: document.body.dataset.sheet,
+      });
+    })()`));
+  if (r.skip) {
+    check(`the editor has room to edit in — ${where}`, true, r.skip);
+    return;
+  }
+  // The form must have more space than the controls that submit it, and more
+  // than one field visible at a time.
+  check(`the editor has room to edit in — ${where}`,
+    r.form > r.actions && r.visibleFields >= 2, JSON.stringify(r));
+  await page.evaluate("if (state.editor) closeEditor({ skipSave: true }); setViewMode('live')");
+  await sleep(700);
+}
+
+async function checkFareEntryReachable(page, where) {
+  await page.evaluate("setViewMode('tickets')");
+  await sleep(1800);
+  const r = JSON.parse(await page.evaluate(`
+    (() => {
+      const panel = document.getElementById("departure-panel");
+      const from = document.getElementById("jc-from");
+      if (!panel || !from) return JSON.stringify({ found: false });
+      const p = panel.getBoundingClientRect(), f = from.getBoundingClientRect();
+      const box = document.getElementById("tab-content-tickets");
+      return JSON.stringify({
+        found: true,
+        // Within the panel's own scroller, without having to scroll it.
+        offset: Math.round(f.top - (box ? box.getBoundingClientRect().top : p.top)),
+        scrolled: box ? Math.round(box.scrollTop) : 0,
+        fontPx: Math.round(parseFloat(getComputedStyle(from).fontSize) * 10) / 10,
+        visible: f.top >= p.top - 1 && f.top < p.bottom,
+      });
+    })()`));
+  check(`the fare fields are reachable on entry — ${where}`,
+    r.found && r.visible, JSON.stringify(r));
+  check(`fare input text does not trigger mobile zoom — ${where}`,
+    r.found && r.fontPx >= 16, JSON.stringify(r));
+  await page.evaluate("setViewMode('live')");
+  await sleep(600);
+}
+
+async function checkDeepLinkIndependence() {
+  // Connect straight to the hashed URL. Navigating to it afterwards is a
+  // same-document change, so init() never re-runs and the check measures a
+  // page that was never deep-linked at all — which it did, reporting "live".
+  const target = `${SITE}${SITE.includes("#") ? "" : "#view=n"}`;
+  // Open a blank tab first. Connecting straight to the site starts loading it
+  // before interception can be armed, so the stop request went out unpaused
+  // and the check passed without ever exercising the delay it exists for.
+  const page = await connect("about:blank");
+  const paused = [];
+  try {
+    await page.send("Page.enable");
+    await page.send("Runtime.enable");
+    await page.send("Network.enable");
+    await page.send("Network.setCacheDisabled", { cacheDisabled: true });
+    await page.send("Emulation.setDeviceMetricsOverride",
+      { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+
+    // Hold the stop list for the duration of the measurement. Held, not
+    // dropped: a request that fails fast does not reproduce a slow one.
+    //
+    // Both sources, because the list is now published as a static file and
+    // read from the API only as a fallback. Holding just `/api/stops` would
+    // pause a request the page no longer makes, and the check would pass
+    // while measuring nothing — the same way it passed before interception
+    // was armed early enough. `heldStopRequests` below is asserted for that
+    // reason.
+    await page.send("Fetch.enable", { patterns: [
+      { urlPattern: "*/api/stops*",  requestStage: "Request" },
+      { urlPattern: "*stops.json*",  requestStage: "Request" },
+    ] });
+    page.ws.addEventListener("message", (e) => {
+      const m = JSON.parse(e.data);
+      if (m.method === "Fetch.requestPaused") paused.push(m.params.requestId);
+    });
+
+    await page.send("Page.navigate", { url: target });
+    await sleep(6000);
+
+    const r = JSON.parse(await page.evaluate(`
+      (() => {
+        const overlay = document.getElementById("map-loading");
+        const objectives = document.getElementById("objectives-list");
+        return JSON.stringify({
+          view: state.viewMode,
+          overlayVisible: !!overlay && !overlay.classList.contains("hidden"),
+          objectivesShown: !!objectives
+            && objectives.getBoundingClientRect().height > 0,
+        });
+      })()`));
+
+    check("a deep link opens its section while stops are still loading",
+      r.view === "network" && !r.overlayVisible,
+      JSON.stringify({ ...r, heldStopRequests: paused.length }));
+    check("the stop request was actually held for that measurement",
+      paused.length > 0,
+      JSON.stringify({ heldStopRequests: paused.length }));
+    check("the deep-linked section actually renders its content",
+      r.objectivesShown, JSON.stringify(r));
+  } finally {
+    // Let the held requests go before disconnecting. Left paused they sit in
+    // Chrome's per-host connection pool and starve every later check against
+    // the same origin — which is exactly what happened the first time this
+    // ran, taking four unrelated checks down with it.
+    for (const requestId of paused) {
+      try { await page.send("Fetch.failRequest", { requestId, errorReason: "Aborted" }); }
+      catch {}
+    }
+    try { await page.send("Fetch.disable"); } catch {}
+    page.ws.close();
+  }
+}
+
+async function checkFirstUsefulAction(page, where) {
+  // A genuinely fresh Live view: no stop, no rail board, default detent.
+  // Without closePanel() this inherited whatever the previous check left
+  // open, and measured a search field that was hidden for that reason rather
+  // than for the reason under test.
+  await page.evaluate("setViewMode('live')");
+  await sleep(700);
+  await page.evaluate("closePanel(); setSheetDetent(defaultDetentForViewport())");
+  await sleep(600);
+
+  const entry = JSON.parse(await page.evaluate(`
+    (() => {
+      const panel = document.getElementById("departure-panel");
+      const input = document.getElementById("stop-search-input");
+      if (!panel || !input) return JSON.stringify({ found: false });
+      const p = panel.getBoundingClientRect(), i = input.getBoundingClientRect();
+      return JSON.stringify({
+        found: true,
+        inside: i.top >= p.top - 1 && i.bottom <= p.bottom + 1,
+        inputTop: Math.round(i.top), panelTop: Math.round(p.top),
+        panelBottom: Math.round(p.bottom), vh: window.innerHeight,
+      });
+    })()`));
+  check(`search is visible on entry, without dragging — ${where}`,
+    entry.found && entry.inside, JSON.stringify(entry));
+
+  // Select a real stop the way a visitor does, then render a fixture board.
+  // The fixture matters: this preview has no API, so a real selection shows
+  // an empty board and the check would pass for the wrong reason — which it
+  // did, the first time it ran. The question here is a layout one: with rows
+  // present, can the reader see any of them?
+  const board = JSON.parse(await page.evaluate(`
+    (async () => {
+      const atco = Object.keys(state.stopData || {})[0];
+      if (!atco) return JSON.stringify({ skip: "no stops loaded" });
+      await openDepartures(atco, (state.stopData[atco] || {}).name || atco);
+      const soon = (m) => new Date(Date.now() + m * 60000).toISOString();
+      renderDepartures({
+        stop_name: "Fixture Stop",
+        departures: [1, 4, 9, 14, 22, 31].map((m, i) => ({
+          service: String(700 + i), destination: "Somewhere",
+          aimed_departure: soon(m), expected_departure: null,
+          status: "Scheduled", delay_seconds: null,
+        })),
+      });
+      return JSON.stringify({ atco });
+    })()`));
+  if (board.skip) {
+    check(`selecting a stop reveals departures — ${where}`, true, board.skip);
+    return;
+  }
+  await sleep(800);
+  const rows = JSON.parse(await page.evaluate(`
+    (() => {
+      const panel = document.getElementById("departure-panel");
+      const p = panel.getBoundingClientRect();
+      const all = [...document.querySelectorAll("tr.departure-row")];
+      const visible = all.filter(r => {
+        const b = r.getBoundingClientRect();
+        return b.height > 0 && b.top >= p.top - 1 && b.bottom <= p.bottom + 1;
+      });
+      const empty = document.querySelector(".no-departures");
+      return JSON.stringify({
+        inDom: all.length, visible: visible.length,
+        emptyState: !!empty && empty.getBoundingClientRect().height > 0,
+        detent: document.body.dataset.sheet,
+      });
+    })()`));
+  // Either two departures are on screen, or the stop genuinely has none and
+  // says so where the reader can see it. A board with rows nobody can see is
+  // the failure this exists for.
+  check(`selecting a stop reveals departures — ${where}`,
+    rows.visible >= 2 || (rows.inDom === 0 && rows.emptyState),
+    JSON.stringify(rows));
+}
+
+async function checkSearchResults(page, where) {
+  for (const theme of ["light", "dark"]) {
+    await setTheme(page, theme);
+    const r = JSON.parse(await page.evaluate(`
+      (() => {
+        const input = document.getElementById("stop-search-input");
+        if (!input) return JSON.stringify({ skip: "no search input" });
+        input.value = "worthing";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        const btn = document.querySelector("button.stop-search-result");
+        if (!btn) return JSON.stringify({ skip: "no results for 'worthing'" });
+        const name = btn.querySelector(".stop-search-result-name");
+        // No regex. This whole expression is a template literal, so a "\d"
+        // collapses to "d" before it reaches the browser: the character class
+        // silently becomes a search for the letter d, .match() returns null,
+        // and this threw with an empty exception message.
+        const lum = (c) => {
+          const [r, g, b] = c.slice(c.indexOf("(") + 1, c.lastIndexOf(")"))
+            .split(",").slice(0, 3).map(parseFloat)
+            .map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+          return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        };
+        const cs = getComputedStyle(name || btn);
+        const bs = getComputedStyle(btn);
+        const a = lum(cs.color), b = lum(bs.backgroundColor);
+        const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+        return JSON.stringify({
+          ratio: Math.round(ratio * 100) / 100,
+          fg: cs.color, bg: bs.backgroundColor,
+          modes: [...document.querySelectorAll(".stop-search-result-mode")]
+                   .map(e => e.textContent.trim()),
+        });
+      })()`));
+    if (r.skip) { check(`search results — ${where}, ${theme}`, true, r.skip); continue; }
+    check(`search result text meets AA contrast — ${where}, ${theme}`,
+      r.ratio >= 4.5, JSON.stringify(r));
+  }
+  await setTheme(page, "light");
+
+  // Activate a real railway result and assert the outcome, not the markup.
+  const outcome = JSON.parse(await page.evaluate(`
+    (() => {
+      const input = document.getElementById("stop-search-input");
+      if (!input) return JSON.stringify({ skip: "no search input" });
+      input.value = "worthing";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      const rail = [...document.querySelectorAll("button.stop-search-result")]
+        .find(b => b.dataset.kind === "rail");
+      if (!rail) return JSON.stringify({ skip: "no railway result offered" });
+      const before = window.__searchErr;
+      window.__searchErr = null;
+      const onErr = (e) => { window.__searchErr = String(e.error || e.message); };
+      window.addEventListener("error", onErr, { once: true });
+      try { rail.click(); } catch (e) { window.__searchErr = String(e); }
+      return JSON.stringify({ crs: rail.dataset.crs, err: window.__searchErr });
+    })()`));
+  if (outcome.skip) {
+    check(`a railway search result can be activated — ${where}`, true, outcome.skip);
+  } else {
+    await sleep(900);
+    const selected = await page.evaluate(
+      `JSON.stringify({ sel: state.selectedRailStation && state.selectedRailStation.crs })`);
+    const got = JSON.parse(selected);
+    check(`a railway search result can be activated — ${where}`,
+      !outcome.err && got.sel === outcome.crs,
+      JSON.stringify({ ...outcome, ...got }));
+  }
+}
+
+async function checkRouteViewOnAPhone(page, where) {
+  await page.evaluate("setViewMode('improvements')");
+  // Wait for the route list itself, not a fixed interval: measuring while it
+  // still reads "Loading route list…" measures one line, not the grid.
+  //
+  // The budget matches the app's own cold-start budget rather than the 15 s it
+  // used to be. The stop list is served statically now, so nothing wakes the
+  // backend before this — the route request is the first API call of a run and
+  // can land on a container that is still starting. waitFor returns false on
+  // timeout rather than throwing, so a short budget here showed up as
+  // "chipCount: 0" and looked like a rendering fault.
+  const chipsArrived = await waitFor(
+    page, "document.querySelectorAll('.route-chip').length > 0", 45000);
+  check(`the route list loads — ${where}`, chipsArrived,
+    "no .route-chip after 45s — the API never answered");
+  await sleep(500);
+
+  // The list now lives inside the "Existing services" disclosure, closed by
+  // default. What the tab owes a reader on arrival is therefore different:
+  // not a row of chips, but a control they can find and the prose the tab is
+  // about. The old assertions measured a chip grid that is no longer there.
   const m = JSON.parse(await page.evaluate(`
     (() => {
       const g = el => el ? el.getBoundingClientRect() : null;
       const panel = document.getElementById("departure-panel");
-      const chips = document.getElementById("route-filter-chips");
+      const disc = document.getElementById("route-filters-disclosure");
       const summary = document.querySelector(".filter-disclosure-summary");
-      const pr = g(panel), cr = g(chips), sr = g(summary);
-      const content = document.getElementById("tab-content-about");
+      const prose = document.querySelector(".improvements-intro");
+      const pr = g(panel), sr = g(summary), prr = g(prose);
       return JSON.stringify({
+        closed: disc ? !disc.open : null,
         summaryH: sr ? Math.round(sr.height) : null,
-        contentH: content ? content.clientHeight : 0,
-        chipsVisible: (pr && cr)
-          ? Math.max(0, Math.round(Math.min(cr.bottom, pr.bottom) - cr.top)) : 0,
-        chipsH: cr ? Math.round(cr.height) : 0,
+        summaryVisible: (sr && pr)
+          ? Math.round(Math.max(0, Math.min(sr.bottom, pr.bottom) - Math.max(sr.top, pr.top))) : 0,
+        count: (document.getElementById("route-filters-count") || {}).textContent || "",
+        proseTop: prr ? Math.round(prr.top) : null,
+        panelBottom: pr ? Math.round(pr.bottom) : null,
+        chipCount: document.querySelectorAll(".route-chip").length,
       });
     })()`));
 
@@ -612,19 +1070,173 @@ async function checkRouteViewOnAPhone(page, where) {
   check(`the filter control keeps its target size — ${where}`,
     m.summaryH !== null && m.summaryH >= 40, JSON.stringify(m));
 
-  // Not "all of it" — a long list should scroll. But opening the tab on a
-  // sliver of its own content is what made this unusable.
-  // One row of chips, reachable without scrolling. Not "all of them": a
-  // landscape phone is 360px tall and the list is longer than that at any
-  // sensible split with the map, so demanding the whole list would be
-  // measuring the list's length rather than whether the reader can use it.
-  // A row is 44px; below that the tab opens on nothing.
-  const wanted = Math.min(44, m.chipsH);
-  check(`the service list is on screen when Route view opens — ${where}`,
-    m.chipsH > 0 && m.chipsVisible >= wanted, JSON.stringify({ ...m, wanted }));
+  // Wholly on screen, not merely present: this is now the only way into the
+  // service list, so a half-clipped summary is the whole control half-clipped.
+  check(`the service control is on screen when Route view opens — ${where}`,
+    m.summaryH !== null && m.summaryVisible >= m.summaryH - 2, JSON.stringify(m));
+
+  // The count is what makes collapsing it honest — closed, it is the only
+  // thing saying how much of the network the map is drawing.
+  check(`the closed control says how many services are shown — ${where}`,
+    /\d/.test(m.count), JSON.stringify(m));
+
+  // And the point of the move: the tab's own prose is reachable without
+  // scrolling past a list. It was below the fold on every phone viewport.
+  check(`the tab's explanation is visible without scrolling — ${where}`,
+    m.proseTop !== null && m.proseTop < m.panelBottom, JSON.stringify(m));
+
+  // Opened, the list is capped to a few rows with the rest behind "+N more",
+  // so it cannot push the prose away again.
+  const opened = JSON.parse(await page.evaluate(`
+    (() => {
+      const d = document.getElementById("route-filters-disclosure");
+      d.open = true; d.dispatchEvent(new Event("toggle"));
+      const chips = [...document.querySelectorAll(".route-chip")];
+      const shown = chips.filter(c => !c.classList.contains("route-chip--clipped"));
+      const more = document.getElementById("route-chips-more");
+      const rows = [...new Set(shown.map(c => c.offsetTop))].length;
+      d.open = false;
+      return JSON.stringify({
+        total: chips.length, shown: shown.length, rows,
+        moreHidden: more ? more.classList.contains("hidden") : null,
+        moreText: more ? more.textContent : "",
+      });
+    })()`));
+
+  check(`opening the control reveals services — ${where}`,
+    opened.shown > 0, JSON.stringify(opened));
+  // Three rows is the cap; four would mean the measurement did not run.
+  check(`the service list is capped to a few rows — ${where}`,
+    opened.rows <= 3, JSON.stringify(opened));
+  // If anything was clipped, there has to be a way to reach it.
+  check(`clipped services are reachable — ${where}`,
+    opened.shown === opened.total
+      ? opened.moreHidden === true
+      : (opened.moreHidden === false && /\+\d+ more/.test(opened.moreText)),
+    JSON.stringify(opened));
 
   // Leave the page as it was found: the header-row check that follows
   // measures the live status pill, which only Live view shows.
+  await page.evaluate("setViewMode('live')");
+  await sleep(600);
+}
+
+/**
+ * Stop bubbles that leave the map visible.
+ *
+ * A flat 60px cluster cell put a bubble every 60px across the whole coast: at
+ * the two zooms where clustering first applies that is a curtain of numbered
+ * discs with the map behind it, which is the opposite of what clustering is
+ * for. Measured against the old rule rather than against a fixed number, so
+ * the check says "this is better than what it replaced" and keeps saying it.
+ */
+async function checkClusterDensity(page, where) {
+  await page.evaluate("setViewMode('live')");
+  await sleep(500);
+  for (const zoom of [13, 12]) {
+    // Leaflet returns the map from setZoom, and serialising that whole object
+    // graph fails with "Object reference chain is too long".
+    await page.evaluate(`(() => { state.map.setZoom(${zoom}); return ""; })()`);
+    await sleep(1200);
+    const r = JSON.parse(await page.evaluate(`
+      (() => {
+        const cell = px => px * 360 / (256 * Math.pow(2, ${zoom}));
+        const bounds = state.map.getBounds().pad(0.3);
+        const ids = Object.keys(state.stopMarkers).filter(a => {
+          const d = state.stopData[a]; return d && bounds.contains([d.lat, d.lon]); });
+        const buckets = px => {
+          const c = cell(px), b = new Set();
+          for (const a of ids) { const d = state.stopData[a];
+            b.add(Math.floor(d.lat / c) + ":" + Math.floor(d.lon / c)); }
+          return b.size; };
+        const sizes = state.stopClusters.map(
+          m => +(m.options.icon.options.html.match(/>(\d+)</) || [0, 0])[1]);
+        return JSON.stringify({
+          stopsInView: ids.length,
+          drawn: state.stopClusters.length,
+          wouldHaveBeen: buckets(60),
+          biggest: sizes.length ? Math.max(...sizes) : 0,
+        });
+      })()`));
+    // Not "fewer than before" by a hair — the point was to make the map
+    // readable, so it has to be a real reduction.
+    check(`stop bubbles thin out at zoom ${zoom} — ${where}`,
+      r.stopsInView === 0 || (r.drawn > 0 && r.drawn <= r.wouldHaveBeen / 2),
+      JSON.stringify(r));
+  }
+  await page.evaluate('(() => { state.map.setZoom(14); return ""; })()');
+  await sleep(800);
+}
+
+/**
+ * A selected proposal lands where the reader can see it.
+ *
+ * Selecting one from the list fits the map to its shape — but on a phone the
+ * bottom half of the map is under the sheet the list is in, so the shape it
+ * had just drawn attention to was drawn behind the thing that asked for it.
+ */
+async function checkProposalFitsAboveSheet(page, where) {
+  await page.evaluate("setViewMode('improvements')");
+  await waitFor(page, "(state.proposals || []).length > 0", 15000);
+  await sleep(600);
+  const r = JSON.parse(await page.evaluate(`
+    (() => {
+      const withGeom = (state.proposals || []).find(
+        p => (p._polylines || []).flat().length > 1);
+      if (!withGeom) return JSON.stringify({ skip: "no proposal geometry" });
+      selectProposal(withGeom.id);
+      const pts = (withGeom._polylines || []).flat();
+      const b = L.latLngBounds(pts);
+      const panel = document.getElementById("departure-panel").getBoundingClientRect();
+      const sw = state.map.latLngToContainerPoint(b.getSouthWest());
+      const ne = state.map.latLngToContainerPoint(b.getNorthEast());
+      return JSON.stringify({
+        id: withGeom.id, zoom: state.map.getZoom(),
+        shapeTop: Math.round(Math.min(sw.y, ne.y)),
+        shapeBottom: Math.round(Math.max(sw.y, ne.y)),
+        sheetTop: Math.round(panel.top),
+      });
+    })()`));
+  if (r.skip) { check(`a selected proposal clears the sheet — ${where}`, true, r.skip); }
+  else {
+    check(`a selected proposal clears the sheet — ${where}`,
+      r.shapeBottom <= r.sheetTop && r.shapeTop >= 0, JSON.stringify(r));
+  }
+  await page.evaluate('(() => { selectProposal(null); setViewMode("live"); return ""; })()');
+  await sleep(600);
+}
+
+/**
+ * A ticket preset always draws something.
+ *
+ * Two of the six — Shoreham to the universities, Sompting to the Marina —
+ * found no one-change itinerary and drew nothing at all, so pressing them
+ * looked like pressing a dead button. The ends of the journey are worth
+ * drawing even when how to make it is the part we cannot answer.
+ */
+async function checkPresetsDraw(page, where) {
+  await page.evaluate("setViewMode('tickets')");
+  await waitFor(page, "document.querySelectorAll('[data-preset]').length > 0", 15000);
+  const ids = JSON.parse(await page.evaluate(
+    `JSON.stringify([...document.querySelectorAll("[data-preset]")].map(b => b.dataset.preset))`));
+  for (const id of ids) {
+    await page.evaluate(`document.querySelector('[data-preset="${id}"]').click()`);
+    await waitFor(page, "state.journeyLayers.length > 0", 20000).catch(() => {});
+    const r = JSON.parse(await page.evaluate(`
+      (() => {
+        const marks = state.journeyLayers.filter(l => l instanceof L.Marker);
+        const labels = marks.map(
+          m => (m.options.icon.options.html.match(/>([^<]*)</) || [])[1]);
+        return JSON.stringify({
+          layers: state.journeyLayers.length,
+          polys: state.journeyLayers.filter(l => l instanceof L.Polyline).length,
+          labels,
+        });
+      })()`));
+    check(`preset "${id}" draws its journey — ${where}`,
+      r.polys > 0 && r.labels.includes("From") && r.labels.includes("To"),
+      JSON.stringify(r));
+  }
   await page.evaluate("setViewMode('live')");
   await sleep(600);
 }
@@ -659,6 +1271,58 @@ async function checkFailureIsVisible(page, where) {
     s.found && !s.hidden && s.w > 0 && s.h > 0 && /fail/i.test(s.text),
     JSON.stringify(s));
   await page.evaluate(`setStatusLabel({ text: "Updated", loading: false })`);
+}
+
+/**
+ * The "waking up" banner is legible where it is put.
+ *
+ * It exists for the worst moment of a first visit — a free-tier container
+ * taking twenty seconds to start — so a banner that renders behind the header,
+ * off the top of a short landscape viewport, or over the bottom sheet the
+ * reader is watching would be worse than the silence it replaced.
+ *
+ * Shown directly rather than by holding a request: the banner arms on a 2.5 s
+ * timer, and five viewports' worth of real waiting buys nothing the unit tests
+ * do not already cover. What only a browser can answer is where it lands.
+ */
+async function checkWakingBanner(page, where) {
+  const r = JSON.parse(await page.evaluate(`
+    (() => {
+      showWakingBanner();
+      const el = document.getElementById("waking-banner");
+      if (!el) return JSON.stringify({ found: false });
+      const b  = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      const header = document.querySelector(".site-header");
+      const hb = header ? header.getBoundingClientRect() : { bottom: 0 };
+      // What is actually painted at the banner's own centre. If the header or
+      // the sheet is on top, this is not the banner.
+      const mid = document.elementFromPoint(
+        Math.round(b.left + b.width / 2), Math.round(b.top + b.height / 2));
+      return JSON.stringify({
+        found: true,
+        onTop: !!mid && (mid === el || el.contains(mid)),
+        top: Math.round(b.top), bottom: Math.round(b.bottom),
+        left: Math.round(b.left), right: Math.round(b.right),
+        w: Math.round(b.width), h: Math.round(b.height),
+        headerBottom: Math.round(hb.bottom),
+        vw: window.innerWidth, vh: window.innerHeight,
+        opacity: cs.opacity,
+        text: (el.textContent || "").trim().slice(0, 40),
+      });
+    })()`));
+
+  const ok = r.found
+    && r.h > 0 && r.w > 0
+    && r.opacity !== "0"
+    && r.top >= r.headerBottom        // not tucked under the header
+    && r.bottom <= r.vh               // not off the bottom of a short viewport
+    && r.left >= 0 && r.right <= r.vw // not off the side at 320px
+    && r.onTop;
+  check(`the waking-up banner is legible where it lands — ${where}`, ok,
+    JSON.stringify(r));
+
+  await page.evaluate("hideWakingBanner()");
 }
 
 async function checkReachable(page, where) {
@@ -1185,6 +1849,17 @@ await checkHeaderControlRow(page, VIEWPORTS[0].name);
 await checkLayout(page, "live view");
 await checkFailureIsVisible(page, VIEWPORTS[0].name);
 await checkRouteViewOnAPhone(page, VIEWPORTS[0].name);
+await checkSearchResults(page, VIEWPORTS[0].name);
+await checkFirstUsefulAction(page, VIEWPORTS[0].name);
+await checkFareEntryReachable(page, VIEWPORTS[0].name);
+await checkEditorHasRoom(page, VIEWPORTS[0].name);
+await checkTabKeyboard(page, VIEWPORTS[0].name);
+await checkDialogDismiss(page, VIEWPORTS[0].name);
+await checkWakingBanner(page, VIEWPORTS[0].name);
+await checkClusterDensity(page, VIEWPORTS[0].name);
+await checkProposalFitsAboveSheet(page, VIEWPORTS[0].name);
+await checkPresetsDraw(page, VIEWPORTS[0].name);
+await checkBusSelectionReveals(page, VIEWPORTS[0].name);
 await checkDepartureBoard(page);
 await checkViews(page);
 await checkReachableAcrossViews(page, VIEWPORTS[0].name);
@@ -1193,6 +1868,7 @@ await checkCouncillorContact(page);
 await checkJourneyPresets(page);
 await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
+await checkDeepLinkIndependence();   // own page + request interception; keep it apart
 
 // The other two viewports get the layout assertions whether or not
 // screenshots were asked for — an assertion that only runs with --shots is
@@ -1204,6 +1880,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkFailureIsVisible(p, vp.name);
   if (vp.mobile) await checkRouteViewOnAPhone(p, vp.name);
   await checkHeaderControlRow(p, vp.name);
+  await checkWakingBanner(p, vp.name);
   await checkContrastBothThemes(p, vp.name);
   if (vp.name === "desktop") await checkReadingLayout(p);
   await checkReachableAcrossViews(p, vp.name);

@@ -27,6 +27,10 @@ const MARINE_PARADE  = { atco: "A", name: "Marine Parade",   lat: 50.8095, lon: 
 const CHURCHILL_SQ   = { atco: "B", name: "Churchill Square", lat: 50.8225, lon: -0.1450 };
 const OLD_STEINE     = { atco: "C", name: "Old Steine",       lat: 50.8215, lon: -0.1375 };
 const HANGLETON      = { atco: "D", name: "Hangleton",        lat: 50.8480, lon: -0.1900 };
+const SHOREHAM_HIGH  = { atco: "G", name: "Shoreham High Street", lat: 50.8323, lon: -0.2776 };
+const PARK_ROAD      = { atco: "H", name: "Park Road",            lat: 50.8584, lon: -0.1031 };
+const UPTON_FARM     = { atco: "E", name: "Upton Farm House", lat: 50.8347, lon: -0.3581 };
+const MARINA         = { atco: "F", name: "Brighton Marina",  lat: 50.8121, lon: -0.1042 };
 
 /** app.js is a browser script; this renders one journey and returns the HTML. */
 function render(journey, fromAtco, toAtco, stopData = {}) {
@@ -239,4 +243,100 @@ test("the commuter basis does not silently assume five separate day tickets", ()
     assert.ok(f.adult_flexi5 && f.adult_flexi5.source_url,
       `${id}: no sourced Flexi5 price`);
   }
+});
+
+// ── Tickets are judged on the legs actually ridden ──────────
+
+/** The real shape of an interchange journey, as /api/journey returns it. */
+function interchangeJourney(legs, fromOps, toOps) {
+  return {
+    from: { name: "Start", operators: fromOps },
+    to:   { name: "End",   operators: toOps },
+    options: [],
+    note: "No direct bus found between these stops today.",
+    interchange: {
+      change_at: { name: "Churchill Square" },
+      board_at: {}, total_minutes: 62, wait_minutes: 8, walk_metres: 0,
+      // The fields /api/journey really sends. Omitting them renders a line
+      // full of "undefined" that looks like a product bug and is not one.
+      legs: legs.map(([service, operator], i) => ({
+        service, operator, headsign: "Somewhere",
+        depart: `13:${21 + i * 40}`, arrive: `13:${53 + i * 2}`,
+        minutes: 32, stops: [],
+      })),
+    },
+  };
+}
+
+test("a ticket is not offered for a journey whose first leg it is invalid on", () => {
+  // Shoreham High Street to Park Road is the 700 (Stagecoach) then the 5B
+  // (Brighton & Hove). The *endpoint* operator sets intersect at BHBC, so
+  // filtering on endpoints alone left citySAVER — a Brighton & Hove ticket —
+  // presented as covering a journey that starts on a Stagecoach bus.
+  const html = render(
+    interchangeJourney([["700", "SCSO"], ["5B", "BHBC"]],
+                       ["BHBC", "COMT", "NATX", "SCSO"], ["BHBC"]),
+    "G", "H", { G: SHOREHAM_HIGH, H: PARK_ROAD });
+
+  // The exact claim the page made: "One ticket covers this journey:
+  // citySAVER (BHBC) at £6.30" — printed directly beneath an itinerary
+  // reading 700 (Stagecoach South), then 5B.
+  assert.doesNotMatch(html, /One ticket covers this journey:\s*<strong>citySAVER/,
+    "citySAVER was offered as covering a journey whose first leg is the 700");
+});
+
+test("a mixed-operator itinerary says which leg breaks the ticket", () => {
+  // The campaign point, not an error message: the fastest way to Brighton is
+  // the 700, and its ticket stops working the moment the journey continues.
+  const html = render(
+    interchangeJourney([["700", "SCSO"], ["5B", "BHBC"]],
+                       ["BHBC", "SCSO"], ["BHBC"]),
+    "G", "H", { G: SHOREHAM_HIGH, H: PARK_ROAD });
+  assert.match(html, /700/, "the itinerary does not name the first leg");
+  assert.match(html, /5B/,  "the itinerary does not name the second leg");
+});
+
+// ── An operator we hold no day ticket for ───────────────────
+
+test("a Compass-only journey names the operator instead of claiming no coverage", () => {
+  // Sompting to Brighton Marina: Compass is the only operator at both ends,
+  // and no zone in the data lists Compass — so every ticket was filtered out
+  // and the page reported "we don't have ticket-zone coverage", which is a
+  // statement about the stops. The stops are fine; the operator is the gap.
+  const html = render(
+    interchangeJourney([], ["COMT", "SCSO"], ["BHBC", "COMT"]),
+    "A", "B", { A: UPTON_FARM, B: MARINA });
+
+  assert.doesNotMatch(html, /don't have ticket-zone coverage for every stop/,
+    "reported missing zone data for stops that are inside real zones");
+  assert.match(html, /Compass/,
+    "did not name the operator whose tickets we do not hold");
+});
+
+test("the Compass Rover is recorded, priced weekly, and never shown as a day ticket", () => {
+  const compass = TZ.zones.find(z => (z.valid_on_operators || []).includes("COMT"));
+  assert.ok(compass, "no Compass entry in ticket_zones.json");
+  assert.equal(compass.fares.adult_week.price_pence, 3000);
+  assert.ok(compass.fares.source_url, "the Rover price has no source");
+  assert.equal(compass.fares.adult_day, undefined,
+    "a weekly rover must not be recorded as a day ticket");
+  // zoneDayFare is what the per-journey costing reads; a weekly must not
+  // reach it, or £30 gets compared against a £6 return.
+  const app = loadApp();
+  assert.equal(app.zoneDayFare(compass), null);
+});
+
+test("a weekly is compared against the singles this journey really needs", () => {
+  // The Rover is £30 a week. Sompting to the Marina takes two buses each way,
+  // so a five-day week in capped singles is £60, not the £30 a bare
+  // single-fare × 2 × 5 gives. Getting that wrong turns a halving into a
+  // break-even and the site into something that cannot be quoted.
+  const html = render(
+    interchangeJourney([], ["COMT", "SCSO"], ["BHBC", "COMT"]),
+    "E", "F", { E: UPTON_FARM, F: MARINA });
+  if (!/a week is valid on the whole of it/.test(html)) return;  // no weekly offered
+  const m = /against\s*£([\d.]+) in capped singles/.exec(html.replace(/\s+/g, " "));
+  assert.ok(m, "the weekly is quoted with no comparison");
+  assert.equal(m[1], "60.00",
+    "the weekly was compared against a one-bus-each-way week");
 });

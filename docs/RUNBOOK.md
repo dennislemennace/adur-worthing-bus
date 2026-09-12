@@ -20,6 +20,22 @@ the test suites first, builds, checks the result semantically
 (`scripts/check_timetable.py`), commits refreshed evidence, publishes a dated
 release, then moves the `timetable-latest` tag onto it.
 
+**Rebuild the static stop list.** `python scripts/build_stops_json.py` writes
+`data/stops.json` from `data/timetable.sqlite`. The *Update Timetable Data*
+workflow already runs it and commits the result, so this is only for when you
+have rebuilt the database by hand. It refuses to write a list of fewer than 800
+stops — a short file is worse than none, because the frontend falls back to the
+API only when the *fetch* fails, and a successful download of a near-empty list
+would give every visitor a blank map.
+
+**If cold starts come back.** `.github/workflows/keep-warm.yml` pings the API
+every 10 minutes outside 01:30–06:30 Europe/London. GitHub disables scheduled
+workflows in a repository with no commits for 60 days, so check the Actions tab
+first: a disabled schedule looks exactly like a keep-warm that stopped working.
+The arithmetic behind the window is in `LIMITS.md` — the service is up about
+597 hours a month against a 750-hour allowance, so widening the window is not
+free.
+
 **Roll back a bad timetable.** Dated releases are kept (five deep). Copy the
 assets from a good one onto the rolling tag:
 

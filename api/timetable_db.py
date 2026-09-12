@@ -228,8 +228,14 @@ def db_is_usable(path) -> bool:
 
 
 class Timetable:
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, allow_fetch: bool = True):
         self.db_path = db_path
+        # The API downloads the published database when its copy is missing or
+        # stale. A build script must not: it runs immediately after
+        # json_to_sqlite.py has written a *newer* file, whose hash necessarily
+        # differs from the released sidecar, and the freshness check would read
+        # that as "stale" and overwrite the thing being published.
+        self._allow_fetch = allow_fetch
         self._lock = threading.Lock()
         # One read-only connection per thread, not one shared across all of
         # them. The queries here run in a worker thread now (see the API's
@@ -425,7 +431,8 @@ class Timetable:
         self._span_cache = {}
 
     def _open_and_preload(self) -> None:
-        self._ensure_fresh()
+        if self._allow_fetch:
+            self._ensure_fresh()
         # Drop memoized derivations — reload() lands here with a new DB file.
         self._clear_derived()
         if not self.db_path.exists():
@@ -690,6 +697,116 @@ class Timetable:
                 continue
             if _haversine_km((stop["lat"], stop["lon"]), (o["lat"], o["lon"])) <= max_km:
                 out.append(other)
+        return out
+
+    def stop_list(self, bbox) -> list:
+        """Every stop inside `bbox` that has a scheduled departure.
+
+        The single source of the stop list. `/api/stops` serves it and
+        `scripts/build_stops_json.py` writes it to a static file for GitHub
+        Pages, so a visitor gets the map without waiting for a free-tier
+        container to wake. Two implementations would have drifted the first
+        time either was touched, and the static one would have drifted
+        silently.
+
+        `bbox` is (min_lat, max_lat, min_lon, max_lon).
+        """
+        min_lat, max_lat, min_lon, max_lon = bbox
+        night = self.night_serving_stop_ids()
+        stops = []
+        for stop_id, s in self.stops.items():
+            lat, lon = s.get("lat"), s.get("lon")
+            if lat is None or lon is None:
+                continue
+            if not (min_lat <= lat <= max_lat and min_lon <= lon <= max_lon):
+                continue
+            if not self.has_stop_times(stop_id):
+                continue
+            stops.append({
+                "atco_code":     stop_id,
+                "name":          s.get("name") or "Bus Stop",
+                "latitude":      lat,
+                "longitude":     lon,
+                "night_serving": stop_id in night,
+            })
+
+        # Direction and services, but only where the name alone is ambiguous.
+        # Colebrook Road and Shoreham Port each have two poles a hundred
+        # metres apart under one name, so a search showing a single entry
+        # sends half its users to the opposite kerb. Where a name is unique
+        # there is nothing to disambiguate, and carrying the fields for all
+        # 5,000 stops would pad a file the browser downloads on every visit.
+        by_name: dict = {}
+        for entry in stops:
+            by_name.setdefault(entry["name"], []).append(entry)
+        ambiguous = [e for g in by_name.values() if len(g) > 1 for e in g]
+        if ambiguous:
+            directions = self.stop_directions([e["atco_code"] for e in ambiguous])
+            for entry in ambiguous:
+                d = directions.get(entry["atco_code"])
+                if not d:
+                    continue
+                if d["towards"]:
+                    entry["towards"] = d["towards"]
+                if d["services"]:
+                    entry["services"] = d["services"]
+        return stops
+
+    def stop_directions(self, stop_ids) -> dict:
+        """For each stop: the services calling there and where they head.
+
+        Answers the question a passenger asks of a shelter — "which way does
+        this one go?" — for the stops where it matters. Two poles of the same
+        road carry the same name and sit 100 m apart, so a search that shows
+        one entry sends half its users across the road.
+
+        Direction comes from the trip headsigns rather than a compass bearing
+        off the coordinates: "towards Old Steine" is what the reader is
+        deciding between, and it is what the flag on the bus says. The most
+        frequent headsign wins, because a pole's occasional short-workings
+        should not rename it.
+
+        Returns {stop_id: {"services": [...], "towards": str}}.
+        """
+        con = self._conn()
+        if con is None or not stop_ids:
+            return {}
+
+        wanted = {sid for sid in stop_ids if sid in self.stops}
+        if not wanted:
+            return {}
+        by_sid = {self.stops[sid]["_sid"]: sid for sid in wanted}
+
+        out: dict = {}
+        # One pass over the stop_times for these stops. `idx_stop_times_stop`
+        # makes each lookup a covering-index scan.
+        placeholders = ",".join("?" * len(by_sid))
+        rows = con.execute(
+            f"""SELECT st.sid, r.short_name, t.headsign
+                  FROM stop_times st
+                  JOIN trips  t ON t.tid = st.tid
+                  JOIN routes r ON r.rid = t.rid
+                 WHERE st.sid IN ({placeholders})""",
+            list(by_sid.keys()),
+        )
+        tally: dict = {}
+        for sid, short_name, headsign in rows:
+            stop_id = by_sid.get(sid)
+            if stop_id is None:
+                continue
+            entry = tally.setdefault(stop_id, {"services": set(), "heads": {}})
+            if short_name:
+                entry["services"].add(short_name)
+            if headsign:
+                entry["heads"][headsign] = entry["heads"].get(headsign, 0) + 1
+
+        for stop_id, entry in tally.items():
+            heads = entry["heads"]
+            towards = max(heads, key=heads.get) if heads else ""
+            out[stop_id] = {
+                "services": sorted(entry["services"], key=_route_sort_key),
+                "towards": towards,
+            }
         return out
 
     def noc_for_route(self, route_id: str) -> str:

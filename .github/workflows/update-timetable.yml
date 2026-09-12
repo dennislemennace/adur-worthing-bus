@@ -44,6 +44,7 @@ jobs:
           python -m py_compile scripts/build_timetable.py
           python -m py_compile scripts/json_to_sqlite.py
           python -m py_compile scripts/build_evidence.py
+          python -m py_compile scripts/build_stops_json.py
 
       - name: Build timetable JSON
         run: python -u scripts/build_timetable.py
@@ -57,6 +58,13 @@ jobs:
       # all — none of which a row count can see.
       - name: Check output
         run: python -u scripts/check_timetable.py data/timetable.sqlite
+
+      # The map's stop layer, as a static file on Pages. Built from the same
+      # database this run publishes, so the two cannot describe different
+      # weeks — and built by the same Timetable.stop_list() the API serves
+      # from, so they cannot disagree about what a stop list is.
+      - name: Build the static stop list
+        run: python -u scripts/build_stops_json.py
 
       - name: Recompute published statistics
         run: python -u scripts/build_evidence.py
@@ -111,16 +119,16 @@ jobs:
       # alongside the database would leave the page quoting whatever numbers
       # were committed by hand, which is the failure this build step exists to
       # prevent.
-      - name: Commit refreshed statistics
+      - name: Commit refreshed statistics and stop list
         run: |
-          if git diff --quiet -- data/boundary_evidence.json; then
-            echo "Statistics unchanged — nothing to commit."
+          if git diff --quiet -- data/boundary_evidence.json data/stops.json; then
+            echo "Statistics and stop list unchanged — nothing to commit."
             exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/boundary_evidence.json
-          git commit -m "Recompute boundary statistics from the $(date -u +%Y-%m-%d) timetable"
+          git add data/boundary_evidence.json data/stops.json
+          git commit -m "Refresh boundary statistics and stop list from the $(date -u +%Y-%m-%d) timetable"
           git push
 
       # Rolling back is `gh release upload timetable-latest <assets from a

@@ -4014,6 +4014,30 @@
       ]
     },
     {
+      "id": "compass-rover",
+      "name": "Compass Rover",
+      "operator": "COMT",
+      "category": "operator",
+      "coverage": "Compass Travel's own network, across West Sussex.",
+      "restrictions": "Valid on Compass buses only — not on Stagecoach, Brighton & Hove or Metrobus services.",
+      "coverage_rule": "operator_network",
+      "valid_on_operators": [
+        "COMT",
+        "CMPA"
+      ],
+      "official_map_url": "https://compass-travel.co.uk/tickets-fares-details/",
+      "fares": {
+        "adult_week": {
+          "price_pence": 3000,
+          "label": "Compass Rover (7 days)"
+        },
+        "source_url": "https://compass-travel.co.uk/tickets-fares-details/",
+        "checked_on": "2026-09-11",
+        "review_by": "2026-12-31",
+        "note": "Compass publishes a £30 adult weekly Rover and the £3 national single fare cap for this corridor, with no day ticket between them. Its Burgess Hill and Haywards Heath day savers are for other parts of its network and are not valid here. Compass also sells the £10 South Downs Discovery Ticket, which is the all-operator ticket already recorded in fares_meta."
+      }
+    },
+    {
       "id": "sc-gold-dayrider",
       "operator": "SCSO",
       "name": "Gold Dayrider",
@@ -4083,7 +4107,8 @@
     }
   ],
   "operator_notes": {
-    "SCSO": "N700 needs a £2 supplement on any Day/Night Rider, or £5 single."
+    "SCSO": "N700 needs a £2 supplement on any Day/Night Rider, or £5 single.",
+    "COMT": "Compass Travel. Sells a £30 weekly Rover valid on its own buses and accepts the £3 national single fare cap; it publishes no day ticket for the Adur/Worthing corridor, which is why a Compass-only journey shows no day-ticket option rather than a missing one."
   },
   "fares_meta": {
     "currency": "GBP",

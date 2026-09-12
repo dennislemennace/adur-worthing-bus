@@ -15,9 +15,27 @@ fits within the existing envelope.
 ## Render.com — backend host
 
 - Plan: free web service (see `render.yaml`, `plan: free`).
-- ~750 instance-hours / month (one always-on free service fits comfortably).
-- Sleeps after ~15 min idle → ~30 s cold start on the next request.
-  The frontend handles cold starts; do not regress that behavior.
+- **750 instance-hours / month**, per workspace — not per service. A second
+  free service running alongside this one shares the same allowance.
+- Sleeps after ~15 min idle → cold start on the next request. **Measured
+  2026-09-11: 22.4 s to first byte after a 17-minute idle, against 0.15 s
+  warm.** The frontend handles cold starts; do not regress that behavior.
+
+**The keep-warm budget.** `.github/workflows/keep-warm.yml` pings the service
+every 10 minutes except between 01:30 and 06:30 Europe/London, so the instance
+is up about 19.25 h a day — **roughly 597 hours in a 31-day month, about 80% of
+the allowance.** The remaining headroom is what pays for redeploys and for a
+second service during a migration; spending it on a shorter quiet window would
+leave none.
+
+Two numbers set the cadence: the idle threshold is 15 minutes, and scheduled
+GitHub Actions runs are routinely delayed at peak times. Ten minutes absorbs a
+five-minute slip. Fourteen would not.
+
+The static stop list (`data/stops.json`, see below) is what makes the overnight
+window cheap: the map draws without the API, so someone checking a night bus at
+03:00 still gets stops, a route map and timetable data while the container
+wakes for live times.
 - 512 MB RAM, ~0.1 vCPU (shared).
 - **No persistent disk.** Anything written to disk is lost on redeploy. The
   GTFS SQLite (`data/timetable.sqlite`) is fetched from a GitHub Release on
@@ -47,6 +65,17 @@ fits within the existing envelope.
 - `.github/workflows/update-timetable.yml` runs weekly — keep that cadence.
   Increasing the schedule eats into the (currently unlimited) public-repo
   budget needlessly.
+- `.github/workflows/keep-warm.yml` runs every 10 minutes and exits in a couple
+  of seconds inside the quiet window. Free on a public repo; it would cost
+  roughly 4,000 minutes a month if this repo ever went private, which is twice
+  the private-repo allowance on its own.
+- **GitHub disables scheduled workflows in a repository with no commits for 60
+  days.** If cold starts come back, check that keep-warm is still enabled
+  before looking anywhere else.
+- Pages also serves `data/stops.json` (~250 KB, ~36 KB gzipped), downloaded on
+  a visitor's first load and then cached. At the 100 GB monthly Pages
+  allowance that is not a constraint; it is listed so a future change that
+  inflates it is a deliberate one.
 
 ## BODS — Bus Open Data Service (SIRI-VM vehicles)
 

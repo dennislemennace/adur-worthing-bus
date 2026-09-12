@@ -121,6 +121,10 @@ const state = {
   isRefreshing:  true,
   busesVisible:  true,  // header toggle: show bus markers + run live refresh
   vehicleFetchInFlight: false,  // guards against overlapping /api/vehicles polls
+  // Has the backend answered anything yet this session? Until it has, calls
+  // get the cold-start budget and the "waking up" banner (see apiFetch).
+  apiEverResponded: false,
+  stopsGeneratedOn: null,  // date stamp from the static stop list, if used
   // Operators the user has switched OFF, by NOC. A hide-list rather than a
   // show-list on purpose: an operator that appears in the feed for the first
   // time should show up, not be silently filtered out by a preference saved
@@ -166,6 +170,7 @@ const state = {
   visibleCategories:       null,   // Set holding the active type-filter key: "all" | "express" | "standard"
   visibleOperators:        null,   // Set of operator buckets ("BHBC","SCSO","COMT","OTHER",""); ""=unknown
   showLimitedServices:     false,  // false = hide services that don't run all week or finish before 18:00
+  routeChipsExpanded:      false,  // "+N more" pressed; see reflowRouteChips()
   routeLines:              null,   // /api/route-lines response, fetched lazily
   routeLineLayers:         {},     // service short_name → array of L.polyline
   routeOperatorByService:  {},     // service → operator NOC (e.g. "COMT", "")
@@ -252,6 +257,11 @@ const dom = {
   reportStopSubmit:   document.getElementById("rs-submit"),
   reportStopTurnstile: document.getElementById("rs-turnstile"),
   toast:              document.getElementById("toast"),
+  routeFiltersCount:  document.getElementById("route-filters-count"),
+  routeChipsMore:     document.getElementById("route-chips-more"),
+  routeFiltersDisc:   document.getElementById("route-filters-disclosure"),
+  wakingBanner:       document.getElementById("waking-banner"),
+  wakingText:         document.getElementById("waking-text"),
   toggleRailBtn:      document.getElementById("toggle-rail-btn"),
   railBoardHost:      document.getElementById("rail-board-host"),
 
@@ -469,6 +479,9 @@ async function init() {
   initMap();
   bindUIEvents();
   bindStopSearch();
+  bindRovingTabs();
+  ["evidence-dialog", "councillor-dialog"]
+    .forEach(id => bindDialogBackdropClose(document.getElementById(id)));
   bindNewsForm();
   bindLoaderRetries();
 
@@ -476,15 +489,29 @@ async function init() {
   state.editorDrafts = loadDraftsFromStorage();
   renderDraftsSection();
 
-  // Load stops first (cached 24 h on backend, so fast after first call)
-  await loadStops();
+  // Apply the requested section *before* waiting for anything.
+  //
+  // This awaited loadStops() first, so opening #view=n — a panel-only
+  // section with no map layers of its own — sat on "Loading live bus data…"
+  // for as long as /api/stops took, and showed Live rather than the section
+  // that was asked for. A campaign page a councillor has been sent must not
+  // be gated on a live vehicle service.
+  const urlState = parseUrlState();
+  const wantsLive = !urlState.view || urlState.view === "live";
+  if (!wantsLive) {
+    dom.mapLoading.classList.add("hidden");
+    await applyUrlState(urlState);
+  }
 
-  // Hide initial loading overlay
+  // Stops are needed for the Live map and for search; everything else has
+  // already been shown by this point.
+  const stopsLoaded = loadStops();
+  if (wantsLive) await stopsLoaded;
+  else stopsLoaded.catch(() => {});
+
   dom.mapLoading.classList.add("hidden");
 
-  // Restore deep-linked state from URL hash, if any. Stops are loaded;
-  // vehicles and proposals resolve asynchronously via _pending* tokens.
-  await applyUrlState(parseUrlState());
+  if (wantsLive) await applyUrlState(urlState);
 
   // Start live bus position loop
   startVehicleRefresh();
@@ -511,15 +538,38 @@ async function init() {
 
 /** Pre-fetch + pre-build the Improvements layers during idle time. */
 function prefetchImprovementsData() {
+  // Route lines and proposals are about 304 KiB — roughly a third of
+  // everything the landing page transfers — and they are for a view the
+  // visitor has not asked for. A `requestIdleCallback` with a 3s timeout
+  // fires whether or not Live has finished, so on a throttled connection this
+  // competed with the vehicle feed for the same pipe: first bus marker
+  // appeared at 10.1 seconds.
+  //
+  // Two guards. Skip it entirely where bytes are expensive or scarce, and
+  // otherwise wait until Live has actually rendered something before spending
+  // them. Nothing about Route view gets slower once it is asked for — the
+  // loaders are memoized, so opening the view still fetches once.
+  const conn = navigator.connection;
+  if (conn && (conn.saveData || /(^|-)2g$/.test(conn.effectiveType || ""))) {
+    return;
+  }
+
   const run = () => {
     loadRouteLines().catch(() => {});
     loadProposals().catch(() => {});
   };
-  if ("requestIdleCallback" in window) {
-    requestIdleCallback(run, { timeout: 3000 });
-  } else {
-    setTimeout(run, 1200);
-  }
+  const whenIdle = () => {
+    if ("requestIdleCallback" in window) requestIdleCallback(run, { timeout: 5000 });
+    else setTimeout(run, 1200);
+  };
+
+  // "Live is useful" means vehicles have been drawn, or we have waited long
+  // enough that they are not coming.
+  if (state.viewMode !== "live" || state._vehiclesRendered) return whenIdle();
+  let done = false;
+  const go = () => { if (!done) { done = true; whenIdle(); } };
+  document.addEventListener("busmarkers:first", go, { once: true });
+  setTimeout(go, 8000);
 }
 
 // ============================================================
@@ -603,7 +653,79 @@ function initMap() {
 // ============================================================
 // BUS STOPS
 // ============================================================
+
+// Where the stop list is published. Built from the same timetable database the
+// API serves, by the same Timetable.stop_list(), in the workflow that
+// publishes both — see scripts/build_stops_json.py.
+//
+// Relative, so it resolves against whatever origin the page was loaded from:
+// GitHub Pages in production, the dev server locally. Never against the API.
+const STATIC_STOPS_URL = "data/stops.json";
+
+/**
+ * Fetch the published stop list.
+ *
+ * Returns null rather than throwing when it is not there: a missing static
+ * file is a reason to ask the API, not a failure to report. A malformed one
+ * is the same — better to fall back than to draw a broken map.
+ */
+async function fetchStaticStops() {
+  try {
+    const res = await fetch(STATIC_STOPS_URL, { headers: { "Accept": "application/json" } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !Array.isArray(data.stops) || !data.stops.length) return null;
+    return data;
+  } catch (err) {
+    console.warn("Static stop list unavailable:", err);
+    return null;
+  }
+}
+
+// The stop list is rebuilt weekly by the timetable workflow. A fortnight gives
+// one missed run the benefit of the doubt; beyond that the rebuild has stopped,
+// and since GitHub disables scheduled workflows in a quiet repository that is a
+// thing which happens silently and stays broken for months.
+const STOPS_STALE_DAYS = 14;
+
+/** Days between `generatedOn` (an ISO date) and today, or null if unreadable. */
+function stopListAgeDays(generatedOn) {
+  if (!generatedOn) return null;
+  const then = Date.parse(`${generatedOn}T00:00:00Z`);
+  if (Number.isNaN(then)) return null;
+  return Math.floor((Date.now() - then) / 86_400_000);
+}
+
+/**
+ * Say so when the published stop list has gone stale.
+ *
+ * Deliberately quiet in the normal case — this fires only when something
+ * upstream has stopped, and staying silent then is how a map ends up missing
+ * a year of new stops with nobody noticing.
+ */
+function warnIfStopListIsStale(generatedOn) {
+  const age = stopListAgeDays(generatedOn);
+  if (age === null || age <= STOPS_STALE_DAYS) return;
+  console.warn(`Stop list is ${age} days old (built ${generatedOn})`);
+  showToast(`These stops were last rebuilt ${age} days ago — a very recent `
+            + `stop may be missing from the map. Live times are unaffected.`,
+            6000);
+}
+
 async function loadStops() {
+  // Static first. The stop list changes when the timetable is rebuilt and not
+  // otherwise, so there is nothing live about it — and asking the API for it
+  // meant the map stayed empty for the twenty seconds a free-tier container
+  // takes to wake up, which is the single worst moment of a first visit.
+  const staticData = await fetchStaticStops();
+  if (staticData) {
+    state.stopsGeneratedOn = staticData.generated_on || null;
+    await renderStopsInChunks(staticData.stops);
+    applyStopVisibility();
+    warnIfStopListIsStale(state.stopsGeneratedOn);
+    return;
+  }
+
   try {
     const data = await apiFetch("/api/stops");
     if (!data || !data.stops) throw new Error("Invalid stops response");
@@ -618,8 +740,10 @@ async function loadStops() {
     console.error("Failed to load stops:", err);
     // Passenger-facing copy. "Check your API configuration" is an instruction
     // to the person who deployed this, shown to someone waiting for a bus.
+    // Do not promise a fallback that depends on what just failed: the Ticket
+    // view's stop picker is built from this same data, so it is empty too.
     showToast("Couldn't load the bus stops — the live service isn't "
-              + "responding. Timetables are still available in Ticket view.");
+              + "responding. Route, Network and Updates still work.");
   }
 }
 
@@ -668,6 +792,11 @@ function renderStopMarker(stop) {
     lat: stop.latitude,
     lon: stop.longitude,
     name: stop.name,
+    // Present only where the name is shared by more than one pole — see the
+    // note in /api/stops. Their absence is the signal that the name is
+    // already unambiguous.
+    towards: stop.towards || "",
+    services: Array.isArray(stop.services) ? stop.services : null,
     night_serving: !!stop.night_serving,
   };
 }
@@ -698,9 +827,51 @@ function renderStopMarker(stop) {
  * ============================================================ */
 const STOP_ZOOM_INDIVIDUAL = 14;   // at or above this, draw stops one by one
 
-/** Cluster cell size in degrees, sized so a bubble covers ~60px on screen. */
+/**
+ * Cluster cell size in degrees.
+ *
+ * A flat 60px cell put a bubble every 60px across the whole coast: at the two
+ * zooms where clustering first kicks in that is a curtain of numbered discs
+ * with the map behind it, which is the opposite of what clustering is for. The
+ * cell widens as you zoom out, so the first levels below the individual-stop
+ * threshold get far fewer, fatter bubbles and the coastline is legible again.
+ *
+ * Beyond two levels out the cell can come back down — at zoom 11 a 120px cell
+ * already spans several kilometres, and the bubbles are sparse whatever we do.
+ */
+const CLUSTER_CELL_PX = { 1: 150, 2: 120 };   // levels below STOP_ZOOM_INDIVIDUAL
+const CLUSTER_CELL_PX_FAR = 80;
+
+function clusterCellPixels(zoom) {
+  const below = STOP_ZOOM_INDIVIDUAL - zoom;
+  return CLUSTER_CELL_PX[below] || CLUSTER_CELL_PX_FAR;
+}
+
 function clusterCellDegrees(zoom) {
-  return 60 * 360 / (256 * Math.pow(2, zoom));
+  return clusterCellPixels(zoom) * 360 / (256 * Math.pow(2, zoom));
+}
+
+/** Bubble diameter for a bucket of `n` stops.
+ *
+ * Fixed at 34px, a bubble of 4 and a bubble of 180 looked identical, so the
+ * count had to be read to tell a hamlet from the middle of Worthing. Area
+ * roughly tracks the count (hence the cube-ish root of n), clamped so the
+ * biggest never becomes an obstacle in its own right.
+ *
+ * Scaled to about a third of the first version at the owner's request: the
+ * bubbles are a hint that stops are there, not a thing to read, and at 34-64px
+ * they were still the loudest object on the map. 12-22px keeps the size
+ * difference between a hamlet and a town centre legible while letting the
+ * coastline through.
+ *
+ * Note these fall below the 24px pointer-target guideline the rest of the site
+ * keeps. That is deliberate and already true of the individual stop dots
+ * (12px): the map is not the only way in, and the keyboard/assistive route is
+ * the stop search, which is exactly why it exists. */
+const CLUSTER_SCALE = 0.35;
+function clusterDiameter(n) {
+  return Math.max(12, Math.min(22,
+    Math.round((30 + 11 * Math.cbrt(n)) * CLUSTER_SCALE)));
 }
 
 function clearStopClusters() {
@@ -724,12 +895,15 @@ function renderStopClusters(atcos) {
 
   for (const b of buckets.values()) {
     const at = [b.lat / b.n, b.lon / b.n];
+    const d = clusterDiameter(b.n);
     const marker = L.marker(at, {
       icon: L.divIcon({
-        className: "stop-cluster-icon",
+        // iconSize alone sizes the disc — .stop-cluster-icon is the circle, so
+        // a nested sized box would just be a second one inside it.
+        className: `stop-cluster-icon${b.n >= 50 ? " stop-cluster-icon--big" : ""}`,
         html: `<span>${b.n}</span>`,
-        iconSize: [34, 34],
-        iconAnchor: [17, 17],
+        iconSize: [d, d],
+        iconAnchor: [d / 2, d / 2],
       }),
       // Not a destination in its own right — it exists to be zoomed into.
       keyboard: false,
@@ -1537,9 +1711,21 @@ function updateVehicleMarkers(vehicles) {
         marker.setPopupContent(buildBusPopupHtml(vehicle, label));
       }
       updateBusMarkerInPlace(marker, label, bearing);
+      const name = busMarkerName(vehicle, label);
+      if (marker.options.title !== name) {
+        marker.options.title = name;
+        const el = marker.getElement && marker.getElement();
+        if (el) el.setAttribute("title", name);
+      }
     } else {
       const icon = createBusIcon(vehicle.operator_ref, label, bearing);
-      marker = L.marker([vehicle.latitude, vehicle.longitude], { icon, zIndexOffset: 200 })
+      // A name a screen reader can tell apart. Every bus announced only its
+      // route number, so eleven vehicles on the 700 were eleven identical
+      // buttons. Destination and operator are what distinguish them, where
+      // the feed supplies them — and where it does not, the number alone is
+      // still the honest answer rather than an invented one.
+      marker = L.marker([vehicle.latitude, vehicle.longitude],
+                        { icon, zIndexOffset: 200, title: busMarkerName(vehicle, label) })
         .bindPopup(() => buildBusPopupHtml(marker._vehicle,
                                            marker._vehicle.service_ref || "?"),
                    { maxWidth: 220 })
@@ -1550,6 +1736,11 @@ function updateVehicleMarkers(vehicles) {
         if (marker._vehicle) openBusInfo(marker._vehicle);
       });
       state.busMarkers[ref] = marker;
+    }
+
+    if (!state._vehiclesRendered) {
+      state._vehiclesRendered = true;
+      document.dispatchEvent(new Event("busmarkers:first"));
     }
 
     // Keep selected-bus state in sync if this is the one we're tracking
@@ -1628,6 +1819,16 @@ function buildBusPopupHtml(vehicle, label) {
  * when the heading is in the western half, so the bus always stays
  * right-side-up and still indicates direction via left/right facing.
  */
+/** What a bus marker is called, for anything that reads names rather than art. */
+function busMarkerName(vehicle, label) {
+  const parts = [`Service ${label || "?"}`];
+  const dest = prettifyName(vehicle.destination || vehicle.trip_headsign);
+  if (dest) parts.push(`to ${dest}`);
+  const op = getOperatorName(vehicle.operator_ref);
+  if (op && op !== "Unknown operator") parts.push(`(${op})`);
+  return parts.join(" ");
+}
+
 function createBusIcon(operatorRef, label, bearing) {
   const iconUrl  = iconForService(operatorRef, label);
   const transform = iconTransformForBearing(bearing);
@@ -1761,6 +1962,8 @@ window.openDepartures = async function(atcoCode, stopName) {
 
   // Make sure the Stop tab is the one in front
   setActiveTab("stop");
+
+  revealPanelForSelection();
 
   // Show panel, hide prompt
   showPanelState("loading");
@@ -2002,22 +2205,41 @@ function renderDepartures(data) {
     return;
   }
 
-  dom.departuresCount.textContent = `${departures.length} departure${departures.length !== 1 ? "s" : ""}`;
+  const shown = departures.slice(0, CONFIG.DEPARTURES_COUNT);
+  dom.departuresTbody.innerHTML = shown.map(dep => buildDepartureRow(dep)).join("");
 
-  dom.departuresTbody.innerHTML = departures
-    .slice(0, CONFIG.DEPARTURES_COUNT)
-    .map(dep => buildDepartureRow(dep))
-    .join("");
-
-  // Say when this was fetched. A board that cannot tell you how old it is
-  // asks you to trust a number it has no way of keeping true.
-  const asOf = new Date().toLocaleTimeString("en-GB",
-    { hour: "2-digit", minute: "2-digit" });
-  dom.departuresCount.textContent =
-    `${departures.length} departure${departures.length !== 1 ? "s" : ""} · as of ${asOf}`;
+  // Say when this was fetched, and describe the table rather than the
+  // response. This said "16 departures" over ten rows, with no hint that six
+  // more existed — and a second, earlier assignment of the same element sat
+  // just above, immediately overwritten and long dead.
+  state.departuresAsOf = new Date();
+  updateDepartureCount(shown.length, departures.length);
 
   startDepartureTicker();
   showPanelState("results");
+}
+
+/** The line above the board: how many rows it is showing, of how many, and
+ *  when the data was fetched.
+ *
+ *  Owned in one place because the ticker changes it too. Ageing every row out
+ *  used to leave "16 departures · as of 21:07" sitting over an empty table.
+ */
+function updateDepartureCount(shown, total) {
+  if (!dom.departuresCount) return;
+  const at = state.departuresAsOf;
+  const asOf = at
+    ? ` · as of ${at.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`
+    : "";
+  if (shown === 0) {
+    dom.departuresCount.textContent = total > 0
+      ? `Nothing further due${asOf}`
+      : `No upcoming departures${asOf}`;
+    return;
+  }
+  const more = total > shown ? ` of ${total}` : "";
+  dom.departuresCount.textContent =
+    `${shown}${more} departure${total === 1 ? "" : "s"}${asOf}`;
 }
 
 function buildDepartureRow(dep) {
@@ -2204,6 +2426,7 @@ function openBusInfo(vehicle) {
   state.busDetailsLoading       = true;
   pushUrlState();
 
+  revealPanelForSelection();
   setActiveTab("bus");
   renderBusTab();
   startBusInfoTicker();
@@ -2743,6 +2966,38 @@ function sheetOverlapPx() {
  * panning keeps the zoom honest and moves the shape by exactly as much as
  * the sheet covers.
  */
+/**
+ * Fit into the part of the map the sheet is not covering.
+ *
+ * Different from fitBoundsAboveSheet, deliberately. That one fits to the whole
+ * map and then pans, which keeps the zoom honest — the right trade for a large
+ * shape like a ticket zone, where treating the visible strip as the viewport
+ * zoomed out far enough to show Crawley.
+ *
+ * A selected proposal is the opposite case. It is a local shape, the reader
+ * has just asked to look at it, and half of it was landing under the sheet. So
+ * here the visible strip *is* the viewport: pass the sheet height as padding
+ * and accept the lower zoom, which for a shape this size is a level at most.
+ *
+ * Mobile only. On desktop the panel is a side column, nothing is covered
+ * vertically, and Leaflet's own fit is already right.
+ */
+function fitBoundsInVisibleMap(bounds, options) {
+  const overlap = sheetOverlapPx();
+  if (!overlap) {
+    state.map.fitBounds(bounds, options);
+    return;
+  }
+  state.map.fitBounds(bounds, {
+    ...options,
+    paddingTopLeft: [(options && options.padding && options.padding[0]) || 20, 20],
+    paddingBottomRight: [(options && options.padding && options.padding[0]) || 20,
+                         overlap + 20],
+    padding: undefined,
+    animate: false,
+  });
+}
+
 function fitBoundsAboveSheet(bounds, options) {
   // animate:false matters. fitBounds animates by default, and an animated fit
   // finishes *after* the panBy below runs — so the pan was applied and then
@@ -2859,6 +3114,7 @@ const DEPARTURE_TICK_MS = 30_000;
 function ageDepartureBoard(now = new Date()) {
   const cells = document.querySelectorAll(".due-time[data-due-at]");
   if (!cells || !cells.length) return 0;
+  const before = cells.length;
   let removed = 0;
   cells.forEach(cell => {
     const iso = cell.dataset.dueAt;
@@ -2873,6 +3129,19 @@ function ageDepartureBoard(now = new Date()) {
       cell.classList.toggle("due-imminent", isWithinMinutes(iso, 2));
     }
   });
+
+  // The count described the response, so removing every row left a positive
+  // number over an empty table — the board looked broken rather than spent.
+  if (removed) {
+    const left = before - removed;
+    updateDepartureCount(left, left);
+    if (left === 0 && dom.departuresTbody) {
+      dom.departuresTbody.innerHTML =
+        `<tr><td colspan="4" class="no-departures">Nothing further due at this
+         stop. Refresh for the next departures.</td></tr>`;
+      stopDepartureTicker();
+    }
+  }
   return removed;
 }
 
@@ -3049,6 +3318,20 @@ function bindUIEvents() {
 
   // Improvements panel: "Show limited services" toggle. Default off — hide
   // routes that don't run all week or end before 18:00.
+  if (dom.routeChipsMore) {
+    dom.routeChipsMore.addEventListener("click", () => {
+      state.routeChipsExpanded = !state.routeChipsExpanded;
+      reflowRouteChips();
+    });
+  }
+  if (dom.routeFiltersDisc) {
+    // Chips inside a closed <details> have no layout, so offsetTop is 0 for
+    // every one of them and the measurement above would clip nothing. Measure
+    // when it opens, which is the first moment there is anything to measure.
+    dom.routeFiltersDisc.addEventListener("toggle", () => {
+      if (dom.routeFiltersDisc.open) reflowRouteChips();
+    });
+  }
   if (dom.showLimitedServices) {
     dom.showLimitedServices.checked = state.showLimitedServices;
     dom.showLimitedServices.addEventListener("change", (e) => {
@@ -3069,6 +3352,13 @@ function bindUIEvents() {
   // First paint gets the same per-view default a view change would give it.
   setSheetDetent(isSheetLayout() ? defaultDetentForViewport() : "half");
   window.addEventListener("resize", syncPanelCollapsedToWidth);
+  // Rotating a phone changes how many chips fit in a row, so the cap has to be
+  // measured again. Debounced: resize fires continuously during a drag.
+  let _chipReflowTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(_chipReflowTimer);
+    _chipReflowTimer = setTimeout(reflowRouteChips, 150);
+  });
 
   // Improvements panel: tab switching + close
   dom.tabAbout.addEventListener("click",     () => setImprovementsTab("about"));
@@ -3890,8 +4180,91 @@ function renderRouteFilterChips() {
       const nowVisible = btn.getAttribute("aria-pressed") !== "true";
       btn.setAttribute("aria-pressed", nowVisible ? "true" : "false");
       for (const svc of variants) setRouteVisible(svc, nowVisible);
+      updateRouteFilterCount();
     });
   });
+
+  updateRouteFilterCount();
+  reflowRouteChips();
+}
+
+/* ── How many services, and how many fit ─────────────────────
+ *
+ * The list lives inside a closed disclosure now, so the summary has to say
+ * what is in it. And because narrowing the filters removes chips, the rows
+ * they occupied come back — so the cap is measured against the layout after
+ * every render rather than fixed at a chip count, which would be wrong the
+ * moment a "700X" sat next to a "9".
+ */
+
+/** Rows of chips shown before "+N more" appears. Three is what fits above the
+ *  prose on a 390x844 phone with the filters open; beyond that the disclosure
+ *  itself starts scrolling and the point of collapsing it is lost. */
+const ROUTE_CHIP_ROWS = 3;
+
+function updateRouteFilterCount() {
+  if (!dom.routeFiltersCount) return;
+  const chips = dom.routeFilterChips
+    ? [...dom.routeFilterChips.querySelectorAll(".route-chip")] : [];
+  if (!chips.length) { dom.routeFiltersCount.textContent = ""; return; }
+  const on = chips.filter(c => c.getAttribute("aria-pressed") === "true").length;
+  // "18 of 24 on the map" rather than a bare number: the figure that matters
+  // is how much of the network you are looking at.
+  dom.routeFiltersCount.textContent = on === chips.length
+    ? `all ${chips.length}`
+    : `${on} of ${chips.length}`;
+}
+
+/**
+ * Clip the chip list to ROUTE_CHIP_ROWS and offer the rest.
+ *
+ * Measured, not counted. Chips are natural-width — "N700" is nearly three
+ * times "9" — so the number that fits in three rows depends on which services
+ * passed the filter. Every chip's own offsetTop against the first row's is the
+ * only honest answer, and it is what makes the list grow by itself when a
+ * filter frees a row.
+ */
+function reflowRouteChips() {
+  const host = dom.routeFilterChips;
+  const more = dom.routeChipsMore;
+  if (!host || !more) return;
+
+  const chips = [...host.querySelectorAll(".route-chip")];
+  if (!chips.length) { more.classList.add("hidden"); return; }
+
+  if (state.routeChipsExpanded) {
+    host.style.maxHeight = "";
+    for (const c of chips) c.classList.remove("route-chip--clipped");
+    more.classList.remove("hidden");
+    more.textContent = "Show fewer";
+    more.setAttribute("aria-expanded", "true");
+    return;
+  }
+
+  // Reset before measuring: a cap left over from the previous render would
+  // make every chip below it report the same offsetTop and hide the lot.
+  host.style.maxHeight = "";
+  for (const c of chips) c.classList.remove("route-chip--clipped");
+
+  const top0 = chips[0].offsetTop;
+  const rows = [];
+  for (const c of chips) {
+    if (!rows.includes(c.offsetTop)) rows.push(c.offsetTop);
+  }
+  rows.sort((a, b) => a - b);
+
+  if (rows.length <= ROUTE_CHIP_ROWS) {
+    more.classList.add("hidden");
+    return;
+  }
+
+  const cutoff = rows[ROUTE_CHIP_ROWS];      // first row that does not fit
+  const hidden = chips.filter(c => c.offsetTop >= cutoff);
+  for (const c of hidden) c.classList.add("route-chip--clipped");
+  host.style.maxHeight = `${cutoff - top0}px`;
+  more.classList.remove("hidden");
+  more.textContent = `+${hidden.length} more`;
+  more.setAttribute("aria-expanded", "false");
 }
 
 /** Show or hide every route in the current service mode. */
@@ -3907,6 +4280,7 @@ function setAllRoutesVisible(visible) {
       btn.setAttribute("aria-pressed", visible ? "true" : "false");
     });
   }
+  updateRouteFilterCount();
 }
 
 /** True for services whose short_name is N + digits ("N1", "N700"). */
@@ -4362,9 +4736,10 @@ function selectProposal(id) {
     const p = (state.proposals || []).find(x => x.id === id);
     const allPts = (p && p._polylines || []).flat();
     if (allPts.length) {
-      state.map.fitBounds(L.latLngBounds(allPts), {
-        padding: [40, 40], maxZoom: 14,
-      });
+      // Was a plain fitBounds, which centres in the whole map — and on a phone
+      // the bottom half of the map is under the sheet, so a proposal selected
+      // from the list below it was drawn half behind the list.
+      fitBoundsInVisibleMap(L.latLngBounds(allPts), { padding: [40, 40], maxZoom: 14 });
     }
   } else if (!state.showProposals && prevId) {
     // Deselect → hide just the previously-shown community proposal.
@@ -4965,7 +5340,14 @@ function commonOperators(endpointOperators) {
   return common === null ? null : [...common];
 }
 
-function ticketsUsableEndToEnd(zones, endpointOperators) {
+function ticketsUsableEndToEnd(zones, endpointOperators, legOperators) {
+  // If we know which buses the journey is actually on, that is the question:
+  // a ticket has to be valid on *every* leg, not merely on some operator that
+  // happens to serve both ends. Endpoints are the fallback for a journey the
+  // API could not break into legs.
+  if (Array.isArray(legOperators) && legOperators.length) {
+    return zones.filter(z => legOperators.every(op => ticketValidOn(z, op)));
+  }
   // Operators present at *every* endpoint. On a direct journey that is the one
   // operator running it, so nothing changes; on an interchange it is often
   // empty, which is itself the finding.
@@ -5190,22 +5572,126 @@ function stopPickerIndex() {
  * them, with no dependence on the map having focus or even being visible.
  */
 const STOP_SEARCH_LIMIT = 12;
+// Slots a railway station cannot be pushed out of by bus stops.
+const RAIL_SEARCH_RESERVE = 2;
+
+/** How well a name answers a query: lower sorts first.
+ *
+ *  A plain `includes` treats "Worthing" matching the *district suffix* of
+ *  "Marine Parade, Worthing" as being as good as matching the name "Worthing
+ *  Station", which is how twelve weak bus matches came to bury both railway
+ *  stations people were searching for.
+ */
+function searchRank(name, label, q) {
+  const n = (name || "").toLowerCase();
+  const l = (label || "").toLowerCase();
+  if (n === q) return 0;                       // exact name
+  if (n.startsWith(q)) return 1;               // name begins with it
+  if (new RegExp(`\\b${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(n)) return 2;
+  if (l.startsWith(q)) return 3;               // label begins with it
+  return 4;                                    // matched somewhere else
+}
+
+/**
+ * The stop list the *live search* works from.
+ *
+ * Deliberately not `stopPickerIndex()`. That clusters poles within 400 m into
+ * one place, which is right for the journey checker — somebody choosing where
+ * to travel from wants a place, not a side of the road — and wrong here,
+ * where the answer is a departure board for one specific pole. Colebrook Road
+ * and Shoreham Port each have two, and showing one sent half the people
+ * asking to the opposite kerb.
+ *
+ * Poles are kept apart only where the name is shared *and* the API gave a
+ * direction to tell them apart with. Everywhere else this is the clustered
+ * list, unchanged.
+ */
+function liveSearchIndex() {
+  // Keyed to the index it derives from, not memoized outright: `_stopIndex`
+  // is rebuilt when the stop list changes, and a cache that outlived it would
+  // serve a search over stops that are no longer there.
+  const source = stopPickerIndex();
+  if (state._liveSearchIndex && state._liveSearchFrom === source) {
+    return state._liveSearchIndex;
+  }
+
+  const byName = new Map();
+  for (const [atco, s] of Object.entries(state.stopData || {})) {
+    if (!s.name) continue;
+    if (!byName.has(s.name)) byName.set(s.name, []);
+    byName.get(s.name).push({ atco, ...s });
+  }
+
+  const out = [];
+  for (const cluster of source) {
+    const siblings = byName.get(cluster.name) || [];
+    const split = siblings.filter(s => s.towards);
+    // Two or more poles that can actually be told apart: list them.
+    if (split.length > 1 && cluster.atcos.length > 1) {
+      for (const s of split) {
+        if (!cluster.atcos.includes(s.atco)) continue;
+        out.push({
+          label: cluster.label, name: cluster.name, atcos: [s.atco],
+          towards: s.towards, services: s.services,
+        });
+      }
+      continue;
+    }
+    out.push(cluster);
+  }
+  state._liveSearchIndex = out;
+  state._liveSearchFrom  = source;
+  return out;
+}
 
 function stopSearchMatches(query) {
   const q = (query || "").trim().toLowerCase();
   if (q.length < 2) return [];
-  const out = [];
-  for (const c of stopPickerIndex()) {
+
+  // Gather everything, then rank. This used to return the moment the bus list
+  // filled up, so railway stations were never even considered: "Worthing" and
+  // "Hove" each filled all twelve slots with bus stops and excluded the
+  // station of that name entirely.
+  const candidates = [];
+  for (const c of liveSearchIndex()) {
     if (!c.label.toLowerCase().includes(q)) continue;
-    out.push({ kind: "stop", label: c.label, atco: c.atcos[0] });
-    if (out.length >= STOP_SEARCH_LIMIT) return out;
+    // "Bus stop · towards Old Steine · 700, N700" — which way, and what on.
+    const bits = ["Bus stop"];
+    if (c.towards) bits.push(`towards ${c.towards}`);
+    if (c.services && c.services.length) {
+      bits.push(c.services.slice(0, 4).join(", ")
+                + (c.services.length > 4 ? "…" : ""));
+    }
+    candidates.push({
+      kind: "stop", label: c.label, name: c.name || c.label,
+      atco: c.atcos[0], mode: bits.join(" · "),
+    });
   }
   for (const st of (state.railStations || [])) {
     if (!st.name || !st.name.toLowerCase().includes(q)) continue;
-    out.push({ kind: "rail", label: `${st.name} station`, crs: st.crs });
-    if (out.length >= STOP_SEARCH_LIMIT) break;
+    candidates.push({
+      kind: "rail", label: `${st.name} station`, name: st.name,
+      crs: st.crs, railName: st.name, mode: "Railway station",
+    });
   }
-  return out;
+
+  candidates.forEach((c, i) => {
+    c._rank = searchRank(c.name, c.label, q);
+    c._i = i;                                  // stable within a rank
+  });
+  candidates.sort((a, b) => (a._rank - b._rank) || (a._i - b._i));
+
+  // A railway station is a different kind of answer from a bus stop, and a
+  // long list of stops must not be able to hide the one station someone was
+  // looking for. Reserve room for the best few, then fill the rest by rank.
+  const rail = candidates.filter(c => c.kind === "rail").slice(0, RAIL_SEARCH_RESERVE);
+  const out = [...rail];
+  for (const c of candidates) {
+    if (out.length >= STOP_SEARCH_LIMIT) break;
+    if (!out.includes(c)) out.push(c);
+  }
+  out.sort((a, b) => (a._rank - b._rank) || (a._i - b._i));
+  return out.slice(0, STOP_SEARCH_LIMIT);
 }
 
 function renderStopSearchResults(listEl, matches, query) {
@@ -5222,8 +5708,10 @@ function renderStopSearchResults(listEl, matches, query) {
               data-kind="${escapeAttr(m.kind)}"
               data-atco="${escapeAttr(m.atco || "")}"
               data-crs="${escapeAttr(m.crs || "")}"
+              data-rail-name="${escapeAttr(m.railName || "")}"
               data-label="${escapeAttr(m.label)}">
-        <span class="stop-search-result-name">${escapeHtml(m.label)}</span>
+        <span class="stop-search-result-name">${escapeHtml(m.name || m.label)}</span>
+        <span class="stop-search-result-mode">${escapeHtml(m.mode || "")}</span>
       </button>
     </li>`).join("");
 }
@@ -5232,6 +5720,66 @@ function renderStopSearchResults(listEl, matches, query) {
  *
  *  Delegated, so it survives the rerender that follows a retry, and keyed by
  *  what failed rather than by which button was pressed. */
+/**
+ * Close a native <dialog> when the backdrop is clicked.
+ *
+ * `showModal()` gives Escape and focus trapping for free, but not this: the
+ * backdrop is a pseudo-element, so there is nothing to attach a listener to.
+ * The test is geometric rather than `e.target === dialog`, because a click on
+ * the dialog's own padding also reports the dialog as the target and would
+ * close it while the reader was aiming at the text inside.
+ */
+/**
+ * Open the sheet far enough to show what the reader just selected.
+ *
+ * `peek` is 248px, and the handle, tabs, heading and meta row fill it — so
+ * selecting something used to put its content at exactly the panel's bottom
+ * edge: rows in the DOM, none of them visible. Asking for a stop, a bus or a
+ * station is asking to see it.
+ *
+ * Only lifts from `peek`, and only on a sheet layout. If the reader has
+ * already dragged the sheet somewhere, that is their choice and it stands.
+ */
+function revealPanelForSelection() {
+  if (!isSheetLayout()) return;
+  if (document.body.dataset.sheet !== "peek") return;
+  const preferred = defaultDetentForViewport();
+  setSheetDetent(preferred === "peek" ? "half" : preferred);
+}
+
+function bindDialogBackdropClose(dialog) {
+  if (!dialog || dialog._backdropBound) return;
+  dialog._backdropBound = true;
+  dialog.addEventListener("click", (e) => {
+    // A keyboard-activated button inside the dialog dispatches a click at
+    // (0, 0), which is outside every rect. Closing on that would make Enter
+    // dismiss the dialog instead of pressing the button.
+    if (e.detail === 0) return;
+    const r = dialog.getBoundingClientRect();
+    const inside = e.clientX >= r.left && e.clientX <= r.right
+                && e.clientY >= r.top  && e.clientY <= r.bottom;
+    if (!inside) dialog.close();
+  });
+}
+
+/**
+ * Close `el` when a click lands outside it and outside whatever opened it.
+ *
+ * The bus filter and the section-nav menu already did this, each in their own
+ * way. This is the same behaviour for the things that did not — and the
+ * inconsistency was the complaint.
+ */
+function bindDismissOnOutsideClick(el, trigger, close) {
+  if (!el || el._outsideBound) return;
+  el._outsideBound = true;
+  document.addEventListener("click", (e) => {
+    if (el.classList.contains("hidden")) return;
+    if (el.contains(e.target)) return;
+    if (trigger && trigger.contains(e.target)) return;
+    close();
+  });
+}
+
 function bindLoaderRetries() {
   document.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-retry]");
@@ -5244,6 +5792,56 @@ function bindLoaderRetries() {
       loadNetworkData().catch(() => {});
     }
   });
+}
+
+/**
+ * Make every `role="tablist"` behave like one.
+ *
+ * The markup declares the tabs pattern; the behaviour did not follow it.
+ * Every tab carried `tabIndex=0`, so a keyboard user tabbed through each one
+ * in turn instead of arrowing between them, and ArrowRight on the Routes
+ * About tab did nothing at all — focus stayed put and Proposals was never
+ * selected. The pattern is one tab stop per tablist, arrows to move.
+ *
+ * Applied generically rather than per tab strip: there are five tablists and
+ * they were all declared the same way, so they should all behave the same way.
+ * See https://www.w3.org/WAI/ARIA/apg/patterns/tabs/
+ */
+function bindRovingTabs() {
+  for (const list of document.querySelectorAll('[role="tablist"]')) {
+    const tabs = () => [...list.querySelectorAll('[role="tab"]')]
+      .filter(t => t.offsetParent !== null || t === document.activeElement);
+
+    const sync = () => {
+      for (const t of list.querySelectorAll('[role="tab"]')) {
+        // Only the selected tab is in the tab order; the rest are reached
+        // with the arrow keys, which is what makes this one stop.
+        t.tabIndex = t.getAttribute("aria-selected") === "true" ? 0 : -1;
+      }
+    };
+    sync();
+    // Selection is changed by the app's own click handlers, so mirror it
+    // rather than duplicating the logic here.
+    new MutationObserver(sync).observe(list,
+      { subtree: true, attributes: true, attributeFilter: ["aria-selected"] });
+
+    list.addEventListener("keydown", (e) => {
+      const all = tabs();
+      const i = all.indexOf(document.activeElement);
+      if (i === -1) return;
+      let next = null;
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") next = all[(i + 1) % all.length];
+      else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = all[(i - 1 + all.length) % all.length];
+      else if (e.key === "Home") next = all[0];
+      else if (e.key === "End") next = all[all.length - 1];
+      if (!next) return;
+      e.preventDefault();
+      // Follow-focus selection, which is what this pattern expects when
+      // switching panels is cheap — and here it is a class toggle.
+      next.focus();
+      next.click();
+    });
+  }
 }
 
 function bindStopSearch() {
@@ -5273,7 +5871,13 @@ function bindStopSearch() {
     const btn = e.target.closest("button.stop-search-result");
     if (!btn) return;
     if (btn.dataset.kind === "rail") {
-      selectRailStation(btn.dataset.crs, btn.dataset.label.replace(/ station$/, ""));
+      // `openRailBoard`, not `selectRailStation` — the latter has never
+      // existed. It was invented from the name of the state field it sets
+      // (`state.selectedRailStation`), so activating any station result threw
+      // a ReferenceError and did nothing. The tests missed it because they
+      // asserted that the result button was rendered, never that pressing it
+      // worked; see the browser check added alongside this fix.
+      openRailBoard(btn.dataset.crs, btn.dataset.railName || btn.dataset.label);
     } else if (btn.dataset.atco) {
       openDepartures(btn.dataset.atco, btn.dataset.label);
     }
@@ -5502,6 +6106,32 @@ function journeyEndpointOperators(journey, option, pathStops) {
 }
 
 /**
+ * The operators actually being ridden, where the API says what they are.
+ *
+ * This is the difference between "an operator serves both ends" and "an
+ * operator carries you the whole way", and the two gave opposite answers on
+ * Shoreham to the universities. That journey is the 700 (Stagecoach) then the
+ * 5B (Brighton & Hove). Both endpoints are served by Brighton & Hove, so the
+ * endpoint intersection is {BHBC} — and a citySAVER was offered as covering a
+ * journey that begins on a Stagecoach bus, printed directly underneath an
+ * itinerary naming the 700.
+ *
+ * Returns null when the API sent no legs, so callers fall back to endpoints.
+ */
+function journeyLegOperators(journey) {
+  const legs = journey && journey.interchange && journey.interchange.legs;
+  if (!Array.isArray(legs) || !legs.length) return null;
+  const ops = legs.map(l => l && l.operator).filter(Boolean);
+  return ops.length === legs.length ? ops : null;
+}
+
+/** The services those legs run as, for saying which leg a ticket fails on. */
+function journeyLegServices(journey) {
+  const legs = (journey && journey.interchange && journey.interchange.legs) || [];
+  return legs.map(l => (l && l.service) || "?").filter(Boolean);
+}
+
+/**
  * What this journey costs if you just buy singles.
  *
  * Often the honest answer, and the one the zone machinery cannot see. England
@@ -5631,18 +6261,47 @@ function journeyMarker(latlng, label, bg, fg, cls) {
  * bus, two when a change is needed. Each is drawn in its own route's colour so
  * a two-operator journey is visibly two journeys.
  */
-function drawJourneyOnMap(legs, changeAt, boardAt) {
+function drawJourneyOnMap(legs, changeAt, boardAt, opts) {
   clearJourneyLayers();
-  if (!state.map || !legs || !legs.length) return;
+  if (!state.map) return;
+  const { from, to, notToday } = opts || {};
 
   if (!state.map.getPane("journeyPane")) {
     const pane = state.map.createPane("journeyPane");
-    // Above the ticket zones (404) so the route being costed reads on top of
-    // the shading that explains its price, below the markers.
     pane.style.zIndex = 405;
   }
 
-  const all = [];
+  // The two ends, always. A preset that finds no itinerary used to leave the
+  // map exactly as it was — so the reader clicked "Sompting → Brighton Marina"
+  // and nothing happened anywhere, which reads as a broken button rather than
+  // as the answer. Where the journey is is worth drawing even when how to make
+  // it is the thing we cannot answer.
+  const ends = [];
+  for (const [end, label] of [[from, "From"], [to, "To"]]) {
+    if (!end || typeof end.lat !== "number" || typeof end.lon !== "number") continue;
+    ends.push([end.lat, end.lon]);
+    state.journeyLayers.push(
+      journeyMarker([end.lat, end.lon], label, "#141c24", "#ffffff",
+                    "journey-marker--end").addTo(state.map));
+  }
+
+  if (!legs || !legs.length) {
+    // No itinerary at all. Join the ends with a dashed hop so the pair reads
+    // as one unanswered journey rather than two unrelated pins, and fit them
+    // both so the distance is visible — that distance is the point.
+    if (ends.length === 2) {
+      state.journeyLayers.push(L.polyline(ends, {
+        color: "#141c24", weight: 3, opacity: 0.55, dashArray: "3 8",
+        lineCap: "round", interactive: false, pane: "journeyPane",
+      }).addTo(state.map));
+      fitBoundsAboveSheet(L.latLngBounds(ends).pad(0.15));
+    }
+    return;
+  }
+
+  // The pane sits above the ticket zones (404) so the route being costed reads
+  // on top of the shading that explains its price, below the markers.
+  const all = ends.slice();
   legs.forEach((leg, i) => {
     const pts = (leg.stops || [])
       .filter(s => typeof s.lat === "number" && typeof s.lon === "number")
@@ -5659,9 +6318,14 @@ function drawJourneyOnMap(legs, changeAt, boardAt) {
       lineJoin: "round", interactive: false, pane: "journeyPane",
     }).addTo(state.map));
     state.journeyLayers.push(L.polyline(pts, {
-      color: colour, weight: 5, opacity: 1, lineCap: "round", lineJoin: "round",
+      color: colour, weight: 5, opacity: notToday ? 0.75 : 1,
+      lineCap: "round", lineJoin: "round",
+      // Dashed when the itinerary belongs to another day. Drawing a Monday
+      // journey in the same solid line as one leaving in ten minutes would
+      // say something untrue about today.
+      dashArray: notToday ? "10 7" : null,
       interactive: false, pane: "journeyPane",
-      className: `journey-leg journey-leg--${i}`,
+      className: `journey-leg journey-leg--${i}${notToday ? " journey-leg--other-day" : ""}`,
     }).addTo(state.map));
 
     const fg = textColourOn(colour);
@@ -5703,7 +6367,7 @@ function drawJourneyOnMap(legs, changeAt, boardAt) {
  * Two buses and a wait is the thing being complained about, so it is stated
  * plainly with its total rather than left implicit in a price.
  */
-function itineraryHtml(interchange) {
+function itineraryHtml(interchange, onDay) {
   if (!interchange || !interchange.legs || interchange.legs.length < 2) return "";
   const [one, two] = interchange.legs;
   const chip = (leg) => {
@@ -5725,8 +6389,11 @@ function itineraryHtml(interchange) {
       ? `, then a <strong>${metres} m walk</strong> to the other stop`
       : `, then a <strong>${metres} m walk</strong> to ${escapeHtml(board.name || "another stop")}`;
   return `
-    <div class="journey-itinerary">
+    <div class="journey-itinerary${onDay ? " journey-itinerary--other-day" : ""}">
       <p class="journey-zones-title">What the journey actually is</p>
+      ${onDay ? `<p class="journey-other-day">
+        There is no such journey today. This is a <strong>${escapeHtml(onDay)}</strong>
+        — at weekends these two buses do not connect at all.</p>` : ""}
       <p class="journey-itinerary-line">
         ${chip(one)} <strong>${escapeHtml(one.depart)}</strong> from
         ${escapeHtml((one.stops[0] || {}).name || "the stop")}
@@ -5772,12 +6439,14 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // Drawn before any verdict is chosen, so the map shows the journey whichever
   // branch the fare logic takes — including the ones that end in "we can't say".
   const interchange = journey.interchange || null;
+  const notToday    = !option && !!journey.interchange_on;
   drawJourneyOnMap(
     option ? [{ service: option.service, operator: option.operator, stops: option.stops }]
            : (interchange ? interchange.legs : []),
     interchange ? interchange.change_at : null,
-    interchange ? interchange.board_at : null);
-  const itinerary = itineraryHtml(interchange);
+    interchange ? interchange.board_at : null,
+    { from: state.stopData[fromAtco], to: state.stopData[toAtco], notToday });
+  const itinerary = itineraryHtml(interchange, journey.interchange_on || "");
 
   const usable = pathStops.filter(s => typeof s.lat === "number" && typeof s.lon === "number");
   if (usable.length < 2) {
@@ -5799,10 +6468,26 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // separately because an empty one is itself the answer: the two ends have no
   // operator in common, so no day ticket can span them at any price.
   const shared = operatorsKnown ? commonOperators(endpointOperators) : null;
-  const zones = operatorsKnown
-    ? ticketsUsableEndToEnd(allStandardZones, endpointOperators)
+  // Which buses this journey is actually on, where the API broke it into legs.
+  const legOperators = journeyLegOperators(journey);
+  const legServices  = journeyLegServices(journey);
+  const zones = (operatorsKnown || legOperators)
+    ? ticketsUsableEndToEnd(allStandardZones, endpointOperators, legOperators)
     : allStandardZones;
   const droppedForOperator = allStandardZones.filter(z => !zones.includes(z));
+
+  // A ticket valid on some legs but not all is the interesting case, and the
+  // one the campaign is about: the fastest way to Brighton is the 700, and a
+  // Brighton & Hove ticket covers everything after it but not the 700 itself.
+  const partiallyValid = legOperators
+    ? droppedForOperator
+        .map(z => ({
+          zone: z,
+          on:  legServices.filter((_, i) => ticketValidOn(z, legOperators[i])),
+          off: legServices.filter((_, i) => !ticketValidOn(z, legOperators[i])),
+        }))
+        .filter(v => v.on.length && v.off.length)
+    : [];
 
   const coverPerStop = usable.map((s, i) =>
     zonesForStop(s, zones, byId, endpointOperators[i] ?? operator));
@@ -5856,8 +6541,9 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
                : `<p class="journey-basis">The only ticket that covers it is
                   ${escapeHtml(networkOption.zone.name)}, but we don't have a
                   current price for it.</p>`}
+        ${weeklyOptionHtml(allZones, legOperators || shared || [], meta, singlesOption)}
         ${reformComparisonHtml(only, dayBaseline, coveringZoneIds(coverPerStop), byId, meta)}
-      </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared);
+      </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices);
     return;
   }
 
@@ -5899,7 +6585,45 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
                       showing a total.</p>`}
       </div>
       ${reformComparisonHtml(crossing, dayBaseline, coveringZoneIds(coverPerStop), byId, meta)}`
-      + zoneListHtml(coverPerStop, byId, droppedForOperator, shared);
+      + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices);
+    return;
+  }
+
+  // ── Every ticket was ruled out, and that is an answer ─────
+  //
+  // Not the same as having no data. `allStandardZones` had tickets; each was
+  // dropped because it is not valid on some bus this journey is actually on.
+  // Reported as missing coverage, that read as a gap in *our* data about the
+  // stops — which is a statement about us, when the true statement is about
+  // the network. Two journeys landed here and both were wrong:
+  //
+  //   Shoreham to the universities — the 700 then the 5B, and no ticket is
+  //   valid on both. That is the campaign's whole argument.
+  //
+  //   Sompting to Brighton Marina — Compass is the only operator serving both
+  //   ends, and no *day* ticket we hold is valid on Compass. Compass sells a
+  //   weekly Rover, and the all-operator Discovery covers it; neither is a
+  //   day ticket, so the zone comparison rightly finds nothing and wrongly
+  //   said the stops were uncharted.
+  if (allStandardZones.length && !zones.length) {
+    const crossing = cheapestRealOption(
+      null, null, supplement, unifiedOption,
+      singlesOption ? Object.assign({}, singlesOption,
+                                    { noSpanningTicket: !unifiedOption }) : null);
+    const why = legOperators
+      ? `This journey is ${escapeHtml(legPhrase(legServices))}, run by
+         ${escapeHtml(operatorPhrase(legOperators))}, and no day ticket is
+         valid on all of it.`
+      : `${escapeHtml(operatorPhrase(shared && shared.length ? shared : endpointOperators[0]))}
+         is the only operator serving both ends, and we hold no day ticket
+         valid on it.`;
+    host.innerHTML = header + `
+      <div class="journey-alert journey-alert--penalty">
+        <p><strong>No day ticket covers this whole journey.</strong> ${why}</p>
+        ${crossing ? penaltyMoneyHtml(crossing, meta, service) : ""}
+        ${weeklyOptionHtml(allZones, legOperators || shared || [], meta, singlesOption)}
+      </div>`
+      + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices);
     return;
   }
 
@@ -5909,7 +6633,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
       <div class="journey-alert journey-alert--unknown">
         <p>We don't have ticket-zone coverage for every stop on this journey, so
         we can't say for certain how many tickets it needs.</p>
-      </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared);
+      </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices);
     return;
   }
 
@@ -5955,7 +6679,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
         ${singlesLine}
       </div>`
       + reformComparisonHtml(cheapest, dayBaseline, coveringZoneIds(coverPerStop), byId, meta)
-      + zoneListHtml(coverPerStop, byId, droppedForOperator, shared)
+      + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices)
       + faresProvenanceHtml(best.zones, byId);
     return;
   }
@@ -5982,7 +6706,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
       ${zoneCostHtml(best, byId)}
       ${money}
       ${reformComparisonHtml(cheapest, dayBaseline, best.zones, byId, meta)}
-    </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared) + faresProvenanceHtml(best.zones, byId);
+    </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices) + faresProvenanceHtml(best.zones, byId);
 }
 
 /** The zones this journey crosses, itemised with what each ticket costs. */
@@ -6270,13 +6994,18 @@ function reformComparisonHtml(cheapest, dayBaseline, zoneIds, byId, meta) {
  * how a Metrovoyager came to look like the answer to a Worthing-to-Hangleton
  * trip that anyone would actually make on a Stagecoach 700.
  */
-function zoneListHtml(coverPerStop, byId, dropped, shared) {
+function zoneListHtml(coverPerStop, byId, dropped, shared, partiallyValid, legServices) {
   const seen = [];
   for (const set of coverPerStop) {
     for (const id of set) if (!seen.includes(id)) seen.push(id);
   }
+  // A ticket with no day fare is a different product and must say so. The
+  // Compass Rover is a week; listed unlabelled among day tickets it reads as
+  // one, which is the sort of quiet inconsistency that discredits the rest.
+  const term = (z) => (z.fares && !z.fares.adult_day && z.fares.adult_week)
+    ? ` <span class="journey-zone-term">weekly</span>` : "";
   const item = (z) =>
-    `<li>${escapeHtml(z.name)} <span class="journey-zone-op">${escapeHtml(z.operator)}</span></li>`;
+    `<li>${escapeHtml(z.name)} <span class="journey-zone-op">${escapeHtml(z.operator)}</span>${term(z)}</li>`;
 
   let out = "";
   if (seen.length) {
@@ -6284,17 +7013,76 @@ function zoneListHtml(coverPerStop, byId, dropped, shared) {
          + `<ul>${seen.map(id => item(byId[id])).join("")}</ul></div>`;
   }
   if (dropped && dropped.length) {
-    const who = (shared && shared.length)
-      ? `only ${escapeHtml(shared.map(getOperatorName).join(" and "))} runs a bus at both ends`
-      : `no one company runs a bus at both ends`;
+    // Where we know the legs, say which one each ticket dies on. This is the
+    // campaign argument stated as a fact about one journey: the quickest way
+    // to Brighton is the 700, and a Brighton & Hove ticket covers every bus
+    // after it and not that one.
+    const partial = new Map((partiallyValid || []).map(v => [v.zone.id, v]));
+    const detail = (z) => {
+      const v = partial.get(z.id);
+      if (!v) return "";
+      return ` <span class="journey-zone-part">covers the
+        ${escapeHtml(v.on.join(" and "))}, not the
+        ${escapeHtml(v.off.join(" or "))}</span>`;
+    };
+    const row = (z) =>
+      `<li>${escapeHtml(z.name)} <span class="journey-zone-op">${escapeHtml(z.operator)}</span>${term(z)}${detail(z)}</li>`;
+
+    const who = partial.size
+      ? `this journey is ${escapeHtml(legPhrase(legServices))}, and no one
+         ticket is valid on all of it`
+      : (shared && shared.length)
+        ? `only ${escapeHtml(shared.map(getOperatorName).join(" and "))} runs a bus at both ends`
+        : `no one company runs a bus at both ends`;
     out += `<div class="journey-zones journey-zones--dropped">
-      <p class="journey-zones-title">Not usable on this journey</p>
-      <ul>${dropped.map(item).join("")}</ul>
+      <p class="journey-zones-title">Not usable for the whole journey</p>
+      <ul>${dropped.map(row).join("")}</ul>
       <p class="journey-basis">These cover the ground, but ${who}, so a ticket
       the other operators accept would stop working when you change.</p>
     </div>`;
   }
   return out;
+}
+
+/**
+ * A weekly ticket that does cover this journey, where one exists.
+ *
+ * Kept apart from the day-ticket costing on purpose. Compass sells a £30
+ * weekly Rover and no day ticket at all, so dividing it by seven to force it
+ * into a per-journey comparison would invent a product. It is mentioned as
+ * what it is: an answer for somebody travelling this route regularly.
+ */
+function weeklyOptionHtml(allZones, operators, meta, singlesOption) {
+  const ops = normaliseOperators(operators);
+  if (!ops.length) return "";
+  const weekly = (allZones || []).find(z => {
+    const w = z.fares && z.fares.adult_week;
+    return w && typeof w.price_pence === "number"
+        && ops.every(op => ticketValidOn(z, op));
+  });
+  if (!weekly) return "";
+  const w = weekly.fares.adult_week;
+  const days = meta && meta.commute_days_per_week;
+  // The singles baseline for *this* journey, which already counts how many
+  // buses it takes each way. Recomputing it from the bare single fare assumed
+  // one bus each way and quoted £30 for a trip that needs two — making a
+  // break-even look like a saving.
+  const versus = (days && singlesOption)
+    ? ` For a ${days}-day week that is ${formatGbp(w.price_pence)} against
+        ${formatGbp(singlesOption.total * days)} in capped singles
+        (${singlesOption.legs} bus${singlesOption.legs === 1 ? "" : "es"} each way).`
+    : "";
+  return `<p class="journey-basis">Travelling this route regularly, the
+    <strong>${escapeHtml(weekly.name)}</strong> at
+    ${formatGbp(w.price_pence)} a week is valid on the whole of it.${versus}</p>`;
+}
+
+/** "the 700 then the 5B" — the services, in the order they are ridden. */
+function legPhrase(legServices) {
+  const all = (legServices || []).filter(Boolean);
+  if (!all.length) return "on more than one operator";
+  return all.length === 2 ? `the ${all[0]} then the ${all[1]}`
+                          : `the ${all.join(", then the ")}`;
 }
 
 /** "Stagecoach South", or "Brighton &amp; Hove Buses and Compass Travel". */
@@ -6510,6 +7298,12 @@ function renderDraftsSection() {
 
 /** Open the editor with an existing draft, or a fresh empty one. */
 function openEditor(draft) {
+  // Editing needs the whole sheet. At the half detent on a 390x844 phone the
+  // editor got 348px, and its own header and action area took 199 of them —
+  // leaving 149px of scrolling space for 544px of form, with the Name field
+  // clipped. Drawing a route is not a glance-at-it task.
+  if (isSheetLayout()) setSheetDetent("full");
+
   // Deep-copy so edits to state.editor don't mutate the cached list entry
   // until scheduleAutosave() snapshots.
   state.editor = draft
@@ -6649,10 +7443,15 @@ function renderEditor() {
       </div>
 
       <div class="editor-field">
-        <label>Colour</label>
+        <!-- A for= attribute, not a bare label. Without it the control has
+             no accessible name at all: labels.length was 0, so a screen
+             reader announced an unlabelled colour picker. (No backticks in
+             this comment: it lives inside a template literal.) -->
+        <label for="ed-color">Colour</label>
         <div class="editor-color-row">
-          <input id="ed-color" type="color" value="${escapeAttr(d.color || "#1e88e5")}">
-          <span class="editor-color-row-caption">Line colour on the map</span>
+          <input id="ed-color" type="color" aria-describedby="ed-color-caption"
+                 value="${escapeAttr(d.color || "#1e88e5")}">
+          <span class="editor-color-row-caption" id="ed-color-caption">Line colour on the map</span>
         </div>
       </div>
 
@@ -6704,10 +7503,9 @@ function renderEditor() {
            does — a public issue, immediately, reviewed afterwards — is
            something to know before pressing Submit, not after. -->
       <p class="suggest-privacy editor-submit-note">
-        Submitting posts your route, and the name you put on it, to the
-        project's public issue tracker straight away. A person reviews it
-        before anything appears on the site. Don't include anything you
-        wouldn't want published.
+        Posts to the project's <strong>public</strong> issue tracker straight
+        away, with your name; reviewed before it appears on the site.
+        <button type="button" class="btn-text" id="ed-privacy-more">What this means</button>
       </p>
 
       <div class="editor-help-popover hidden" id="ed-help-popover" role="dialog"
@@ -6801,6 +7599,13 @@ function renderEditor() {
   dom.proposalEditor.querySelector("#ed-copy-btn").addEventListener("click", copyDraftJson);
   dom.proposalEditor.querySelector("#ed-download-btn").addEventListener("click", downloadDraftJson);
   dom.proposalEditor.querySelector("#ed-submit").addEventListener("click", submitProposal);
+
+  // The compact submission notice defers its detail to the help popover
+  // rather than repeating five lines of it above every action.
+  const privacyMore = dom.proposalEditor.querySelector("#ed-privacy-more");
+  if (privacyMore && helpBtn) {
+    privacyMore.addEventListener("click", () => helpBtn.click());
+  }
 
   // The editor's markup is rebuilt on open, so the widget mounts here rather
   // than once at boot.
@@ -8567,17 +9372,143 @@ async function apiFetch(path) {
     throw new Error("API_BASE_URL is not configured. Please edit app.js and set it to your deployed backend URL.");
   }
 
+  // Until something has answered, assume the container may be asleep: allow
+  // it the time a cold start actually takes, and say what is happening while
+  // it does. Afterwards the ordinary deadline applies — a warm service that
+  // stops answering is a fault, not a start-up, and waiting 45 seconds to say
+  // so helps nobody.
+  const cold = !state.apiEverResponded;
+  // Startup fires several calls at once. Counting them means the first to
+  // settle does not pull the banner out from under the ones still waiting.
+  let slow = null;
+  if (cold) {
+    _wakingCalls++;
+    slow = setTimeout(showWakingBanner, WAKING_ANNOUNCE_MS);
+  }
+
+  try {
+    const data = await apiRequest(path, cold ? COLD_START_TIMEOUT_MS : API_TIMEOUT_MS);
+    state.apiEverResponded = true;
+    return data;
+  } catch (err) {
+    // A timeout while we were waiting out a cold start is its own thing: the
+    // service never woke, which is not "you may be offline".
+    if (cold && err instanceof ApiError && err.kind === "timeout") {
+      throw new ApiError("waking", 0);
+    }
+    throw err;
+  } finally {
+    if (slow !== null) clearTimeout(slow);
+    if (cold && --_wakingCalls <= 0) {
+      _wakingCalls = 0;
+      hideWakingBanner();
+    }
+  }
+}
+
+/** Cold calls still outstanding; see the banner bookkeeping in apiFetch. */
+let _wakingCalls = 0;
+
+/** One HTTP call with a deadline. Split out of apiFetch so the cold-start
+ *  handling above has something to wrap. */
+async function apiRequest(path, timeoutMs) {
   const url = CONFIG.API_BASE_URL.replace(/\/$/, "") + path;
-  const response = await fetch(url, {
-    headers: { "Accept": "application/json" },
-  });
+
+  // A deadline of our own. Without one a hung backend leaves the caller
+  // awaiting forever and the panel saying "Loading…" with no way out.
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
+
+  let response;
+  try {
+    response = await fetch(url, {
+      signal: abort.signal,
+      headers: { "Accept": "application/json" },
+    });
+  } catch (err) {
+    if (err && err.name === "AbortError") throw new ApiError("timeout", 0);
+    throw new ApiError("offline", 0);
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
+    // The upstream body is for the log, not for the passenger. This used to
+    // put `API error 503: {"detail":"Service temporarily unavailable"}` on
+    // screen, raw JSON and all.
     const text = await response.text().catch(() => "");
-    throw new Error(`API error ${response.status}: ${text.slice(0, 120)}`);
+    console.warn(`API ${response.status} for ${path}: ${text.slice(0, 200)}`);
+    throw new ApiError(response.status === 503 ? "unavailable" : "http",
+                       response.status);
   }
 
   return response.json();
+}
+
+// How long any single API call may take before the caller gives up.
+const API_TIMEOUT_MS = 15_000;
+
+// The budget for the first call of a session. The backend runs on a free
+// instance that spins down after 15 minutes of inactivity; a measured cold
+// start took 22.4 seconds to first byte, so the ordinary 15-second deadline
+// guaranteed the first visitor after a quiet spell an error. 45 seconds
+// leaves room for a slower-than-measured start without waiting all day.
+const COLD_START_TIMEOUT_MS = 45_000;
+
+// How long a first call may run before we explain the wait. Short enough that
+// nobody stares at an inert screen; long enough that a warm service — which
+// answers in about 150 ms — never shows the banner at all.
+const WAKING_ANNOUNCE_MS = 2_500;
+
+/**
+ * A failure with a kind, so callers can say something useful.
+ *
+ * `message` is passenger-facing and deliberately says what still works where
+ * that is true. The status and the upstream body stay in the console.
+ */
+class ApiError extends Error {
+  constructor(kind, status) {
+    super(API_ERROR_TEXT[kind] || API_ERROR_TEXT.http);
+    this.name = "ApiError";
+    this.kind = kind;
+    this.status = status;
+  }
+}
+
+const API_ERROR_TEXT = {
+  timeout:     "That is taking longer than it should. Check your connection, "
+             + "then try again.",
+  offline:     "Can't reach the live service — you may be offline.",
+  unavailable: "The live service is busy just now. Timetabled departures "
+             + "should return shortly.",
+  http:        "Something went wrong fetching that. Please try again.",
+  // Distinct from `timeout`: we know why it was slow and we know it is not
+  // the reader's connection. Naming what still works matters more here than
+  // usual, because the timetabled parts of the site are served statically and
+  // are genuinely unaffected.
+  waking:      "The live service didn't finish waking up. The map, routes and "
+             + "timetables still work — try live times again in a moment.",
+};
+
+// ============================================================
+// WAKING UP
+// ============================================================
+// Free-tier hosting sleeps the API after 15 minutes of inactivity. The first
+// person to arrive after that waits about 20 seconds. They used to wait at a
+// blank panel and then be told they might be offline; this says what is
+// actually happening.
+
+function showWakingBanner() {
+  if (!dom.wakingBanner) return;
+  dom.wakingText.textContent =
+    "Waking the live service up — this takes about 20 seconds after a quiet "
+    + "spell. Timetables and routes are ready now.";
+  dom.wakingBanner.classList.remove("hidden");
+}
+
+function hideWakingBanner() {
+  if (!dom.wakingBanner) return;
+  dom.wakingBanner.classList.add("hidden");
 }
 
 // ============================================================
@@ -9222,6 +10153,7 @@ async function openRailBoard(crs, name) {
 
   dom.panelStopName.textContent = `🚆 ${name}`;
   dom.panelStopId.textContent   = `CRS: ${crs}`;
+  revealPanelForSelection();
   setActiveTab("stop");
   showPanelState("rail");      // shows the dedicated rail host, hides bus children
   renderRailBoard();           // shows "loading" rows while we fetch

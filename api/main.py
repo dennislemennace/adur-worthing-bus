@@ -491,24 +491,11 @@ async def get_stops():
     if cached:
         return cached
     tt = await _get_timetable()
-    night_stop_ids = tt.night_serving_stop_ids()
-    stops = []
-    for stop_id, s in tt.stops.items():
-        lat, lon = s.get("lat"), s.get("lon")
-        if lat is None or lon is None:
-            continue
-        if not (BBOX_MIN_LAT <= lat <= BBOX_MAX_LAT
-                and BBOX_MIN_LON <= lon <= BBOX_MAX_LON):
-            continue
-        if not tt.has_stop_times(stop_id):
-            continue
-        stops.append({
-            "atco_code":     stop_id,
-            "name":          s.get("name") or "Bus Stop",
-            "latitude":      lat,
-            "longitude":     lon,
-            "night_serving": stop_id in night_stop_ids,
-        })
+    # Built by the Timetable so this and scripts/build_stops_json.py cannot
+    # disagree about what a stop list is.
+    stops = await off_loop(
+        tt.stop_list, (BBOX_MIN_LAT, BBOX_MAX_LAT, BBOX_MIN_LON, BBOX_MAX_LON))
+
     result = {"stops": stops, "count": len(stops)}
     if stops:
         cache_set("stops", result, 86_400)
@@ -1566,6 +1553,41 @@ async def get_journey(
         if len(options) >= limit:
             break
 
+    interchange    = None if options else tt.interchange_legs(a, b, today, anchor)
+    interchange_on = ""
+
+    # When no single change works today, the reader's actual question is whether
+    # one works at all. Shoreham to the universities is the 700 and then the 5B
+    # Monday to Friday and nothing at all on a Saturday: the preset went blank
+    # at weekends, which reads as a broken tool rather than as the finding it
+    # is. Sompting to the Marina has no one-change itinerary on any day — also
+    # worth saying out loud, since it is the whole point of that example.
+    if not options and interchange is None:
+        probe = _next_weekday(today)
+        # On a weekday the probe is today, and the search has already run and
+        # come back empty. Repeating it would cost a second full pass over
+        # every candidate trip on a 0.1-vCPU instance for a known answer.
+        alt = tt.interchange_legs(a, b, probe, anchor) if probe != today else None
+        if alt:
+            interchange    = alt
+            interchange_on = probe.strftime("%A")
+
+    if options:
+        note = ""
+    elif interchange_on:
+        note = (f"No direct bus, and no single change today — this itinerary is "
+                f"a {interchange_on}. Only the start and end zones are compared.")
+    elif interchange:
+        note = ("No direct bus found between these stops today — this journey "
+                "needs a change, so only the start and end zones are compared.")
+    else:
+        # Not "we could not find one": the search covers every trip in the
+        # timetable within an hour's wait, so this is a statement about the
+        # network, and it is the kind this site exists to make.
+        note = ("No direct bus, and no single change connects these stops on a "
+                "weekday either — this journey needs more than one change. "
+                "Only the start and end zones are compared.")
+
     result = {
         # `operators` is what lets the caller tell a ticket that is valid here
         # from a ticket you could actually use here. A zone polygon covering a
@@ -1581,14 +1603,26 @@ async def get_journey(
         # side could say "this needs two tickets"; it could never say which
         # buses, changing where, taking how long — which is the half a passenger
         # cares about and the half that makes an hour-long two-bus trip legible.
-        "interchange": None if options else
-                       tt.interchange_legs(a, b, today, anchor),
-        "note": "" if options else
-                "No direct bus found between these stops today — this journey "
-                "needs a change, so only the start and end zones are compared.",
+        "interchange": interchange,
+        # The day that itinerary belongs to, when it is not today. Empty for a
+        # journey that runs today, which is the ordinary case.
+        "interchange_on": interchange_on,
+        "note": note,
     }
     cache_set(cache_key, result, 3600)
     return result
+
+
+def _next_weekday(day):
+    """The next Monday-to-Friday date on or after `day`.
+
+    Used to answer "does this journey work at all?" when it does not work
+    today. A weekday is the fairest probe: it is when the network is at its
+    fullest, so a journey impossible then is impossible, full stop.
+    """
+    while day.weekday() >= 5:            # 5 = Saturday, 6 = Sunday
+        day += timedelta(days=1)
+    return day
 
 
 def _hhmm_to_secs(hhmm: str) -> int:

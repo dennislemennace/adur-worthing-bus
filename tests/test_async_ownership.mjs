@@ -276,3 +276,47 @@ test("a failed objectives load does not become a permanent empty list", async ()
   assert.equal(attempts, 2, "the second attempt never happened");
   assert.equal(state.objectives.length, 1);
 });
+
+// ── A board that has run out ────────────────────────────────
+
+test("ageing every row out leaves an honest count, not a positive one", () => {
+  // The count described the API response, not the table: ten rows under
+  // "16 departures · as of 21:07", and advancing the clock removed all ten
+  // while the count stayed. An empty table under a positive number reads as
+  // a broken board rather than a finished one.
+  const app = loadApp();
+  const state = vm.runInContext("state", app);
+  const dom = vm.runInContext("dom", app);
+
+  let countText = "";
+  let bodyHtml = "";
+  dom.departuresCount = {
+    set textContent(v) { countText = v; }, get textContent() { return countText; },
+  };
+  dom.departuresTbody = {
+    set innerHTML(v) { bodyHtml = v; }, get innerHTML() { return bodyHtml; },
+  };
+
+  state.departuresAsOf = new Date("2026-09-10T21:07:00+01:00");
+  app.updateDepartureCount(10, 16);
+  assert.match(countText, /10 of 16 departures/,
+    "the count hid that six more departures existed");
+  assert.match(countText, /as of 21:07/);
+
+  app.updateDepartureCount(0, 16);
+  assert.doesNotMatch(countText, /\b16 departures\b/,
+    "an emptied board still claimed sixteen departures");
+  assert.match(countText, /Nothing further due/);
+});
+
+test("a board showing everything it has does not say 'of'", () => {
+  const app = loadApp();
+  const dom = vm.runInContext("dom", app);
+  let countText = "";
+  dom.departuresCount = {
+    set textContent(v) { countText = v; }, get textContent() { return countText; },
+  };
+  app.updateDepartureCount(4, 4);
+  assert.match(countText, /^4 departures/);
+  assert.doesNotMatch(countText, / of /);
+});

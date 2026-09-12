@@ -49,8 +49,9 @@ export function loadApp() {
     location: { hash: "", search: "" },
     localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
     console,
-    // Browsers always have these; app.js uses URL to validate link schemes.
-    URL, URLSearchParams,
+    // Browsers always have these; app.js uses URL to validate link schemes
+    // and AbortController to put a deadline on every fetch.
+    URL, URLSearchParams, AbortController,
     fetch: async () => ({ ok: false, status: 500, json: async () => ({}) }),
     setTimeout, clearTimeout, setInterval, clearInterval,
     requestAnimationFrame: (fn) => setTimeout(fn, 0),

@@ -382,14 +382,18 @@
 
         <!-- Prompt shown before a stop is selected (desktop only) -->
         <div class="panel-prompt" id="panel-prompt">
-          <svg class="icon panel-prompt-icon" aria-hidden="true"><use href="#i-pin"/></svg>
-          <p>Click any bus stop on the map to see live departures.</p>
+          <!-- Search first. The sheet opens at the `peek` detent, 248px, and
+               a large pin icon plus an instruction pushed the only typeable
+               control to roughly y=863 on a 390x844 phone — below the footer,
+               outside the panel, invisible until the visitor discovered that
+               the sheet could be dragged. The decoration is secondary to the
+               thing it decorates. -->
           <!-- Pointing at a marker was the only way in, which left keyboard
                and screen-reader users with no route to the core task at all.
                Same stop index the journey checker uses. -->
           <form class="stop-search" id="stop-search-form" role="search">
             <label class="stop-search-label" for="stop-search-input">
-              Or search for a stop or station
+              Search for a stop or station
             </label>
             <div class="stop-search-row">
               <input class="stop-search-input" id="stop-search-input" type="search"
@@ -399,7 +403,7 @@
               <button class="stop-search-go" type="submit">Search</button>
             </div>
             <p class="stop-search-hint" id="stop-search-hint">
-              Type at least two letters, then choose from the list.
+              Type at least two letters, or tap any stop on the map.
             </p>
             <ul class="stop-search-results" id="stop-search-results"
                 aria-label="Matching stops and stations"></ul>
@@ -576,50 +580,57 @@
           <!-- The route list comes first. It is what this tab is for — the
                map is a picture of it — and it was below three paragraphs of
                prose that only make sense once you have seen the list. -->
+          <!-- The service list and the controls that narrow it are one thing,
+               so they are one control. They used to be three stacked blocks —
+               a chip list, a checkbox, and a separate "Filter services"
+               disclosure — which between them took the whole tab on a phone
+               and left the prose below the fold. Closed, this is a single
+               44px row; open, it is everything that decides what the map
+               shows, in the order you would use it. -->
           <div class="route-filters" id="route-filters">
-            <div class="route-filters-header">
-              <h3 class="route-filters-title">Existing services</h3>
-              <div class="route-filters-actions">
-                <button class="btn-text" id="routes-all-btn">Show all</button>
-                <button class="btn-text" id="routes-none-btn">Hide all</button>
-              </div>
-            </div>
-            <div class="route-filter-chips" id="route-filter-chips" aria-live="polite">
-              <p class="route-filters-empty">Loading route list…</p>
-            </div>
-
-            <!-- Below the list, not above it. On a phone the sheet gives this
-                 tab ~350px; anything sitting above the chips is height the
-                 list does not get, and the list is what the tab is for. Both
-                 of these refine it, so they follow it. -->
-            <!-- Moved out of "Filter services": this is the one control that
-                 changes what the list itself contains, so it belongs with the
-                 list rather than behind a collapsed disclosure. -->
-            <label class="filter-toggle route-filters-limited" for="show-limited-services">
-              <input type="checkbox" id="show-limited-services">
-              <span>Show limited services</span>
-            </label>
-
-          <!-- Closed by default. The filters are a refinement, not the first
-               thing to do here, and open they took 160px of the sheet before
-               any content — on a 320px screen that pushed the tab strip below
-               the fold entirely. -->
-          <details class="filter-disclosure">
+          <details class="filter-disclosure route-filters-disclosure" id="route-filters-disclosure">
             <summary class="filter-disclosure-summary">
-              <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
-              <span>Filter services</span>
+              <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
+              <span>Existing services</span>
+              <!-- "18 of 44" is the reason this can be closed by default: the
+                   count says what the map is showing without opening it. -->
+              <span class="route-filters-count" id="route-filters-count"></span>
               <svg class="icon filter-disclosure-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
             </summary>
-          <div class="filter-strip-group" aria-label="Service filters">
-            <div class="filter-strip-row">
-              <span class="filter-strip-label">Type</span>
-              <div class="filter-strip" id="service-category-toggle"></div>
+
+            <div class="route-filters-body">
+              <div class="filter-strip-group" aria-label="Service filters">
+                <div class="filter-strip-row">
+                  <span class="filter-strip-label">Type</span>
+                  <div class="filter-strip" id="service-category-toggle"></div>
+                </div>
+                <div class="filter-strip-row">
+                  <span class="filter-strip-label">Operator</span>
+                  <div class="filter-strip" id="service-operator-toggle"></div>
+                </div>
+              </div>
+
+              <label class="filter-toggle route-filters-limited" for="show-limited-services">
+                <input type="checkbox" id="show-limited-services">
+                <span>Show limited services</span>
+              </label>
+
+              <div class="route-filters-header">
+                <div class="route-filters-actions">
+                  <button class="btn-text" id="routes-all-btn">Show all</button>
+                  <button class="btn-text" id="routes-none-btn">Hide all</button>
+                </div>
+              </div>
+
+              <div class="route-filter-chips" id="route-filter-chips" aria-live="polite">
+                <p class="route-filters-empty">Loading route list…</p>
+              </div>
+              <!-- Shown only when chips are actually clipped, with a count
+                   measured from the layout rather than guessed. Narrowing the
+                   filters frees rows, so this disappears on its own. -->
+              <button type="button" class="route-chips-more hidden" id="route-chips-more"
+                      aria-expanded="false" aria-controls="route-filter-chips"></button>
             </div>
-            <div class="filter-strip-row">
-              <span class="filter-strip-label">Operator</span>
-              <div class="filter-strip" id="service-operator-toggle"></div>
-            </div>
-          </div>
           </details>
           </div>
 
@@ -712,19 +723,6 @@
         </div>
 
         <div class="panel-tab-content" id="tab-content-tickets" role="tabpanel">
-          <div class="improvements-intro">
-            <h2 class="improvements-title">Ticket zones</h2>
-            <p>
-              Each operator sells day tickets valid only inside a set zone. This
-              shows what each ticket covers across Adur, Worthing &amp; Brighton —
-              so you can see where one ticket stops working and another is needed.
-            </p>
-            <p class="improvements-note">
-              Zone outlines drawn here are <strong>indicative</strong> — always
-              check the operator's official zone map (linked on each ticket)
-              before you travel.
-            </p>
-          </div>
           <!-- Boundary penalty calculator: pick two stops, find out whether
                the journey between them needs more than one ticket. -->
           <section class="journey-calc" aria-labelledby="journey-calc-title">
@@ -736,13 +734,6 @@
               them and check it against each operator's ticket zones.
             </p>
 
-            <!-- Worked examples, from data/journey_presets.json. An empty form
-                 asks the visitor to already know which two stops make the
-                 point; these are the journeys the campaign is about. -->
-            <div class="jc-presets" id="jc-presets" hidden>
-              <p class="jc-presets-label" id="jc-presets-label">Or try one of these</p>
-              <div class="jc-presets-row" role="group" aria-labelledby="jc-presets-label"></div>
-            </div>
 
             <div class="editor-field">
               <label for="jc-from">From this stop</label>
@@ -767,7 +758,29 @@
             </div>
 
             <div class="journey-result" id="jc-result" aria-live="polite"></div>
+
+            <!-- Worked examples, from data/journey_presets.json. An empty form
+                 asks the visitor to already know which two stops make the
+                 point; these are the journeys the campaign is about. -->
+            <div class="jc-presets" id="jc-presets" hidden>
+              <p class="jc-presets-label" id="jc-presets-label">Or try one of these</p>
+              <div class="jc-presets-row" role="group" aria-labelledby="jc-presets-label"></div>
+            </div>
           </section>
+
+          <div class="improvements-intro">
+            <h2 class="improvements-title">Ticket zones</h2>
+            <p>
+              Each operator sells day tickets valid only inside a set zone. This
+              shows what each ticket covers across Adur, Worthing &amp; Brighton —
+              so you can see where one ticket stops working and another is needed.
+            </p>
+            <p class="improvements-note">
+              Zone outlines drawn here are <strong>indicative</strong> — always
+              check the operator's official zone map (linked on each ticket)
+              before you travel.
+            </p>
+          </div>
 
           <div class="ticket-zones-list" id="ticket-zones-list" aria-live="polite">
             <p class="proposals-empty">Loading ticket zones…</p>
@@ -1023,6 +1036,16 @@
     </aside>
 
   </main>
+
+  <!-- ===== WAKING UP (free-tier cold start) ===== -->
+  <!-- The backend sleeps after 15 minutes idle and takes about 20 seconds to
+       start. Saying so is better than a silent spinner followed by a claim
+       that the reader is offline. role="status", not "alert": it is progress,
+       not a problem, and should not interrupt a screen reader mid-sentence. -->
+  <div class="waking-banner hidden" id="waking-banner" role="status" aria-live="polite">
+    <span class="waking-spinner" aria-hidden="true"></span>
+    <span class="waking-text" id="waking-text"></span>
+  </div>
 
   <!-- ===== TOAST NOTIFICATION (errors / info) ===== -->
   <div class="toast hidden" id="toast" role="alert" aria-live="assertive"></div>

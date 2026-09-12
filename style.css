@@ -2150,6 +2150,73 @@ html.dark-mode .btn-text {
   pointer-events: none;
 }
 
+/* An itinerary that belongs to another day. Tinted, not hidden: the journey
+   existing on a Tuesday and not on a Saturday is the finding, so it has to be
+   readable and unmistakably not today. */
+.journey-itinerary--other-day {
+  /* --color-accent, which this project defines in both themes. There is no
+     --color-warning here, and inventing one renders as the fallback in one
+     theme and wrong in the other. */
+  border-left: 3px solid var(--color-accent);
+  padding-left: var(--space-sm);
+}
+
+.journey-other-day {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  margin: 0 0 var(--space-xs) 0;
+  line-height: 1.45;
+}
+
+/* ===== WAKING UP (free-tier cold start) ===== */
+/* Sits under the header rather than over the bottom sheet: on a phone the
+   sheet is where the reader is looking and where the departures will appear,
+   and a banner there would cover the thing being waited for. */
+.waking-banner {
+  position: fixed;
+  top: calc(var(--header-height, 56px) + var(--space-sm));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--font-size-sm);
+  z-index: 1500;          /* above the map, below dialogs and the toast */
+  max-width: min(92vw, 34rem);
+  transition: opacity var(--transition);
+}
+
+.waking-banner.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.waking-spinner {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: waking-spin 0.9s linear infinite;
+}
+
+/* A rotating ring is decoration; someone who asked for less motion should get
+   a static ring rather than nothing, so the banner still reads as busy. */
+@media (prefers-reduced-motion: reduce) {
+  .waking-spinner { animation: none; }
+}
+
+@keyframes waking-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ===== UTILITY ===== */
 .hidden { display: none !important; }
 
@@ -2332,15 +2399,26 @@ html.dark-mode .btn-text {
   justify-content: center;
   background: var(--color-accent);
   color: var(--color-on-accent);
-  border: 2px solid var(--color-on-fill);
+  /* 2px of ring on a 14px disc is a quarter of it. */
+  border: 1px solid var(--color-on-fill);
   border-radius: 50%;
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  /* The disc is 12-22px now, so the count has to be sized to fit inside it
+     rather than to the site's smallest label: "228" at 0.74rem overflowed a
+     22px circle. Tabular figures keep two- and three-digit counts the same
+     width, which stops the discs looking like different sizes at a glance. */
+  font-size: 0.58rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
   font-weight: 700;
   box-shadow: 0 2px 6px rgba(10, 18, 32, 0.35);
   cursor: pointer;
   transition: transform var(--transition-fast);
 }
+/* A bubble standing for 180 stops carries three digits in a 22px circle; the
+   smaller type is what makes them fit rather than a stylistic choice. */
+.stop-cluster-icon--big { font-size: 0.5rem; }
+
 html.dark-mode .stop-cluster-icon {
   border-color: rgba(9, 14, 26, 0.85);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
@@ -3447,14 +3525,14 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 }
 
 /* ── Route filter list ── */
+/* No longer the growing region. It used to be `flex: 1` because it held the
+   whole service list; now it holds one disclosure, and taking the tab's spare
+   height would push the prose below the fold for nothing. */
 .route-filters {
-  flex: 1;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  padding: var(--space-md);
-  gap: 10px;
-  overflow: hidden;
+  padding: var(--space-sm) var(--space-md);
 }
 
 .route-filters-header {
@@ -3477,16 +3555,58 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   gap: var(--space-xs);
 }
 
+/* The list is inside the disclosure now, so it no longer competes with the
+   prose for the tab's height and does not need its own scroller. It is capped
+   to ROUTE_CHIP_ROWS rows by an inline max-height that reflowRouteChips()
+   measures; overflow is hidden rather than auto so a clipped row cannot be
+   half-shown, which read as a rendering fault rather than as "there is more". */
 .route-filter-chips {
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-xs);
-  overflow-y: auto;
-  padding-right: 4px;
+  gap: 4px;
   align-content: flex-start;
+  overflow: hidden;
 }
+
+/* Chips past the cap. Kept in the DOM and merely hidden so the measurement
+   above stays stable and a screen reader is not handed a list that changes
+   length as the viewport moves; `hidden` would also drop them from the count. */
+.route-chip--clipped { display: none; }
+
+.route-chips-more {
+  align-self: flex-start;
+  min-height: var(--target-min);
+  padding: 4px var(--space-sm);
+  background: none;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.route-chips-more:hover { color: var(--color-text); border-color: var(--color-text-muted); }
+
+.route-filters-count {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.route-filters-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-xs) 0 0;
+}
+
+/* The disclosure is the whole control now, so the block around it adds
+   nothing: it used to supply padding and a gap for three stacked children. */
+.route-filters-disclosure { margin: 0; }
 
 .route-filters-empty,
 .proposals-empty {
@@ -4356,7 +4476,11 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
   font-family: inherit;
   font-size: var(--font-size-sm);
   font-weight: 600;
-  padding: 6px 12px;
+  /* 30px tall on 6px padding. This project holds to a 44px target and the
+     harness enforces it; the button was simply never measured, because the
+     only check that reaches this view ran while the editor was covering it. */
+  min-height: var(--target-min);
+  padding: 6px 14px;
   cursor: pointer;
   transition: background var(--transition), transform var(--transition);
 }@media (hover: hover) {
@@ -5323,10 +5447,10 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   min-height: 44px;
   padding: 0 0.75rem;
   font: inherit;
-  border: 1px solid var(--border, #ccc);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: var(--surface, #fff);
-  color: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 .stop-search-go {
   flex: 0 0 auto;
@@ -5336,8 +5460,8 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   font-weight: 600;
   border: 1px solid transparent;
   border-radius: 10px;
-  background: var(--accent, #1a4b82);
-  color: #fff;
+  background: var(--color-primary);
+  color: var(--color-on-fill, #fff);
   cursor: pointer;
 }
 .stop-search-hint {
@@ -5362,15 +5486,15 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   padding: 0.5rem 0.75rem;
   font: inherit;
   text-align: left;
-  border: 1px solid var(--border, #ddd);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: var(--surface, #fff);
-  color: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
   cursor: pointer;
 }
 .stop-search-result:hover,
 .stop-search-result:focus-visible {
-  border-color: var(--accent, #1a4b82);
+  border-color: var(--color-primary);
 }
 .stop-search-empty {
   padding: 0.5rem 0.25rem;
@@ -5389,7 +5513,7 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   line-height: 0;
 }
 .service-badge-btn:focus-visible {
-  outline: 2px solid var(--accent, #1a4b82);
+  outline: 2px solid var(--focus-ring-color, var(--color-accent));
   outline-offset: 2px;
   border-radius: 6px;
 }
@@ -5568,5 +5692,142 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   }
   .route-filters-title {
     font-size: var(--font-size-sm);
+  }
+}
+
+
+/* U08: the block above once used `--surface`, `--border` and `--accent`,
+   which this project does not define — every one fell through to a hardcoded
+   light colour, so the search rendered white cards with muted text in dark
+   mode at 3.5:1. The tokens are `--color-*`. Nothing here sets a literal.
+
+   The mode line is what tells a bus stop from a railway station in a list
+   where "Lancing Station" and "Lancing station" otherwise look identical. */
+.stop-search-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stop-search-result-mode {
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+}
+
+
+/* U01: the search is the first useful thing in this panel, so it starts at
+   the top of it and carries no decorative margin above. The label was already
+   there; it now sits where the icon used to. */
+.panel-prompt .stop-search {
+  margin-top: 0;
+}
+.panel-prompt {
+  justify-content: flex-start;
+}
+
+
+/* U09: 16px is the threshold below which mobile Safari zooms the page in on
+   focus, leaving the reader editing a strip of a magnified layout. The
+   measured size here was 14.4px. Applies to every text control in a form,
+   not only the journey fields — the report and idea forms have the same
+   problem for the same reason. */
+@media (max-width: 900px) {
+  .editor-field input[type="text"],
+  .editor-field input[type="url"],
+  .editor-field input[type="search"],
+  .editor-field select,
+  .editor-field textarea,
+  .stop-search-input,
+  /* .journey-calc .editor-field input is more specific than the base rule,
+     so it wins on specificity whatever the source order — it has to be named
+     here or the fare fields keep their 14.4px. */
+  .journey-calc .editor-field input[type="text"],
+  .suggest-form .editor-field select,
+  .report-stop-form .editor-field select {
+    font-size: 16px;
+  }
+}
+
+
+/* U13: at a 200% root font size the header branding clipped and overlapped,
+   and the fixed footer grew from 64px to 153px — a fifth of a phone screen
+   spent on attribution. Both are fixed-height regions holding text that is
+   now much larger, so both need to give.
+
+   The attribution is not hidden: it wraps and the footer scrolls its own
+   overflow rather than pushing the sheet off the screen. */
+@media (max-width: 900px) {
+  .site-footer {
+    max-height: 22vh;
+    overflow-y: auto;
+  }
+}
+
+/* The header is deliberately NOT forced to a single ellipsised line. Doing
+   that fixed the 200% case and broke every ordinary one: the title dropped to
+   86% shown at 390px and 43% at 320px, because it wraps by design there. The
+   enlarged-text header remains a known gap, and one for a real device with
+   real browser zoom rather than an injected root font size — the two do not
+   behave the same way. */
+
+/* Which leg a ticket dies on. Said quietly next to the ticket rather than as
+   an error: it is the campaign's central fact, not a fault. */
+.journey-zone-part {
+  display: block;
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+}
+
+/* A weekly ticket listed among day tickets has to say which it is. */
+.journey-zone-term {
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+
+/* ── Route view: same controls, less air ──────────────────────
+   The chips keep their 44px target — that is the floor, not the problem. The
+   waste was around them: `.route-filters` adds 16px of padding and a 10px
+   gap, the limited-services toggle its own margin, the disclosure another,
+   and the sum pushed "Filter services" far below the list it belongs to.
+
+   The chips stay a wrap layout. A grid was tried and measured worse: forcing
+   every chip to a uniform 56px column fitted five per row where natural
+   widths fit seven, turning three rows into four. Even alignment is not worth
+   a row. What helps is a smaller gap and less horizontal padding. */
+/* Smaller than before, on purpose: inside the disclosure the list is competing
+   with nothing, so the only question is how many services a reader can take in
+   at once. 2px of gap and 5px of side padding fits roughly a third more per row
+   than the previous 4px/6px while leaving the 44px target intact — the target
+   is a hit area, and it is met by min-height, not by padding. */
+.route-filter-chips {
+  gap: 3px;
+}
+.route-chip {
+  padding: 2px 5px;
+  justify-content: center;
+  font-size: var(--font-size-xs);
+}
+
+@media (max-width: 900px) {
+  .route-filters {
+    padding: var(--space-sm) var(--space-md) var(--space-xs);
+    gap: 6px;
+  }
+  .route-filters-limited {
+    margin: 0;
+    /* The toggle needs its 44px target; the row around it does not need to
+       be taller than the toggle. */
+    min-height: var(--target-min);
+  }
+  .route-filters .filter-disclosure {
+    margin-bottom: 0;
+  }
+  .filter-strip-group {
+    padding: 4px var(--space-md) 6px;
+    gap: 4px;
+  }
+  .filter-strip-row {
+    min-height: 0;
   }
 }
