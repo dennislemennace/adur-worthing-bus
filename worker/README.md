@@ -208,6 +208,26 @@ Responses: `200 {ok, number, url}` · `400` validation/Turnstile ·
 The sanitizer's `@mention` handling is the non-obvious one: an issue body is a
 broadcast, so without it a single submission could notify an entire org.
 
+## Keeping the API warm
+
+The Worker also has a cron trigger (`[triggers]` in `wrangler.toml`) that pings
+the Render API every 10 minutes between 07:30 and 23:30 London time, so a
+visitor during the day does not wait 20 seconds for the free tier to wake.
+
+Cloudflare reads the cron in UTC, so it runs from 06:00 to 23:50 UTC, which
+covers the window in both BST and GMT. `keepWarm()` in `src/index.js` decides
+the exact window on a London clock, so the clocks changing needs no edit.
+`test/keep_warm.test.js` checks the cron range covers every warm slot in summer
+and winter.
+
+It needs no secrets and no KV. `wrangler deploy` registers the trigger. To see
+it working, run `npx wrangler tail` during the window and wait up to 10
+minutes for a `keep-warm HH:MM: HTTP 200` line.
+
+To change the hours, edit `WARM_FROM` and `WARM_TO` in `src/index.js`, and if
+the new window reaches outside 06:00 to 23:59 UTC, widen the cron's hour range
+too. The test will say if it does not cover the window.
+
 ## Free-tier caps
 
 Cloudflare Workers free: 100,000 requests/day, 10 ms CPU per request. KV free:

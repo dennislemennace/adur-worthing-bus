@@ -1,5 +1,12 @@
-name: Keep the API warm
+name: Keep the API warm (backup)
 
+# BACKUP ONLY. The real keep-warm is the Cloudflare Worker's cron trigger
+# (worker/wrangler.toml, keepWarm() in worker/src/index.js). This schedule is
+# set to every ten minutes but GitHub runs schedules as best effort: between
+# 12 and 13 September 2026 it ran 13 times in 38 hours instead of about 228,
+# median gap 163 minutes, so on its own it kept nothing warm. It stays because
+# a stray run costs nothing and helps if the Worker is ever down.
+#
 # The backend runs on Render's free tier: it spins down after 15 minutes with
 # no traffic and takes about 20 seconds to come back. A measured cold start
 # was 22.4 seconds to first byte, against 0.15 seconds warm.

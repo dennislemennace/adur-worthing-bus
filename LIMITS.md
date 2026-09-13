@@ -21,7 +21,8 @@ fits within the existing envelope.
   2026-09-11: 22.4 s to first byte after a 17-minute idle, against 0.15 s
   warm.** The frontend handles cold starts; do not regress that behavior.
 
-**The keep-warm budget.** `.github/workflows/keep-warm.yml` pings the service
+**The keep-warm budget.** A cron trigger on the Cloudflare Worker
+(`worker/wrangler.toml`, `keepWarm()` in `worker/src/index.js`) pings the service
 every 10 minutes between 07:30 and 23:30 Europe/London. The last ping, at 23:20,
 keeps it up until about 23:35, so the instance is warm roughly 16 hours a day:
 **about 500 hours in a 31-day month, two thirds of the allowance.** The third
@@ -34,9 +35,13 @@ The window is checked as *inside the warm hours*, not *inside the quiet ones*.
 The quiet period crosses midnight, and a `from < now < to` test across midnight
 is never true, so written the other way round the job pings around the clock.
 
-Two numbers set the cadence: the idle threshold is 15 minutes, and scheduled
-GitHub Actions runs are routinely delayed at peak times. Ten minutes absorbs a
-five-minute slip. Fourteen would not.
+**Why a Worker and not GitHub Actions.** It started as a GitHub schedule set to
+every 10 minutes. GitHub treats schedules as best effort, and between 12 and 13
+September 2026 it started that workflow 13 times in 38 hours instead of about
+228, with a median gap of 163 minutes. Every gap was longer than Render's
+15-minute idle limit, so the service slept regardless. Cloudflare cron triggers
+fire on time. The GitHub workflow is kept only as a backup and should not be
+relied on. The idle limit is 15 minutes, so the cadence stays at 10.
 
 The static stop list (`data/stops.json`, see below) is what makes the overnight
 window cheap: the map draws without the API, so someone checking a night bus
@@ -71,13 +76,12 @@ wakes for live times.
 - `.github/workflows/update-timetable.yml` runs weekly — keep that cadence.
   Increasing the schedule eats into the (currently unlimited) public-repo
   budget needlessly.
-- `.github/workflows/keep-warm.yml` runs every 10 minutes and exits in a couple
-  of seconds inside the quiet window. Free on a public repo; it would cost
-  roughly 4,000 minutes a month if this repo ever went private, which is twice
-  the private-repo allowance on its own.
+- `.github/workflows/keep-warm.yml` is a backup for the Worker's cron. It is
+  scheduled every 10 minutes but GitHub runs it every few hours in practice
+  (see the Render section). Free on a public repo; if the repo went private it
+  should be deleted rather than budgeted for.
 - **GitHub disables scheduled workflows in a repository with no commits for 60
-  days.** If cold starts come back, check that keep-warm is still enabled
-  before looking anywhere else.
+  days.** That only affects the backup; the Worker's cron is unaffected.
 - Pages also serves `data/stops.json` (~250 KB, ~36 KB gzipped), downloaded on
   a visitor's first load and then cached. At the 100 GB monthly Pages
   allowance that is not a constraint; it is listed so a future change that
@@ -127,7 +131,11 @@ wakes for live times.
 (`worker/` — takes idea / proposal / stop-issue submissions and files them as
 GitHub issues. Replaced the Web3Forms email relay.)
 
-- Workers free plan: **100,000 requests / day**, 10 ms CPU per request.
+- Workers free plan: **100,000 requests / day**, 10 ms CPU per request, and up
+  to 5 cron triggers per account.
+- The keep-warm cron runs about 108 times a day (every 10 minutes, 06:00 to
+  23:50 UTC); runs outside the London window return without a request. Waiting
+  on Render's reply is wall time, not CPU time.
 - Workers KV free plan: **100,000 reads / day, 1,000 writes / day.**
 - Turnstile: free, unlimited.
 - Each submission costs 3 KV reads + 3 KV writes (hour, day and global

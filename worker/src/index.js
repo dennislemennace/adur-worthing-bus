@@ -62,6 +62,11 @@ const BUS_ISSUE_CATEGORIES = new Set([
 ]);
 
 export default {
+  // Keeps the Render API awake from 07:30 to 23:30 London time. See keepWarm().
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(keepWarm(env, new Date(event.scheduledTime)));
+  },
+
   async fetch(request, env, ctx) {
     const origin = request.headers.get("Origin") || "";
     const allowed = allowedOrigins(env);
@@ -891,7 +896,74 @@ async function readCapped(request, max) {
   return new TextDecoder().decode(joined);
 }
 
+// ── Keeping the API warm ─────────────────────────────────────
+//
+// The API runs on Render's free tier, which sleeps after 15 minutes without a
+// request and takes around 20 seconds to wake. This was a GitHub Actions
+// schedule set to every ten minutes, but GitHub treats schedules as best
+// effort: over 38 hours it ran 13 times instead of about 228, median gap 163
+// minutes, so the container slept between every run. Cloudflare cron triggers
+// fire on time, and this Worker was already deployed.
+//
+// The cron in wrangler.toml runs every ten minutes between 06:00 and 23:59
+// UTC, which covers 07:30 to 23:30 in both BST and GMT. The exact window is
+// decided here, in London time, so the clocks changing needs no edit.
+
+const KEEP_WARM_DEFAULT_URL = "https://adur-worthing-bus.onrender.com/";
+const WARM_FROM = "07:30";   // first ping
+const WARM_TO   = "23:30";   // no ping at or after this; the 23:20 one lasts to ~23:35
+
+const LONDON_CLOCK = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+});
+
+/** "HH:MM" on a London clock. hourCycle h23, so midnight is 00 and never 24. */
+function londonHHMM(date) {
+  const parts = LONDON_CLOCK.formatToParts(date);
+  const get = (type) => parts.find((x) => x.type === type).value;
+  return `${get("hour")}:${get("minute")}`;
+}
+
+/** Whether `date` falls inside the warm hours. The window does not cross
+ *  midnight, so comparing zero-padded "HH:MM" strings is exact. */
+function isWarmTime(date, from = WARM_FROM, to = WARM_TO) {
+  const t = londonHHMM(date);
+  return t >= from && t < to;
+}
+
+/**
+ * Wake the API if `when` is inside the warm hours.
+ *
+ * Judged on the scheduled time rather than the moment the handler starts, so a
+ * run a few seconds late at 23:20 still counts. Never throws: a failed ping is
+ * returned and logged, which shows in the Worker's logs, where a throw would
+ * only mark the invocation as failed.
+ */
+async function keepWarm(env, when, fetchImpl = fetch) {
+  const london = londonHHMM(when);
+  if (!isWarmTime(when)) {
+    return { pinged: false, london };
+  }
+  const url = (env && env.KEEP_WARM_URL) || KEEP_WARM_DEFAULT_URL;
+  const started = Date.now();
+  try {
+    const res = await fetchImpl(url, {
+      headers: { "User-Agent": `${USER_AGENT} (keep-warm)` },
+      // A cold start takes about 20 seconds. Waking it is the whole job, so
+      // give it time; waiting on the network costs no CPU time.
+      signal: AbortSignal.timeout(60_000),
+    });
+    const ms = Date.now() - started;
+    console.log(`keep-warm ${london}: HTTP ${res.status} in ${ms} ms`);
+    return { pinged: true, london, status: res.status, ms };
+  } catch (err) {
+    console.error(`keep-warm ${london}: ${err}`);
+    return { pinged: true, london, error: String(err) };
+  }
+}
+
 // Exported for tests.
 export const _internals = {
   sanitize, slugify, buildIssue, blockquote, isAllowedOrigin, fileIssue,
+  isWarmTime, keepWarm,
 };

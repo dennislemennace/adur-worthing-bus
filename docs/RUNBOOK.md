@@ -28,11 +28,14 @@ stops — a short file is worse than none, because the frontend falls back to th
 API only when the *fetch* fails, and a successful download of a near-empty list
 would give every visitor a blank map.
 
-**If cold starts come back.** `.github/workflows/keep-warm.yml` pings the API
-every 10 minutes between 07:30 and 23:30 Europe/London. Outside those hours a
-cold start is expected, not a fault. GitHub disables scheduled
-workflows in a repository with no commits for 60 days, so check the Actions tab
-first: a disabled schedule looks exactly like a keep-warm that stopped working.
+**If cold starts come back.** The Cloudflare Worker's cron trigger pings the
+API every 10 minutes between 07:30 and 23:30 Europe/London. Outside those hours
+a cold start is expected, not a fault. Inside them, check the Worker first: in
+the Cloudflare dashboard, Workers & Pages → `adur-worthing-submissions` →
+Settings → Triggers should list `*/10 6-23 * * *`, and its Logs should show a
+`keep-warm HH:MM: HTTP 200` line every 10 minutes. `npx wrangler tail` from
+`worker/` shows the same live. The GitHub `keep-warm.yml` workflow is only a
+backup; GitHub runs it every few hours, so its run history proves nothing.
 The arithmetic behind the window is in `LIMITS.md`: the service is up about
 500 hours a month against a 750-hour allowance, so widening the window is not
 free.

@@ -20,6 +20,9 @@ GITHUB_REPO = "dennislemennace/adur-worthing-bus"
 # entry only while testing locally, and take it out again before deploying.
 ALLOWED_ORIGINS = "https://worthingbrightonbus.co.uk,https://dennislemennace.github.io"
 
+# What the cron trigger pings to keep the Render free tier awake.
+KEEP_WARM_URL = "https://adur-worthing-bus.onrender.com/"
+
 # DEV_UNSAFE = "1" turns off the two checks that stand between this endpoint
 # and the GitHub Issues API: the origin allowlist and the requirement that the
 # RATE_LIMIT namespace is bound. It exists so `wrangler dev` works without
@@ -38,3 +41,12 @@ id = "2d5b7c6b9d9c412e97e03655c98e4b27"
 # submissions (the sender only ever sees a generic error).
 [observability]
 enabled = true
+
+# Keep the Render API warm. Cloudflare reads crons in UTC: every ten minutes
+# from 06:00 to 23:50 UTC covers 07:30 to 23:30 London time in both BST
+# (06:30 to 22:30 UTC) and GMT (07:30 to 23:30 UTC). The exact window is
+# enforced in keepWarm(), so runs outside it do nothing. About 108 runs a day
+# against 100,000 free requests. tests/keep_warm.test.js checks this range
+# covers the window in summer and winter.
+[triggers]
+crons = ["*/10 6-23 * * *"]
