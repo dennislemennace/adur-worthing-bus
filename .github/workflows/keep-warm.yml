@@ -4,14 +4,18 @@ name: Keep the API warm
 # no traffic and takes about 20 seconds to come back. A measured cold start
 # was 22.4 seconds to first byte, against 0.15 seconds warm.
 #
-# So: a request every 10 minutes keeps it up, except overnight, when nobody is
-# checking for a bus and the instance hours are better saved.
+# So: a request every 10 minutes keeps it up between 07:30 and 23:30 London
+# time, when people are travelling. Outside that it is left to sleep, and the
+# first visitor gets the "waking up" banner and a static map while it starts.
 #
 # Allowance. Render gives 750 free instance-hours a month per workspace. The
-# last ping before 01:30 leaves the service up until roughly 01:45; the first
-# at 06:30 brings it back. That is 19.25 hours a day, about 597 in a 31-day
-# month, with a fifth of the allowance still in hand — enough that a manual
-# redeploy or a second service for a week does not overrun it.
+# first ping at 07:30 wakes the service; the last, at 23:20, keeps it up until
+# about 23:35. That is roughly 16 hours a day, about 500 in a 31-day month, or
+# two thirds of the allowance. The third left over is deliberate: every
+# overnight visit wakes the service for at least 15 minutes, redeploys count,
+# and a second free service in the same workspace would share the same 750.
+#
+# The previous window (asleep only 01:30 to 06:30) used about 597 hours, 80%.
 #
 # Ten minutes, not fourteen: scheduled workflows are regularly delayed at peak
 # times, and a slip past the 15-minute idle threshold would let the container
@@ -41,22 +45,27 @@ jobs:
       API_URL: https://adur-worthing-bus.onrender.com/
       # Local time, not UTC. A window fixed in UTC would be an hour out for
       # half the year, and this one is chosen around when people travel.
-      QUIET_FROM: "0130"
-      QUIET_TO:   "0630"
+      # Pings run from WARM_FROM up to, but not including, WARM_TO.
+      WARM_FROM: "0730"
+      WARM_TO:   "2330"
 
     steps:
-      - name: Skip overnight
+      - name: Only inside the warm window
         id: window
         run: |
           NOW=$(TZ=Europe/London date +%H%M)
           echo "London time: $NOW"
-          # String comparison is safe here: both are zero-padded HHMM, and the
-          # window does not cross midnight.
-          if [ "$NOW" \> "$QUIET_FROM" ] && [ "$NOW" \< "$QUIET_TO" ]; then
-            echo "Inside the quiet window ($QUIET_FROM–$QUIET_TO) — letting it sleep."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
+          # Test for being *inside* the warm hours, not for being inside the
+          # quiet ones. The quiet period runs 23:30 to 07:30 and so crosses
+          # midnight, where a "from < now < to" test can never be true: the
+          # old overnight check written that way would have skipped nothing
+          # and pinged around the clock. The warm window does not cross
+          # midnight, so plain HHMM string comparison is safe here.
+          if [ ! "$NOW" \< "$WARM_FROM" ] && [ "$NOW" \< "$WARM_TO" ]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Outside $WARM_FROM–$WARM_TO, letting it sleep."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Ping the API

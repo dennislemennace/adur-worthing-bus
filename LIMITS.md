@@ -22,19 +22,25 @@ fits within the existing envelope.
   warm.** The frontend handles cold starts; do not regress that behavior.
 
 **The keep-warm budget.** `.github/workflows/keep-warm.yml` pings the service
-every 10 minutes except between 01:30 and 06:30 Europe/London, so the instance
-is up about 19.25 h a day — **roughly 597 hours in a 31-day month, about 80% of
-the allowance.** The remaining headroom is what pays for redeploys and for a
-second service during a migration; spending it on a shorter quiet window would
-leave none.
+every 10 minutes between 07:30 and 23:30 Europe/London. The last ping, at 23:20,
+keeps it up until about 23:35, so the instance is warm roughly 16 hours a day:
+**about 500 hours in a 31-day month, two thirds of the allowance.** The third
+left over is deliberate. Every overnight visit wakes the service for at least
+15 minutes, redeploys count, and a second free service in the workspace would
+draw on the same 750. (The first version slept only 01:30 to 06:30 and used
+about 597 hours, 80%; it was narrowed on 13 September 2026 to leave more room.)
+
+The window is checked as *inside the warm hours*, not *inside the quiet ones*.
+The quiet period crosses midnight, and a `from < now < to` test across midnight
+is never true, so written the other way round the job pings around the clock.
 
 Two numbers set the cadence: the idle threshold is 15 minutes, and scheduled
 GitHub Actions runs are routinely delayed at peak times. Ten minutes absorbs a
 five-minute slip. Fourteen would not.
 
 The static stop list (`data/stops.json`, see below) is what makes the overnight
-window cheap: the map draws without the API, so someone checking a night bus at
-03:00 still gets stops, a route map and timetable data while the container
+window cheap: the map draws without the API, so someone checking a night bus
+after 23:30 still gets stops, a route map and timetable data while the container
 wakes for live times.
 - 512 MB RAM, ~0.1 vCPU (shared).
 - **No persistent disk.** Anything written to disk is lost on redeploy. The

@@ -29,11 +29,12 @@ API only when the *fetch* fails, and a successful download of a near-empty list
 would give every visitor a blank map.
 
 **If cold starts come back.** `.github/workflows/keep-warm.yml` pings the API
-every 10 minutes outside 01:30–06:30 Europe/London. GitHub disables scheduled
+every 10 minutes between 07:30 and 23:30 Europe/London. Outside those hours a
+cold start is expected, not a fault. GitHub disables scheduled
 workflows in a repository with no commits for 60 days, so check the Actions tab
 first: a disabled schedule looks exactly like a keep-warm that stopped working.
-The arithmetic behind the window is in `LIMITS.md` — the service is up about
-597 hours a month against a 750-hour allowance, so widening the window is not
+The arithmetic behind the window is in `LIMITS.md`: the service is up about
+500 hours a month against a 750-hour allowance, so widening the window is not
 free.
 
 **Roll back a bad timetable.** Dated releases are kept (five deep). Copy the
