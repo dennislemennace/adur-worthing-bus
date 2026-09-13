@@ -30,13 +30,13 @@
     "steps": [
       "Select stops with latitude between the band's lat_min and lat_max and longitude within half_width_lon_deg of line_lon.",
       "Bucket each stop west or east of line_lon.",
-      "Join stop_times to trips to calendar; keep a trip only if its service actually runs on the dated day being measured — its calendar window must cover that date, and calendar_dates exceptions override it. Counting every calendar that merely lists the weekday counts one bus several times over, because term-time, holiday and seasonal variants each have their own.",
+      "Join stop_times to trips to calendar; keep a trip only if its service runs on the dated day being measured: its calendar window must cover that date, and calendar_dates exceptions override it. Counting every calendar that merely lists the weekday counts one bus several times over, because term-time, holiday and seasonal variants each have their own.",
       "Count departures and distinct route short_names per bucket.",
       "Divide by the number of stops in that bucket.",
       "Report Saturday and Sunday as one weekend figure: departures over both days divided by stops x 2, so the unit stays departures per stop per day. Both days' route counts are kept and shown, because Saturday and Sunday are different services.",
-      "Repeat the whole count for two named places either side of the line — Lancing and South Portslade — selecting stops by whether their coordinates fall inside the published ONS boundary polygon rather than by a distance band."
+      "Repeat the whole count for two named places either side of the line, Lancing and South Portslade, selecting stops by whether their coordinates fall inside the published ONS boundary polygon rather than by a distance band."
     ],
-    "denominator": "Departures are divided by the number of stops in the same bucket, so the figure is departures per stop per day — not a total, which would only restate that one side has more stops.",
+    "denominator": "Departures are divided by the number of stops in the same bucket, so the figure is departures per stop per day, not a total, which would only restate that one side has more stops.",
     "places": {
       "summary": "The band shows the average effect of the line. The place comparison shows what it means somewhere specific: Lancing against South Portslade, six miles apart along the same coast road, one either side of the boundary.",
       "pairing": "The nearest comparable place across the council boundary: both coastal, both on the same six-mile stretch of the A259 corridor, similar stop density. Chosen before the figures were computed.",
@@ -49,7 +49,7 @@
         ],
         "licence": "Open Government Licence v3.0",
         "attribution": "Contains OS data © Crown copyright and database right 2025. Contains National Statistics data © Crown copyright and database right 2025.",
-        "generalisation": "BGC — generalised to 20 m, clipped to the coastline",
+        "generalisation": "BGC, generalised to 20 m, clipped to the coastline",
         "retrieved": "2026-09-01"
       },
       "areas": [

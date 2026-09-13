@@ -15,10 +15,10 @@
         "credit_status": "unconfirmed",
         "credit_note": "Source and permission not recorded. Needs the site owner to confirm where this came from and on what terms, or to be replaced. Not invented here: an attribution that is guessed is worse than one that is missing."
       },
-      "body": "It matters more here than the headline suggests. Crossing the Worthing/Brighton DayRider boundary does not by itself require two buses — the 700 runs straight through it — but a ticket boundary is where the day-ticket options stop covering you, so the fare cap is what keeps that journey at £6 return today and £4 from January. That is cheaper than every day ticket covering the same trip, which tells you something about how those zones are drawn.\n\nWhere two buses genuinely are needed — Lancing to Brighton, say — it is two singles each way: £12 return today, £8 once the cap drops.\n\nThe Ticket view journey checker prices singles alongside day tickets, so you can see which is actually cheaper for a given trip.",
+      "body": "It matters more here than the headline suggests. Crossing the Worthing/Brighton DayRider boundary does not by itself require two buses, because the 700 runs straight through it. But a ticket boundary is where the day-ticket options stop covering you, so the fare cap is what keeps that journey at £6 return today and £4 from January. That is cheaper than every day ticket covering the same trip, which tells you something about how those zones are drawn.\n\nWhere two buses are needed, Lancing to Brighton say, it is two singles each way: £12 return today, £8 once the cap drops.\n\nThe Ticket view journey checker prices singles alongside day tickets, so you can see which is cheaper for a given trip.",
       "links": [
         {
-          "label": "£3 national bus fare cap — GOV.UK",
+          "label": "£3 national bus fare cap (GOV.UK)",
           "url": "https://www.gov.uk/guidance/3-national-bus-fare-cap"
         }
       ],
@@ -26,9 +26,9 @@
     },
     {
       "id": "stagecoach-moves-to-ticketer-the-same-system-b-h-already-run",
-      "title": "Stagecoach moves to Ticketer — the same system B&H already runs",
+      "title": "Stagecoach moves to Ticketer, the same system B&H already runs",
       "date": "2026-08-31",
-      "summary": "From September both major operators on this coast will be running the same ticketing platform, which removes the technical excuse for not accepting each other's tickets.",
+      "summary": "From September both major operators on this coast will run the same ticketing platform. That weakens the technical objection to accepting each other's tickets; it does not settle the commercial one.",
       "topic": "Ticketing",
       "image": {
         "src": "media/updates/ticketer-contactless.jpg",
@@ -38,10 +38,10 @@
         "credit_status": "unconfirmed",
         "credit_note": "Source and permission not recorded. Needs the site owner to confirm where this came from and on what terms, or to be replaced. Not invented here: an attribution that is guessed is worse than one that is missing."
       },
-      "body": "Stagecoach has appointed Ticketer as its supplier of ticketing and real-time information technology, deploying the detachable TK300 ticket machine across its fleet. The national rollout begins in September. The platform combines electronic ticketing, vehicle location and real-time information in one system.\n\nEvery Brighton & Hove bus already runs Ticketer. So from September, the two operators either side of the Shoreham boundary will be issuing and reading tickets on the same equipment, from the same supplier.\n\nWhat this changes is the strength of one argument, not the state of the network. Mutual ticket acceptance has always carried a technical objection: two different ticketing systems, two sets of hardware. A shared supplier makes that objection harder to sustain.\n\nIt does not by itself make acceptance possible. A rollout beginning in September is not the same as local completion, and common equipment is not the same as interoperable products or an agreed way of splitting the revenue between operators. Those are commercial decisions, and nobody has announced them. We are asking for them; we are not reporting them as done.",
+      "body": "Stagecoach has appointed Ticketer as its supplier of ticketing and real-time information technology, deploying the detachable TK300 ticket machine across its fleet. The national rollout begins in September. The platform combines electronic ticketing, vehicle location and real-time information in one system.\n\nEvery Brighton & Hove bus already runs Ticketer. So from September, the two operators that meet at Shoreham, where Brighton & Hove's network ends and Stagecoach's carries on west, will be issuing and reading tickets on the same equipment from the same supplier.\n\nWhat this changes is the strength of one argument, not the state of the network. Mutual ticket acceptance has always carried a technical objection: two different ticketing systems, two sets of hardware. A shared supplier makes that objection harder to sustain.\n\nIt does not by itself make acceptance possible. A rollout beginning in September is not the same as local completion, and common equipment is not the same as interoperable products or an agreed way of splitting the revenue between operators. Those are commercial decisions, and nobody has announced them. We are asking for them; we are not reporting them as done.",
       "links": [
         {
-          "label": "Stagecoach selects Ticketer for nationwide ticketing — routeone",
+          "label": "Stagecoach selects Ticketer for nationwide ticketing (routeone)",
           "url": "https://www.route-one.net/news/stagecoach-selects-ticketer-for-nationwide-ticketing/"
         }
       ],

@@ -343,7 +343,7 @@ def main() -> None:
                 "and longitude within half_width_lon_deg of line_lon.",
                 "Bucket each stop west or east of line_lon.",
                 "Join stop_times to trips to calendar; keep a trip only if its "
-                "service actually runs on the dated day being measured — its "
+                "service runs on the dated day being measured: its "
                 "calendar window must cover that date, and calendar_dates "
                 "exceptions override it. Counting every calendar that merely "
                 "lists the weekday counts one bus several times over, because "
@@ -355,13 +355,13 @@ def main() -> None:
                 "departures per stop per day. Both days' route counts are kept "
                 "and shown, because Saturday and Sunday are different services.",
                 "Repeat the whole count for two named places either side of the "
-                "line — Lancing and South Portslade — selecting stops by whether "
+                "line, Lancing and South Portslade, selecting stops by whether "
                 "their coordinates fall inside the published ONS boundary "
                 "polygon rather than by a distance band.",
             ],
             "denominator": (
                 "Departures are divided by the number of stops in the same bucket, "
-                "so the figure is departures per stop per day — not a total, which "
+                "so the figure is departures per stop per day, not a total, which "
                 "would only restate that one side has more stops."),
             "places": {
                 "summary": (

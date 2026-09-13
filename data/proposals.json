@@ -7542,8 +7542,8 @@
       "is_night": true,
       "from": "Brighton",
       "to": "Shoreham, Steyning & Worthing",
-      "summary": "Night service splitting at Red Lion — one arm to Steyning, the other to Worthing via Lancing Station",
-      "description": "Restores the pre-2016 N2 night network. At the Red Lion in Shoreham the service forks: one direction continues north to Steyning along the existing route 2 corridor, the other heads west into Lancing — reaching Lancing Station via the Police Station and deliberately skipping the Lisher Road / Shadwells Road / Woodard Road housing estate to keep journey times tight at night. From the station it follows the route 9 corridor inland (Leconfield Road and the Ennerdale Drive neighbourhood) rather than dropping straight to the seafront, before reaching Worthing Marine Parade.",
+      "summary": "Night service splitting at Red Lion: one arm to Steyning, the other to Worthing via Lancing Station",
+      "description": "Restores the pre-2016 N2 night network. At the Red Lion in Shoreham the service forks: one direction continues north to Steyning along the existing route 2 corridor, the other heads west into Lancing, reaching Lancing Station via the Police Station and deliberately skipping the Lisher Road / Shadwells Road / Woodard Road housing estate to keep journey times tight at night. From the station it follows the route 9 corridor inland (Leconfield Road and the Ennerdale Drive neighbourhood) rather than dropping straight to the seafront, before reaching Worthing Marine Parade.",
       "color": "#006838",
       "frequency_class": "limited",
       "polylines": [

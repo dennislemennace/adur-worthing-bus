@@ -72,7 +72,7 @@ const LOCAL_HOST_RE =
     let target;
     try { target = new URL(override); } catch { return; }
     if (!/^https?:$/.test(target.protocol) || !LOCAL_HOST_RE.test(target.hostname)) {
-      console.warn("Ignoring ?api= override — only local backends are allowed.");
+      console.warn("Ignoring ?api= override: only local backends are allowed.");
       return;
     }
     CONFIG.API_BASE_URL = override.replace(/\/$/, "");
@@ -707,7 +707,7 @@ function warnIfStopListIsStale(generatedOn) {
   const age = stopListAgeDays(generatedOn);
   if (age === null || age <= STOPS_STALE_DAYS) return;
   console.warn(`Stop list is ${age} days old (built ${generatedOn})`);
-  showToast(`These stops were last rebuilt ${age} days ago — a very recent `
+  showToast(`These stops were last rebuilt ${age} days ago. A very recent `
             + `stop may be missing from the map. Live times are unaffected.`,
             6000);
 }
@@ -742,7 +742,7 @@ async function loadStops() {
     // to the person who deployed this, shown to someone waiting for a bus.
     // Do not promise a fallback that depends on what just failed: the Ticket
     // view's stop picker is built from this same data, so it is empty too.
-    showToast("Couldn't load the bus stops — the live service isn't "
+    showToast("Couldn't load the bus stops. The live service isn't "
               + "responding. Route, Network and Updates still work.");
   }
 }
@@ -907,7 +907,7 @@ function renderStopClusters(atcos) {
       }),
       // Not a destination in its own right — it exists to be zoomed into.
       keyboard: false,
-      title: `${b.n} stop${b.n === 1 ? "" : "s"} — zoom in to see them`,
+      title: `${b.n} stop${b.n === 1 ? "" : "s"}, zoom in to see them`,
     });
     marker.on("click", () => {
       state.map.setView(at, Math.max(state.map.getZoom() + 2, STOP_ZOOM_INDIVIDUAL));
@@ -1131,7 +1131,7 @@ function councilBoundaryLabelHtml(boundary) {
   // so it never swallows a click meant for a bus; this element opts back in.
   return `<button type="button" class="council-boundary-label"
                   data-boundary="${escapeAttr(boundary.id || "")}"
-                  aria-label="What this boundary means — bus service either side">`
+                  aria-label="What this boundary means for bus service either side">`
        + `${side(sides.west)}<span class="council-boundary-tick" aria-hidden="true"></span>${side(sides.east)}`
        + `${caption}</button>`;
 }
@@ -1187,7 +1187,7 @@ async function openBoundaryEvidence() {
       <button type="button" class="evidence-close" data-close-evidence aria-label="Close">&times;</button>
       <h2 class="evidence-title" id="evidence-title">Bus service either side of the boundary</h2>
       <p class="journey-note">We can't load the figures right now. They are
-      rebuilt weekly from the published timetable — try again shortly.</p>`;
+      rebuilt weekly from the published timetable. Try again shortly.</p>`;
     wireEvidenceClose(dialog, body);
     return;
   }
@@ -1260,7 +1260,7 @@ function renderBoundaryEvidence(data) {
             // An averaged weekend would hide Sunday being the thinner day, so
             // the panel that averages it says what it averaged.
             d.west.routes_sunday != null
-              ? ` — on Sunday alone, <strong>${d.west.routes_sunday}</strong> against <strong>${d.east.routes_sunday}</strong>`
+              ? `, and on Sunday alone, <strong>${d.west.routes_sunday}</strong> against <strong>${d.east.routes_sunday}</strong>`
               : ""}
           ${d.west.departures_after_2300 != null
             ? ` · after 23:00, <strong>${d.west.departures_after_2300}</strong> departures against <strong>${d.east.departures_after_2300}</strong>`
@@ -1296,7 +1296,7 @@ function renderBoundaryEvidence(data) {
             // counts really are close. If a rebuild pulls them apart the clause
             // drops out rather than becoming a claim the figures contradict.
             placeDay.ratio && placeDay.ratio.routes >= 0.8
-              ? " — much the same choice of route" : ""}${
+              ? ", much the same choice of route" : ""}${
             ratio != null ? `, and <strong>${Math.round(ratio * 100)}%</strong> of the buses` : ""}${sunday
             ? `. On a Sunday it is <strong>${sunday.west.routes}</strong> routes against <strong>${sunday.east.routes}</strong>`
             : ""}.
@@ -1322,13 +1322,13 @@ function renderBoundaryEvidence(data) {
     <p class="evidence-standfirst">
       Scheduled departures <strong>per stop</strong>, in a
       ${escapeHtml(String((method.band && method.band.approx_half_width_km) || 4))} km band
-      either side of the line along the same coastal strip — so the two sides are
+      either side of the line along the same coastal strip, so the two sides are
       the same kind of place. The last panel leaves the band behind and compares
       two named places, one each side.
     </p>
     <div class="evidence-days">${rows}${placeSection}</div>
     <p class="evidence-axis">
-      Bars start at zero and share one scale across every panel —
+      Bars start at zero and share one scale across every panel,
       0 to ${max.toFixed(1)} departures per stop, per day.
     </p>
     <details class="evidence-method">
@@ -1468,9 +1468,9 @@ function updateBusesToggleBtn() {
   dom.toggleBusesBtn.classList.toggle("is-off", !on);
   dom.toggleBusesBtn.classList.toggle("is-filtered", on && hidden > 0);
   const label = !on
-    ? "Buses hidden — open bus filter"
+    ? "Buses hidden. Open bus filter"
     : hidden
-      ? `Bus filter — ${hidden} operator${hidden === 1 ? "" : "s"} hidden`
+      ? `Bus filter: ${hidden} operator${hidden === 1 ? "" : "s"} hidden`
       : "Bus filter";
   dom.toggleBusesBtn.setAttribute("aria-label", label);
   dom.toggleBusesBtn.title = label;
@@ -1613,7 +1613,7 @@ async function fetchVehicles() {
     setStatusLabel({ text: `Updated ${now}`, loading: false });
   } catch (err) {
     console.warn("Vehicle refresh failed:", err);
-    setStatusLabel({ text: "Update failed — retrying", loading: true, error: true });
+    setStatusLabel({ text: "Update failed, retrying", loading: true, error: true });
   } finally {
     state.vehicleFetchInFlight = false;
   }
@@ -2489,7 +2489,7 @@ function renderBusTab() {
     : `<div class="bus-info-icon bus-info-icon-fallback" style="background:${colour}"></div>`;
 
   const lostBanner = state.selectedVehicleLost
-    ? `<div class="bus-info-lost"><svg class="icon" aria-hidden="true"><use href="#i-signal-off"/></svg><span>Signal lost — last seen ${escapeHtml(formatTimeOfDay(state.selectedVehicleLastSeen))}</span></div>`
+    ? `<div class="bus-info-lost"><svg class="icon" aria-hidden="true"><use href="#i-signal-off"/></svg><span>Signal lost, last seen ${escapeHtml(formatTimeOfDay(state.selectedVehicleLastSeen))}</span></div>`
     : "";
 
   dom.panelBusName.textContent = `Service ${service}`;
@@ -2586,7 +2586,7 @@ function renderBusTab() {
       <p class="suggest-privacy">
         This posts a public record to the project's issue tracker so it can be
         counted and quoted. It is not a complaint to the operator and it does
-        not reach the driver — for that, contact
+        not reach the driver. For that, contact
         ${operatorComplaintLinkHtml(state.selectedVehicle && state.selectedVehicle.operator_ref)}.
       </p>
 
@@ -3646,8 +3646,16 @@ function updateCardHtml(u, opts = {}) {
     : "";
   const topic = u.topic
     ? `<span class="update-card-topic">${escapeHtml(u.topic)}</span>` : "";
-  const byline = opts.community && u.name
-    ? `<span class="update-card-byline">Reported by ${escapeHtml(u.name)}</span>` : "";
+  // Who wrote it, and in what relationship to it. A community report is
+  // somebody saying what they saw; a maintainer piece is somebody making an
+  // argument, and it should be signed. This used to be gated on
+  // `opts.community`, so the project's own articles were the only
+  // unattributed ones on a site whose case rests on being accountable.
+  const author = opts.community ? u.name : (u.author || u.name);
+  const byline = author
+    ? `<span class="update-card-byline">${opts.community ? "Reported by" : "By"} `
+      + `${escapeHtml(author)}</span>`
+    : "";
 
   const img = u.image && u.image.src ? u.image : null;
   // A decorative-looking photo still carries the meaning of the piece, so it
@@ -3728,7 +3736,7 @@ function renderUpdates() {
     const list = sortUpdates(state.communityUpdates);
     dom.communityUpdatesList.innerHTML = list.length
       ? list.map(u => updateCardHtml(u, { community: true })).join("")
-      : `<p class="proposals-empty">Nothing from passengers yet — this is where
+      : `<p class="proposals-empty">Nothing from passengers yet. This is where
          reviewed reports from the network will appear.</p>`;
     bindUpdateFolds(dom.communityUpdatesList);
   }
@@ -4151,7 +4159,7 @@ function renderRouteFilterChips() {
   if (groups.size === 0) {
     dom.routeFilterChips.innerHTML = isNight
       ? `<p class="route-filters-empty">No matching night services.</p>`
-      : `<p class="route-filters-empty">No matching routes — try toggling a category or operator back on.</p>`;
+      : `<p class="route-filters-empty">No matching routes. Try toggling a category or operator back on.</p>`;
     return;
   }
 
@@ -4707,7 +4715,7 @@ function renderProposalsList() {
 
   dom.proposalsList.innerHTML =
     section("Maintained routes",
-            "Shown on the map by default — curated by the project.",
+            "Shown on the map by default, curated by the project.",
             official) +
     section("Community submissions",
             "Click to show on the map. Add yours via a pull request to data/proposals.json.",
@@ -5066,8 +5074,8 @@ function renderTicketZonesList() {
     // with a `coverage` blurb, e.g. Gold) shouldn't get the "not drawn" fallback.
     let note = z.note || "";
     if (!note) {
-      if (hasReach && !hasGeo) note = "Reach shown as tags — see official map for the full zone";
-      else if (!hasGeo && !hasReach && !z.coverage) note = "Whole-network — see official map";
+      if (hasReach && !hasGeo) note = "Reach shown as tags; see official map for the full zone";
+      else if (!hasGeo && !hasReach && !z.coverage) note = "Whole-network; see official map";
     }
     return `
       <div class="proposal-card ticket-zone-card ${sel ? "selected" : ""} ${z.category === "proposed" ? "ticket-zone--proposed" : ""}"
@@ -6075,7 +6083,7 @@ async function checkJourney() {
       + `&at=${encodeURIComponent(JOURNEY_TIME_ANCHOR)}`);
   } catch (err) {
     if (!mine()) return;
-    setJourneyStatus("Couldn't look up that journey — please try again.", true);
+    setJourneyStatus("Couldn't look up that journey. Please try again.", true);
     return;
   }
   if (!mine()) return;
@@ -6393,7 +6401,7 @@ function itineraryHtml(interchange, onDay) {
       <p class="journey-zones-title">What the journey actually is</p>
       ${onDay ? `<p class="journey-other-day">
         There is no such journey today. This is a <strong>${escapeHtml(onDay)}</strong>
-        — at weekends these two buses do not connect at all.</p>` : ""}
+        At weekends these two buses do not connect at all.</p>` : ""}
       <p class="journey-itinerary-line">
         ${chip(one)} <strong>${escapeHtml(one.depart)}</strong> from
         ${escapeHtml((one.stops[0] || {}).name || "the stop")}
@@ -6518,7 +6526,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
                                          unifiedOption, null);
 
   const routeLine = option
-    ? `<p class="journey-note">Following the ${escapeHtml(option.service)} — ${option.stop_count} stops, ${escapeHtml(option.depart)} to ${escapeHtml(option.arrive)}.</p>`
+    ? `<p class="journey-note">Following the ${escapeHtml(option.service)}: ${option.stop_count} stops, ${escapeHtml(option.depart)} to ${escapeHtml(option.arrive)}.</p>`
     : `<p class="journey-note">${escapeHtml(journey.note || "No direct bus found.")}</p>${itinerary}`;
 
   const header = `
@@ -6535,7 +6543,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
                                     unifiedOption, singlesOption);
     host.innerHTML = header + `
       <div class="journey-alert journey-alert--penalty">
-        <p><strong>No zone day ticket covers this whole journey</strong> — the
+        <p><strong>No zone day ticket covers this whole journey</strong>. The
         zones stop short of it.</p>
         ${only ? penaltyMoneyHtml(only, meta, service)
                : `<p class="journey-basis">The only ticket that covers it is
@@ -6658,8 +6666,8 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
     );
 
     const priceLine = fare === null
-      ? `<p>One ticket covers this journey — <strong>${escapeHtml(z.name)}</strong>
-         (${escapeHtml(z.operator)}) — but we don't have a current price for it.</p>`
+      ? `<p>One ticket covers this journey: <strong>${escapeHtml(z.name)}</strong>
+         (${escapeHtml(z.operator)}), but we don't have a current price for it.</p>`
       : `<p>One ticket covers this journey:
          <strong>${escapeHtml(z.name)}</strong> (${escapeHtml(z.operator)})
          at <strong>${formatGbp(fare)}</strong>.</p>`;
@@ -6819,7 +6827,7 @@ function penaltyMoneyHtml(cheapest, meta, service) {
     parts.push(`<p class="journey-headline">
       The cheapest ticket covering it is the
       <strong>${src ? `<a href="${escapeAttr(safeUrl(src))}" target="_blank" rel="noopener noreferrer">${name}</a>` : name}</strong>
-      at ${formatGbp(cheapest.total)} — the only day ticket that's valid on every
+      at ${formatGbp(cheapest.total)}, the only day ticket that's valid on every
       operator, priced as a day-out rover rather than a local fare.</p>`);
   } else if (cheapest.kind === "singles") {
     // Not a day ticket at all — and on a journey needing a change, usually
@@ -6832,10 +6840,10 @@ function penaltyMoneyHtml(cheapest, meta, service) {
     // just dearer than two capped singles. Only the first is a boundary fact.
     const why = cheapest.noSpanningTicket
       ? ", because no day ticket is valid on every operator that serves these stops"
-      : " — cheaper here than any day ticket covering the journey";
+      : ", cheaper here than any day ticket covering the journey";
     parts.push(`<p class="journey-headline">
       The cheapest way to make this journey is
-      <strong>${formatGbp(cheapest.total)}</strong> in single fares —
+      <strong>${formatGbp(cheapest.total)}</strong> in single fares,
       ${legs} bus${legs === 1 ? "" : "es"} each way at
       ${formatGbp(cheapest.each)}${why}.</p>`);
     if (cheapest.source_url) {
@@ -6846,7 +6854,7 @@ function penaltyMoneyHtml(cheapest, meta, service) {
   } else if (cheapest.kind === "network") {
     parts.push(`<p class="journey-headline">
       The cheapest ticket covering it is a
-      <strong>${escapeHtml(cheapest.zone.name)}</strong> at ${formatGbp(cheapest.total)} —
+      <strong>${escapeHtml(cheapest.zone.name)}</strong> at ${formatGbp(cheapest.total)},
       an operator-wide ticket you have to buy just to cross the boundary.</p>`);
   } else {
     parts.push(`<p class="journey-headline">
@@ -6960,7 +6968,7 @@ function reformComparisonHtml(cheapest, dayBaseline, zoneIds, byId, meta) {
     const perWeek = (saving > 0 && typeof days === "number") ? saving * days : null;
     const headline = saving > 0
       ? `this journey would cost <strong>${formatGbp(r.price_pence)}</strong>${
-          perWeek !== null ? ` — saving ${formatGbp(perWeek)} a week` : ""}.`
+          perWeek !== null ? `, saving ${formatGbp(perWeek)} a week` : ""}.`
       : `a day's travel here would cost <strong>${formatGbp(r.price_pence)}</strong>
          instead of ${formatGbp(dayBaseline.total)}.`;
     const caveat = saving > 0 ? "" : `
@@ -7106,7 +7114,7 @@ function faresProvenanceHtml(zoneIds, byId) {
     // kind of thing a councillor's office checks first.
     const c = f.conflicts_with;
     const conflict = (c && typeof c.price_pence === "number")
-      ? ` — Stagecoach's <a href="${escapeAttr(safeUrl(c.source_url || f.source_url))}"
+      ? `. Stagecoach's <a href="${escapeAttr(safeUrl(c.source_url || f.source_url))}"
           target="_blank" rel="noopener noreferrer">published table</a>
           (${escapeHtml(c.effective_from || "")}) lists
           ${escapeHtml(formatGbp(c.price_pence))}`
@@ -7500,7 +7508,7 @@ function renderEditor() {
       <div class="suggest-turnstile" id="ed-turnstile"></div>
 
       <!-- At the action, not only behind the help button. What a submission
-           does — a public issue, immediately, reviewed afterwards — is
+           does (a public issue, immediately, reviewed afterwards) is
            something to know before pressing Submit, not after. -->
       <p class="suggest-privacy editor-submit-note">
         Posts to the project's <strong>public</strong> issue tracker straight
@@ -7523,7 +7531,7 @@ function renderEditor() {
           <li>
             <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-plus"/></svg>
             <span><strong>Submit</strong> posts your route to the project's public issue
-              tracker — <strong>no account needed.</strong> We'll open your proposal in a new
+              tracker. <strong>No account needed.</strong> We'll open your proposal in a new
               tab so you can follow what happens to it.</span>
           </li>
           <li>
@@ -7983,7 +7991,7 @@ async function copyDraftJson() {
   document.body.appendChild(ta);
   ta.select();
   try { document.execCommand("copy"); setEditorStatus("Copied!"); }
-  catch { setEditorStatus("Copy failed — select and copy manually."); }
+  catch { setEditorStatus("Copy failed. Select and copy manually."); }
   document.body.removeChild(ta);
 }
 
@@ -8035,10 +8043,10 @@ async function submitProposal() {
   } else if (result.reason === "in-flight" || result.reason === "timeout") {
     setEditorStatus(result.message);
   } else if (result.reason === "unconfigured") {
-    setEditorStatus("Submissions aren't switched on yet — use Copy JSON for now.");
+    setEditorStatus("Submissions aren't switched on yet. Use Copy JSON for now.");
   } else {
     const msg = /^HTTP \d+$/.test(result.reason || "")
-      ? "Couldn't send — try Copy JSON instead."
+      ? "Couldn't send. Try Copy JSON instead."
       : result.reason;
     setEditorStatus(msg);
   }
@@ -8122,7 +8130,17 @@ function objectiveStatusMeta(status) {
  * awkward to activate. Only the summary row toggles now; the detail is a
  * sibling, so anything interactive in it works normally.
  */
-function objectiveCardHtml(o) {
+/** The opening sentence of a description, for the lead card's standfirst.
+ *
+ *  The objectives were rewritten to open on the particular thing — a count, a
+ *  fare, a named route — so the first sentence is reliably the figure worth
+ *  pulling out. No extra field to keep in step with the prose. */
+function objectiveStandfirst(o) {
+  const first = String(o.description || "").trim().split(/(?<=[.!?])\s/)[0] || "";
+  return first.length > 190 ? "" : first;
+}
+
+function objectiveCardHtml(o, opts = {}) {
   const sel = (o.id === state.selectedObjectiveId);
   const st  = objectiveStatusMeta(o.status);
   const hasLinks = Array.isArray(o.links) && o.links.length > 0;
@@ -8143,8 +8161,12 @@ function objectiveCardHtml(o) {
       ` : ""}
       ${objectiveContactHtml(o)}
     </div>` : "";
+  // The lead objective is given a standfirst and larger type. Four identically
+  // weighted cards said all four mattered the same amount, which is both untrue
+  // and what made the section read as a template rather than as a campaign.
+  const standfirst = opts.lead ? objectiveStandfirst(o) : "";
   return `
-    <div class="proposal-card-wrap ${sel ? "selected" : ""}"
+    <div class="proposal-card-wrap ${sel ? "selected" : ""} ${opts.lead ? "objective-lead" : ""}"
          style="border-left-color:${escapeAttr(o.color || "#444")}">
       <button type="button"
               class="proposal-card ${sel ? "selected" : ""}"
@@ -8155,6 +8177,7 @@ function objectiveCardHtml(o) {
           <span class="status-badge status-${st.cls}">${escapeHtml(st.label)}</span>
         </span>
         <span class="proposal-card-summary">${escapeHtml(o.summary || "")}</span>
+        ${standfirst ? `<span class="objective-lead-standfirst">${escapeHtml(standfirst)}</span>` : ""}
         <span class="objective-chips">${objectiveBodyChips(o)}</span>
       </button>
       ${detail}
@@ -8211,13 +8234,13 @@ const RESPONSIBLE_BODIES = {
           note: "Transport and highway authority for Adur & Worthing, and holder of the Bus Service Improvement Plan.",
           url: "https://www.westsussex.gov.uk/roads-and-travel/travel-and-public-transport/bus-travel/" },
   ADUR_WORTHING: { name: "Adur & Worthing Councils", kind: "authority", colour: "#c07808",
-          note: "Owns and maintains many of the bus shelters in the boroughs — 53 of the 108 in Worthing.",
+          note: "Owns and maintains many of the bus shelters in the boroughs: 53 of the 108 in Worthing.",
           url: "https://www.adur-worthing.gov.uk/streets-and-travel/report-a-problem/bus-shelters/" },
   BHCC: { name: "Brighton & Hove City Council", kind: "authority", colour: "#6a4ea3",
           note: "Unitary authority at the Brighton end, with its own Enhanced Partnership with the bus company.",
           url: "https://www.brighton-hove.gov.uk/travel-and-road-safety/travel-transport-and-road-safety/brighton-hove-bus-service-improvement-plan-bsip" },
   ESCC: { name: "East Sussex County Council",  kind: "authority", colour: "#0e7c86",
-          note: "Neighbouring authority — relevant to anything crossing the county boundary eastwards.",
+          note: "Neighbouring authority, relevant to anything crossing the county boundary eastwards.",
           url: "https://www.eastsussex.gov.uk/roads-transport/public" },
 };
 
@@ -8468,7 +8491,7 @@ function councillorDraft(objective, area) {
     "",
     objective.description || "",
     "",
-    "[Please add a sentence or two here about how this affects you — which journeys you make, what goes wrong, and what would change if this were fixed. This is the part that carries the most weight, and a letter without it reads as a template.]",
+    "[Please add a sentence or two here about how this affects you: which journeys you make, what goes wrong, and what would change if this were fixed. This is the part that carries the most weight, and a letter without it reads as a template.]",
     "",
     "I would be grateful to know your view on this, and whether you would be willing to raise it.",
     "",
@@ -8554,7 +8577,7 @@ function renderCouncillorDialog(status) {
     <p class="councillor-intro">Your postcode finds the ${
       BODY_AREA[chosen] && BODY_AREA[chosen].field === "ced"
         ? "county councillor for your electoral division"
-        : "councillors for your ward"}. Nothing is sent from this site — the
+        : "councillors for your ward"}. Nothing is sent from this site. The
       draft opens in your own email app, and it is yours to change.</p>
     ${picker}
     <form class="councillor-form" id="councillor-form">
@@ -8637,7 +8660,7 @@ async function onCouncillorSubmit(e) {
   try {
     place = await lookupPostcode(postcode);
   } catch (err) {
-    return renderCouncillorDialog({ error: true, text: "Couldn't reach the postcode service — please try again." });
+    return renderCouncillorDialog({ error: true, text: "Couldn't reach the postcode service. Please try again." });
   }
   if (!place) {
     return renderCouncillorDialog({ error: true, text: `We couldn't find ${postcode}.` });
@@ -8689,7 +8712,7 @@ function councillorResultHtml(objective, area) {
 
   return `
     <div class="councillor-result">
-      <p class="proposal-detail-heading">${escapeHtml(area.name)} — ${escapeHtml(area.council)}</p>
+      <p class="proposal-detail-heading">${escapeHtml(area.name)}, ${escapeHtml(area.council)}</p>
       <ul class="councillor-members">${people}</ul>
       <p class="councillor-checked">Addresses published by the council and checked on
         ${escapeHtml(area.checked_on)}.
@@ -8698,7 +8721,7 @@ function councillorResultHtml(objective, area) {
 
       <p class="proposal-detail-heading">Your draft</p>
       <p class="councillor-draft-note">Edit this before you send it. The bracketed
-        paragraph is the part that matters most — a letter in your own words
+        paragraph is the part that matters most. A letter in your own words
         counts for far more than an identical one.</p>
       <textarea class="councillor-draft" id="councillor-draft-text" rows="12"
                 aria-label="Draft email">${escapeHtml(draft.body)}</textarea>
@@ -8713,7 +8736,7 @@ function councillorResultHtml(objective, area) {
       </div>
       <p class="councillor-warn" id="councillor-long-warn" ${long ? "" : "hidden"}>Copying is
         offered first because this draft is longer than some email apps will
-        carry in a link — a few will silently trim it. Opening it directly
+        carry in a link, and a few will silently trim it. Opening it directly
         still works in most.</p>
     </div>`;
 }
@@ -8776,13 +8799,17 @@ function renderObjectivesList() {
   // body heading, so the tab opens on what we're actually pushing for rather
   // than on a wall of collapsed headers.
   const featured = objectives.filter(o => o.featured);
+  const [lead, ...alsoFeatured] = featured;
   const featuredHtml = featured.length ? `
     <section class="objective-featured">
       <h3 class="objective-group-head">
         <span class="objective-group-name">What we're pushing for now</span>
         <span class="objective-group-count">${featured.length}</span>
       </h3>
-      ${featured.map(objectiveCardHtml).join("")}
+      ${objectiveCardHtml(lead, { lead: true })}
+      ${alsoFeatured.length ? `<div class="objective-also">
+        ${alsoFeatured.map(o => objectiveCardHtml(o)).join("")}
+      </div>` : ""}
     </section>
     <p class="objective-bodies-intro">Every objective below, grouped by who would have to act on it.</p>` : "";
 
@@ -8831,7 +8858,7 @@ function renderCommunityIdeas() {
   const ideas = (state.suggestions || []).filter(s => (s.status || "published") === "published");
   if (ideas.length === 0) {
     dom.communityIdeasList.innerHTML =
-      `<p class="proposals-empty">No published ideas yet — yours could be the first.</p>`;
+      `<p class="proposals-empty">No published ideas yet. Yours could be the first.</p>`;
     return;
   }
 
@@ -8871,7 +8898,7 @@ function populateObjectiveSelect() {
   const sel = dom.suggestObjective;
   if (!sel) return;
   const current = sel.value;
-  const opts = ['<option value="">— none in particular —</option>'];
+  const opts = ['<option value="">none in particular</option>'];
   for (const o of state.objectives || []) {
     const label = o.title || o.id;
     opts.push(`<option value="${escapeAttr(label)}">${escapeHtml(label)}</option>`);
@@ -8953,7 +8980,7 @@ async function postSubmission(kind, fields, turnstileContainer) {
   }
   if (submissionsInFlight.has(kind)) {
     return { ok: false, reason: "in-flight",
-             message: "That's already sending — give it a moment." };
+             message: "That's already sending. Give it a moment." };
   }
   submissionsInFlight.add(kind);
 
@@ -8981,7 +9008,7 @@ async function postSubmission(kind, fields, turnstileContainer) {
   } catch (err) {
     if (err && err.name === "AbortError") {
       return { ok: false, reason: "timeout",
-               message: "That took too long. Your draft is still here — try again." };
+               message: "That took too long. Your draft is still here. Try again." };
     }
     return { ok: false, reason: err.message || "Network error" };
   } finally {
@@ -9005,7 +9032,7 @@ function submissionReceiptHtml(result) {
     ? ` <a href="${escapeAttr(safeUrl(result.url))}" target="_blank"
            rel="noopener noreferrer">View it${result.number ? ` (#${escapeHtml(String(result.number))})` : ""} ↗</a>`
     : "";
-  return `Received for review — it isn't on the site yet.${link}`;
+  return `Received for review. It isn't on the site yet.${link}`;
 }
 
 /** Validate + file a community suggestion as a public GitHub issue. */
@@ -9054,13 +9081,13 @@ async function submitSuggestion() {
     renderSuggestSuccess(result.url);
     form.reset();
   } else if (result.reason === "unconfigured") {
-    setSuggestStatus("Suggestions aren't switched on yet — please try again later.", true);
+    setSuggestStatus("Suggestions aren't switched on yet. Please try again later.", true);
   } else {
     // The Worker's rejections are already written for humans ("please try
     // again later", "couldn't verify you're human"), so pass them through.
     // Anything that looks like a bare status code gets the generic line.
     const msg = /^HTTP \d+$/.test(result.reason || "")
-      ? "Couldn't send — please try again."
+      ? "Couldn't send. Please try again."
       : result.reason;
     setSuggestStatus(msg, true);
   }
@@ -9192,19 +9219,19 @@ async function submitNews() {
     const el = document.getElementById("nw-status");
     if (el && result.url) {
       el.classList.remove("is-error");
-      el.innerHTML = `Thanks — received for review. It's on the `
+      el.innerHTML = `Thanks, received for review. It's on the `
         + `<a href="${escapeAttr(safeUrl(result.url))}" target="_blank" `
         + `rel="noopener noreferrer">public tracker</a>; it isn't on this page yet.`;
     } else {
-      setNewsStatus("Thanks — received for review. It isn't on this page yet.");
+      setNewsStatus("Thanks, received for review. It isn't on this page yet.");
     }
   } else if (result.reason === "in-flight" || result.reason === "timeout") {
     setNewsStatus(result.message, true);
   } else if (result.reason === "unconfigured") {
-    setNewsStatus("Submissions aren't switched on yet — please try later.", true);
+    setNewsStatus("Submissions aren't switched on yet. Please try later.", true);
   } else {
     setNewsStatus(/^HTTP \d+$/.test(result.reason || "")
-      ? "Couldn't send — please try again." : result.reason, true);
+      ? "Couldn't send. Please try again." : result.reason, true);
   }
 }
 
@@ -9262,19 +9289,19 @@ async function submitBusIssue() {
     const el = document.getElementById("rb-status");
     if (el && result.url) {
       el.classList.remove("is-error");
-      el.innerHTML = `Thanks — received for review. `
+      el.innerHTML = `Thanks, received for review. `
         + `<a href="${escapeAttr(safeUrl(result.url))}" target="_blank" `
         + `rel="noopener noreferrer">Track it here</a>.`;
     } else {
-      setReportBusStatus("Thanks — your report has been received for review.");
+      setReportBusStatus("Thanks, your report has been received for review.");
     }
   } else if (result.reason === "in-flight" || result.reason === "timeout") {
     setReportBusStatus(result.message, true);
   } else if (result.reason === "unconfigured") {
-    setReportBusStatus("Reporting isn't switched on yet — please try later.", true);
+    setReportBusStatus("Reporting isn't switched on yet. Please try later.", true);
   } else {
     setReportBusStatus(/^HTTP \d+$/.test(result.reason || "")
-      ? "Couldn't send — please try again." : result.reason, true);
+      ? "Couldn't send. Please try again." : result.reason, true);
   }
 }
 
@@ -9329,18 +9356,18 @@ async function submitStopIssue() {
     if (result.url) {
       dom.reportStopStatus.classList.remove("is-error");
       dom.reportStopStatus.innerHTML =
-        `Thanks — received for review. <a href="${escapeAttr(safeUrl(result.url))}" ` +
+        `Thanks, received for review. <a href="${escapeAttr(safeUrl(result.url))}" ` +
         `target="_blank" rel="noopener noreferrer">Track it here</a>.`;
     } else {
-      setReportStopStatus("Thanks — your report has been received for review.");
+      setReportStopStatus("Thanks, your report has been received for review.");
     }
   } else if (result.reason === "in-flight" || result.reason === "timeout") {
     setReportStopStatus(result.message, true);
   } else if (result.reason === "unconfigured") {
-    setReportStopStatus("Reporting isn't switched on yet — please try later.", true);
+    setReportStopStatus("Reporting isn't switched on yet. Please try later.", true);
   } else {
     const msg = /^HTTP \d+$/.test(result.reason || "")
-      ? "Couldn't send — please try again."
+      ? "Couldn't send. Please try again."
       : result.reason;
     setReportStopStatus(msg, true);
   }
@@ -9355,12 +9382,12 @@ function renderSuggestSuccess(url) {
     // immediately, and appearing on the site is a separate, later decision by
     // a person. Saying "published" here would be wrong in both directions.
     dom.suggestStatus.innerHTML =
-      `Thanks — received for review. Your idea is on the ` +
+      `Thanks, received for review. Your idea is on the ` +
       `<a href="${escapeAttr(safeUrl(url))}" target="_blank" ` +
       `rel="noopener noreferrer">public tracker</a>; it isn't on the site yet.`;
   } else {
     dom.suggestStatus.textContent =
-      "Thanks — received for review. It isn't on the site yet.";
+      "Thanks, received for review. It isn't on the site yet.";
   }
 }
 
@@ -9478,7 +9505,7 @@ class ApiError extends Error {
 const API_ERROR_TEXT = {
   timeout:     "That is taking longer than it should. Check your connection, "
              + "then try again.",
-  offline:     "Can't reach the live service — you may be offline.",
+  offline:     "Can't reach the live service. You may be offline.",
   unavailable: "The live service is busy just now. Timetabled departures "
              + "should return shortly.",
   http:        "Something went wrong fetching that. Please try again.",
@@ -9487,7 +9514,7 @@ const API_ERROR_TEXT = {
   // usual, because the timetabled parts of the site are served statically and
   // are genuinely unaffected.
   waking:      "The live service didn't finish waking up. The map, routes and "
-             + "timetables still work — try live times again in a moment.",
+             + "timetables still work. Try live times again in a moment.",
 };
 
 // ============================================================
@@ -9501,7 +9528,7 @@ const API_ERROR_TEXT = {
 function showWakingBanner() {
   if (!dom.wakingBanner) return;
   dom.wakingText.textContent =
-    "Waking the live service up — this takes about 20 seconds after a quiet "
+    "Waking the live service up. This takes about 20 seconds after a quiet "
     + "spell. Timetables and routes are ready now.";
   dom.wakingBanner.classList.remove("hidden");
 }
@@ -10219,7 +10246,7 @@ function renderRailBoard() {
       </table>
       <p class="rail-board-footer">
         Live data from Realtime Trains. Train positions are estimated
-        between stations — there is no GPS on this feed.
+        between stations. There is no GPS on this feed.
       </p>
     </div>
   `;
@@ -10322,7 +10349,7 @@ async function selectRailService(uid, date) {
   // tell the user so they know to wait.
   const entry = state.selectedRailServices[uid];
   if (entry && !entry.marker) {
-    showToast("Service not yet showing on map — will appear when it enters the area.");
+    showToast("Service not yet showing on map. It will appear when it enters the area.");
   }
   renderRailBoard(); // re-render so the row button flips to "Hide"
 }
@@ -10570,7 +10597,7 @@ function railPosAt(t, now) {
 
 function railTrainTitle(svc, target) {
   const hc = svc.headcode || svc.uid;
-  return `Service ${hc} — estimated position between ${target.fromName} and ${target.toName}`;
+  return `Service ${hc}: estimated position between ${target.fromName} and ${target.toName}`;
 }
 
 // ── Per-frame animation loop ─────────────────────────────────
@@ -10712,12 +10739,12 @@ const OPERATOR_TICKETS = {
   },
   "NATX": {
     app:     null,
-    dayPass: "Coach tickets — book in advance online",
+    dayPass: "Coach tickets, book in advance online",
     url:     "https://www.nationalexpress.com/en/cheap-coach-tickets",
   },
   "NTXP": {
     app:     null,
-    dayPass: "Coach tickets — book in advance online",
+    dayPass: "Coach tickets, book in advance online",
     url:     "https://www.nationalexpress.com/en/cheap-coach-tickets",
   },
 };

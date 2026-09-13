@@ -8,7 +8,7 @@
     ],
     "licence": "Open Government Licence v3.0",
     "attribution": "Contains OS data © Crown copyright and database right 2025. Contains National Statistics data © Crown copyright and database right 2025.",
-    "generalisation": "BGC — generalised to 20 m, clipped to the coastline",
+    "generalisation": "BGC, generalised to 20 m, clipped to the coastline",
     "retrieved": "2026-09-01"
   },
   "areas": [

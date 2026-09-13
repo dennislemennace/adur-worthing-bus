@@ -1241,6 +1241,50 @@ async function checkPresetsDraw(page, where) {
   await sleep(600);
 }
 
+/**
+ * One lead objective, and the rest still reachable.
+ *
+ * The four featured objectives were four identical cards, which said all four
+ * mattered the same amount and made the section read as a template. The lead
+ * now carries a standfirst and larger type. The risk in that change is the
+ * other three quietly losing their way in or their accessible name, so both
+ * are asserted rather than the appearance alone.
+ */
+async function checkObjectiveLead(page, where) {
+  await page.evaluate("setViewMode('network')");
+  await waitFor(page, "document.querySelectorAll('[data-objective-id]').length > 0", 20000);
+  await sleep(400);
+  const r = JSON.parse(await page.evaluate(`
+    (() => {
+      const featured = document.querySelector(".objective-featured");
+      if (!featured) return JSON.stringify({ skip: "no featured section" });
+      const lead = featured.querySelector(".objective-lead");
+      const also = [...featured.querySelectorAll(".objective-also [data-objective-id]")];
+      const size = el => el ? parseFloat(getComputedStyle(el).fontSize) : 0;
+      const leadTitle = lead && lead.querySelector(".proposal-card-name");
+      const alsoTitle = also[0] && also[0].querySelector(".proposal-card-name");
+      const sf = lead && lead.querySelector(".objective-lead-standfirst");
+      return JSON.stringify({
+        hasLead: !!lead,
+        standfirst: sf ? sf.textContent.trim().slice(0, 60) : "",
+        leadPx: size(leadTitle), alsoPx: size(alsoTitle),
+        alsoCount: also.length,
+        alsoNamed: also.every(b => (b.textContent || "").trim().length > 0),
+        alsoClickable: also.every(b => b.tagName === "BUTTON" && !b.disabled),
+        totalObjectives: document.querySelectorAll("[data-objective-id]").length,
+      });
+    })()`));
+  if (r.skip) { check(`the objectives lead renders — ${where}`, true, r.skip); }
+  else {
+    check(`one objective leads the section — ${where}`,
+      r.hasLead && r.standfirst.length > 10 && r.leadPx > r.alsoPx, JSON.stringify(r));
+    check(`the other featured objectives are still usable — ${where}`,
+      r.alsoCount > 0 && r.alsoNamed && r.alsoClickable, JSON.stringify(r));
+  }
+  await page.evaluate('(() => { setViewMode("live"); return ""; })()');
+  await sleep(500);
+}
+
 async function checkFailureIsVisible(page, where) {
   // Set and measure in one evaluation. Done as two, a vehicle poll landing in
   // between put the label back to "Updated HH:MM:SS" and the check failed on
@@ -1546,8 +1590,8 @@ async function checkInteractiveSurfaces(page) {
 async function checkViews(page) {
   for (const [mode, label] of [
     ["live", "Live Bus Tracking"], ["improvements", "Route view"],
-    ["tickets", "Ticket view"], ["network", "Network Objectives"],
-    ["updates", "Network Updates"],
+    ["tickets", "Tickets & fares"], ["network", "Better buses"],
+    ["updates", "News & notes"],
   ]) {
     await page.evaluate(`setViewMode('${mode}')`);
     await sleep(1500);
@@ -1859,6 +1903,7 @@ await checkWakingBanner(page, VIEWPORTS[0].name);
 await checkClusterDensity(page, VIEWPORTS[0].name);
 await checkProposalFitsAboveSheet(page, VIEWPORTS[0].name);
 await checkPresetsDraw(page, VIEWPORTS[0].name);
+await checkObjectiveLead(page, VIEWPORTS[0].name);
 await checkBusSelectionReveals(page, VIEWPORTS[0].name);
 await checkDepartureBoard(page);
 await checkViews(page);

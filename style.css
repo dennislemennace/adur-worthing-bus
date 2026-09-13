@@ -2168,6 +2168,65 @@ html.dark-mode .btn-text {
   line-height: 1.45;
 }
 
+/* ── One lead objective, then the rest ────────────────────────
+   Four cards with identical weight, chrome and spacing said all four mattered
+   the same amount. That sameness is what read as a template. The lead keeps
+   the card's anatomy so nothing has to be re-learned; it just gets the size
+   and the standfirst that say "start here". */
+.objective-lead .proposal-card-name {
+  font-family: var(--font-brand, var(--font-family));
+  font-size: var(--font-size-lg);
+  line-height: 1.25;
+}
+
+.objective-lead-standfirst {
+  display: block;
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-md);
+  line-height: 1.45;
+  color: var(--color-text);
+  /* The measured figure, in the reading face rather than the UI face: it is a
+     sentence from the argument, not a label on a control. */
+  font-family: var(--font-brand, var(--font-family));
+}
+
+/* The remaining featured objectives: same card, less of it. Separated by rules
+   rather than by repeated borders and padding, so they read as a list under
+   the lead instead of three more leads. */
+.objective-also {
+  margin-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.objective-also .proposal-card-wrap {
+  border-left-width: 0;
+  border-bottom: 1px solid var(--color-border);
+  margin: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.objective-also .proposal-card-wrap:last-child { border-bottom: 0; }
+
+.objective-also .proposal-card { padding-block: var(--space-sm); }
+
+/* The summary is the lead's job. Below it, the title and the status tag are
+   enough to choose from, and dropping the rest is what buys the compactness. */
+.objective-also .proposal-card-summary { display: none; }
+
+.objective-also .proposal-card-wrap.selected .proposal-card-summary { display: block; }
+
+/* The status-tag gloss. Secondary to the introduction above it: what the tags
+   mean is reference material, and it was taking up most of a mobile screen
+   before the reader reached a single objective. */
+.objectives-legend {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: var(--space-xs) 0 0;
+  line-height: 1.45;
+}
+
 /* ===== WAKING UP (free-tier cold start) ===== */
 /* Sits under the header rather than over the bottom sheet: on a phone the
    sheet is where the reader is looking and where the departures will appear,
