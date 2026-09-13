@@ -2,6 +2,30 @@
   "_comment": "Short articles about changes and news on the network. `official` is maintainer-written; `community` is published from submissions the same way ideas are — nothing reaches either file automatically. An `image` is optional: `src` is a path under media/updates/, `alt` describes it for anyone who cannot see it, `focus` is a CSS object-position keeping the important part in frame when the card crops it, and `credit` names whoever the photograph belongs to. Do not publish a third-party photograph without a credit and the right to use it.",
   "updates": [
     {
+      "id": "foi-request-to-west-sussex-on-bus-planning",
+      "title": "We've asked West Sussex for its bus planning records",
+      "date": "2026-09-13",
+      "author": "Connor R",
+      "summary": "A Freedom of Information request asks West Sussex County Council where its bus money goes, what it has discussed with Brighton & Hove, and who uses the Discovery ticket. The council has until 9 October to reply.",
+      "topic": "Freedom of Information",
+      "image": {
+        "src": "media/updates/foi-act-2000.jpg",
+        "alt": "An open copy of the Freedom of Information Act 2000, with the royal coat of arms above the title and the opening words of the Act below it.",
+        "focus": "50% 45%",
+        "credit": "",
+        "credit_status": "unconfirmed",
+        "credit_note": "The site owner reports this photograph is under a public licence. The photographer, the licence and a source link are not recorded yet; put them in `credit` once known. Not guessed here."
+      },
+      "body": "On 13 September we sent West Sussex County Council a Freedom of Information request about buses across the boundary between Adur and Brighton & Hove. The council acknowledged it the same day as reference FOI/13765. The Act gives it 20 working days to answer, which runs to 9 October.\n\nMost of what this site says about the gap either side of Portslade comes from the published timetable: how many buses are scheduled, where they stop, which tickets cover them. That shows what the network looks like. It can't show why. A timetable doesn't record how the council spends its bus funding, or whether anyone has sat down with Brighton & Hove to plan a route that crosses the line.\n\nSo we asked for four things.\n\nWhere the money goes. Bus Service Improvement Plan and Local Authority Bus Grant funding since April 2022, broken down across the seven districts and boroughs of West Sussex, and the subsidy paid each year to supported services on the A259 coast road or on routes that cross into Brighton & Hove. If Adur gets less than its neighbours, that should show up here.\n\nAny plans to run buses across the boundary, at whatever stage they reached: proposed, under review, rejected or planned. That includes anything an operator has put forward about running further west than Shoreham, or further east into Brighton.\n\nMinutes and agendas from the Enhanced Partnership board and forum since January 2023, wherever cross-boundary travel, the coastal corridor or working with Brighton & Hove came up. The Enhanced Partnership is where the council and the operators agree how local buses run. If a joined-up plan with Brighton & Hove were being discussed anywhere, it would be there.\n\nHow many Discovery tickets are sold on West Sussex services, and whether the council knows how many people use them to get to work rather than for days out. It is the only ticket every operator on this coast accepts, but it is priced and sold as a leisure rover. We want to know whether anyone is tracking who ends up relying on it.\n\nWe don't know yet what will come back. Some of this may not be held in the form we asked for, and a request can be cut down if answering it would cost more than the Act allows. We asked the council to tell us how to narrow it if that happens, rather than refuse it outright.\n\nThe request and every reply to it are public on WhatDoTheyKnow, so you can read the council's answer as soon as it lands. We'll write up what it says here, and the boundary evidence on the Route view shows the timetable figures it will be read against.",
+      "links": [
+        {
+          "label": "The request and the council's replies (WhatDoTheyKnow)",
+          "url": "https://www.whatdotheyknow.com/request/bus_planning_strategy_and_data_o"
+        }
+      ],
+      "status": "published"
+    },
+    {
       "id": "single-fare-cap-falls-to-2-pounds",
       "title": "Single fares drop to £2 in January",
       "date": "2026-08-31",
