@@ -77,3 +77,20 @@ test("the menu has a way in that is not a hidden gesture", () => {
   assert.match(INDEX, /id="a11y-btn"/, "no header button for the settings");
   assert.match(INDEX, /<dialog[^>]*id="a11y-dialog"/, "the settings are not a dialog");
 });
+
+test("both footers link to the accessibility settings, and both links work", () => {
+  // Phones get a compact footer, not the full one. The full footer carried the
+  // link and the compact one did not, so on the devices where the hold gesture
+  // is the other way in, the visible route was missing.
+  const footer = INDEX.slice(INDEX.indexOf('<footer class="site-footer">'), INDEX.indexOf("</footer>"));
+  const compact = footer.slice(footer.indexOf('class="site-footer-compact"'));
+  assert.match(compact, /data-open-a11y[^>]*>Accessibility</,
+    "the phone footer has no accessibility link");
+  const full = footer.slice(0, footer.indexOf('class="site-footer-compact"'));
+  assert.match(full, /data-open-a11y[^>]*>Accessibility</, "the full footer lost its link");
+  // Bound by attribute, not by one id: a second link with no handler would
+  // follow its #accessibility href and do nothing visible.
+  const src = readFileSync(join(ROOT, "app.js"), "utf8");
+  assert.match(src, /querySelectorAll\("\[data-open-a11y\]"\)/,
+    "the links are not all wired to open the dialog");
+});

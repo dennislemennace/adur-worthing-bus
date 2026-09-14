@@ -3152,12 +3152,15 @@ function bindA11yControls() {
   });
 
   if (dom.a11yBtn) dom.a11yBtn.addEventListener("click", () => openA11yDialog(dom.a11yBtn));
-  if (dom.a11yFooterLink) {
-    dom.a11yFooterLink.addEventListener("click", (e) => {
+  // Every link that opens the settings: the full footer's and the compact one
+  // phones get instead. Bound by attribute rather than one id, because a second
+  // link with no handler would follow its #accessibility href and do nothing.
+  document.querySelectorAll("[data-open-a11y]").forEach(link => {
+    link.addEventListener("click", (e) => {
       e.preventDefault();
-      openA11yDialog(dom.a11yFooterLink);
+      openA11yDialog(link);
     });
-  }
+  });
   bindThemeLongPress(dom.darkModeBtn);
 
   // about.html links here as ./#accessibility. Open it, then take the fragment

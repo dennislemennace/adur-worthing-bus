@@ -1333,9 +1333,23 @@ async function checkA11yMenu(page, where, { desktop }) {
     await close();
   }
 
-  await page.evaluate(`document.getElementById("a11y-footer-link").click()`);
-  await sleep(300);
-  check(`the footer link opens the accessibility settings — ${where}`, await isOpen());
+  // The link a reader can see at this width. Phones get the compact footer, and
+  // clicking the full footer's link by id would pass even while it is hidden.
+  const visibleLink = JSON.parse(await page.evaluate(`(() => {
+    const links = [...document.querySelectorAll("[data-open-a11y]")]
+      .filter(a => a.getClientRects().length && getComputedStyle(a).visibility !== "hidden");
+    if (links[0]) links[0].setAttribute("data-probe-visible", "");
+    return JSON.stringify({ visible: links.length,
+      where: links[0] ? links[0].closest("p").className : null });
+  })()`));
+  check(`an accessibility link is visible in the footer — ${where}`,
+    visibleLink.visible >= 1, JSON.stringify(visibleLink));
+  if (visibleLink.visible) {
+    await page.evaluate(`(() => { document.querySelector("[data-probe-visible]").click(); return ""; })()`);
+    await sleep(300);
+    check(`the footer link opens the accessibility settings — ${where}`, await isOpen(), JSON.stringify(visibleLink));
+    await page.evaluate(`(() => { document.querySelector("[data-probe-visible]").removeAttribute("data-probe-visible"); return ""; })()`);
+  }
   await close();
 
   // A hold: pointerdown, wait past the threshold, release, and the click the
