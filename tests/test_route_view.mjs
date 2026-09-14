@@ -98,3 +98,65 @@ test("a bubble's size says roughly how much it is standing for", () => {
     prev = cur;
   }
 });
+
+// ── One prioritised list ────────────────────────────────────
+//
+// Every service is eligible for the chip list. Limited services go after the
+// frequent ones on the default view, so they only reach the visible rows when a
+// filter frees them up; ticking "Show limited services" makes it one numeric
+// order. A limited variant stays with its frequent base.
+
+function routeState(over = {}) {
+  const st = vm.runInContext("state", app);
+  const routes = [
+    ["1", "BHBC", true], ["2", "BHBC", true], ["2B", "BHBC", false],
+    ["10", "SCSO", true], ["13", "SCSO", false], ["106", "SCSO", false],
+    ["700", "SCSO", true], ["60", "BHBC", false], ["N700", "SCSO", false],
+  ];
+  st.routeLines = routes.map(([service]) => ({ service }));
+  st.routeOperatorByService = Object.fromEntries(routes.map(([s, op]) => [s, op]));
+  st.routeFrequencyByService = Object.fromEntries(
+    routes.map(([s, , f]) => [s, { is_frequent_all_day: f }]));
+  st.serviceMode = "day";
+  st.visibleCategories = new Set(["all"]);
+  st.visibleOperators = new Set(["BHBC", "SCSO"]);
+  st.showLimitedServices = false;
+  Object.assign(st, over);
+  return st;
+}
+
+const bases = () => JSON.parse(JSON.stringify(
+  vm.runInContext("orderedRouteGroups()", app))).map(g => g.base);
+
+test("on the default view, every limited service sorts after every frequent one", () => {
+  routeState();
+  assert.deepEqual(bases(), ["1", "2", "10", "700", "13", "60", "106"],
+    "limited services are mixed in with frequent ones, so they take the visible rows");
+});
+
+test("a limited variant stays with its frequent base", () => {
+  routeState();
+  const groups = JSON.parse(JSON.stringify(vm.runInContext("orderedRouteGroups()", app)));
+  const two = groups.find(g => g.base === "2");
+  assert.deepEqual(two.variants, ["2", "2B"], "2B was split off from the 2");
+  assert.equal(two.frequent, true, "2/2B was filed as limited because 2B is");
+});
+
+test("limited services are still eligible, not filtered out", () => {
+  // They used to be excluded from the list entirely unless the box was ticked,
+  // so narrowing the filters could never bring them into view.
+  routeState({ visibleOperators: new Set(["SCSO"]) });
+  assert.deepEqual(bases(), ["10", "700", "13", "106"],
+    "filtering to one operator did not bring its limited services into the list");
+});
+
+test("with limited services shown, the list is one numeric order", () => {
+  routeState({ showLimitedServices: true });
+  assert.deepEqual(bases(), ["1", "2", "10", "13", "60", "106", "700"]);
+});
+
+test("night services are not treated as limited", () => {
+  routeState({ serviceMode: "night" });
+  const groups = JSON.parse(JSON.stringify(vm.runInContext("orderedRouteGroups()", app)));
+  assert.deepEqual(groups.map(g => [g.base, g.frequent]), [["N700", true]]);
+});

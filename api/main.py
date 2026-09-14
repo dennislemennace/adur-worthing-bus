@@ -1419,6 +1419,10 @@ async def get_stop_span(
         return cached
 
     span = await off_loop(tt.service_span, resolved)
+    # Carried on this response rather than its own endpoint: opening a stop
+    # already makes this call, and a second request is a second chance to hit
+    # a free-tier container that has just gone back to sleep.
+    last_home = await off_loop(tt.last_bus_from_hub, resolved)
     result = {
         "atco": resolved,
         "name": (tt.stops.get(resolved) or {}).get("name", ""),
@@ -1426,6 +1430,13 @@ async def get_stop_span(
         # Named so the caller can label what it is showing without hardcoding
         # the rule, and so a change to it is visible in the response.
         "night_before": _secs_to_hhmm(NIGHT_ENDS_SECS),
+        "last_from_brighton": {
+            **last_home,
+            "method": ("Scheduled times, direct buses only: the latest trip each "
+                       "day that leaves a stop in central Brighton (Old Steine, "
+                       "Churchill Square, North Street) and later calls here. A "
+                       "journey home needing a change is not counted."),
+        },
     }
     cache_set(cache_key, result, 3600)
     return result
@@ -1553,40 +1564,46 @@ async def get_journey(
         if len(options) >= limit:
             break
 
-    interchange    = None if options else tt.interchange_legs(a, b, today, anchor)
+    def best_itinerary(day):
+        """One change if there is one, three buses otherwise. Fewer changes
+        always wins, so a two-change search only runs when one change fails."""
+        return (tt.interchange_legs(a, b, day, anchor)
+                or tt.interchange_legs_two(a, b, day, anchor))
+
+    interchange    = None if options else best_itinerary(today)
     interchange_on = ""
 
-    # When no single change works today, the reader's actual question is whether
-    # one works at all. Shoreham to the universities is the 700 and then the 5B
-    # Monday to Friday and nothing at all on a Saturday: the preset went blank
-    # at weekends, which reads as a broken tool rather than as the finding it
-    # is. Sompting to the Marina has no one-change itinerary on any day — also
-    # worth saying out loud, since it is the whole point of that example.
+    # When nothing works today, the reader's actual question is whether it works
+    # at all. Shoreham to the universities is the 700 and then the 5B Monday to
+    # Friday; a preset that went blank at weekends read as a broken tool.
     if not options and interchange is None:
         probe = _next_weekday(today)
-        # On a weekday the probe is today, and the search has already run and
-        # come back empty. Repeating it would cost a second full pass over
-        # every candidate trip on a 0.1-vCPU instance for a known answer.
-        alt = tt.interchange_legs(a, b, probe, anchor) if probe != today else None
+        # On a weekday the probe is today, and both searches have already come
+        # back empty. Repeating them would cost two full passes for a known answer.
+        alt = best_itinerary(probe) if probe != today else None
         if alt:
             interchange    = alt
             interchange_on = probe.strftime("%A")
 
+    buses = len(interchange["legs"]) if interchange else 0
     if options:
         note = ""
+    elif interchange and buses >= 3:
+        when = f" This itinerary is a {interchange_on}." if interchange_on else ""
+        note = ("No direct bus, and no single change connects these stops, so this "
+                f"journey takes {buses} buses.{when} Only the start and end zones are compared.")
     elif interchange_on:
-        note = (f"No direct bus, and no single change today — this itinerary is "
+        note = (f"No direct bus, and no single change today. This itinerary is "
                 f"a {interchange_on}. Only the start and end zones are compared.")
     elif interchange:
-        note = ("No direct bus found between these stops today — this journey "
-                "needs a change, so only the start and end zones are compared.")
+        note = ("No direct bus found between these stops today, so this journey "
+                "needs a change and only the start and end zones are compared.")
     else:
-        # Not "we could not find one": the search covers every trip in the
-        # timetable within an hour's wait, so this is a statement about the
-        # network, and it is the kind this site exists to make.
-        note = ("No direct bus, and no single change connects these stops on a "
-                "weekday either — this journey needs more than one change. "
-                "Only the start and end zones are compared.")
+        # Not "we could not find one": both searches cover every trip in the
+        # timetable within an hour's wait at each change, so this is a statement
+        # about the network.
+        note = ("No direct bus, and no journey with up to two changes connects these "
+                "stops on a weekday either. Only the start and end zones are compared.")
 
     result = {
         # `operators` is what lets the caller tell a ticket that is valid here

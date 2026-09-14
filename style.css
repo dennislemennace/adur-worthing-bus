@@ -945,8 +945,8 @@ html.dark-mode .map-loading {
   overflow: hidden;
 }
 .evidence-bar { display: block; height: 100%; }
-.evidence-bar--west { background: #1a4b82; }
-.evidence-bar--east { background: #6a4ea3; }
+.evidence-bar--west { background: var(--evidence-west, #1a4b82); }
+.evidence-bar--east { background: var(--evidence-east, #6a4ea3); }
 .evidence-bar-value {
   font-size: var(--font-size-xs);
   font-weight: 700;
@@ -2171,23 +2171,15 @@ html.dark-mode .btn-text {
 /* ── One lead objective, then the rest ────────────────────────
    Four cards with identical weight, chrome and spacing said all four mattered
    the same amount. That sameness is what read as a template. The lead keeps
-   the card's anatomy so nothing has to be re-learned; it just gets the size
-   and the standfirst that say "start here". */
+   the card's anatomy, typeface and summary so nothing has to be re-learned; it
+   just gets the size that says "start here". */
 .objective-lead .proposal-card-name {
-  font-family: var(--font-brand, var(--font-family));
   font-size: var(--font-size-lg);
   line-height: 1.25;
 }
 
-.objective-lead-standfirst {
-  display: block;
-  margin-top: var(--space-xs);
+.objective-lead .proposal-card-summary {
   font-size: var(--font-size-md);
-  line-height: 1.45;
-  color: var(--color-text);
-  /* The measured figure, in the reading face rather than the UI face: it is a
-     sentence from the argument, not a label on a control. */
-  font-family: var(--font-brand, var(--font-family));
 }
 
 /* The remaining featured objectives: same card, less of it. Separated by rules
@@ -2211,11 +2203,6 @@ html.dark-mode .btn-text {
 
 .objective-also .proposal-card { padding-block: var(--space-sm); }
 
-/* The summary is the lead's job. Below it, the title and the status tag are
-   enough to choose from, and dropping the rest is what buys the compactness. */
-.objective-also .proposal-card-summary { display: none; }
-
-.objective-also .proposal-card-wrap.selected .proposal-card-summary { display: block; }
 
 /* The status-tag gloss. Secondary to the introduction above it: what the tags
    mean is reference material, and it was taking up most of a mobile screen
@@ -2225,6 +2212,93 @@ html.dark-mode .btn-text {
   color: var(--color-text-muted);
   margin: var(--space-xs) 0 0;
   line-height: 1.45;
+}
+
+/* Last bus home from central Brighton. Outside the "When buses run here"
+   disclosure on purpose: it is the one line in the stop panel that answers a
+   question the reader has at eleven at night, and a closed disclosure hides it. */
+.stop-lastbus {
+  margin: var(--space-xs) 0 var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.stop-lastbus-title {
+  margin: 0 0 2px;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.stop-lastbus-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.stop-lastbus-table caption { text-align: left; }
+
+.stop-lastbus-table th,
+.stop-lastbus-table td {
+  text-align: left;
+  padding: 2px var(--space-xs) 2px 0;
+  vertical-align: baseline;
+}
+
+.stop-lastbus-table thead th {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.stop-lastbus-table tbody th { font-weight: 500; color: var(--color-text-muted); white-space: nowrap; }
+.stop-lastbus-time { font-family: var(--font-mono); font-weight: 700; color: var(--color-text); }
+.stop-lastbus-late { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+
+.stop-lastbus-note {
+  margin: 2px 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* The invitation to check the timetable figures against the live map. Set
+   apart from the standfirst, because it is an action rather than more
+   explanation, and it is the one thing in the dialog a reader can do next. */
+.evidence-live {
+  margin: var(--space-sm) 0 var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-left: 3px solid var(--color-primary);
+  background: var(--color-primary-light);
+  border-radius: var(--radius-md);
+}
+
+.evidence-live p {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  color: var(--color-text);
+}
+
+.evidence-live-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: var(--target-min);
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: var(--color-on-fill);
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.evidence-live-btn:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* ===== WAKING UP (free-tier cold start) ===== */
@@ -2275,6 +2349,145 @@ html.dark-mode .btn-text {
 @keyframes waking-spin {
   to { transform: rotate(360deg); }
 }
+
+/* ===== ACCESSIBILITY SETTINGS ===== */
+
+/* The header keeps its size when the text-size setting changes. It is a
+   fixed-height bar holding a wordmark, the section menu, the live status and
+   the theme button, measured to fit a 320px phone at the default size. In rem,
+   140% text pushed the section menu from 132px to 171px and the status pill
+   from 181px to 213px, and the wordmark was squeezed to a quarter of itself.
+   These are the rem token values at the default 16px root, so nothing in the
+   header moves at 100%. The setting is for the content below, which is where
+   the reading happens; browser zoom still scales the header too. */
+.site-header {
+  --font-size-2xs:  10.4px;
+  --font-size-xs:   11.84px;
+  --font-size-sm:   13.12px;
+  --font-size-md:   14.4px;
+  --font-size-base: 16px;
+  --font-size-lg:   18px;
+  --font-size-xl:   21.6px;
+  /* Spacing is rem too, so the gaps and padding between those controls grew
+     with the text and squeezed the wordmark as well. */
+  --space-2xs: 4px;
+  --space-xs:  6px;
+  --space-sm:  8px;
+  --space-md:  16px;
+  --space-lg:  24px;
+  --space-xl:  32px;
+}
+
+
+/* Read by screen readers, not drawn. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Reduce motion. The same effect as the prefers-reduced-motion blocks through
+   this file, for a reader who wants it here but not across their whole device.
+   Leaflet's zoom animation is switched off in JS (applyMapMotion), since it is
+   decided when the map is created. */
+html.a11y-reduce-motion *,
+html.a11y-reduce-motion *::before,
+html.a11y-reduce-motion *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
+/* Colour-blind-safe palette. Only the colours that carry meaning change, and
+   each was measured, not picked by eye: in light mode on-time #0a5a9c is 6.5:1
+   on the surface, late #a8420a 5.6:1, early #7a3b7f 6.9:1; in dark mode the
+   Okabe-Ito sky, orange and pink are all above 7.9:1. Blue against orange is
+   the pairing that holds for protanopia, deuteranopia and tritanopia alike.
+   Every status also has a text label, so colour is never the only signal. */
+html.a11y-cvd {
+  --color-on-time:          #0a5a9c;
+  --color-early:            #7a3b7f;
+  --color-late:             #a8420a;
+  --tint-on-time-bg:        #e6eff8;
+  --tint-on-time-border:    #b7cfe6;
+  --tint-early-bg:          #f3e9f3;
+  --tint-early-border:      #dcc3da;
+  --tint-late-bg:           #fbeee4;
+  --tint-late-border:       #efc6a8;
+  --evidence-west:          #0072b2;
+  --evidence-east:          #a15c00;
+}
+
+html.dark-mode.a11y-cvd {
+  --color-on-time:          #56b4e9;
+  --color-early:            #e0a3d6;
+  --color-late:             #f0a24b;
+  --tint-on-time-bg:        rgba(86, 180, 233, 0.12);
+  --tint-on-time-border:    rgba(86, 180, 233, 0.30);
+  --tint-early-bg:          rgba(224, 163, 214, 0.12);
+  --tint-early-border:      rgba(224, 163, 214, 0.30);
+  --tint-late-bg:           rgba(240, 162, 75, 0.12);
+  --tint-late-border:       rgba(240, 162, 75, 0.30);
+  --evidence-west:          #0072b2;
+  --evidence-east:          #a15c00;
+}
+
+/* The header button only where the header has room. On a phone the same dialog
+   opens from holding the theme button, and from the footer link. */
+@media (max-width: 900px) {
+  .btn-a11y { display: none; }
+}
+
+.a11y-dialog { max-width: min(30rem, calc(100vw - 2 * var(--space-md))); }
+
+.a11y-intro {
+  margin: 0 0 var(--space-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+
+.a11y-group {
+  margin: 0 0 var(--space-md);
+  padding: 0;
+  border: 0;
+}
+
+.a11y-group legend {
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.a11y-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: var(--target-min);
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.a11y-choice input { width: 20px; height: 20px; flex: none; accent-color: var(--color-primary); }
+
+.a11y-choice--toggle { align-items: flex-start; padding-block: var(--space-xs); }
+.a11y-choice--toggle input { margin-top: 2px; }
+
+.a11y-choice small {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.a11y-reset { min-height: var(--target-min); }
 
 /* ===== UTILITY ===== */
 .hidden { display: none !important; }
@@ -2993,7 +3206,12 @@ html.dark-mode .header-wave-front { fill: var(--color-surface); }
      unchanged. The slope is shallower than it was because the old one put
      the title at 26px on a 768px tablet, where it needed 431px of a 390px
      brand column and rendered 80% of itself. */
-  font-size: clamp(1.05rem, 0.35rem + 1.85vw, 1.9rem);
+  /* px, not rem: the same sizes as the rem values this replaced at the default
+     16px root, so nothing moves at 100%. The wordmark lives in a fixed-height
+     header beside its controls, and in rem the text-size setting grew it until
+     only a fifth of it showed at 320px. Browser zoom still scales px, which is
+     what WCAG 1.4.4 relies on; the setting is for the content, not the logo. */
+  font-size: clamp(16.8px, 5.6px + 1.85vw, 30.4px);
   font-weight: 700;
   line-height: 1.05;
   letter-spacing: -0.015em;
@@ -3075,7 +3293,7 @@ html.dark-mode .header-title { color: var(--color-on-fill); }
      itself after "Brighton" (125px) without a <br> that desktop would inherit.
      Truncation was putting "Worthing Brighto…" in the header. */
   .header-title {
-    font-size: clamp(1rem, 3.4vw, 1.35rem);
+    font-size: clamp(16px, 3.4vw, 21.6px);   /* px for the same reason as above */
     white-space: normal;
     overflow: visible;
     line-height: 1.08;
@@ -3625,6 +3843,14 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   gap: 4px;
   align-content: flex-start;
   overflow: hidden;
+}
+
+/* A limited service: fewer journeys, not every day or not into the evening.
+   A dashed outline rather than a colour, so it survives the livery behind it
+   and the colour-blind setting. The chip's accessible name says it too. */
+.route-chip--limited {
+  border-style: dashed;
+  border-width: 2px;
 }
 
 /* Chips past the cap. Kept in the DOM and merely hidden so the measurement

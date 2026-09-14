@@ -56,6 +56,17 @@
       if (d === null) d = matchMedia('(prefers-color-scheme: dark)').matches ? '1' : '0';
       if (d === '1') document.documentElement.classList.add('dark-mode');
     } catch (e) {}
+    // Accessibility settings, before first paint for the same reason: a reader
+    // at 140% text should not watch the page jump from normal size on every
+    // load. The same steps and rules as normaliseA11y() in app.js.
+    try {
+      var a = JSON.parse(localStorage.getItem('a11y') || '{}') || {};
+      var r = document.documentElement;
+      var t = Number(a.textScale);
+      if (t === 1.2 || t === 1.4) r.style.fontSize = (t * 100) + '%';
+      if (a.reduceMotion === true) r.classList.add('a11y-reduce-motion');
+      if (a.cvd === true) r.classList.add('a11y-cvd');
+    } catch (e) {}
   </script>
 
   <link rel="stylesheet" href="style.css" />
@@ -65,6 +76,13 @@
   <!-- ===== SVG ICON SPRITE (Lucide, MIT) ===== -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
     <defs>
+      <symbol id="i-accessibility" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="16" cy="4" r="1"/>
+        <path d="m18 19 1-7-6 1"/>
+        <path d="m5 8 3-3 5.5 3-2.36 3.5"/>
+        <path d="M4.24 14.5a5 5 0 0 0 6.88 6"/>
+        <path d="M13.76 17.5a5 5 0 0 0-6.88-6"/>
+      </symbol>
       <symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="2" y="4" width="20" height="16" rx="2"/>
         <path d="m2 7 10 6 10-6"/>
@@ -245,10 +263,21 @@
             <svg class="icon" aria-hidden="true"><use href="#i-train"/></svg>
           </button>
         </div>
+        <!-- Accessibility settings. Its own button where the header has room; on a
+             phone the header does not, so the same dialog opens from holding the
+             theme button, and from the footer link, which is the way in that does
+             not depend on a gesture. -->
+        <button class="btn-icon btn-theme btn-a11y" id="a11y-btn" type="button"
+                title="Accessibility settings" aria-label="Accessibility settings"
+                aria-haspopup="dialog" aria-controls="a11y-dialog">
+          <svg class="icon" aria-hidden="true"><use href="#i-accessibility"/></svg>
+        </button>
         <!-- Dark mode toggle — global preference, intentionally distinct shape/colour -->
-        <button class="btn-icon btn-theme" id="dark-mode-btn" title="Toggle dark mode" aria-label="Toggle dark mode">
+        <button class="btn-icon btn-theme" id="dark-mode-btn" title="Toggle dark mode" aria-label="Toggle dark mode"
+                aria-describedby="a11y-hold-hint">
           <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg>
         </button>
+        <span class="visually-hidden" id="a11y-hold-hint">Press and hold for accessibility settings.</span>
       </div>
     </div>
     <!-- Coastal wave forming the header's bottom edge. Two layered shapes
@@ -288,6 +317,53 @@
       <dialog class="evidence-dialog councillor-dialog" id="councillor-dialog"
               aria-labelledby="councillor-title">
         <div class="evidence-body" id="councillor-body"></div>
+      </dialog>
+
+      <!-- Accessibility settings. A native <dialog> like the two above: Escape,
+           focus containment and the backdrop come from the platform. The
+           controls are real radios and checkboxes and apply as they change. -->
+      <dialog class="evidence-dialog a11y-dialog" id="a11y-dialog" aria-labelledby="a11y-title">
+        <div class="evidence-body">
+          <button type="button" class="evidence-close" data-close-a11y aria-label="Close">&times;</button>
+          <p class="evidence-eyebrow">Settings</p>
+          <h2 class="evidence-title" id="a11y-title">Accessibility</h2>
+          <p class="a11y-intro">
+            Saved in this browser only. On a phone you can also open these by
+            holding the light and dark button.
+          </p>
+
+          <fieldset class="a11y-group">
+            <legend>Text size</legend>
+            <label class="a11y-choice"><input type="radio" name="a11y-text" value="1"> <span>Default</span></label>
+            <label class="a11y-choice"><input type="radio" name="a11y-text" value="1.2"> <span>Larger</span></label>
+            <label class="a11y-choice"><input type="radio" name="a11y-text" value="1.4"> <span>Largest</span></label>
+          </fieldset>
+
+          <fieldset class="a11y-group">
+            <legend>Motion</legend>
+            <label class="a11y-choice a11y-choice--toggle">
+              <input type="checkbox" id="a11y-motion">
+              <span>Reduce motion
+                <small>Stops animations, smooth scrolling and map zoom effects.
+                If your device already asks for less motion, that is always respected.</small>
+              </span>
+            </label>
+          </fieldset>
+
+          <fieldset class="a11y-group">
+            <legend>Colour</legend>
+            <label class="a11y-choice a11y-choice--toggle">
+              <input type="checkbox" id="a11y-cvd">
+              <span>Colour-blind-safe colours
+                <small>Changes the colours that carry meaning, such as on time and
+                late, and the two sides of the council boundary. Bus liveries stay
+                as they are, because they are how you recognise the real bus.</small>
+              </span>
+            </label>
+          </fieldset>
+
+          <button type="button" class="btn-text a11y-reset" id="a11y-reset">Reset to defaults</button>
+        </div>
       </dialog>
 
       <!-- Map overlay controls (visible only in Improvements mode).
@@ -536,12 +612,12 @@
           <button class="service-mode-btn active" data-service-mode="day"
                   role="tab" aria-selected="true" id="service-mode-day">
             <svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg>
-            <span>Day</span>
+            <span>Day buses</span>
           </button>
           <button class="service-mode-btn" data-service-mode="night"
                   role="tab" aria-selected="false" id="service-mode-night">
             <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg>
-            <span>Night</span>
+            <span>Night buses</span>
           </button>
         </div>
 
@@ -1062,6 +1138,7 @@
     </p>
     <p class="site-footer-links">
       <a href="about.html">About, privacy &amp; corrections</a> ·
+      <a href="#accessibility" id="a11y-footer-link">Accessibility</a> ·
       <a href="https://github.com/dennislemennace/adur-worthing-bus/issues"
          target="_blank" rel="noopener">Report an error</a>
     </p>

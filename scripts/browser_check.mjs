@@ -346,6 +346,11 @@ const CONTRAST_SCAN = `(() => {
     if (el.closest("#map")) continue;              // backdrop is imagery
     if (!visible(el)) continue;
     const cs = getComputedStyle(el);
+    // Screen-reader-only text (.visually-hidden) is clipped to nothing and
+    // never drawn, so there is no visual contrast to measure. It sat in the
+    // header as a 1px box and was being scored against the page background.
+    const box = el.getBoundingClientRect();
+    if ((box.width <= 1 && box.height <= 1) || cs.clipPath === "inset(50%)") continue;
     const own = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
     if (!own) continue;
     const fg = parse(cs.color);
@@ -1259,30 +1264,244 @@ async function checkObjectiveLead(page, where) {
       const featured = document.querySelector(".objective-featured");
       if (!featured) return JSON.stringify({ skip: "no featured section" });
       const lead = featured.querySelector(".objective-lead");
-      const also = [...featured.querySelectorAll(".objective-also [data-objective-id]")];
+      const also = [...featured.querySelectorAll(".objective-also .proposal-card-wrap")];
       const size = el => el ? parseFloat(getComputedStyle(el).fontSize) : 0;
+      const shown = el => !!el && el.getClientRects().length > 0
+                       && getComputedStyle(el).display !== "none"
+                       && el.textContent.trim().length > 0;
       const leadTitle = lead && lead.querySelector(".proposal-card-name");
       const alsoTitle = also[0] && also[0].querySelector(".proposal-card-name");
-      const sf = lead && lead.querySelector(".objective-lead-standfirst");
       return JSON.stringify({
         hasLead: !!lead,
-        standfirst: sf ? sf.textContent.trim().slice(0, 60) : "",
+        leadSummary: shown(lead && lead.querySelector(".proposal-card-summary")),
         leadPx: size(leadTitle), alsoPx: size(alsoTitle),
+        leadFont: leadTitle ? getComputedStyle(leadTitle).fontFamily : "",
+        alsoFont: alsoTitle ? getComputedStyle(alsoTitle).fontFamily : "",
         alsoCount: also.length,
-        alsoNamed: also.every(b => (b.textContent || "").trim().length > 0),
-        alsoClickable: also.every(b => b.tagName === "BUTTON" && !b.disabled),
-        totalObjectives: document.querySelectorAll("[data-objective-id]").length,
+        alsoSummaries: also.map(w => shown(w.querySelector(".proposal-card-summary"))),
+        alsoClickable: also.every(w => {
+          const b = w.querySelector("[data-objective-id]");
+          return b && b.tagName === "BUTTON" && !b.disabled;
+        }),
       });
     })()`));
   if (r.skip) { check(`the objectives lead renders — ${where}`, true, r.skip); }
   else {
+    // Larger, but in the same face as every other card: the lead is primary
+    // by size, not by switching to the editorial serif, which read as a
+    // different kind of thing rather than the most important of the same kind.
     check(`one objective leads the section — ${where}`,
-      r.hasLead && r.standfirst.length > 10 && r.leadPx > r.alsoPx, JSON.stringify(r));
-    check(`the other featured objectives are still usable — ${where}`,
-      r.alsoCount > 0 && r.alsoNamed && r.alsoClickable, JSON.stringify(r));
+      r.hasLead && r.leadPx > r.alsoPx && r.leadFont === r.alsoFont && r.leadSummary,
+      JSON.stringify(r));
+    check(`every featured objective keeps its short summary — ${where}`,
+      r.alsoCount > 0 && r.alsoSummaries.every(Boolean) && r.alsoClickable,
+      JSON.stringify(r));
   }
   await page.evaluate('(() => { setViewMode("live"); return ""; })()');
   await sleep(500);
+}
+
+/** Apply accessibility settings the way the dialog does, without the dialog. */
+async function setA11y(page, settings) {
+  await page.evaluate(`(() => {
+    const next = normaliseA11y(${JSON.stringify(settings)});
+    applyA11ySettings(next); saveA11ySettings(next); return "";
+  })()`);
+  await sleep(400);
+}
+
+/**
+ * The accessibility menu: every way in, and what each setting does.
+ *
+ * The hold on the theme button is the risky one twice over. A hold that does
+ * not open anything is a shortcut that silently isn't there, and a hold that
+ * opens the menu *and* flips the theme is worse than no shortcut at all.
+ */
+async function checkA11yMenu(page, where, { desktop }) {
+  const isOpen = () => page.evaluate(`document.getElementById("a11y-dialog").open`);
+  const close = () => page.evaluate(`(() => { const d = document.getElementById("a11y-dialog"); if (d.open) d.close(); return ""; })()`);
+
+  if (desktop) {
+    const btn = JSON.parse(await page.evaluate(`(() => {
+      const b = document.getElementById("a11y-btn"); const r = b.getBoundingClientRect();
+      return JSON.stringify({ shown: r.width > 0 && getComputedStyle(b).display !== "none", w: Math.round(r.width), h: Math.round(r.height) });
+    })()`));
+    check(`the accessibility button is in the header — ${where}`, btn.shown && btn.h >= 40, JSON.stringify(btn));
+    await page.evaluate(`document.getElementById("a11y-btn").click()`);
+    await sleep(300);
+    check(`the header button opens the accessibility settings — ${where}`, await isOpen());
+    await close();
+  }
+
+  await page.evaluate(`document.getElementById("a11y-footer-link").click()`);
+  await sleep(300);
+  check(`the footer link opens the accessibility settings — ${where}`, await isOpen());
+  await close();
+
+  // A hold: pointerdown, wait past the threshold, release, and the click the
+  // browser sends after it.
+  const hold = async (ms) => {
+    await page.evaluate(`(() => {
+      const b = document.getElementById("dark-mode-btn"); const r = b.getBoundingClientRect();
+      const o = { bubbles: true, pointerType: "touch", isPrimary: true, clientX: r.left + 5, clientY: r.top + 5, button: 0 };
+      window.__holdBtn = b; window.__holdOpts = o;
+      b.dispatchEvent(new PointerEvent("pointerdown", o)); return "";
+    })()`);
+    await sleep(ms);
+    await page.evaluate(`(() => {
+      const b = window.__holdBtn, o = window.__holdOpts;
+      b.dispatchEvent(new PointerEvent("pointerup", o));
+      b.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })); return "";
+    })()`);
+    await sleep(300);
+  };
+
+  const themeBefore = await page.evaluate("state.darkMode");
+  await hold(650);
+  const heldOpen = await isOpen();
+  const themeAfterHold = await page.evaluate("state.darkMode");
+  check(`holding the theme button opens the accessibility settings — ${where}`, heldOpen);
+  check(`holding the theme button does not also switch the theme — ${where}`,
+    themeAfterHold === themeBefore, JSON.stringify({ themeBefore, themeAfterHold }));
+  await close();
+
+  await hold(60);
+  const tapOpen = await isOpen();
+  const themeAfterTap = await page.evaluate("state.darkMode");
+  check(`a quick tap on the theme button still just switches the theme — ${where}`,
+    !tapOpen && themeAfterTap !== themeBefore, JSON.stringify({ tapOpen, themeBefore, themeAfterTap }));
+  if (themeAfterTap !== themeBefore) await page.evaluate("toggleDarkMode()");
+  await close();
+
+  // Reduce motion. The harness freezes transitions on every page it opens, so
+  // a computed-style check would pass by itself; assert on what the setting
+  // controls instead: the rule is in the stylesheet, the app reads it, and
+  // Leaflet stops animating zooms.
+  await setA11y(page, { reduceMotion: true });
+  const motion = JSON.parse(await page.evaluate(`(() => {
+    let rule = false;
+    for (const sheet of document.styleSheets) {
+      try { for (const r of sheet.cssRules) if ((r.selectorText || "").includes("html.a11y-reduce-motion")) rule = true; }
+      catch (e) {}
+    }
+    return JSON.stringify({ cls: document.documentElement.classList.contains("a11y-reduce-motion"),
+      rule, reduced: motionReduced(), zoomAnimated: state.map._zoomAnimated });
+  })()`));
+  check(`reduce motion stops the map animating and is applied to the page — ${where}`,
+    motion.cls && motion.rule && motion.reduced && motion.zoomAnimated === false, JSON.stringify(motion));
+  await setA11y(page, {});
+}
+
+/** Settings survive a reload, applied before the app starts. */
+async function checkA11yPersists(page, where) {
+  await setA11y(page, { textScale: 1.4, cvd: true });
+  await page.send("Page.reload", { ignoreCache: true });
+  await sleep(3500);
+  const r = JSON.parse(await page.evaluate(`JSON.stringify({
+    size: document.documentElement.style.fontSize,
+    cvd: document.documentElement.classList.contains("a11y-cvd"),
+    stored: localStorage.getItem("a11y") })`));
+  check(`accessibility settings are still applied after a reload — ${where}`,
+    r.size === "140%" && r.cvd, JSON.stringify(r));
+  await freezeMotion(page);
+  await setA11y(page, {});
+}
+
+/** Everything still fits and can be reached at the largest text size. */
+async function checkLargestText(page, where) {
+  await setA11y(page, { textScale: 1.4 });
+  await checkLayout(page, `${where} at 140% text`);
+  await checkHeaderControlRow(page, `${where} at 140% text`);
+  await setA11y(page, {});
+}
+
+/** The colour-blind-safe palette keeps every text colour readable. */
+async function checkCvdContrast(page, where) {
+  await setA11y(page, { cvd: true });
+  await checkContrastBothThemes(page, `${where}, colour-blind-safe`);
+  await setA11y(page, {});
+}
+
+/**
+ * "Show the live buses here" from the boundary evidence.
+ *
+ * The invitation is only worth making if it lands somewhere the difference
+ * can be seen: Live view, buses on, and both sides of the line in frame.
+ */
+async function checkBoundaryLiveButton(page, where) {
+  await page.evaluate(`(() => { setViewMode("improvements"); return ""; })()`);
+  await waitFor(page, "Object.keys(state.councilBoundaryLayers || {}).length > 0", 15000);
+  await page.evaluate(`(() => { openBoundaryEvidence(); return ""; })()`);
+  const ready = await waitFor(page, "!!document.querySelector('[data-show-live-boundary]')", 15000);
+  if (!ready) { check(`the boundary evidence offers the live buses — ${where}`, false, "no button after 15s"); return; }
+  await page.evaluate(`(() => { state.busesVisible = false; document.querySelector("[data-show-live-boundary]").click(); return ""; })()`);
+  await sleep(900);
+  const r = JSON.parse(await page.evaluate(`(() => {
+    const line = L.latLngBounds([]);
+    for (const l of Object.values(state.councilBoundaryLayers)) line.extend(l.getBounds());
+    const view = state.map.getBounds();
+    return JSON.stringify({ view: state.viewMode, buses: state.busesVisible,
+      dialogOpen: document.getElementById("evidence-dialog").open,
+      containsLine: view.contains(line), zoom: state.map.getZoom() });
+  })()`));
+  check(`the boundary evidence shows the live buses either side — ${where}`,
+    r.view === "live" && r.buses && !r.dialogOpen && r.containsLine, JSON.stringify(r));
+}
+
+/** Limited services sit after frequent ones and start switched off. */
+async function checkChipPriority(page, where) {
+  // From a known state. An earlier check left the page in night mode, where
+  // every service counts as frequent, and this passed on nine chips with no
+  // limited ones in the list at all.
+  await page.evaluate(`(() => {
+    setViewMode("improvements"); setServiceMode("day");
+    state.visibleCategories = new Set(["all"]);
+    state.visibleOperators = new Set(Object.values(state.routeOperatorByService));
+    renderRouteFilterChips(); return "";
+  })()`);
+  await waitFor(page, "document.querySelectorAll('.route-chip').length > 0", 45000);
+  const r = JSON.parse(await page.evaluate(`(() => {
+    const chips = [...document.querySelectorAll(".route-chip")];
+    const firstLimited = chips.findIndex(c => c.classList.contains("route-chip--limited"));
+    const frequentAfter = firstLimited < 0 ? 0
+      : chips.slice(firstLimited).filter(c => !c.classList.contains("route-chip--limited")).length;
+    const limitedOn = chips.filter(c => c.classList.contains("route-chip--limited")
+                                     && c.getAttribute("aria-pressed") === "true").length;
+    return JSON.stringify({ total: chips.length, limited: chips.length - (firstLimited < 0 ? chips.length : firstLimited) - frequentAfter,
+      firstLimited, frequentAfter, limitedOn, showLimited: state.showLimitedServices });
+  })()`));
+  check(`limited services come after frequent ones and start off — ${where}`,
+    r.limited > 0 && r.frequentAfter === 0 && r.limitedOn === 0, JSON.stringify(r));
+  await page.evaluate(`(() => { setViewMode("live"); return ""; })()`);
+  await sleep(400);
+}
+
+/**
+ * The last bus home from central Brighton, in the stop panel.
+ *
+ * Needs an API new enough to send it. Against an older deployment the check
+ * says so and skips, rather than failing on something the frontend cannot fix.
+ */
+async function checkLastBusHome(page, where) {
+  await page.evaluate(`(() => { setViewMode("live"); openDepartures("4400AD0204", "High Street"); return ""; })()`);
+  await waitFor(page, "!!document.querySelector('#stop-span .stop-span-disclosure, #stop-span .stop-lastbus, #stop-span .stop-span-none')", 45000);
+  const r = JSON.parse(await page.evaluate(`(() => {
+    const box = document.querySelector("#stop-span .stop-lastbus");
+    return JSON.stringify({ rendered: !!box,
+      headers: box ? [...box.querySelectorAll("thead th")].map(t => t.textContent.trim()) : [],
+      text: box ? box.textContent.replace(/\\s+/g, " ").trim().slice(0, 140) : "" });
+  })()`));
+  if (!r.rendered) {
+    check(`the stop panel shows the last bus home from Brighton — ${where}`, true,
+      "skipped: this API does not send last_from_brighton yet");
+    await page.evaluate(`(() => { closePanel(); return ""; })()`);
+    await sleep(400);
+    return;
+  }
+  check(`the stop panel shows the last bus home from Brighton — ${where}`,
+    r.headers.includes("Day bus") && r.headers.includes("Night bus"), JSON.stringify(r));
+  await page.evaluate(`(() => { closePanel(); return ""; })()`);
+  await sleep(400);
 }
 
 async function checkFailureIsVisible(page, where) {
@@ -1384,7 +1603,18 @@ async function checkReachable(page, where) {
  */
 async function checkInteractiveSurfaces(page) {
   // ── Boundary evidence dialog ──
-  await page.evaluate(`setViewMode('live')`);
+  // Nothing on top of the line. On a phone the sheet at its half detent covers
+  // the line's midpoint, and in Live view a real bus is often parked on it
+  // where the A259 crosses the boundary; either takes the mouse, correctly,
+  // and the hover below then reported a line that "does not respond". Whether
+  // it passed depended on where the buses were, which is why it came and went
+  // against the live API and always passed against a local one with none.
+  // Buses are put back after the hover.
+  await page.evaluate(`(() => {
+    setViewMode('live'); closePanel(); setSheetDetent('peek');
+    window.__busesWereVisible = state.busesVisible; setBusesVisible(false);
+    return "";
+  })()`);
   await sleep(1200);
   // Wrapped so the expression evaluates to a primitive: setView returns the
   // Leaflet map, and CDP cannot serialise that object graph — it fails the
@@ -1405,6 +1635,7 @@ async function checkInteractiveSurfaces(page) {
   // is dispatched as a real mouse move at the hit path's own midpoint —
   // calling the handler directly, or toggling the class in script, would
   // pass whether or not the hit line exists, which is the whole question.
+
   const hitBox = await page.evaluate(`
     (() => {
       const hit = document.querySelector(".council-boundary-hit");
@@ -1437,6 +1668,7 @@ async function checkInteractiveSurfaces(page) {
     await page.send("Input.dispatchMouseEvent",
       { type: "mouseMoved", x: 5, y: 5, buttons: 0 });
     await sleep(200);
+    await page.evaluate(`(() => { setBusesVisible(window.__busesWereVisible !== false); return ""; })()`);
 
     check("hovering anywhere on the boundary line reacts", hot > cold,
       `stroke-width stayed at ${cold} — the line does not respond to the cursor`);
@@ -1904,6 +2136,13 @@ await checkClusterDensity(page, VIEWPORTS[0].name);
 await checkProposalFitsAboveSheet(page, VIEWPORTS[0].name);
 await checkPresetsDraw(page, VIEWPORTS[0].name);
 await checkObjectiveLead(page, VIEWPORTS[0].name);
+await checkBoundaryLiveButton(page, VIEWPORTS[0].name);
+await checkChipPriority(page, VIEWPORTS[0].name);
+await checkLastBusHome(page, VIEWPORTS[0].name);
+await checkA11yMenu(page, VIEWPORTS[0].name, { desktop: false });
+await checkLargestText(page, VIEWPORTS[0].name);
+await checkCvdContrast(page, VIEWPORTS[0].name);
+await checkA11yPersists(page, VIEWPORTS[0].name);
 await checkBusSelectionReveals(page, VIEWPORTS[0].name);
 await checkDepartureBoard(page);
 await checkViews(page);
@@ -1927,6 +2166,8 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkHeaderControlRow(p, vp.name);
   await checkWakingBanner(p, vp.name);
   await checkContrastBothThemes(p, vp.name);
+  await checkLargestText(p, vp.name);
+  if (vp.name === "desktop") await checkA11yMenu(p, vp.name, { desktop: true });
   if (vp.name === "desktop") await checkReadingLayout(p);
   await checkReachableAcrossViews(p, vp.name);
   p.ws.close();

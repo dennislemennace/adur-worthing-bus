@@ -124,6 +124,8 @@ const state = {
   // Has the backend answered anything yet this session? Until it has, calls
   // get the cold-start budget and the "waking up" banner (see apiFetch).
   apiEverResponded: false,
+  // Accessibility settings; see normaliseA11y(). Set before the map exists.
+  a11y: { textScale: 1, reduceMotion: false, cvd: false },
   stopsGeneratedOn: null,  // date stamp from the static stop list, if used
   // Operators the user has switched OFF, by NOC. A hide-list rather than a
   // show-list on purpose: an operator that appears in the feed for the first
@@ -228,6 +230,9 @@ const dom = {
   busFilterAll:       document.getElementById("bus-filter-all"),
   busFilterList:      document.getElementById("bus-filter-list"),
   darkModeBtn:        document.getElementById("dark-mode-btn"),
+  a11yBtn:            document.getElementById("a11y-btn"),
+  a11yDialog:         document.getElementById("a11y-dialog"),
+  a11yFooterLink:     document.getElementById("a11y-footer-link"),
   departurePanel:     document.getElementById("departure-panel"),
   sheetHandle:        document.getElementById("sheet-handle"),
   tabOfficialNews:    document.getElementById("tab-official-news"),
@@ -369,6 +374,9 @@ function buildUrlHash() {
     if (state.selectedVehicleRef) {
       parts.push("bus=" + encodeURIComponent(state.selectedVehicleRef));
     }
+  } else if (state.viewMode === "network" && state.selectedObjectiveId) {
+    // So a letter can link straight to the objective it is about.
+    parts.push("objective=" + encodeURIComponent(state.selectedObjectiveId));
   } else if (state.selectedProposalId) {
     parts.push("proposal=" + encodeURIComponent(state.selectedProposalId));
   }
@@ -402,6 +410,15 @@ async function applyUrlState(parsed) {
                : parsed.view === "u" ? "updates"
                : "live";
     if (state.viewMode !== view) setViewMode(view);
+
+    if (view === "network" && parsed.objective) {
+      state.selectedObjectiveId = parsed.objective;
+      // The list may not have loaded yet; renderObjectivesList reads the id
+      // when it does, and scrolls it into view the first time.
+      state._scrollToObjective = parsed.objective;
+      if (state.objectives) renderObjectivesList();
+      return;
+    }
 
     if (view === "improvements") {
       if (parsed.proposal) {
@@ -476,11 +493,16 @@ async function init() {
   // operators are switched off the moment the page settles.
   loadHiddenOperators();
 
+  // Before initMap, which reads motionReduced() to decide whether Leaflet
+  // animates at all. The pre-paint script already applied the classes.
+  state.a11y = readA11ySettings();
+
   initMap();
   bindUIEvents();
+  bindA11yControls();
   bindStopSearch();
   bindRovingTabs();
-  ["evidence-dialog", "councillor-dialog"]
+  ["evidence-dialog", "councillor-dialog", "a11y-dialog"]
     .forEach(id => bindDialogBackdropClose(document.getElementById(id)));
   bindNewsForm();
   bindLoaderRetries();
@@ -576,13 +598,18 @@ function prefetchImprovementsData() {
 // MAP
 // ============================================================
 function initMap() {
+  const still = motionReduced();
   state.map = L.map("map", {
     center: CONFIG.MAP_CENTER,
     zoom:   CONFIG.MAP_ZOOM,
     minZoom: CONFIG.MAP_ZOOM_MIN,
     maxZoom: CONFIG.MAP_ZOOM_MAX,
     zoomControl: true,
+    zoomAnimation:       !still,
+    fadeAnimation:       !still,
+    markerZoomAnimation: !still,
   });
+  state._mapZoomAnimatedAtInit = state.map._zoomAnimated;
 
   // Train livery images fade in when they load and disappear when they don't.
   // These were inline onload/onerror attributes on markup built by string
@@ -910,7 +937,8 @@ function renderStopClusters(atcos) {
       title: `${b.n} stop${b.n === 1 ? "" : "s"}, zoom in to see them`,
     });
     marker.on("click", () => {
-      state.map.setView(at, Math.max(state.map.getZoom() + 2, STOP_ZOOM_INDIVIDUAL));
+      state.map.setView(at, Math.max(state.map.getZoom() + 2, STOP_ZOOM_INDIVIDUAL),
+                        { animate: !motionReduced() });
     });
     marker.addTo(state.map);
     state.stopClusters.push(marker);
@@ -1016,7 +1044,9 @@ async function loadCouncilBoundariesImpl() {
     pane.style.pointerEvents = "none";
   }
 
+  state.councilBoundaryDefs = {};
   for (const b of (data.boundaries || [])) {
+    state.councilBoundaryDefs[b.id] = b;
     const colour = bodyColour((b.bodies || [])[0]) || "var(--color-text-muted)";
     if (b.kind !== "line" || !Array.isArray(b.polyline)) continue;
     const st = b.style || {};
@@ -1196,12 +1226,52 @@ async function openBoundaryEvidence() {
 }
 
 function wireEvidenceClose(dialog, body) {
+  const close = () => {
+    if (typeof dialog.close === "function") dialog.close();
+    else dialog.removeAttribute("open");
+  };
   body.querySelectorAll("[data-close-evidence]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      if (typeof dialog.close === "function") dialog.close();
-      else dialog.removeAttribute("open");
-    });
+    btn.addEventListener("click", close);
   });
+  body.querySelectorAll("[data-show-live-boundary]").forEach(btn => {
+    btn.addEventListener("click", () => { close(); showLiveBusesAtBoundary(); });
+  });
+}
+
+// How far either side of the council line to frame when showing the live
+// buses: about 3 km of longitude at this latitude, which takes in Southwick
+// and Shoreham to the west and Hove to the east.
+const BOUNDARY_LIVE_SPAN_LON = 0.045;
+const BOUNDARY_LIVE_SPAN_LAT = 0.006;
+
+/**
+ * Switch to Live view with the buses on, framed on the council boundary.
+ *
+ * The evidence dialog shows timetable figures. This is the invitation to check
+ * them against what is on the road, so the map has to land somewhere the
+ * difference is visible: both sides, at a zoom where buses are individual
+ * markers rather than a blur.
+ */
+function showLiveBusesAtBoundary() {
+  setViewMode("live");
+  if (!state.busesVisible) setBusesVisible(true);
+  if (!state.map) return;
+
+  const line = L.latLngBounds([]);
+  for (const layer of Object.values(state.councilBoundaryLayers || {})) {
+    if (layer && typeof layer.getBounds === "function") line.extend(layer.getBounds());
+  }
+  if (!line.isValid()) return;
+
+  // A new bounds object built from numbers: extend() and getBounds() share
+  // references with the layers, and padding one of those in place would move
+  // the boundary line itself.
+  const frame = L.latLngBounds(
+    [line.getSouth() - BOUNDARY_LIVE_SPAN_LAT, line.getWest() - BOUNDARY_LIVE_SPAN_LON],
+    [line.getNorth() + BOUNDARY_LIVE_SPAN_LAT, line.getEast() + BOUNDARY_LIVE_SPAN_LON]);
+  // After the view change has laid itself out, so the sheet height the fit
+  // corrects for is the Live view's and not the one being left.
+  requestAnimationFrame(() => fitBoundsAboveSheet(frame, { maxZoom: 14 }));
 }
 
 /**
@@ -1326,6 +1396,17 @@ function renderBoundaryEvidence(data) {
       the same kind of place. The last panel leaves the band behind and compares
       two named places, one each side.
     </p>
+    <div class="evidence-live">
+      <p>
+        These figures come from timetables. To see the difference for yourself,
+        look at the live buses either side of the line: on a typical day far
+        more are moving on the Brighton &amp; Hove side.
+      </p>
+      <button type="button" class="evidence-live-btn" data-show-live-boundary>
+        <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
+        <span>Show the live buses here</span>
+      </button>
+    </div>
     <div class="evidence-days">${rows}${placeSection}</div>
     <p class="evidence-axis">
       Bars start at zero and share one scale across every panel,
@@ -1751,7 +1832,7 @@ function updateVehicleMarkers(vehicles) {
       checkNotifyOnMove(vehicle);
       if (state.activeTab === "bus") renderBusTab();
       if (state.followSelectedBus) {
-        state.map.panTo([vehicle.latitude, vehicle.longitude], { animate: true });
+        state.map.panTo([vehicle.latitude, vehicle.longitude], { animate: !motionReduced() });
       }
       // Refresh the upcoming-stops list as the bus moves
       fetchBusDetails(ref);
@@ -2044,10 +2125,67 @@ function groupSpanDays(span) {
   }));
 }
 
+/**
+ * "Last direct bus home from central Brighton", for the stop being viewed.
+ *
+ * The night-service objective says an evening in Brighton ends early for
+ * anyone living out here. That is a claim about a time, so the panel says the
+ * time for this stop. Days with the same last bus are merged the way the
+ * service span merges them, so a reader sees Mon–Fri once and Sunday apart.
+ */
+function lastBusHomeHtml(info) {
+  if (!info || info.inside_hub || !info.days) return "";
+  const fmt = (v) => v ? `${v.depart}|${v.service}` : "";
+  const runs = [];
+  for (const [day, label] of SPAN_DAYS) {
+    const v = info.days[day] || null;
+    const key = v ? `${fmt(v.day_bus)}/${fmt(v.night_bus)}` : "none";
+    const prev = runs[runs.length - 1];
+    if (prev && prev.key === key) prev.to = label;
+    else runs.push({ key, from: label, to: label, value: v });
+  }
+  if (runs.every(r => !r.value)) {
+    return `
+      <div class="stop-lastbus">
+        <p class="stop-lastbus-title">Last bus home from central Brighton</p>
+        <p class="stop-lastbus-note">No direct bus from central Brighton calls here on any day.</p>
+      </div>`;
+  }
+  // Two columns, never one figure. The night bus runs until gone three at most
+  // stops on the coast; shown alone it would make the evening look well served,
+  // when the ordinary buses stop hours earlier and the night route is a
+  // separate service that day tickets don't cover.
+  const cell = (v) => v
+    ? `<span class="stop-lastbus-time">${escapeHtml(v.depart)}</span>`
+      + `${v.after_midnight ? ` <span class="stop-lastbus-late">after midnight</span>` : ""}`
+      + ` <span class="stop-span-route">${escapeHtml(v.service)}</span>`
+    : `<span class="stop-span-nil">None</span>`;
+  const rows = runs.map(r => {
+    const days = r.from === r.to ? r.from : `${r.from}–${r.to}`;
+    const v = r.value || {};
+    return `<tr>
+        <th scope="row">${escapeHtml(days)}</th>
+        <td>${cell(v.day_bus)}</td>
+        <td>${cell(v.night_bus)}</td>
+      </tr>`;
+  }).join("");
+  return `
+    <div class="stop-lastbus" title="${escapeAttr(info.method || "")}">
+      <table class="stop-lastbus-table">
+        <caption class="stop-lastbus-title">Last direct bus home from central Brighton</caption>
+        <thead><tr><th scope="col">Days</th><th scope="col">Day bus</th><th scope="col">Night bus</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="stop-lastbus-note">Scheduled departure times, week of ${escapeHtml(info.week_of || "")}.
+        A journey home needing a change isn't counted.</p>
+    </div>`;
+}
+
 function renderStopSpan(data) {
   if (!dom.stopSpan) return;
   const span = (data && data.span) || {};
   const runs = groupSpanDays(span);
+  const lastHome = lastBusHomeHtml(data && data.last_from_brighton);
   if (!runs.length || runs.every(r => !r.value)) {
     // No service on any day is itself worth saying, and is not an error.
     dom.stopSpan.innerHTML =
@@ -2083,7 +2221,7 @@ function renderStopSpan(data) {
       </tr>`;
   }).join("");
 
-  dom.stopSpan.innerHTML = `
+  dom.stopSpan.innerHTML = `${lastHome}
     <details class="stop-span-disclosure">
       <summary class="stop-span-summary">
         <svg class="icon" aria-hidden="true" style="width:15px;height:15px"><use href="#i-info"/></svg>
@@ -2616,7 +2754,7 @@ function renderBusTab() {
       if (state.followSelectedBus && state.selectedVehicle) {
         state.map.panTo(
           [state.selectedVehicle.latitude, state.selectedVehicle.longitude],
-          { animate: true }
+          { animate: !motionReduced() }
         );
       }
     });
@@ -2847,6 +2985,187 @@ function toggleDarkMode() {
 
   // No tile swap needed: both themes render the same tiles, and the
   // `dark-mode` class on <html> drives the CSS filter that darkens them.
+}
+
+/* ============================================================
+ * ACCESSIBILITY SETTINGS
+ *
+ * Text size, reduced motion and a colour-blind-safe palette. Stored in this
+ * browser only, and applied by the pre-paint script in index.html so a page at
+ * 140% does not load at 100% and then jump. That script repeats the rules in
+ * normaliseA11y(); the two must agree, and tests/test_a11y_settings.mjs checks
+ * the head script reads the same key and classes.
+ * ============================================================ */
+const A11Y_KEY = "a11y";
+const A11Y_TEXT_SCALES = [1, 1.2, 1.4];
+const A11Y_HOLD_MS = 500;
+
+/** A stored value back into something safe. An older version, a hand edit or a
+ *  broken write must not leave the site at 300% text. */
+function normaliseA11y(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const scale = Number(r.textScale);
+  return {
+    textScale: A11Y_TEXT_SCALES.includes(scale) ? scale : 1,
+    reduceMotion: r.reduceMotion === true,
+    cvd: r.cvd === true,
+  };
+}
+
+function readA11ySettings() {
+  try { return normaliseA11y(JSON.parse(localStorage.getItem(A11Y_KEY) || "{}")); }
+  catch { return normaliseA11y({}); }
+}
+
+function saveA11ySettings(s) {
+  try { localStorage.setItem(A11Y_KEY, JSON.stringify(s)); } catch { /* private mode */ }
+}
+
+/** True when either the device or the reader has asked for less motion. The
+ *  device preference is always honoured; the setting can only add to it. */
+function motionReduced() {
+  if (state.a11y && state.a11y.reduceMotion) return true;
+  return !!(typeof window !== "undefined" && window.matchMedia
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+
+/** Leaflet decides whether to animate zooms when the map is created. Turning
+ *  it off later is safe; turning it back on is only possible if it was on at
+ *  creation, because the animation proxy is built then. */
+function applyMapMotion() {
+  if (!state.map) return;
+  const still = motionReduced();
+  state.map._zoomAnimated = still ? false : !!state._mapZoomAnimatedAtInit;
+  state.map.options.fadeAnimation = !still;
+  state.map.options.markerZoomAnimation = !still;
+}
+
+/** Colours that are set from code rather than CSS follow the palette too. */
+function recolourCouncilBoundaries() {
+  for (const [id, b] of Object.entries(state.councilBoundaryDefs || {})) {
+    const colour = bodyColour((b.bodies || [])[0]) || "var(--color-text-muted)";
+    const line = state.councilBoundaryLayers && state.councilBoundaryLayers[id];
+    if (line) line.setStyle({ color: colour });
+    for (const tip of (state.councilBoundaryLabels && state.councilBoundaryLabels[id]) || []) {
+      tip.setContent(councilBoundaryLabelHtml(b));
+    }
+  }
+}
+
+function applyA11ySettings(s) {
+  const previous = state.a11y || {};
+  state.a11y = s;
+  const root = document.documentElement;
+  root.style.fontSize = s.textScale === 1 ? "" : `${s.textScale * 100}%`;
+  root.classList.toggle("a11y-reduce-motion", s.reduceMotion);
+  root.classList.toggle("a11y-cvd", s.cvd);
+  applyMapMotion();
+  if (previous.cvd !== s.cvd) recolourCouncilBoundaries();
+  if (previous.textScale !== s.textScale) {
+    // Bigger text changes how many route chips fit in a row, and how tall the
+    // header is, so both are measured again.
+    reflowRouteChips();
+    if (state.map) state.map.invalidateSize();
+  }
+}
+
+function syncA11yControls() {
+  const d = dom.a11yDialog;
+  if (!d) return;
+  const s = state.a11y;
+  d.querySelectorAll('input[name="a11y-text"]').forEach(r => { r.checked = Number(r.value) === s.textScale; });
+  const motion = d.querySelector("#a11y-motion");
+  const cvd = d.querySelector("#a11y-cvd");
+  if (motion) motion.checked = s.reduceMotion;
+  if (cvd) cvd.checked = s.cvd;
+}
+
+function openA11yDialog(returnFocusTo) {
+  const d = dom.a11yDialog;
+  if (!d) return;
+  syncA11yControls();
+  d._returnFocus = returnFocusTo || document.activeElement;
+  if (typeof d.showModal === "function") { if (!d.open) d.showModal(); }
+  else d.setAttribute("open", "");
+}
+
+/**
+ * Hold the theme button to open the settings.
+ *
+ * A shortcut for phones, where the header has no room for another button. It
+ * is not the only way in: the footer link and the About page reach the same
+ * dialog, because a long press cannot be done by keyboard, switch access or
+ * most screen readers, who are the people this menu is most for.
+ */
+function bindThemeLongPress(btn) {
+  if (!btn) return;
+  let timer = null, held = false, x0 = 0, y0 = 0;
+  const cancel = () => { clearTimeout(timer); timer = null; };
+  btn.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    held = false; x0 = e.clientX; y0 = e.clientY;
+    cancel();
+    timer = setTimeout(() => {
+      timer = null;
+      held = true;
+      if (navigator.vibrate) { try { navigator.vibrate(15); } catch { /* unsupported */ } }
+      openA11yDialog(btn);
+    }, A11Y_HOLD_MS);
+  });
+  btn.addEventListener("pointermove", (e) => {
+    // A finger that drifts is scrolling or changing its mind, not holding.
+    if (timer && Math.hypot(e.clientX - x0, e.clientY - y0) > 10) cancel();
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach(type => btn.addEventListener(type, cancel));
+  btn.addEventListener("contextmenu", (e) => { if (timer || held) e.preventDefault(); });
+  // The click that ends a hold must not also flip the theme. Capture phase, so
+  // it runs before toggleDarkMode's listener on the same element.
+  btn.addEventListener("click", (e) => {
+    if (!held) return;
+    held = false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+}
+
+function bindA11yControls() {
+  const d = dom.a11yDialog;
+  if (!d) return;
+  const update = (patch) => {
+    const next = normaliseA11y({ ...state.a11y, ...patch });
+    applyA11ySettings(next);
+    saveA11ySettings(next);
+  };
+  d.querySelectorAll('input[name="a11y-text"]').forEach(r =>
+    r.addEventListener("change", () => { if (r.checked) update({ textScale: Number(r.value) }); }));
+  const motion = d.querySelector("#a11y-motion");
+  if (motion) motion.addEventListener("change", () => update({ reduceMotion: motion.checked }));
+  const cvd = d.querySelector("#a11y-cvd");
+  if (cvd) cvd.addEventListener("change", () => update({ cvd: cvd.checked }));
+  const reset = d.querySelector("#a11y-reset");
+  if (reset) reset.addEventListener("click", () => { update(normaliseA11y({})); syncA11yControls(); });
+  d.querySelectorAll("[data-close-a11y]").forEach(b => b.addEventListener("click", () => d.close()));
+  d.addEventListener("close", () => {
+    const back = d._returnFocus;
+    d._returnFocus = null;
+    if (back && typeof back.focus === "function") back.focus();
+  });
+
+  if (dom.a11yBtn) dom.a11yBtn.addEventListener("click", () => openA11yDialog(dom.a11yBtn));
+  if (dom.a11yFooterLink) {
+    dom.a11yFooterLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      openA11yDialog(dom.a11yFooterLink);
+    });
+  }
+  bindThemeLongPress(dom.darkModeBtn);
+
+  // about.html links here as ./#accessibility. Open it, then take the fragment
+  // back off so it does not fight the view state that also lives in the hash.
+  if ((location.hash || "") === "#accessibility") {
+    openA11yDialog(dom.a11yFooterLink);
+    try { history.replaceState(null, "", location.pathname + location.search); } catch { /* file:// */ }
+  }
 }
 
 /* ============================================================
@@ -3336,6 +3655,13 @@ function bindUIEvents() {
     dom.showLimitedServices.checked = state.showLimitedServices;
     dom.showLimitedServices.addEventListener("change", (e) => {
       state.showLimitedServices = !!e.target.checked;
+      // Turn every limited group on or off together, so ticking the box shows
+      // them and unticking it puts the default view back.
+      for (const r of state.routeLines || []) {
+        if (!isRouteGroupFrequent(routeBaseName(r.service))) {
+          setRouteVisible(r.service, state.showLimitedServices);
+        }
+      }
       showRouteLines();
       renderRouteFilterChips();
       renderProposalsList();
@@ -4127,27 +4453,49 @@ async function loadRouteLinesImpl() {
   state.visibleCategories = new Set(["all"]);
   state.visibleOperators  = new Set(Object.values(state.routeOperatorByService));
 
+  // Limited services are in the list but start switched off, unless the reader
+  // has asked for them. Decided per group, once every route's frequency is
+  // known, so a limited 2B follows its frequent 2 rather than being split off.
+  if (!state.showLimitedServices) {
+    for (const r of state.routeLines) {
+      if (!isRouteGroupFrequent(routeBaseName(r.service))) state.visibleRoutes.delete(r.service);
+    }
+  }
+
   syncFilterStrips();
   renderRouteFilterChips();
 }
 
-/**
- * Render a clickable chip for each route GROUP into the About tab,
- * filtered to the current Day/Night service mode. Variants of the same
- * route (1/1A/1X) collapse to one chip that toggles them all together.
- * The chip's background is the base route's livery colour; sorted
- * natural-numeric so "5" comes before "10" comes before "106".
- */
-function renderRouteFilterChips() {
-  if (!state.routeLines || !dom.routeFilterChips) return;
-  const isNight = state.serviceMode === "night";
+/** Whether a service runs a frequent, all-day pattern. Night services are
+ *  counted as frequent: they exist for the hours after 23:00 by definition,
+ *  so the "runs into the evening, every day" test does not apply to them. */
+function isServiceFrequent(svc) {
+  if (isNightService(svc)) return true;
+  const freq = state.routeFrequencyByService[svc];
+  return !!(freq && freq.is_frequent_all_day);
+}
 
-  // Group services by base name, filtered to the current mode + the
-  // active category and operator filters. Variants of one base must all
-  // share a category/operator (they always do in practice), so it's
-  // enough to test the first variant.
-  const groups = new Map(); // base -> [variants]
-  for (const r of state.routeLines) {
+/** A route group is frequent when any of its variants is. `2/2B` and `25/25X`
+ *  are one chip and one idea; a limited variant follows its frequent base
+ *  rather than being filed with the limited services. */
+function isRouteGroupFrequent(base) {
+  return (state.routeLines || []).some(r =>
+    routeBaseName(r.service) === base && isServiceFrequent(r.service));
+}
+
+/**
+ * Every route group eligible for the chip list, in the order it is shown.
+ *
+ * All services are eligible; Type and Operator narrow the list. When "Show
+ * limited services" is off, limited groups go after every frequent one, so on
+ * the default view they mostly sit behind "+N more" and only come into the
+ * visible rows when a filter frees them up. When it is on, the list is one
+ * plain numeric order.
+ */
+function orderedRouteGroups() {
+  const isNight = state.serviceMode === "night";
+  const groups = new Map();                  // base -> [variants]
+  for (const r of state.routeLines || []) {
     const svc = r.service;
     if (isNightService(svc) !== isNight) continue;
     if (!isServicePassingFilters(svc)) continue;
@@ -4155,28 +4503,53 @@ function renderRouteFilterChips() {
     if (!groups.has(base)) groups.set(base, []);
     groups.get(base).push(svc);
   }
+  const list = [...groups.entries()].map(([base, variants]) => ({
+    base,
+    variants: variants.slice().sort(compareServiceNames),
+    frequent: isRouteGroupFrequent(base),
+  }));
+  list.sort((a, b) => {
+    if (!state.showLimitedServices && a.frequent !== b.frequent) return a.frequent ? -1 : 1;
+    return compareServiceNames(a.base, b.base);
+  });
+  return list;
+}
 
-  if (groups.size === 0) {
+/**
+ * A clickable chip for each route group, in orderedRouteGroups() order.
+ * Variants of the same route (1/1A/1X) collapse to one chip that toggles them
+ * all together, on the base route's livery colour.
+ */
+function renderRouteFilterChips() {
+  if (!state.routeLines || !dom.routeFilterChips) return;
+  const isNight = state.serviceMode === "night";
+  const groups  = orderedRouteGroups();
+
+  if (groups.length === 0) {
     dom.routeFilterChips.innerHTML = isNight
       ? `<p class="route-filters-empty">No matching night services.</p>`
       : `<p class="route-filters-empty">No matching routes. Try toggling a category or operator back on.</p>`;
+    updateRouteFilterCount();
+    reflowRouteChips();
     return;
   }
 
-  const bases = [...groups.keys()].sort(compareServiceNames);
-
-  dom.routeFilterChips.innerHTML = bases.map(base => {
-    const variants = groups.get(base).slice().sort(compareServiceNames);
+  dom.routeFilterChips.innerHTML = groups.map(({ base, variants, frequent }) => {
     const label    = variants.join("/");
     const operator = state.routeOperatorByService[variants[0]] || "";
     const bg       = getLineColour(base, operator);
     const fg       = textColourOn(bg);
     const allOn    = variants.every(v => state.visibleRoutes.has(v));
+    // Said, not only styled: a dashed outline alone would leave anyone who
+    // cannot see it wondering why the 13 is at the end of the list.
+    const name = frequent ? `Service ${label}` : `Service ${label}, limited service`;
     return `
       <button type="button"
-              class="route-chip"
+              class="route-chip${frequent ? "" : " route-chip--limited"}"
               data-variants="${escapeAttr(variants.join(","))}"
               aria-pressed="${allOn ? "true" : "false"}"
+              aria-label="${escapeAttr(name)}"
+              title="${frequent ? "" : "Limited service: not every day, or not into the evening"}"
               style="--chip-bg:${bg};--chip-fg:${fg}">
         ${escapeHtml(label)}
       </button>`;
@@ -4394,13 +4767,9 @@ function isServicePassingFilters(svc) {
     const op = state.routeOperatorByService[svc] || "";
     if (!state.visibleOperators.has(op)) return false;
   }
-  if (!state.showLimitedServices) {
-    const freq = state.routeFrequencyByService[svc];
-    // Night routes are inherently "not all day" by definition (they
-    // exist for the post-23:00 window), so the "frequent all-day" gate
-    // doesn't apply to them — they show whenever Night mode is active.
-    if (!isNightService(svc) && !(freq && freq.is_frequent_all_day)) return false;
-  }
+  // Limited services are not excluded here. They are in the chip list and are
+  // drawn when their chip is on; "Show limited services" decides whether they
+  // start on and where they sort, not whether they exist.
   return true;
 }
 
@@ -6021,9 +6390,7 @@ function scrollPanelTo(el, offset = 0) {
             + el.getBoundingClientRect().top
             - box.getBoundingClientRect().top
             - offset;
-  const still = window.matchMedia
-    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  box.scrollTo({ top: Math.max(0, top), behavior: still ? "auto" : "smooth" });
+  box.scrollTo({ top: Math.max(0, top), behavior: motionReduced() ? "auto" : "smooth" });
 }
 
 /**
@@ -6343,25 +6710,30 @@ function drawJourneyOnMap(legs, changeAt, boardAt, opts) {
         .addTo(state.map));
   });
 
-  if (changeAt && typeof changeAt.lat === "number") {
+  // Every change, not just the first: a three-bus journey has two. Older
+  // callers pass a single changeAt/boardAt, which is the one-change case.
+  const changeList = (opts && Array.isArray(opts.changes) && opts.changes.length)
+    ? opts.changes
+    : (changeAt ? [{ change_at: changeAt, board_at: boardAt }] : []);
+  for (const c of changeList) {
+    const at = c.change_at, on = c.board_at;
+    if (!at || typeof at.lat !== "number") continue;
     state.journeyLayers.push(
-      journeyMarker([changeAt.lat, changeAt.lon], "Change", "#ffffff", "#141c24",
+      journeyMarker([at.lat, at.lon], "Change", "#ffffff", "#141c24",
                     "journey-marker--change").addTo(state.map));
-  }
-  // Where the second bus is caught, when it is not the same stop. Drawn as a
-  // dashed hop so the walk is visible as part of the journey rather than a gap
-  // the map forgot to join up.
-  if (boardAt && typeof boardAt.lat === "number"
-      && changeAt && typeof changeAt.lat === "number"
-      && (boardAt.atco !== changeAt.atco)) {
-    state.journeyLayers.push(L.polyline(
-      [[changeAt.lat, changeAt.lon], [boardAt.lat, boardAt.lon]], {
-        color: "#141c24", weight: 3, opacity: 0.8, dashArray: "2 6",
-        lineCap: "round", interactive: false, pane: "journeyPane",
-      }).addTo(state.map));
-    state.journeyLayers.push(
-      journeyMarker([boardAt.lat, boardAt.lon], "Walk", "#ffffff", "#141c24",
-                    "journey-marker--change").addTo(state.map));
+    // Where the next bus is caught, when it is not the same stop. Drawn as a
+    // dashed hop so the walk is visible as part of the journey rather than a
+    // gap the map forgot to join up.
+    if (on && typeof on.lat === "number" && on.atco !== at.atco) {
+      state.journeyLayers.push(L.polyline(
+        [[at.lat, at.lon], [on.lat, on.lon]], {
+          color: "#141c24", weight: 3, opacity: 0.8, dashArray: "2 6",
+          lineCap: "round", interactive: false, pane: "journeyPane",
+        }).addTo(state.map));
+      state.journeyLayers.push(
+        journeyMarker([on.lat, on.lon], "Walk", "#ffffff", "#141c24",
+                      "journey-marker--change").addTo(state.map));
+    }
   }
 
   if (all.length > 1) {
@@ -6375,47 +6747,65 @@ function drawJourneyOnMap(legs, changeAt, boardAt, opts) {
  * Two buses and a wait is the thing being complained about, so it is stated
  * plainly with its total rather than left implicit in a price.
  */
+const COUNT_WORDS = ["no", "one", "two", "three", "four", "five"];
+
 function itineraryHtml(interchange, onDay) {
-  if (!interchange || !interchange.legs || interchange.legs.length < 2) return "";
-  const [one, two] = interchange.legs;
+  const legs = interchange && interchange.legs;
+  if (!Array.isArray(legs) || legs.length < 2) return "";
+  // One entry per change. Older responses carry only the single change fields,
+  // which is right for a two-bus journey and is used as the fallback.
+  const changes = Array.isArray(interchange.changes) && interchange.changes.length === legs.length - 1
+    ? interchange.changes
+    : [{ change_at: interchange.change_at, board_at: interchange.board_at,
+         walk_metres: interchange.walk_metres, wait_minutes: interchange.wait_minutes }];
   const chip = (leg) => {
     const bg = getLineColour(leg.service, leg.operator);
     return `<span class="journey-leg-chip" style="background:${escapeAttr(bg)};color:${escapeAttr(textColourOn(bg))}">`
          + `${escapeHtml(leg.service || "?")}</span>`;
   };
-  // The two buses often do not share a stop. At Portslade the 1X is around the
-  // corner from the 46 and the 1 is five minutes down the road — a walk is part
-  // of the journey, not a footnote, so it is said where it happens.
-  const board = interchange.board_at || {};
-  const metres = interchange.walk_metres || 0;
-  // Two poles of one road carry the same name, so naming the destination would
-  // read "Southern Cross, then a walk to Southern Cross". Say what is actually
-  // happening instead.
-  const sameName = board.name && board.name === interchange.change_at.name;
-  const walk = !metres ? ""
-    : sameName
+  // The buses often do not share a stop. At Portslade the 1X is around the
+  // corner from the 46, so a walk is part of the journey, not a footnote, and
+  // it is said where it happens. Two poles of one road carry the same name, so
+  // "Southern Cross, then a walk to Southern Cross" says "the other stop".
+  const walk = (c) => {
+    const metres = (c && c.walk_metres) || 0;
+    if (!metres) return "";
+    const board = (c && c.board_at) || {};
+    const at = (c && c.change_at) || {};
+    return board.name && board.name === at.name
       ? `, then a <strong>${metres} m walk</strong> to the other stop`
       : `, then a <strong>${metres} m walk</strong> to ${escapeHtml(board.name || "another stop")}`;
+  };
+
+  let line = `${chip(legs[0])} <strong>${escapeHtml(legs[0].depart)}</strong> from
+    ${escapeHtml((legs[0].stops[0] || {}).name || "the stop")}`;
+  for (let i = 0; i < legs.length - 1; i++) {
+    const c = changes[i] || {};
+    const next = legs[i + 1];
+    const lastLeg = i + 1 === legs.length - 1;
+    line += ` &rarr; ${escapeHtml(((c.change_at) || {}).name || "a change")} at
+      <strong>${escapeHtml(legs[i].arrive)}</strong>${walk(c)}, wait ${c.wait_minutes ?? 0} min, then
+      ${chip(next)} ${lastLeg
+        ? `arriving <strong>${escapeHtml(next.arrive)}</strong>.`
+        : `at <strong>${escapeHtml(next.depart)}</strong>`}`;
+  }
+
+  const operators = [...new Set(legs.map(l => l.operator).filter(Boolean))];
+  const runBy = operators.length > 1
+    ? `, run by ${escapeHtml(operators.slice(0, -1).map(getOperatorName).join(", "))} and
+       ${escapeHtml(getOperatorName(operators[operators.length - 1]))}`
+    : "";
+  const count = COUNT_WORDS[legs.length] || String(legs.length);
   return `
     <div class="journey-itinerary${onDay ? " journey-itinerary--other-day" : ""}">
       <p class="journey-zones-title">What the journey actually is</p>
       ${onDay ? `<p class="journey-other-day">
-        There is no such journey today. This is a <strong>${escapeHtml(onDay)}</strong>
-        At weekends these two buses do not connect at all.</p>` : ""}
-      <p class="journey-itinerary-line">
-        ${chip(one)} <strong>${escapeHtml(one.depart)}</strong> from
-        ${escapeHtml((one.stops[0] || {}).name || "the stop")}
-        &rarr; ${escapeHtml(interchange.change_at.name)} at
-        <strong>${escapeHtml(one.arrive)}</strong>${walk}, wait
-        ${interchange.wait_minutes} min, then
-        ${chip(two)} arriving <strong>${escapeHtml(two.arrive)}</strong>.
-      </p>
+        There is no such journey today. This is a <strong>${escapeHtml(onDay)}</strong>.
+        At weekends these buses do not connect at all.</p>` : ""}
+      <p class="journey-itinerary-line">${line}</p>
       <p class="journey-basis">
-        <strong>${interchange.total_minutes} minutes</strong> door to door on two
-        buses${one.operator && two.operator && one.operator !== two.operator
-          ? `, run by ${escapeHtml(getOperatorName(one.operator))} and
-             ${escapeHtml(getOperatorName(two.operator))}`
-          : ""}.
+        <strong>${interchange.total_minutes} minutes</strong> door to door on ${count}
+        buses${runBy}.
       </p>
     </div>`;
 }
@@ -6453,7 +6843,8 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
            : (interchange ? interchange.legs : []),
     interchange ? interchange.change_at : null,
     interchange ? interchange.board_at : null,
-    { from: state.stopData[fromAtco], to: state.stopData[toAtco], notToday });
+    { from: state.stopData[fromAtco], to: state.stopData[toAtco], notToday,
+      changes: interchange && Array.isArray(interchange.changes) ? interchange.changes : null });
   const itinerary = itineraryHtml(interchange, journey.interchange_on || "");
 
   const usable = pathStops.filter(s => typeof s.lat === "number" && typeof s.lon === "number");
@@ -6515,8 +6906,11 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   const supplement = serviceSupplement(meta, service, operator);
   // The all-operator ticket competes on price like any other option.
   const unifiedOption = unifiedTicketOption(meta, service);
-  // A journey with no direct bus needs at least two buses each way.
-  const legs = option ? 1 : 2;
+  // Buses each way: one on a direct journey, as many as the itinerary has when
+  // there is one, and at least two when there is neither. A three-bus journey
+  // costed as two understated what singles would cost by a third.
+  const legs = option ? 1 : (interchange && Array.isArray(interchange.legs) && interchange.legs.length
+    ? interchange.legs.length : 2);
   const singlesOption = singlesBaseline(meta, legs);
   // What an unlimited day costs today, with singles deliberately excluded:
   // the reform asks replace a day ticket, so this is the like-for-like
@@ -6549,7 +6943,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
                : `<p class="journey-basis">The only ticket that covers it is
                   ${escapeHtml(networkOption.zone.name)}, but we don't have a
                   current price for it.</p>`}
-        ${weeklyOptionHtml(allZones, legOperators || shared || [], meta, singlesOption)}
+        ${weeklyOptionHtml(allZones, legOperators || (option ? shared : null) || [], meta, singlesOption)}
         ${reformComparisonHtml(only, dayBaseline, coveringZoneIds(coverPerStop), byId, meta)}
       </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices);
     return;
@@ -6629,7 +7023,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
       <div class="journey-alert journey-alert--penalty">
         <p><strong>No day ticket covers this whole journey.</strong> ${why}</p>
         ${crossing ? penaltyMoneyHtml(crossing, meta, service) : ""}
-        ${weeklyOptionHtml(allZones, legOperators || shared || [], meta, singlesOption)}
+        ${weeklyOptionHtml(allZones, legOperators || (option ? shared : null) || [], meta, singlesOption)}
       </div>`
       + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices);
     return;
@@ -7095,7 +7489,10 @@ function legPhrase(legServices) {
 
 /** "Stagecoach South", or "Brighton &amp; Hove Buses and Compass Travel". */
 function operatorPhrase(ops) {
-  const names = normaliseOperators(ops).map(getOperatorName);
+  // Each company once. A journey on Compass, then Stagecoach, then Compass again
+  // is run by two companies, and listing the legs read "Compass Travel,
+  // Stagecoach South and Compass Travel".
+  const names = [...new Set(normaliseOperators(ops))].map(getOperatorName);
   if (!names.length) return "no operator we know of";
   if (names.length === 1) return names[0];
   return names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
@@ -8130,16 +8527,6 @@ function objectiveStatusMeta(status) {
  * awkward to activate. Only the summary row toggles now; the detail is a
  * sibling, so anything interactive in it works normally.
  */
-/** The opening sentence of a description, for the lead card's standfirst.
- *
- *  The objectives were rewritten to open on the particular thing — a count, a
- *  fare, a named route — so the first sentence is reliably the figure worth
- *  pulling out. No extra field to keep in step with the prose. */
-function objectiveStandfirst(o) {
-  const first = String(o.description || "").trim().split(/(?<=[.!?])\s/)[0] || "";
-  return first.length > 190 ? "" : first;
-}
-
 function objectiveCardHtml(o, opts = {}) {
   const sel = (o.id === state.selectedObjectiveId);
   const st  = objectiveStatusMeta(o.status);
@@ -8161,10 +8548,11 @@ function objectiveCardHtml(o, opts = {}) {
       ` : ""}
       ${objectiveContactHtml(o)}
     </div>` : "";
-  // The lead objective is given a standfirst and larger type. Four identically
-  // weighted cards said all four mattered the same amount, which is both untrue
-  // and what made the section read as a template rather than as a campaign.
-  const standfirst = opts.lead ? objectiveStandfirst(o) : "";
+  // The lead objective is given larger type. Four identically weighted cards
+  // said all four mattered the same amount, which is both untrue and what made
+  // the section read as a template rather than as a campaign. It carries its
+  // summary like every other card; an earlier version replaced that with the
+  // description's first sentence, which read as a stray fact out of context.
   return `
     <div class="proposal-card-wrap ${sel ? "selected" : ""} ${opts.lead ? "objective-lead" : ""}"
          style="border-left-color:${escapeAttr(o.color || "#444")}">
@@ -8177,7 +8565,6 @@ function objectiveCardHtml(o, opts = {}) {
           <span class="status-badge status-${st.cls}">${escapeHtml(st.label)}</span>
         </span>
         <span class="proposal-card-summary">${escapeHtml(o.summary || "")}</span>
-        ${standfirst ? `<span class="objective-lead-standfirst">${escapeHtml(standfirst)}</span>` : ""}
         <span class="objective-chips">${objectiveBodyChips(o)}</span>
       </button>
       ${detail}
@@ -8252,7 +8639,14 @@ function bodyName(code) {
 }
 
 /** Brand colour for an operator, palette colour for an authority. */
+// The two sides of the council boundary in colour-blind-safe mode. Navy against
+// purple is close to indistinguishable for the most common kinds of colour
+// blindness; blue against orange holds for all three. Both measure 4.7:1 as
+// text on the light surface, and the lines and labels also carry names.
+const CVD_BODY_COLOURS = { WSCC: "#0072b2", BHCC: "#a15c00" };
+
 function bodyColour(code) {
+  if (state.a11y && state.a11y.cvd && CVD_BODY_COLOURS[code]) return CVD_BODY_COLOURS[code];
   const b = RESPONSIBLE_BODIES[code] || {};
   return b.colour || OPERATOR_COLOURS[code] || "#444";
 }
@@ -8480,20 +8874,37 @@ function resolveRepresentatives(reps, body, place) {
  * so the most useful thing this can do is give someone a structure and get out
  * of the way.
  */
+// Where a councillor lands from the link in a letter: Better buses, with that
+// objective open. The detail, the evidence and the sources are there, which is
+// what lets the letter itself stay short.
+const SITE_URL = "https://worthingbrightonbus.co.uk/";
+
+function objectiveLink(objective) {
+  return `${SITE_URL}#view=n&objective=${encodeURIComponent(objective.id)}`;
+}
+
+/**
+ * The letter a reader sends their councillors.
+ *
+ * Short on purpose. It used to paste the objective's whole description in,
+ * four or five paragraphs of campaign copy before the reader's own words, which
+ * is the shape of a template and the reason those get skimmed. Now: who is
+ * writing, the objective's `letter` (the problem and the ask, in two short
+ * paragraphs), the reader's own paragraph, and a link to the detail.
+ */
 function councillorDraft(objective, area) {
   const names = area.members.map(m => m.name).join(" and ");
+  const letter = (objective.letter || objective.summary || "").trim();
   const lines = [
     `Dear ${names},`,
     "",
     `I am writing as one of your constituents in ${area.name} about bus services in Adur and Worthing.`,
     "",
-    objective.title + (objective.summary ? `: ${objective.summary}` : ""),
+    letter,
     "",
-    objective.description || "",
+    "[Please add a sentence or two about how this affects you: the journeys you make, what goes wrong, and what would change if this were fixed. This is the part that carries the most weight.]",
     "",
-    "[Please add a sentence or two here about how this affects you: which journeys you make, what goes wrong, and what would change if this were fixed. This is the part that carries the most weight, and a letter without it reads as a template.]",
-    "",
-    "I would be grateful to know your view on this, and whether you would be willing to raise it.",
+    `I would be grateful to know your view, and whether you would be willing to raise it. The detail, with its sources, is here: ${objectiveLink(objective)}`,
     "",
     "Yours sincerely,",
     "",
@@ -8822,8 +9233,17 @@ function renderObjectivesList() {
       const id = card.dataset.objectiveId;
       state.selectedObjectiveId = (id === state.selectedObjectiveId) ? null : id;
       renderObjectivesList();
+      pushUrlState();
     });
   });
+  // Arrived from a link to one objective: bring it into view once, after the
+  // list exists. Only once, so re-renders from filters do not keep yanking it.
+  if (state._scrollToObjective) {
+    const target = dom.objectivesList.querySelector(
+      `[data-objective-id="${cssEscape(state._scrollToObjective)}"]`);
+    state._scrollToObjective = null;
+    if (target) scrollPanelTo(target, 12);
+  }
   // Bound separately from the card: the contact button is a sibling of the
   // toggle now, not nested inside it, so its click must not collapse the card.
   dom.objectivesList.querySelectorAll("[data-contact-objective]").forEach(btn => {
@@ -10541,9 +10961,8 @@ function recomputeRailPositions() {
       // One-shot flyTo when the marker first materialises (whether on Track
       // click or a later refresh that finally produced an in-bbox actual).
       if (!entry.flownTo) {
-        state.map.flyTo([lat, lon],
-                        Math.max(state.map.getZoom(), 13),
-                        { duration: 0.8 });
+        if (motionReduced()) state.map.setView([lat, lon], Math.max(state.map.getZoom(), 13), { animate: false });
+        else state.map.flyTo([lat, lon], Math.max(state.map.getZoom(), 13), { duration: 0.8 });
         entry.flownTo = true;
       }
     } else if (entry.markerColour !== colour || entry.markerLabel !== label) {

@@ -920,3 +920,40 @@ def test_the_about_page_answers_the_questions_a_reader_would_ask():
     assert "independent" in text.lower()
     for topic in ("postcode", "Rate limiting", "Accessibility", "removed"):
         assert topic in text, f"the About page does not cover {topic}"
+
+
+def test_proposal_lines_pass_through_their_stops_without_looping():
+    """A proposal's drawn line and its stops have to describe the same route.
+
+    The N2 was supplied with poles chosen by clicking a map, and at eight stops
+    the click landed on the pole across the road. On a dual carriageway or a
+    one-way street that sends the drawn line round the block to reach the wrong
+    kerb and back, and the proposal reads as a route no bus would take. The
+    stops are now picked from the poles real buses link in order, and the line
+    follows real bus paths; this keeps the two in step when either is edited.
+    """
+    import math
+
+    def hav(a, b):
+        r = 6371000
+        p1, p2 = math.radians(a[0]), math.radians(b[0])
+        dp, dl = p2 - p1, math.radians(b[1] - a[1])
+        return 2 * r * math.asin(math.sqrt(math.sin(dp / 2) ** 2
+                                           + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2))
+
+    for p in _load("proposals.json")["proposals"]:
+        lines = p.get("polylines") or ([p["polyline"]] if p.get("polyline") else [])
+        points = [pt for line in lines for pt in line]
+        stops = p.get("stops") or []
+        if not points or len(stops) < 2:
+            continue
+        for s in stops:
+            gap = min(hav((s["lat"], s["lon"]), q) for q in points)
+            assert gap <= 60, (
+                f"proposals.json: '{p['id']}' stop {s['name']} is {gap:.0f} m from its own line")
+        drawn = sum(hav(l[i], l[i + 1]) for l in lines for i in range(len(l) - 1))
+        chain = sum(hav((stops[i]["lat"], stops[i]["lon"]), (stops[i + 1]["lat"], stops[i + 1]["lon"]))
+                    for i in range(len(stops) - 1))
+        assert drawn <= 2.0 * chain, (
+            f"proposals.json: '{p['id']}' draws {drawn / 1000:.1f} km for a {chain / 1000:.1f} km "
+            f"chain of stops, which is a loop round the block, not a route")

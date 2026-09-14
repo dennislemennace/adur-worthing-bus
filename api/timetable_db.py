@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -429,6 +430,8 @@ class Timetable:
         self._noc_by_rid = None
         self._stops_by_name = None
         self._span_cache = {}
+        self._hub_sids_cache = None
+        self._last_bus_cache = {}
 
     def _open_and_preload(self) -> None:
         if self._allow_fetch:
@@ -1230,40 +1233,366 @@ class Timetable:
         if best is None:
             return None
 
-        def describe(leg):
-            trip_id = self._tid_to_trip.get(leg["tid"])
-            trip = self.trips.get(trip_id) or {}
-            route = self.routes.get(trip.get("route_id", "")) or {}
-            # By route, never by number — see noc_for_route. This used to run
-            # its own SELECT per leg for the same reason.
-            noc = self.noc_for_route(trip.get("route_id", ""))
-            return {
-                "service": route.get("short_name", ""),
-                "operator": noc,
-                "headsign": trip.get("headsign", ""),
-                "depart": _span_hhmm(leg["depart"]),
-                "arrive": _span_hhmm(leg["arrive"]),
-                "minutes": max(0, (leg["arrive"] - leg["depart"]) // 60),
-                "stops": self.stops_between(trip_id, leg["board_seq"], leg["alight_seq"]),
-            }
-
-        def place(sid):
-            atco = self._sid_to_stop.get(sid)
-            stop = self.stops.get(atco) or {}
-            return {"atco": atco, "name": stop.get("name", ""),
-                    "lat": stop.get("lat"), "lon": stop.get("lon")}
-
-        return {
-            "legs": [describe(best["one"]), describe(best["two"])],
-            "change_at": place(best["from_sid"]),
+        change = {
+            "change_at": self._stop_place(best["from_sid"]),
             # Where the second bus is actually caught, when it is not the same
             # stop. Named separately because "walk 120 m to Southern Cross" is
             # part of the journey, not a detail.
-            "board_at": place(best["to_sid"]),
+            "board_at": self._stop_place(best["to_sid"]),
             "walk_metres": best["walk_m"],
             "wait_minutes": best["wait_secs"] // 60,
+        }
+        return {
+            "legs": [self._describe_leg(best["one"]), self._describe_leg(best["two"])],
+            **change,
+            # The same change again as a list, so a caller can draw any number
+            # of changes from one field; see interchange_legs_two.
+            "changes": [change],
             "total_minutes": best["total_secs"] // 60,
         }
+
+    def _describe_leg(self, leg) -> dict:
+        trip_id = self._tid_to_trip.get(leg["tid"])
+        trip = self.trips.get(trip_id) or {}
+        route = self.routes.get(trip.get("route_id", "")) or {}
+        # By route, never by number: see noc_for_route.
+        noc = self.noc_for_route(trip.get("route_id", ""))
+        return {
+            "service": route.get("short_name", ""),
+            "operator": noc,
+            "headsign": trip.get("headsign", ""),
+            "depart": _span_hhmm(leg["depart"]),
+            "arrive": _span_hhmm(leg["arrive"]),
+            "minutes": max(0, (leg["arrive"] - leg["depart"]) // 60),
+            "stops": self.stops_between(trip_id, leg["board_seq"], leg["alight_seq"]),
+        }
+
+    def _stop_place(self, sid) -> dict:
+        atco = self._sid_to_stop.get(sid)
+        stop = self.stops.get(atco) or {}
+        return {"atco": atco, "name": stop.get("name", ""),
+                "lat": stop.get("lat"), "lon": stop.get("lon")}
+
+    def interchange_legs_two(self, from_stop: str, to_stop: str, day,
+                             anchor_secs: int = 43200) -> Optional[dict]:
+        """The best three-bus itinerary, for pairs no single change connects.
+
+        interchange_legs stops at one change on purpose, and for most journeys on
+        this coast that is right. Some are not: Sompting to Brighton Marina has
+        no one-change itinerary on any day, and without the three buses the map
+        could draw nothing and the fare panel could not say which buses its
+        tickets were being judged against. Call this only when one change fails.
+
+        The same rules as one change, applied twice: at least MIN_CHANGE_SECS
+        plus the walk at each change, no wait over an hour, walks up to
+        INTERCHANGE_WALK_KM, and walking weighed at three times its clock time.
+
+        One pass per middle trip, not a nested one: walking its calls in order
+        and carrying the best boarding seen so far, an alighting call only has
+        to be compared with that. Measured at about 230 ms for Sompting to the
+        Marina on a desktop, and the endpoint caches it for the day.
+        """
+        if self._con is None:
+            return None
+        MIN_CHANGE_SECS = 4 * 60
+        MAX_WAIT_SECS = 60 * 60
+        KEEP = 6
+        CELL = 0.005
+        con = self._conn()
+
+        a_sids = {self.stops[s]["_sid"] for s in self.sibling_stops(from_stop) if s in self.stops}
+        b_sids = {self.stops[s]["_sid"] for s in self.sibling_stops(to_stop) if s in self.stops}
+        if not a_sids or not b_sids or (a_sids & b_sids):
+            return None
+
+        runs, paths = {}, {}
+
+        def trip_runs(tid):
+            if tid not in runs:
+                trip = self.trips.get(self._tid_to_trip.get(tid))
+                runs[tid] = bool(trip) and self.runs_on(trip.get("service_id", ""), day)
+            return runs[tid]
+
+        def calls(tid):
+            if tid not in paths:
+                paths[tid] = con.execute(
+                    "SELECT seq, sid, dep_secs FROM stop_times WHERE tid=? ORDER BY seq",
+                    (tid,)).fetchall()
+            return paths[tid]
+
+        def trips_at(sids):
+            seen = set()
+            for sid in sids:
+                for (tid,) in con.execute("SELECT DISTINCT tid FROM stop_times WHERE sid=?", (sid,)):
+                    if tid not in seen and trip_runs(tid):
+                        seen.add(tid)
+                        yield tid
+
+        def xy(sid):
+            stop = self.stops.get(self._sid_to_stop.get(sid)) or {}
+            return (stop["lat"], stop["lon"]) if stop.get("lat") is not None else None
+
+        def grid_of(sids):
+            grid = {}
+            for sid in sids:
+                pt = xy(sid)
+                if pt:
+                    grid.setdefault((int(pt[0] // CELL), int(pt[1] // CELL)), []).append(sid)
+            return grid
+
+        def nearby(grid, pt):
+            cy, cx = int(pt[0] // CELL), int(pt[1] // CELL)
+            found = set()
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    found.update(grid.get((cy + dy, cx + dx), ()))
+            return found
+
+        def walk_between(pt, sid, other):
+            if sid == other:
+                return 0.0, 0
+            km = _haversine_km(pt, xy(other))
+            if km > self.INTERCHANGE_WALK_KM:
+                return None, None
+            return km, int(km * 1000 / self.WALK_METRES_PER_SEC)
+
+        # Leg one: every stop the first bus can put us at, after the anchor.
+        first: dict = {}
+        for tid in trips_at(a_sids):
+            cs = calls(tid)
+            board = next((c for c in cs if c[1] in a_sids and c[2] is not None
+                          and c[2] >= anchor_secs), None)
+            if board is None:
+                continue
+            for c in cs:
+                if c[0] > board[0] and c[2] is not None:
+                    first.setdefault(c[1], []).append(
+                        {"tid": tid, "board_seq": board[0], "alight_seq": c[0],
+                         "depart": board[2], "arrive": c[2]})
+        # Leg three: every stop from which a bus still reaches the destination.
+        last: dict = {}
+        for tid in trips_at(b_sids):
+            cs = calls(tid)
+            arrive = next((c for c in reversed(cs) if c[1] in b_sids and c[2] is not None), None)
+            if arrive is None:
+                continue
+            for c in cs:
+                if c[0] < arrive[0] and c[2] is not None:
+                    last.setdefault(c[1], []).append(
+                        {"tid": tid, "board_seq": c[0], "alight_seq": arrive[0],
+                         "depart": c[2], "arrive": arrive[2]})
+        if not first or not last:
+            return None
+        for sid in first:
+            first[sid].sort(key=lambda x: x["arrive"])
+            del first[sid][KEEP * 2:]
+        for sid in last:
+            last[sid].sort(key=lambda x: x["depart"])
+        first_grid, last_grid = grid_of(first), grid_of(last)
+
+        best = None
+        for tid in trips_at(set(first)):
+            carry = None          # best boarding so far on this trip
+            for seq, sid, t in calls(tid):
+                if t is None:
+                    continue
+                pt = xy(sid)
+                if pt is None:
+                    continue
+                # Off here, onto a bus that reaches the destination?
+                if carry is not None:
+                    for other in nearby(last_grid, pt) | ({sid} & last.keys()):
+                        km, walk_secs = walk_between(pt, sid, other)
+                        if km is None:
+                            continue
+                        for three in last[other]:
+                            wait = three["depart"] - t
+                            if wait < MIN_CHANGE_SECS + walk_secs:
+                                continue
+                            if wait > MAX_WAIT_SECS:
+                                break          # sorted by departure
+                            score = (three["arrive"] + walk_secs * 3) - carry["value"]
+                            if best is None or score < best["score"]:
+                                best = {
+                                    "score": score, "one": carry["one"],
+                                    "two": {"tid": tid, "board_seq": carry["seq"],
+                                            "alight_seq": seq, "depart": carry["depart"],
+                                            "arrive": t},
+                                    "three": three,
+                                    "changes": [
+                                        (carry["from_sid"], carry["to_sid"], carry["walk_km"], carry["wait"]),
+                                        (sid, other, km, wait),
+                                    ],
+                                }
+                # On here, from a first bus?
+                for other in nearby(first_grid, pt) | ({sid} & first.keys()):
+                    km, walk_secs = walk_between(pt, sid, other)
+                    if km is None:
+                        continue
+                    for one in first[other]:
+                        wait = t - one["arrive"]
+                        if wait < MIN_CHANGE_SECS + walk_secs or wait > MAX_WAIT_SECS:
+                            continue
+                        # The later you can leave the origin, the shorter the
+                        # journey; walking is weighed as it is everywhere else.
+                        value = one["depart"] - walk_secs * 3
+                        if carry is None or value > carry["value"]:
+                            carry = {"value": value, "one": one, "seq": seq, "depart": t,
+                                     "from_sid": other, "to_sid": sid, "walk_km": km, "wait": wait}
+        if best is None:
+            return None
+
+        changes = [{
+            "change_at": self._stop_place(from_sid),
+            "board_at": self._stop_place(to_sid),
+            "walk_metres": round(km * 1000),
+            "wait_minutes": wait // 60,
+        } for from_sid, to_sid, km, wait in best["changes"]]
+        return {
+            "legs": [self._describe_leg(best["one"]), self._describe_leg(best["two"]),
+                     self._describe_leg(best["three"])],
+            # The first change in the older single fields, so a caller that only
+            # knows about one change still draws something true.
+            **changes[0],
+            "changes": changes,
+            "total_minutes": (best["three"]["arrive"] - best["one"]["depart"]) // 60,
+        }
+
+    # Central Brighton: where an evening out ends and the journey home starts.
+    # The same box app.js calls CENTRAL_BRIGHTON, covering Old Steine, Churchill
+    # Square, North Street and the Royal Pavilion. (min_lat, max_lat, min_lon, max_lon)
+    CENTRAL_BRIGHTON = (50.815, 50.830, -0.158, -0.130)
+
+    def _hub_sids(self) -> frozenset:
+        cached = getattr(self, "_hub_sids_cache", None)
+        if cached is None:
+            lo_lat, hi_lat, lo_lon, hi_lon = self.CENTRAL_BRIGHTON
+            cached = self._hub_sids_cache = frozenset(
+                s["_sid"] for s in self.stops.values()
+                if s.get("lat") is not None and s.get("lon") is not None
+                and lo_lat <= s["lat"] <= hi_lat and lo_lon <= s["lon"] <= hi_lon)
+        return cached
+
+    def last_bus_from_hub(self, stop_id: str, from_day=None) -> dict:
+        """The last scheduled direct bus home from central Brighton, by day.
+
+        For each day of a concrete week: the latest trip that leaves a stop in
+        CENTRAL_BRIGHTON and *later* calls at `stop_id` or one of its sibling
+        poles, running on that date.
+
+            {"inside_hub": False, "week_of": "2026-09-14",
+             "days": {"monday": {"day_bus":   {"depart": "23:50", "arrive": "00:25",
+                                               "after_midnight": False, "service": "700",
+                                               "operator": "SCSO", "from": "Old Steine"},
+                                 "night_bus": {... "service": "N700" ...}},
+                      ..., "sunday": None}}
+
+        Split into the last ordinary bus and the last night bus (a short name of
+        N and a digit). One figure would be the night bus at gone three in the
+        morning at every stop on the coast, which is true and says the opposite
+        of what matters: ordinary buses stop far earlier, and the night service
+        is a separate route that day tickets do not cover. A day with neither is
+        None.
+
+        "Later" is by stop sequence, not by clock: a trip that calls here at
+        23:59 and reaches Brighton at 00:40 is on its way in, and taking the
+        latest call at the stop regardless of direction offers it as the way
+        home. A departure before NIGHT_ENDS_SECS is read as after midnight at
+        the end of that service day, the same rule service_span uses, because
+        feeds disagree about writing twenty past midnight as 24:20 or 00:20.
+
+        Direct buses only. A journey home that needs a change is not counted,
+        and the caller says so rather than implying there is no way back.
+        """
+        if self._con is None:
+            return {}
+        cache = getattr(self, "_last_bus_cache", None)
+        if cache is None:
+            cache = self._last_bus_cache = {}
+        key = (stop_id, from_day)
+        if key in cache:
+            return cache[key]
+
+        week = self.sample_week(from_day)
+        result = {"inside_hub": False, "week_of": week["monday"].isoformat(), "days": {}}
+        hub = self._hub_sids()
+        stop = self.stops.get(stop_id)
+        if not stop:
+            cache[key] = result
+            return result
+        if stop.get("_sid") in hub:
+            result["inside_hub"] = True
+            cache[key] = result
+            return result
+
+        sids = [self.stops[s]["_sid"] for s in self.sibling_stops(stop_id) if s in self.stops]
+        rows = []
+        if sids and hub:
+            ph_stop = ",".join("?" * len(sids))
+            hub_list = list(hub)
+            ph_hub = ",".join("?" * len(hub_list))
+            rows = self._conn().execute(
+                f"""SELECT st.tid, st.dep_secs, h.dep_secs, h.sid, t.service_id, r.short_name
+                      FROM stop_times st
+                      JOIN stop_times h ON h.tid = st.tid AND h.seq < st.seq
+                      JOIN trips  t ON t.tid = st.tid
+                      JOIN routes r ON r.rid = t.rid
+                     WHERE st.sid IN ({ph_stop}) AND h.sid IN ({ph_hub})""",
+                [*sids, *hub_list],
+            ).fetchall()
+
+        def late(secs):
+            if secs is None:
+                return None
+            return secs + DAY_SECS if secs < NIGHT_ENDS_SECS else secs
+
+        def clock(secs):
+            secs %= DAY_SECS
+            return f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}"
+
+        def describe(best):
+            leave, reach, tid, hub_sid, short_name = best
+            trip = self.trips.get(self._tid_to_trip.get(tid)) or {}
+            return {
+                "depart": clock(leave),
+                "arrive": clock(reach),
+                "after_midnight": leave >= DAY_SECS,
+                "service": short_name or "",
+                "operator": self.noc_for_route(trip.get("route_id", "")),
+                "from": (self.stops.get(self._sid_to_stop.get(hub_sid)) or {}).get("name", ""),
+            }
+
+        runs = {}
+        for day in self._DAY_COLS:
+            best = {"day_bus": None, "night_bus": None}
+            for tid, arr, dep, hub_sid, service_id, short_name in rows:
+                k = (service_id, day)
+                if k not in runs:
+                    runs[k] = self.runs_on(service_id, week[day])
+                if not runs[k]:
+                    continue
+                leave, reach = late(dep), late(arr)
+                # The night ends at NIGHT_ENDS_SECS. GTFS lets a service day run
+                # on past 24:00, and the first bus of the next morning can be
+                # written as 28:37 on the day before: numerically the latest,
+                # and nobody's way home from an evening out. In the real feed it
+                # was offered as the last 700 at every stop along the coast.
+                if leave is not None and leave >= DAY_SECS + NIGHT_ENDS_SECS:
+                    continue
+                # Belt and braces with `h.seq < st.seq` above: a trip whose
+                # clock says it reaches the stop before leaving Brighton is
+                # heading the other way, or its times are broken.
+                if leave is None or reach is None or reach < leave:
+                    continue
+                kind = "night_bus" if re.match(r"N\d", short_name or "") else "day_bus"
+                if best[kind] is None or leave > best[kind][0]:
+                    best[kind] = (leave, reach, tid, hub_sid, short_name)
+            if best["day_bus"] is None and best["night_bus"] is None:
+                result["days"][day] = None
+                continue
+            result["days"][day] = {k: (describe(v) if v else None) for k, v in best.items()}
+        cache[key] = result
+        return result
 
     def service_span(self, stop_id: str) -> dict:
         """When buses actually run from a stop, by day of week.
