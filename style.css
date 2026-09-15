@@ -3276,6 +3276,13 @@ html.dark-mode .header-title { color: var(--color-on-fill); }
     color: var(--color-accent-text);
     background: var(--color-surface-2);
   }
+  /* The label kept the header's near-white text after the pill moved onto a
+     light surface: 1.09:1, and it is only shown here while connecting or
+     failing, the two moments it has to be read. Found when a slow feed left
+     "Connecting" up long enough for the contrast scan to see it. */
+  .status-pill .last-updated { color: var(--color-text); }
+  .status-pill .last-updated.is-error .status-pill-label,
+  .status-pill .last-updated.is-error .loading-dots { color: var(--color-late); }
   /* The mark now earns its place at this width instead of being dropped. It
      is the most compact form the brand has — 32px against the wordmark's
      ~150 — so hiding it and keeping only text gets the trade backwards. */
@@ -6027,6 +6034,7 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   overflow: hidden;
 }
 .gap-monitor--alert { border-left-color: var(--color-late); }
+.gap-monitor + .gap-monitor { margin-top: var(--space-xs); }
 .gap-monitor summary {
   display: flex;
   align-items: center;

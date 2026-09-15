@@ -1,13 +1,13 @@
-"""Long gaps between westbound buses on the A259 coast road, right now.
+"""Long gaps between buses on the A259 coast road through Shoreham, right now.
 
 The coast road through Shoreham is the corridor this project is about, and the
 complaint people make about it is rarely the timetable on paper. It is standing
-at a stop while the bus that should have come does not. This measures that,
-from the live bus positions the map already fetches, and says so only when a
-gap is longer than the timetable itself would explain.
+at a stop while the bus that should have come does not. This measures that, in
+both directions, from the live bus positions the map already fetches, and says
+so only when a gap is longer than the timetable itself would explain.
 
 **Where the times come from.** Not the prediction feed. TransportAPI is capped
-at 300 calls a day across the whole site, and three stops polled every minute
+at 300 calls a day across the whole site, and six stops polled every minute
 would spend that by mid-morning and take live times away from every stop
 panel. BODS vehicle positions are already fetched once for the whole area and
 cached, so this costs no upstream calls at all.
@@ -19,6 +19,20 @@ watchpoint is now plus the *scheduled running time* from that stop to the
 watchpoint. That is deliberately independent of lateness, which this feed
 barely publishes: a bus twenty minutes late is still twenty minutes' running
 time away.
+
+**Three ways it raised a false alarm on live data, and what stops each.**
+
+* A bus was placed on a trip that had not started. Two buses reported the same
+  position, and the second was matched to the *next* departure, thirteen
+  minutes ahead of it. Buses run late far more than early, so a bus may now be
+  at most five minutes early for a trip, though still up to 25 minutes late.
+* A trip a few minutes past its first stop, with no bus on it yet, was counted
+  as not reporting. That is usually a bus leaving late. For fifteen minutes
+  such a trip is taken at its timetable time, or later if it cannot now make
+  that, before it counts as missing.
+* A gap sitting on the threshold appeared for one refresh and went again. An
+  alert is now only reported when a second look, at least 45 seconds after the
+  first, still finds it.
 
 **What it cannot see, and which way that cuts.** A bus that is not reporting
 its position looks exactly like a bus that is not running. That bias makes gaps
@@ -33,13 +47,25 @@ hour-long gaps then by design, and the question this answers is a daytime one.
 import math
 from datetime import timedelta
 
-# East to west, the order a westbound bus reaches them. Each pole serves one
-# direction of the road, so naming the westbound pole is what makes this a
-# westbound monitor; there is no direction field to get wrong.
-WATCHPOINTS = (
+# In the order a bus in that direction reaches them. Each pole serves one side
+# of the road, so naming the pole is what makes a direction; there is no
+# direction field in the feed to get wrong.
+WEST_WATCHPOINTS = (
     ("4400AD0330", "Shoreham Port"),
     ("4400AD0203", "Shoreham High Street"),
     ("4400AD0063", "Beach Green Hotel, Lancing"),
+)
+EAST_WATCHPOINTS = (
+    ("4400AD0064", "Beach Green Hotel, Lancing"),
+    ("4400AD0204", "Shoreham High Street"),
+    ("4400AD0329", "Shoreham Port"),
+)
+
+DIRECTIONS = (
+    {"id": "worthing", "label": "A259 Coast Rd towards Worthing",
+     "towards": "towards Worthing", "watchpoints": WEST_WATCHPOINTS},
+    {"id": "brighton", "label": "A259 Coast Rd towards Brighton",
+     "towards": "towards Brighton", "watchpoints": EAST_WATCHPOINTS},
 )
 
 QUIET_FROM_SECS = 23 * 3600 + 30 * 60
@@ -51,15 +77,22 @@ HORIZON_SECS = 60 * 60
 # half-hourly service from reading as a failure every single evening.
 ALERT_GAP_SECS = 20 * 60
 ALERT_OVER_SCHEDULE_SECS = 10 * 60
+# Seen once is not enough. The client asks once a minute and the answer is
+# cached for 30 s, so a second look is 30 to 60 s after the first.
+CONFIRM_SECS = 45
 
-# The same bound the single-vehicle trip match uses: a bus more than 25 minutes
-# away from any trip's schedule at its position is not placed on one.
+# Late by up to 25 minutes, the same bound the single-vehicle trip match uses.
+# Early by no more than 5: a bus mid-route cannot be running a departure that
+# has not left yet.
 MATCH_TOLERANCE_SECS = 25 * 60
+EARLY_TOLERANCE_SECS = 5 * 60
 # A bus further than this from every stop on a trip is not running that trip.
 MAX_OFF_ROUTE_KM = 0.4
 # A scheduled bus this far past its watchpoint time with nothing tracked has
 # probably gone by, or never came; either way it is no longer a future arrival.
 PASSED_GRACE_SECS = 5 * 60
+# How long a departure with no bus on it is presumed to be leaving late.
+LATE_START_GRACE_SECS = 15 * 60
 # Below this share of on-road buses reporting, a gap says more about the feed
 # than about the service, and nothing is shown.
 MIN_COVERAGE = 0.5
@@ -74,17 +107,22 @@ NEXT_SHOWN = 3
 METHOD = (
     "Arrival times are estimated from live bus positions (Bus Open Data Service) "
     "and scheduled running times: each tracked bus is matched to the scheduled "
-    "trip that best fits where it is now, and its arrival is now plus the "
-    "timetable's running time from there. Buses that have not started their "
-    "journey yet are taken from the timetable. A gap is flagged when it is over "
-    "20 minutes and at least 10 minutes longer than the timetable's own gap at "
-    "that time. Coaches are not counted. Not measured between 23:30 and 04:30."
+    "trip that best fits where it is now, at most 5 minutes early or 25 minutes "
+    "late, and its arrival is now plus the timetable's running time from there. "
+    "Buses that have not started their journey are taken from the timetable, as "
+    "are those up to 15 minutes past their first stop with no bus tracked yet. "
+    "A gap is flagged when it is over 20 minutes and at least 10 minutes longer "
+    "than the timetable's own gap at that time, and is still there when checked "
+    "again at least 45 seconds later. Coaches are not counted. Not measured "
+    "between 23:30 and 04:30."
 )
 
 CAVEATS = [
     "A bus that is not sending its position cannot be told apart from one that "
     "is not running, which makes gaps look longer. Gaps containing a scheduled "
     "bus with no tracked vehicle say so.",
+    "A departure with no bus tracked is assumed to be leaving late for its first "
+    "15 minutes, which can hide a cancellation for that long.",
     "Estimates assume the rest of the journey takes as long as the timetable "
     "says, so traffic ahead of a bus is not accounted for.",
     "Only the next hour is looked at, so a gap running past it is measured only "
@@ -128,23 +166,42 @@ def _service_keys(name: str) -> set:
     return keys
 
 
-def corridor_gaps(tt, vehicles, now_local, watchpoints=WATCHPOINTS) -> dict:
-    """The monitor's whole answer, for one moment. `now_local` is Europe/London."""
-    as_of = now_local.replace(microsecond=0).isoformat()
+def corridor_report(tt, vehicles, now_local, memory=None, directions=DIRECTIONS) -> dict:
+    """Both directions, for one moment. `now_local` is Europe/London.
+
+    `memory` carries first sightings of each alert between calls, and is what
+    makes the second-look confirmation work. The API keeps one for the life of
+    the process.
+    """
     base = {
         "corridor": "A259",
-        "direction": "westbound",
         "quiet_hours": {"from": _clock(QUIET_FROM_SECS), "to": _clock(QUIET_TO_SECS)},
-        "as_of": as_of,
+        "as_of": now_local.replace(microsecond=0).isoformat(),
         "method": METHOD,
         "caveats": CAVEATS,
     }
     if is_quiet(now_local):
-        return {**base, "active": False, "status": "quiet", "reason": "quiet_hours"}
-    if not tt.ok():
-        return {**base, "active": True, "status": "unknown", "reason": "no_timetable"}
+        if memory is not None:
+            memory.clear()
+        return {**base, "active": False, "reason": "quiet_hours", "directions": []}
+    out = []
+    for d in directions:
+        answer = direction_gaps(tt, vehicles, now_local, d["watchpoints"],
+                                memory=memory, memory_key=d["id"])
+        out.append({"id": d["id"], "label": d["label"], "towards": d["towards"], **answer})
+    return {**base, "active": True, "directions": out}
+
+
+def direction_gaps(tt, vehicles, now_local, watchpoints, memory=None, memory_key="") -> dict:
+    """One direction's answer.
+
+    With no `memory`, an alert is reported the first time it is seen. That is
+    for tests of everything else; the API always passes one.
+    """
+    if tt is None or not tt.ok():
+        return {"status": "unknown", "reason": "no_timetable"}
     if not vehicles:
-        return {**base, "active": True, "status": "unknown", "reason": "no_live_data"}
+        return {"status": "unknown", "reason": "no_live_data"}
 
     now = now_local.hour * 3600 + now_local.minute * 60 + now_local.second
     today = now_local.date()
@@ -183,7 +240,7 @@ def corridor_gaps(tt, vehicles, now_local, watchpoints=WATCHPOINTS) -> dict:
         scheduled[atco].sort()
 
     if not instances:
-        return {**base, "active": True, "status": "unknown", "reason": "no_timetable"}
+        return {"status": "unknown", "reason": "no_timetable"}
 
     for key, inst in instances.items():
         calls = tt.trip_stops_for(key[0])
@@ -192,7 +249,8 @@ def corridor_gaps(tt, vehicles, now_local, watchpoints=WATCHPOINTS) -> dict:
         route = tt.routes.get(inst["trip"].get("route_id", "")) or {}
         inst["service"] = route.get("short_name", "")
         inst["keys"] = _service_keys(inst["service"])
-        inst["started"] = bool(inst["calls"]) and inst["calls"][0][0] <= now
+        inst["first"] = inst["calls"][0][0] if inst["calls"] else None
+        inst["started"] = inst["first"] is not None and inst["first"] <= now
 
     # ── Place each tracked bus on at most one trip, and each trip on one bus ──
     options = []
@@ -206,7 +264,7 @@ def corridor_gaps(tt, vehicles, now_local, watchpoints=WATCHPOINTS) -> dict:
         dest = (v.get("destination") or "").replace("_", " ").strip().lower()
         heading = v.get("bearing")
         # Feeds send 0 for "no heading". Trusting it would rule out every
-        # westbound bus on an east-west road and invent the gap this reports.
+        # bus on an east-west road and invent the gap this reports.
         if not heading:
             heading = None
         per_vehicle = []
@@ -223,8 +281,8 @@ def corridor_gaps(tt, vehicles, now_local, watchpoints=WATCHPOINTS) -> dict:
                     best_i, best_d = i, d
             if best_i is None or best_d > MAX_OFF_ROUTE_KM:
                 continue
-            score = abs(inst["calls"][best_i][0] - now)
-            if score > MATCH_TOLERANCE_SECS:
+            lateness = now - inst["calls"][best_i][0]
+            if not (-EARLY_TOLERANCE_SECS <= lateness <= MATCH_TOLERANCE_SECS):
                 continue
             # A bus on the other side of the road sits within metres of this
             # trip's poles. Its heading, when the feed sends one, rules it out.
@@ -235,7 +293,7 @@ def corridor_gaps(tt, vehicles, now_local, watchpoints=WATCHPOINTS) -> dict:
             dir_match = bool(dest) and (dest in headsign or dest in last
                                         or (headsign and headsign in dest)
                                         or (last and last in dest))
-            per_vehicle.append((score, key, best_i, dir_match))
+            per_vehicle.append((abs(lateness), key, best_i, dir_match))
         # Where the destination names a trip, only trips it names are in the
         # running; otherwise a fresher trip the other way could win on time.
         if any(m for *_, m in per_vehicle):
@@ -251,19 +309,25 @@ def corridor_gaps(tt, vehicles, now_local, watchpoints=WATCHPOINTS) -> dict:
         placed[key] = (vi, idx)
         used.add(vi)
 
+    def leaving_late(inst):
+        return inst["started"] and now - inst["first"] <= LATE_START_GRACE_SECS
+
     # ── Coverage: of the buses that should be on the road, how many are seen ──
+    # A departure still inside its late-leaving grace is not yet expected to
+    # be tracked, so it counts for neither side until it is.
     still_due = {k for atco, _ in watchpoints for t, k in scheduled[atco]
                  if t >= now - PASSED_GRACE_SECS}
     expected = [key for key, inst in instances.items()
-                if inst["started"] and key in still_due]
+                if inst["started"] and key in still_due
+                and (key in placed or not leaving_late(inst))]
     reporting = sum(1 for key in expected if key in placed)
     coverage = {"on_road": len(expected), "reporting": reporting}
     if (len(expected) >= MIN_EXPECTED_FOR_COVERAGE
             and reporting / len(expected) < MIN_COVERAGE):
-        return {**base, "active": True, "status": "unknown", "reason": "low_coverage",
-                "coverage": coverage}
+        return {"status": "unknown", "reason": "low_coverage", "coverage": coverage}
 
     end = now + HORIZON_SECS
+    now_ts = now_local.timestamp()
     stops_out = []
     for atco, name in watchpoints:
         arrivals, missing = [], []
@@ -280,6 +344,10 @@ def corridor_gaps(tt, vehicles, now_local, watchpoints=WATCHPOINTS) -> dict:
             elif not inst["started"]:
                 if t >= now:
                     arrivals.append((t, inst["service"], "scheduled"))
+            elif leaving_late(inst):
+                # If it left this minute, it would reach the stop this long
+                # from now; it cannot be any earlier than the timetable says.
+                arrivals.append((max(t, now + (t - inst["first"])), inst["service"], "scheduled"))
             elif t >= now - PASSED_GRACE_SECS:
                 missing.append(t)
         arrivals.sort()
@@ -291,8 +359,8 @@ def corridor_gaps(tt, vehicles, now_local, watchpoints=WATCHPOINTS) -> dict:
         for x, y in zip(points, points[1:]):
             length = y - x
             timetable_gap = _timetable_gap(sched_times, x, y)
-            alert = (length > ALERT_GAP_SECS
-                     and length - timetable_gap >= ALERT_OVER_SCHEDULE_SECS)
+            qualifies = (length > ALERT_GAP_SECS
+                         and length - timetable_gap >= ALERT_OVER_SCHEDULE_SECS)
             gap = {
                 "minutes": length // 60,
                 "from": _clock(x),
@@ -301,12 +369,13 @@ def corridor_gaps(tt, vehicles, now_local, watchpoints=WATCHPOINTS) -> dict:
                 "to_horizon": y == end,
                 "timetable_minutes": timetable_gap // 60,
                 "not_reporting": sum(1 for m in missing if x < m < y),
-                "alert": alert,
+                "alert": qualifies,
             }
-            if worst is None or (alert, length) > (worst["alert"], worst["_secs"]):
+            if worst is None or (qualifies, length) > (worst["alert"], worst["_secs"]):
                 worst = {**gap, "_secs": length}
         if worst is not None:
             worst.pop("_secs")
+            _confirm(worst, memory, f"{memory_key}:{atco}", now_ts)
         stops_out.append({
             "atco": atco,
             "name": name,
@@ -322,14 +391,25 @@ def corridor_gaps(tt, vehicles, now_local, watchpoints=WATCHPOINTS) -> dict:
         top = max(alerts, key=lambda s: s["longest_gap"]["minutes"])
         alert = {"atco": top["atco"], "name": top["name"], **top["longest_gap"]}
     return {
-        **base,
-        "active": True,
         "status": "alert" if alert else "normal",
         "reason": None,
         "stops": stops_out,
         "alert": alert,
         "coverage": coverage,
     }
+
+
+def _confirm(gap, memory, key, now_ts) -> None:
+    """Hold an alert back until a second look still finds it."""
+    if memory is None:
+        return
+    if not gap["alert"]:
+        memory.pop(key, None)
+        return
+    first_seen = memory.setdefault(key, now_ts)
+    if now_ts - first_seen < CONFIRM_SECS:
+        gap["alert"] = False
+        gap["pending"] = True
 
 
 def _timetable_gap(sched_times, x, y) -> int:

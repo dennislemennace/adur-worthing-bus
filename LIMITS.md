@@ -45,8 +45,8 @@ relied on. The idle limit is 15 minutes, so the cadence stays at 10.
 
 The static stop list (`data/stops.json`, see below) is what makes the overnight
 window cheap: the map draws without the API, so someone checking a night bus
-after 23:30 still gets stops, a route map and timetable data while the container
-wakes for live times.
+after 23:30 still gets the map and its stops while the container wakes. Route
+lines and timetables are API calls too, and arrive with it.
 - 512 MB RAM, ~0.1 vCPU (shared).
 - **No persistent disk.** Anything written to disk is lost on redeploy. The
   GTFS SQLite (`data/timetable.sqlite`) is fetched from a GitHub Release on
@@ -93,12 +93,17 @@ wakes for live times.
 - No published hard rate limit; "fair use" applies.
 - Current usage: a single bounding-box poll of `/datafeed/` every
   `VEHICLE_REFRESH_MS` (default 20 s) per active browser tab.
-- The A259 gap monitor (`/api/corridor-gaps`, `api/corridor_gaps.py`) reads the
-  same 15 s vehicle cache and adds no feed calls of its own while the map is
-  polling. The page asks for it once a minute, only in Live view, and not at
-  all from 23:30 to 04:30 London time, so it never wakes the service overnight.
-  Its answer is cached for 30 s. It does not use TransportAPI: three stops
-  polled every minute would have spent the 300-a-day cap by mid-morning.
+- Every caller of the feed goes through one single-flight cache
+  (`_live_vehicles` in `api/main.py`): the map, a bus panel and the gap monitor
+  share one fetch per 15 s whoever asks. `/api/vehicle` and the monitor once
+  had their own path that fetched on a cache miss and matched trips on the
+  event loop, which stalled the API for seconds on the free instance.
+- The A259 gap monitor (`/api/corridor-gaps`, `api/corridor_gaps.py`) covers
+  both directions in one answer, cached for 30 s, from that shared cache. The
+  page asks once a minute, only in Live view, and not at all from 23:30 to
+  04:30 London time, so it never wakes the service overnight. It does not use
+  TransportAPI: six stops polled every minute would have spent the 300-a-day
+  cap by mid-morning.
 
 **Implications**
 

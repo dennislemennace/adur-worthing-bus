@@ -1581,18 +1581,18 @@ function gapArrivalText(n) {
   return `${escapeHtml(n.service)} ${when}${timetable}`;
 }
 
-function gapAlertHtml(a) {
+function gapAlertHtml(a, towards) {
   const where = escapeHtml(a.name);
+  const bus = `No bus ${escapeHtml(towards)} is expected at ${where}`;
   const atLeast = a.to_horizon ? "at least " : "";
   let span;
   if (a.from_now && a.to_horizon) {
-    span = `No westbound bus is expected at ${where} in the next hour.`;
+    span = `${bus} in the next hour.`;
   } else if (a.from_now) {
-    span = `No westbound bus is expected at ${where} until ${escapeHtml(a.to)}, `
-      + `${gapMinutes(a.minutes)} from now.`;
+    span = `${bus} until ${escapeHtml(a.to)}, ${gapMinutes(a.minutes)} from now.`;
   } else {
-    span = `No westbound bus is expected at ${where} between ${escapeHtml(a.from)} `
-      + `and ${escapeHtml(a.to)}, a gap of ${atLeast}${gapMinutes(a.minutes)}.`;
+    span = `${bus} between ${escapeHtml(a.from)} and ${escapeHtml(a.to)}, `
+      + `a gap of ${atLeast}${gapMinutes(a.minutes)}.`;
   }
   const n = a.not_reporting || 0;
   // A bus that is not sending its position looks exactly like one that is not
@@ -1604,34 +1604,36 @@ function gapAlertHtml(a) {
     + `${gapMinutes(a.timetable_minutes)}.${missing}</p>`;
 }
 
-/** The monitor's markup, or "" when there is nothing honest to show. */
-function gapMonitorHtml(data, { open = false } = {}) {
-  if (!data || data.active !== true) return "";
-  if (data.status !== "normal" && data.status !== "alert") return "";
-  const stops = Array.isArray(data.stops) ? data.stops : [];
-  const alert = data.status === "alert" ? data.alert : null;
-  if (!stops.length || (data.status === "alert" && !alert)) return "";
+/** The directions the server could actually judge. A direction whose answer is
+ *  unknown is left out rather than shown as anything, and a response without
+ *  directions at all (an API older than this page) shows nothing. */
+function gapShownDirections(data) {
+  if (!data || data.active !== true || !Array.isArray(data.directions)) return [];
+  return data.directions.filter(d => d && Array.isArray(d.stops) && d.stops.length
+    && (d.status === "normal" || (d.status === "alert" && d.alert)));
+}
 
+function gapDirectionHtml(d, asOf, open) {
+  const alert = d.status === "alert" ? d.alert : null;
+  const label = escapeHtml(d.label);
   const summary = alert
-    ? `Long gap in westbound buses at ${escapeHtml(alert.name)}`
-    : "A259 westbound: buses running to timetable";
-  const rows = stops.map(s => {
+    ? `${label}: long gap at ${escapeHtml(alert.name)}`
+    : `${label}: running to timetable`;
+  const rows = d.stops.map(s => {
     const next = (s.next || []).map(gapArrivalText).join(", ");
     return `<li><span class="gap-monitor-stop">${escapeHtml(s.name)}</span> `
       + `${next || "no bus in the next hour"}</li>`;
   }).join("");
-  const asOf = typeof data.as_of === "string" ? data.as_of.slice(11, 16) : "";
-
   return `
-    <details class="gap-monitor${alert ? " gap-monitor--alert" : ""}"${open ? " open" : ""}>
+    <details class="gap-monitor${alert ? " gap-monitor--alert" : ""}" data-direction="${escapeAttr(d.id)}"${open ? " open" : ""}>
       <summary>
         <svg class="icon gap-monitor-icon" aria-hidden="true"><use href="#${alert ? "i-alert" : "i-clock"}"/></svg>
         <span class="gap-monitor-text">${summary}</span>
         <svg class="icon gap-monitor-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
       </summary>
       <div class="gap-monitor-body">
-        ${alert ? gapAlertHtml(alert) : ""}
-        <ul class="gap-monitor-stops" aria-label="Next westbound buses">${rows}</ul>
+        ${alert ? gapAlertHtml(alert, d.towards || "") : ""}
+        <ul class="gap-monitor-stops" aria-label="Next buses ${escapeAttr(d.towards || "")}">${rows}</ul>
         <p class="gap-monitor-method">Estimated${asOf ? ` at ${escapeHtml(asOf)}` : ""}
           from live bus positions and scheduled running times. Coaches are not
           counted, and nothing is shown between ${GAP_QUIET_FROM} and ${GAP_QUIET_TO}.</p>
@@ -1639,40 +1641,65 @@ function gapMonitorHtml(data, { open = false } = {}) {
     </details>`;
 }
 
+/** The monitor's markup, one row per direction, or "" when there is nothing
+ *  honest to show. `open` says which rows the reader had open. */
+function gapMonitorHtml(data, { open = {} } = {}) {
+  const shown = gapShownDirections(data);
+  if (!shown.length) return "";
+  const asOf = typeof data.as_of === "string" ? data.as_of.slice(11, 16) : "";
+  return shown.map(d => gapDirectionHtml(d, asOf, !!open[d.id])).join("");
+}
+
 function renderGapMonitor(data) {
   const host = dom.gapMonitor;
   if (!host) return;
-  const details = host.querySelector("details");
-  const hadFocus = !!details && details.contains(document.activeElement);
-  const html = gapMonitorHtml(data, { open: !!details && details.open });
+  const open = {};
+  let focused = null;
+  for (const row of host.querySelectorAll("details[data-direction]")) {
+    open[row.dataset.direction] = row.open;
+    if (row.contains(document.activeElement)) focused = row.dataset.direction;
+  }
+  const html = gapMonitorHtml(data, { open });
   host.innerHTML = html;
   host.hidden = !html;
   // Rebuilt every minute, so a keyboard user sitting on it would otherwise be
   // dropped back to the top of the page each time the numbers move.
-  if (hadFocus && html) host.querySelector("summary")?.focus();
+  if (focused && html) gapRow(focused)?.querySelector("summary")?.focus();
 
   // The way in on a phone, where the monitor is below the resting sheet.
-  const alerting = !!html && data.status === "alert";
+  const alerts = html ? gapShownDirections(data).filter(d => d.status === "alert") : [];
   if (dom.gapAlertBtn) {
-    dom.gapAlertBtn.hidden = !alerting;
-    if (alerting) {
-      const label = `Long gap in westbound buses at ${data.alert.name}. Show details`;
+    dom.gapAlertBtn.hidden = !alerts.length;
+    if (alerts.length) {
+      const first = alerts[0];
+      const label = `${first.label}: long gap at ${first.alert.name}. Show details`;
       dom.gapAlertBtn.setAttribute("aria-label", label);
       dom.gapAlertBtn.title = label;
+      dom.gapAlertBtn.dataset.direction = first.id;
     }
   }
 
-  // Announced only when the state changes, not on every tick.
-  const key = html ? `${data.status}:${data.alert ? data.alert.atco : ""}` : "";
+  // Announced only when something changes, not on every tick.
+  const key = html ? ["shown", ...alerts.map(d => `${d.id}:${d.alert.atco}`)].join("|") : "";
   if (key === state.gapMonitorKey) return;
+  const before = state.gapMonitorKey.split("|");
+  const fresh = alerts.filter(d => !before.includes(`${d.id}:${d.alert.atco}`));
   let say = "";
-  if (html && data.status === "alert") {
-    say = `Long gap in westbound buses at ${data.alert.name}.`;
-  } else if (html && state.gapMonitorKey.startsWith("alert")) {
-    say = "Westbound buses on the A259 are running to timetable again.";
+  if (fresh.length) {
+    say = fresh.map(d => `${d.label}: long gap at ${d.alert.name}.`).join(" ");
+  } else if (html && !alerts.length && before.length > 1) {
+    say = "Buses on the A259 Coast Rd are running to timetable again.";
   }
   if (say && dom.gapMonitorLive) dom.gapMonitorLive.textContent = say;
   state.gapMonitorKey = key;
+}
+
+/** One direction's row, found by comparison rather than by building a selector
+ *  out of text that came from the server. */
+function gapRow(id) {
+  if (!dom.gapMonitor) return null;
+  return [...dom.gapMonitor.querySelectorAll("details[data-direction]")]
+    .find(row => row.dataset.direction === id) || null;
 }
 
 async function fetchGapMonitor() {
@@ -1701,11 +1728,13 @@ function revealGapMonitor() {
   if (state.selectedStop || state.selectedVehicleRef) closePanel();
   setActiveTab("stop");
   if (isSheetLayout() && state.sheetDetent === "peek") setSheetDetent("half");
-  const details = dom.gapMonitor && dom.gapMonitor.querySelector("details");
-  if (!details) return;
-  details.open = true;
-  scrollPanelTo(dom.gapMonitor, 8);
-  details.querySelector("summary")?.focus({ preventScroll: true });
+  // The row that is alerting, which is the one the button named.
+  const wanted = dom.gapAlertBtn ? dom.gapAlertBtn.dataset.direction : null;
+  const row = gapRow(wanted) || dom.gapMonitor?.querySelector("details[data-direction]");
+  if (!row) return;
+  row.open = true;
+  scrollPanelTo(row, 8);
+  row.querySelector("summary")?.focus({ preventScroll: true });
 }
 
 function startGapMonitor() {
@@ -10155,7 +10184,11 @@ function showWakingBanner() {
   if (!dom.wakingBanner) return;
   dom.wakingText.textContent =
     "Waking the live service up. This takes about 20 seconds after a quiet "
-    + "spell. Timetables and routes are ready now.";
+    // Only the stop list is published with the site. Route lines and
+    // timetables both come from the service that is still starting, so this
+    // used to promise Route view a map it did not yet have.
+    + "spell. The map and stops are ready now, and routes, timetables and "
+    + "live times will follow.";
   dom.wakingBanner.classList.remove("hidden");
 }
 

@@ -1520,21 +1520,32 @@ async function checkLastBusHome(page, where) {
 
 /** A gap-monitor answer to draw with, so the check does not depend on the time
  *  of day or on a BODS key the local API does not have. */
+const GAP_STOPS = [
+  { atco: "4400AD0330", name: "Shoreham Port",
+    next: [{ service: "700", due: "12:34", minutes: 4, source: "live" },
+           { service: "700", due: "12:44", minutes: 14, source: "scheduled" }] },
+  { atco: "4400AD0203", name: "Shoreham High Street",
+    next: [{ service: "2", due: "12:30", minutes: 0, source: "live" }] },
+  { atco: "4400AD0063", name: "Beach Green Hotel, Lancing",
+    next: [{ service: "700", due: "13:03", minutes: 33, source: "live" }] },
+];
+const gapDirection = (id, over = {}) => ({
+  id, label: `A259 Coast Rd towards ${id === "brighton" ? "Brighton" : "Worthing"}`,
+  towards: `towards ${id === "brighton" ? "Brighton" : "Worthing"}`,
+  status: "normal", reason: null, alert: null, stops: GAP_STOPS, ...over });
+// The alerting row is the second one on purpose: a button that opened the
+// first row would pass a check that only ever had one.
 const GAP_ALERT = {
-  active: true, status: "alert", reason: null, as_of: "2026-09-16T12:30:00+01:00",
-  alert: { atco: "4400AD0063", name: "Beach Green Hotel, Lancing", minutes: 32,
-           from: "12:31", to: "13:03", from_now: false, to_horizon: false,
-           timetable_minutes: 10, not_reporting: 2, alert: true },
-  stops: [
-    { atco: "4400AD0330", name: "Shoreham Port",
-      next: [{ service: "700", due: "12:34", minutes: 4, source: "live" },
-             { service: "700", due: "12:44", minutes: 14, source: "scheduled" }] },
-    { atco: "4400AD0203", name: "Shoreham High Street",
-      next: [{ service: "2", due: "12:30", minutes: 0, source: "live" }] },
-    { atco: "4400AD0063", name: "Beach Green Hotel, Lancing",
-      next: [{ service: "700", due: "13:03", minutes: 33, source: "live" }] },
+  active: true, as_of: "2026-09-16T12:30:00+01:00",
+  directions: [
+    gapDirection("worthing"),
+    gapDirection("brighton", { status: "alert", alert: {
+      atco: "4400AD0204", name: "Beach Green Hotel, Lancing", minutes: 32,
+      from: "12:31", to: "13:03", from_now: false, to_horizon: false,
+      timetable_minutes: 10, not_reporting: 2, alert: true } }),
   ],
 };
+const GAP_NORMAL = { ...GAP_ALERT, directions: [gapDirection("worthing"), gapDirection("brighton")] };
 
 /**
  * The gap monitor was asked for on one condition: that it not take map space,
@@ -1568,18 +1579,17 @@ async function checkGapMonitor(page, where) {
     const sheetBefore = sheetOverlapPx();
     renderGapMonitor(${JSON.stringify(GAP_ALERT)});
     const host = document.getElementById("gap-monitor");
-    const summary = host.querySelector("summary");
+    const heights = [...host.querySelectorAll("summary")].map(x => Math.round(x.getBoundingClientRect().height));
     const panel = document.getElementById("departure-panel").getBoundingClientRect();
     const mapAfter = document.getElementById("map").getBoundingClientRect();
     const b = host.getBoundingClientRect();
-    const s = summary ? summary.getBoundingClientRect() : { top: 0, bottom: 0, height: 0 };
     return JSON.stringify({
       shown: !host.hidden && b.height > 0,
       inPanel: b.left >= panel.left - 1 && b.right <= panel.right + 1 && b.top >= panel.top - 1,
       mapSame: Math.round(map.width) === Math.round(mapAfter.width)
             && Math.round(map.height) === Math.round(mapAfter.height),
       sheetBefore, detentBefore: state.sheetDetent,
-      summaryH: Math.round(s.height), summaryTop: Math.round(s.top), summaryBottom: Math.round(s.bottom),
+      rows: heights.length, heights,
       sheet: isSheetLayout(), vh: window.innerHeight,
     });
   })()`));
@@ -1592,9 +1602,9 @@ async function checkGapMonitor(page, where) {
     r.shown && r.inPanel && r.mapSame, JSON.stringify(r));
   check(`showing the gap monitor does not grow the sheet — ${where}`,
     r.sheetBefore === r.sheetAfter && r.detentBefore === r.detentAfter, JSON.stringify(r));
-  // One line, two at most when a long stop name wraps on a narrow phone.
-  check(`the gap monitor's summary stays short — ${where}`,
-    r.summaryH >= 44 && r.summaryH <= 72, JSON.stringify(r));
+  // One line a direction, two at most when a long stop name wraps on a phone.
+  check(`the gap monitor is one short row a direction — ${where}`,
+    r.rows === 2 && r.heights.every(h => h >= 44 && h <= 72), JSON.stringify(r));
 
   // At the resting sheet height the monitor is below the fold on a phone, so
   // an alert is only seen through the status-pill button. Press it and look.
@@ -1608,22 +1618,24 @@ async function checkGapMonitor(page, where) {
   })()`));
   await sleep(800);
   const seen = JSON.parse(await page.evaluate(`(() => {
-    const d = document.querySelector("#gap-monitor details");
+    const d = document.querySelector('#gap-monitor details[data-direction="brighton"]');
+    const other = document.querySelector('#gap-monitor details[data-direction="worthing"]');
     const s = d.querySelector("summary").getBoundingClientRect();
     const panel = document.getElementById("departure-panel").getBoundingClientRect();
-    return JSON.stringify({ open: d.open, focused: document.activeElement === d.querySelector("summary"),
+    return JSON.stringify({ open: d.open, otherOpen: other.open,
+      focused: document.activeElement === d.querySelector("summary"),
       top: Math.round(s.top), bottom: Math.round(s.bottom), panelTop: Math.round(panel.top),
       vh: innerHeight, detent: state.sheetDetent });
   })()`));
   check(`the alert button brings the gap monitor into view — ${where}`,
-    btn.shown && btn.inView && seen.open && seen.focused
+    btn.shown && btn.inView && seen.open && !seen.otherOpen && seen.focused
       && seen.top >= seen.panelTop && seen.bottom <= seen.vh,
     JSON.stringify({ ...btn, ...seen }));
 
   await checkLayout(page, `gap monitor alert, open — ${where}`);
   await checkContrastBothThemes(page, `gap monitor alert, open — ${where}`);
   const normalBtn = await page.evaluate(`(() => {
-    renderGapMonitor(${JSON.stringify({ ...GAP_ALERT, status: "normal", alert: null })});
+    renderGapMonitor(${JSON.stringify(GAP_NORMAL)});
     return String(document.getElementById("gap-alert-btn").hidden); })()`);
   check(`in normal service nothing is added over the map — ${where}`, normalBtn === "true",
     `alert button hidden=${normalBtn}`);

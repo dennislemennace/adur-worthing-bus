@@ -1,14 +1,14 @@
 /**
- * Tests for the A259 gap monitor in the Live panel.
+ * Tests for the A259 gap monitor in the Live panel, one row per direction.
  *
  * Two promises to the reader, and both are about what is *not* shown:
  *
  *   1. From 23:30 to 04:30 London time it neither appears nor asks the server,
  *      whatever time zone the visitor's device is in. The night crosses
  *      midnight, which is where a window test usually goes wrong.
- *   2. "Running to timetable" is a claim, so it only appears when the server
- *      has actually judged the service normal. No data, low coverage, an error
- *      or paused positions all show nothing at all.
+ *   2. "Running to timetable" is a claim, so a row only appears when the
+ *      server has actually judged that direction. No data, low coverage, an
+ *      error, paused positions or an older API all show nothing.
  *
  * And one about honesty inside an alert: a bus not sending its position is
  * indistinguishable from one not running, so the alert says so when it applies.
@@ -23,28 +23,45 @@ import { loadApp } from "./load_app.mjs";
 
 const at = (iso) => new Date(iso);
 
-const NORMAL = {
-  active: true, status: "normal", reason: null, as_of: "2026-09-16T12:30:05+01:00",
-  alert: null,
-  stops: [
-    { atco: "4400AD0330", name: "Shoreham Port",
-      next: [{ service: "700", due: "12:34", minutes: 4, source: "live" },
-             { service: "700", due: "12:44", minutes: 14, source: "scheduled" }] },
-    { atco: "4400AD0203", name: "Shoreham High Street",
-      next: [{ service: "2", due: "12:30", minutes: 0, source: "live" }] },
-    { atco: "4400AD0063", name: "Beach Green Hotel, Lancing", next: [] },
-  ],
-};
+const WORTHING_STOPS = [
+  { atco: "4400AD0330", name: "Shoreham Port",
+    next: [{ service: "700", due: "12:34", minutes: 4, source: "live" },
+           { service: "700", due: "12:44", minutes: 14, source: "scheduled" }] },
+  { atco: "4400AD0203", name: "Shoreham High Street",
+    next: [{ service: "2", due: "12:30", minutes: 0, source: "live" }] },
+  { atco: "4400AD0063", name: "Beach Green Hotel, Lancing", next: [] },
+];
+const BRIGHTON_STOPS = [
+  { atco: "4400AD0064", name: "Beach Green Hotel, Lancing",
+    next: [{ service: "700", due: "12:38", minutes: 8, source: "live" }] },
+  { atco: "4400AD0204", name: "Shoreham High Street",
+    next: [{ service: "700", due: "12:47", minutes: 17, source: "live" }] },
+  { atco: "4400AD0329", name: "Shoreham Port",
+    next: [{ service: "700", due: "12:52", minutes: 22, source: "live" }] },
+];
 
-function alertPayload(over = {}) {
-  const alert = { atco: "4400AD0203", name: "Shoreham High Street", minutes: 32,
-                  from: "12:31", to: "13:03", from_now: false, to_horizon: false,
-                  timetable_minutes: 10, not_reporting: 2, alert: true, ...over };
-  return { ...NORMAL, status: "alert", alert };
+function direction(id, over = {}) {
+  const towards = id === "brighton" ? "towards Brighton" : "towards Worthing";
+  return { id, label: `A259 Coast Rd ${towards}`, towards, status: "normal", reason: null,
+           alert: null, stops: id === "brighton" ? BRIGHTON_STOPS : WORTHING_STOPS, ...over };
 }
 
-function fakeHost() {
-  return { hidden: true, innerHTML: "", querySelector: () => null };
+const NORMAL = {
+  active: true, as_of: "2026-09-16T12:30:05+01:00",
+  directions: [direction("worthing"), direction("brighton")],
+};
+
+function brightonAlert(over = {}) {
+  const alert = { atco: "4400AD0204", name: "Shoreham High Street", minutes: 32,
+                  from: "12:31", to: "13:03", from_now: false, to_horizon: false,
+                  timetable_minutes: 10, not_reporting: 2, alert: true, ...over };
+  return { ...NORMAL, directions: [direction("worthing"),
+                                   direction("brighton", { status: "alert", alert })] };
+}
+
+function fakeHost(rows = []) {
+  return { hidden: true, innerHTML: "", querySelector: () => null,
+           querySelectorAll: () => rows };
 }
 
 function freshApp() {
@@ -53,13 +70,13 @@ function freshApp() {
   const state = vm.runInContext("state", app);
   const host = fakeHost();
   const said = [];
-  const button = { hidden: true, title: "", attrs: {},
+  const button = { hidden: true, title: "", attrs: {}, dataset: {},
                    setAttribute(k, v) { this.attrs[k] = v; } };
   dom.gapMonitor = host;
   dom.gapMonitorLive = { set textContent(v) { said.push(v); }, get textContent() { return said.at(-1) || ""; } };
   dom.gapAlertBtn = button;
   state.viewMode = "live";
-  return { app, state, host, said, button };
+  return { app, dom, state, host, said, button };
 }
 
 // ── Quiet hours ─────────────────────────────────────────────
@@ -117,17 +134,27 @@ test("outside Live view it does not ask", async () => {
 
 for (const [label, data] of [
   ["no response", null],
-  ["quiet hours from the server", { active: false, status: "quiet", reason: "quiet_hours" }],
-  ["no live data", { active: true, status: "unknown", reason: "no_live_data" }],
-  ["too few buses reporting", { active: true, status: "unknown", reason: "low_coverage", stops: NORMAL.stops }],
-  ["an alert with no detail", { ...NORMAL, status: "alert", alert: null }],
-  ["no stops", { ...NORMAL, stops: [] }],
+  ["quiet hours from the server", { active: false, reason: "quiet_hours", directions: [] }],
+  ["an older API with no directions", { active: true, status: "normal", stops: WORTHING_STOPS }],
+  ["no live data either way", { ...NORMAL, directions: [
+    direction("worthing", { status: "unknown", reason: "no_live_data", stops: undefined }),
+    direction("brighton", { status: "unknown", reason: "no_live_data", stops: undefined })] }],
+  ["an alert with no detail", { ...NORMAL, directions: [direction("worthing", { status: "alert", alert: null })] }],
+  ["no stops", { ...NORMAL, directions: [direction("worthing", { stops: [] })] }],
 ]) {
   test(`nothing is shown for ${label}`, () => {
     const { app } = freshApp();
     assert.equal(app.gapMonitorHtml(data), "");
   });
 }
+
+test("a direction the server could not judge is left out, and the other still shows", () => {
+  const { app } = freshApp();
+  const html = app.gapMonitorHtml({ ...NORMAL, directions: [
+    direction("worthing", { status: "unknown", reason: "low_coverage" }), direction("brighton")] });
+  assert.doesNotMatch(html, /towards Worthing/);
+  assert.match(html, /A259 Coast Rd towards Brighton: running to timetable/);
+});
 
 test("an error hides the monitor rather than leaving the last answer up", async () => {
   const { app, host } = freshApp();
@@ -151,10 +178,15 @@ test("pausing live positions hides the monitor", async () => {
 
 // ── What it says ────────────────────────────────────────────
 
-test("a normal service is one line with the detail folded away", () => {
+test("a normal service is one line a direction, with the detail folded away", () => {
   const { app } = freshApp();
   const html = app.gapMonitorHtml(NORMAL);
-  assert.match(html, /<summary>[\s\S]*A259 westbound: buses running to timetable[\s\S]*<\/summary>/);
+  const summaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)]
+    .map(m => m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
+  assert.deepEqual(summaries, [
+    "A259 Coast Rd towards Worthing: running to timetable",
+    "A259 Coast Rd towards Brighton: running to timetable",
+  ]);
   assert.doesNotMatch(html, /gap-monitor--alert/);
   assert.doesNotMatch(html, /<details[^>]*\bopen\b/, "the detail should start closed");
   assert.match(html, /700 in 4 min/);
@@ -165,56 +197,65 @@ test("a normal service is one line with the detail folded away", () => {
   assert.doesNotMatch(html, /NaN|undefined|null/);
 });
 
-test("an alert names the stop, the times, the timetable's gap and the missing buses", () => {
+test("an alert names the direction, the stop, the times, the timetable's gap and the missing buses", () => {
   const { app } = freshApp();
-  const html = app.gapMonitorHtml(alertPayload());
-  assert.match(html, /gap-monitor--alert/);
-  assert.match(html, /<summary>[\s\S]*Long gap in westbound buses at Shoreham High Street/);
-  assert.match(html, /between 12:31 and 13:03, a gap of 32 minutes/);
+  const html = app.gapMonitorHtml(brightonAlert());
+  assert.match(html, /A259 Coast Rd towards Worthing: running to timetable/);
+  assert.match(html, /<summary>[\s\S]*A259 Coast Rd towards Brighton: long gap at Shoreham High Street/);
+  assert.match(html, /No bus towards Brighton is expected at Shoreham High Street between 12:31 and 13:03, a gap of 32 minutes/);
   assert.match(html, /timetable's own gap there is 10 minutes/);
   assert.match(html, /2 scheduled buses in that time are not sending their positions/);
+  assert.equal((html.match(/gap-monitor--alert/g) || []).length, 1, "only the alerting row is marked");
 });
 
 test("one missing bus is described in the singular, and none is not mentioned", () => {
   const { app } = freshApp();
-  assert.match(app.gapMonitorHtml(alertPayload({ not_reporting: 1 })),
+  assert.match(app.gapMonitorHtml(brightonAlert({ not_reporting: 1 })),
     /One scheduled bus in that time is not sending its position/);
-  assert.doesNotMatch(app.gapMonitorHtml(alertPayload({ not_reporting: 0 })),
+  assert.doesNotMatch(app.gapMonitorHtml(brightonAlert({ not_reporting: 0 })),
     /not sending/);
 });
 
 test("a gap cut off by the hour ahead is 'at least', and a gap from now says until", () => {
   const { app } = freshApp();
-  assert.match(app.gapMonitorHtml(alertPayload({ to_horizon: true })), /a gap of at least 32 minutes/);
-  assert.match(app.gapMonitorHtml(alertPayload({ from_now: true, from: "12:30" })),
+  assert.match(app.gapMonitorHtml(brightonAlert({ to_horizon: true })), /a gap of at least 32 minutes/);
+  assert.match(app.gapMonitorHtml(brightonAlert({ from_now: true, from: "12:30" })),
     /until 13:03, 32 minutes from now/);
-  assert.match(app.gapMonitorHtml(alertPayload({ from_now: true, to_horizon: true })),
-    /in the next hour/);
+  assert.match(app.gapMonitorHtml(brightonAlert({ from_now: true, to_horizon: true })),
+    /towards Brighton is expected at Shoreham High Street in the next hour/);
 });
 
-test("stop and service names are escaped", () => {
+test("names from the server are escaped", () => {
   const { app } = freshApp();
-  const html = app.gapMonitorHtml(alertPayload({ name: "<img src=x onerror=alert(1)>" }));
-  assert.doesNotMatch(html, /<img/);
+  const data = brightonAlert({ name: "<img src=x onerror=alert(1)>" });
+  data.directions[0].label = "<b>towards</b>";
+  data.directions[0].id = '"><script>';
+  const html = app.gapMonitorHtml(data);
+  assert.doesNotMatch(html, /<img|<b>|<script>/);
 });
 
-test("an alert is announced once, not on every refresh", () => {
+test("a new alert is announced once, not on every refresh", () => {
   const { app, said } = freshApp();
-  app.renderGapMonitor(alertPayload());
-  app.renderGapMonitor(alertPayload({ minutes: 31 }));
-  app.renderGapMonitor(alertPayload({ minutes: 30 }));
-  assert.deepEqual(said, ["Long gap in westbound buses at Shoreham High Street."]);
   app.renderGapMonitor(NORMAL);
-  assert.equal(said.at(-1), "Westbound buses on the A259 are running to timetable again.");
+  app.renderGapMonitor(brightonAlert());
+  app.renderGapMonitor(brightonAlert({ minutes: 31 }));
+  assert.deepEqual(said, ["A259 Coast Rd towards Brighton: long gap at Shoreham High Street."]);
+  app.renderGapMonitor(NORMAL);
+  assert.equal(said.at(-1), "Buses on the A259 Coast Rd are running to timetable again.");
   assert.equal(said.length, 2);
 });
 
-test("an open detail stays open across a refresh", () => {
+test("each row stays open or closed across a refresh, on its own", () => {
   const { app, host } = freshApp();
   app.renderGapMonitor(NORMAL);
-  host.querySelector = (sel) => sel === "details" ? { open: true, contains: () => false } : null;
+  const rows = [
+    { dataset: { direction: "worthing" }, open: false, contains: () => false },
+    { dataset: { direction: "brighton" }, open: true, contains: () => false },
+  ];
+  host.querySelectorAll = () => rows;
   app.renderGapMonitor(NORMAL);
-  assert.match(host.innerHTML, /<details[^>]*\bopen\b/);
+  assert.doesNotMatch(host.innerHTML, /data-direction="worthing" open/);
+  assert.match(host.innerHTML, /data-direction="brighton" open/);
 });
 
 // ── The way in on a phone ───────────────────────────────────
@@ -223,13 +264,29 @@ test("an open detail stays open across a refresh", () => {
 // must exist only while there is an alert: in normal service it costs the map
 // nothing.
 
-test("the status-pill alert button appears only during an alert, naming the stop", () => {
+test("the status-pill alert button appears only during an alert, naming the direction", () => {
   const { app, button } = freshApp();
   app.renderGapMonitor(NORMAL);
   assert.equal(button.hidden, true, "a normal service put a button over the map");
-  app.renderGapMonitor(alertPayload());
+  app.renderGapMonitor(brightonAlert());
   assert.equal(button.hidden, false);
-  assert.match(button.attrs["aria-label"], /Long gap in westbound buses at Shoreham High Street/);
+  assert.match(button.attrs["aria-label"],
+    /A259 Coast Rd towards Brighton: long gap at Shoreham High Street/);
+  assert.equal(button.dataset.direction, "brighton", "the button would open the wrong row");
   app.renderGapMonitor(null);
   assert.equal(button.hidden, true, "the alert button outlived the alert");
+});
+
+// ── The waking banner ───────────────────────────────────────
+
+test("while the service wakes, the banner promises only what is already there", () => {
+  // The stop list ships with the site. Route lines and timetables come from
+  // the service that is still starting, so Route view had no routes to show.
+  const { app, dom } = freshApp();
+  const text = { textContent: "" };
+  dom.wakingText = text;
+  dom.wakingBanner = { classList: { remove() {}, add() {} } };
+  app.showWakingBanner();
+  assert.match(text.textContent, /stops are ready/i);
+  assert.doesNotMatch(text.textContent, /(routes|timetables)[^.]*\bready now\b/i);
 });

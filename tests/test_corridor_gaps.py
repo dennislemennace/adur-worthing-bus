@@ -1,4 +1,4 @@
-"""Tests for the A259 westbound gap monitor.
+"""Tests for the A259 gap monitor, in both directions.
 
 The monitor tells someone at a stop on the coast road that the next bus is a
 long way off, and on a campaign site it is the kind of statement that gets
@@ -7,14 +7,22 @@ screenshotted. Each way it can be wrong produces something that looks right:
   * counting the timetable's own evening gaps as a service failure,
   * counting a coach, or a bus on the other side of the road, as the bus
     somebody is waiting for, which hides a real gap,
-  * trusting a heading of 0, which rules out every westbound bus and invents one,
+  * trusting a heading of 0, which rules out every bus and invents a gap,
   * reading a bus that has already gone by as one still to come,
   * losing the first buses of the morning, which feeds write as 28:40 on the
     previous day's service, and
   * reporting a gap when the real story is that the buses are not reporting.
 
+Three more were found on live data on 15 September 2026, each a false alarm:
+
+  * a second bus at the same spot as another was placed on the next departure,
+    which had not left yet, and so replaced that departure's real time,
+  * a trip three minutes past its first stop with no bus on it yet, a late
+    departure, was reported as a bus not sending its position, and
+  * a gap sitting on the threshold appeared for one refresh and went again.
+
 The fixture is a straight coast road, heading a little south of west like the
-real one, with a stop every minute and a bus every ten.
+real one, with a stop every minute and a bus every ten each way.
 
 Run with:  pytest
 """
@@ -23,7 +31,7 @@ import csv
 import io
 import sys
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -68,6 +76,17 @@ WATCH = (
     (west(30), "Shoreham High Street"),
     (west(50), "Beach Green Hotel"),
 )
+EAST_WATCH = (
+    (east(50), "Beach Green Hotel"),
+    (east(30), "Shoreham High Street"),
+    (east(20), "Shoreham Port"),
+)
+TEST_DIRECTIONS = (
+    {"id": "worthing", "label": "A259 Coast Rd towards Worthing",
+     "towards": "towards Worthing", "watchpoints": WATCH},
+    {"id": "brighton", "label": "A259 Coast Rd towards Brighton",
+     "towards": "towards Brighton", "watchpoints": EAST_WATCH},
+)
 
 STOPS = ([(west(i), f"West {i}", *west_xy(i)) for i in range(N_STOPS)]
          + [(east(i), f"East {i}", *east_xy(i)) for i in range(N_STOPS)])
@@ -85,6 +104,7 @@ def westbound(trip_id, start_min, service="WK", route="R700"):
 TRIPS = []
 for d in range(10 * 60, 15 * 60, 10):                  # daytime, every ten minutes
     TRIPS.append(westbound(f"W{d}", d))
+    # Eastbound starts at the far west end, index 59, and runs down to 0.
     TRIPS.append((f"E{d}", "R700", "WK", "Brighton",
                   [(i + 1, east(N_STOPS - 1 - i), hms(d + i)) for i in range(N_STOPS)]))
     # A coach through the same poles, five minutes after each bus.
@@ -138,9 +158,9 @@ def tt(tmp_path_factory, monkeypatch_module):
     return Timetable(out, allow_fetch=False)
 
 
-def at(hh, mm, day=16):
+def at(hh, mm, day=16, seconds=0):
     """A Wednesday in September 2026, London time."""
-    return datetime(2026, 9, day, hh, mm, tzinfo=UK)
+    return datetime(2026, 9, day, hh, mm, tzinfo=UK) + timedelta(seconds=seconds)
 
 
 def bus_at(stop_index, *, service="700", operator="SCSO", bearing=256.0,
@@ -164,8 +184,19 @@ def on_time_fleet(now_min, skip=()):
     return fleet
 
 
-def run(tt, when, vehicles):
-    return cg.corridor_gaps(tt, vehicles, when, watchpoints=WATCH)
+def eastbound_fleet(now_min):
+    fleet = []
+    for d in range(10 * 60, 15 * 60, 10):
+        k = now_min - d
+        if 0 <= k < N_STOPS:
+            lat, lon = east_xy(N_STOPS - 1 - k)
+            fleet.append({"service_ref": "700", "operator_ref": "SCSO", "latitude": lat,
+                          "longitude": lon, "bearing": 76.0, "destination": "Brighton"})
+    return fleet
+
+
+def run(tt, when, vehicles, memory=None):
+    return cg.direction_gaps(tt, vehicles, when, WATCH, memory=memory, memory_key="worthing")
 
 
 def stop(result, name):
@@ -173,6 +204,9 @@ def stop(result, name):
 
 
 NOON_30 = 12 * 60 + 30
+# The 11:50 and the 12:00 set off half an hour ago and nothing is tracked on
+# either, so they are not simply leaving late.
+TWO_MISSING = {11 * 60 + 50, 12 * 60}
 
 
 # ── The fixture itself ──────────────────────────────────────
@@ -194,10 +228,30 @@ def test_quiet_hours_are_2330_to_0430_across_midnight(hh, mm, quiet):
 
 
 def test_nothing_is_measured_in_quiet_hours(tt):
-    r = run(tt, at(0, 30), on_time_fleet(NOON_30))
+    r = cg.corridor_report(tt, on_time_fleet(NOON_30), at(0, 30), directions=TEST_DIRECTIONS)
     assert r["active"] is False
-    assert r["status"] == "quiet"
-    assert "stops" not in r
+    assert r["directions"] == []
+
+
+# ── Both directions ─────────────────────────────────────────
+
+def test_the_directions_are_the_coast_road_each_way():
+    assert [d["label"] for d in cg.DIRECTIONS] == [
+        "A259 Coast Rd towards Worthing", "A259 Coast Rd towards Brighton"]
+    brighton = next(d for d in cg.DIRECTIONS if d["id"] == "brighton")
+    assert [a for a, _ in brighton["watchpoints"]] == ["4400AD0064", "4400AD0204", "4400AD0329"]
+
+
+def test_each_direction_is_judged_on_its_own_buses(tt):
+    fleet = on_time_fleet(NOON_30, skip=TWO_MISSING) + eastbound_fleet(NOON_30)
+    r = cg.corridor_report(tt, fleet, at(12, 30), directions=TEST_DIRECTIONS)
+    assert r["active"] is True
+    by_id = {d["id"]: d for d in r["directions"]}
+    assert by_id["worthing"]["label"] == "A259 Coast Rd towards Worthing"
+    assert by_id["worthing"]["status"] == "alert"
+    assert by_id["brighton"]["label"] == "A259 Coast Rd towards Brighton"
+    assert by_id["brighton"]["status"] == "normal", by_id["brighton"].get("alert")
+    assert by_id["brighton"]["coverage"]["reporting"] == by_id["brighton"]["coverage"]["on_road"]
 
 
 # ── A normal service reads as normal ────────────────────────
@@ -235,10 +289,10 @@ def test_trips_not_yet_started_come_from_the_timetable(tt):
 # ── A real gap is reported, and honestly ────────────────────
 
 def test_two_missing_buses_make_an_alert_that_names_them(tt):
-    r = run(tt, at(12, 30), on_time_fleet(NOON_30, skip={12 * 60 + 10, 12 * 60 + 20}))
+    r = run(tt, at(12, 30), on_time_fleet(NOON_30, skip=TWO_MISSING))
     assert r["status"] == "alert", r["stops"]
     a = r["alert"]
-    assert a["name"] == "Shoreham High Street"
+    assert a["name"] == "Beach Green Hotel"
     assert (a["from"], a["to"], a["minutes"]) == ("12:30", "13:00", 30)
     assert a["timetable_minutes"] == 10
     # Two scheduled buses with no tracked vehicle fall inside the gap. The
@@ -247,26 +301,26 @@ def test_two_missing_buses_make_an_alert_that_names_them(tt):
 
 
 def test_a_coach_does_not_fill_a_bus_gap(tt):
-    fleet = on_time_fleet(NOON_30, skip={12 * 60 + 10, 12 * 60 + 20})
-    fleet.append(bus_at(25, service="025", operator="NATX", destination="London"))
+    fleet = on_time_fleet(NOON_30, skip=TWO_MISSING)
+    fleet.append(bus_at(45, service="025", operator="NATX", destination="London"))
     r = run(tt, at(12, 30), fleet)
     assert r["status"] == "alert"
     services = {n["service"] for s in r["stops"] for n in s["next"]}
     assert services == {"700"}, services
 
 
-def test_a_bus_across_the_road_does_not_fill_a_westbound_gap(tt):
-    fleet = on_time_fleet(NOON_30, skip={12 * 60 + 10, 12 * 60 + 20})
-    # An eastbound 700 level with where the missing 12:10 should be.
-    lat, lon = east_xy(25)
+def test_a_bus_across_the_road_does_not_fill_a_gap(tt):
+    fleet = on_time_fleet(NOON_30, skip=TWO_MISSING)
+    # An eastbound 700 level with where the missing 12:00 should be.
+    lat, lon = east_xy(30)
     fleet.append({"service_ref": "700", "operator_ref": "SCSO", "latitude": lat,
                   "longitude": lon, "bearing": 76.0, "destination": "Brighton"})
     r = run(tt, at(12, 30), fleet)
-    # Counted, it would shorten the gap to 25 minutes, still an alert. The
-    # whole gap, and both missing buses, is what shows it was not counted.
+    # Counted, it would shorten the gap to 20 minutes and hide it. The whole
+    # gap, and both missing buses, is what shows it was not counted.
     a = r["alert"]
     assert a and (a["from"], a["to"], a["not_reporting"]) == ("12:30", "13:00", 2), \
-        "an eastbound bus was counted as westbound"
+        "a bus going the other way was counted"
 
 
 def test_a_heading_of_zero_is_no_heading(tt):
@@ -293,15 +347,72 @@ def test_a_bus_just_past_the_watchpoint_itself_has_gone_by(tt):
 def test_the_first_morning_bus_written_past_midnight_counts(tt):
     # 04:45 on Wednesday: the 28:40 on Tuesday's service left five minutes ago.
     r = run(tt, at(4, 45), [bus_at(5)])
-    assert r["active"] is True
     port = stop(r, "Shoreham Port")
     assert port["next"] and port["next"][0]["due"] == "05:00", port
+
+
+# ── The three false alarms found on live data ───────────────
+
+def test_a_second_bus_at_the_same_spot_does_not_take_a_departure_that_has_not_left(tt):
+    # Two buses reporting one position. The spare one used to be matched to the
+    # next departure, twenty minutes ahead of its timetable, which put a second
+    # copy of one arrival in place of that departure's real one.
+    fleet = on_time_fleet(NOON_30) + [bus_at(10)]
+    r = run(tt, at(12, 30), fleet)
+    assert r["status"] == "normal", r.get("alert")
+    # On a ten-minute headway the stolen departure leaves a gap of exactly 20,
+    # one minute short of an alert (on the real road, at 12, it was 25). The
+    # duplicate arrival is the direct evidence, so look for that.
+    port = stop(r, "Shoreham Port")
+    assert [n["due"] for n in port["next"]] == ["12:30", "12:40", "12:50"], port["next"]
+
+
+def test_a_departure_just_past_its_first_stop_is_leaving_late_not_missing(tt):
+    # 12:33, and the 12:30 has no bus on it yet.
+    r = run(tt, at(12, 33), on_time_fleet(12 * 60 + 33, skip={12 * 60 + 30}))
+    assert r["status"] == "normal", r.get("alert")
+    assert all(s["longest_gap"]["not_reporting"] == 0 for s in r["stops"]), r["stops"]
+    port = stop(r, "Shoreham Port")
+    # If it left now it would reach Shoreham Port at 12:53, not the timetabled 12:50.
+    assert ("12:53", "scheduled") in [(n["due"], n["source"]) for n in port["next"]]
+
+
+def test_a_departure_still_untracked_after_the_grace_is_not_reporting(tt):
+    r = run(tt, at(12, 50), on_time_fleet(12 * 60 + 50, skip={12 * 60 + 30}))
+    assert any(s["longest_gap"]["not_reporting"] >= 1 for s in r["stops"]), r["stops"]
+
+
+def test_an_alert_is_only_reported_when_a_second_look_still_finds_it(tt):
+    memory = {}
+    gap_fleet = on_time_fleet(NOON_30, skip=TWO_MISSING)
+
+    first = run(tt, at(12, 30), gap_fleet, memory)
+    assert first["status"] == "normal"
+    assert stop(first, "Beach Green Hotel")["longest_gap"]["pending"] is True
+
+    too_soon = run(tt, at(12, 30, seconds=30), gap_fleet, memory)
+    assert too_soon["status"] == "normal", "confirmed after only 30 seconds"
+
+    confirmed = run(tt, at(12, 30, seconds=50), gap_fleet, memory)
+    assert confirmed["status"] == "alert"
+    assert confirmed["alert"]["name"] == "Beach Green Hotel"
+
+
+def test_a_gap_that_clears_has_to_be_seen_twice_again(tt):
+    memory = {}
+    gap_fleet = on_time_fleet(NOON_30, skip=TWO_MISSING)
+    run(tt, at(12, 30), gap_fleet, memory)
+    cleared = run(tt, at(12, 30, seconds=40), on_time_fleet(NOON_30), memory)
+    assert cleared["status"] == "normal"
+    assert memory == {}, memory
+    back = run(tt, at(12, 30, seconds=60), gap_fleet, memory)
+    assert back["status"] == "normal", "an old sighting confirmed a new gap"
 
 
 # ── When the feed cannot support a judgement ────────────────
 
 def test_too_few_buses_reporting_shows_nothing_rather_than_a_gap(tt):
-    fleet = on_time_fleet(NOON_30)[:2]
+    fleet = on_time_fleet(NOON_30)[:1]
     r = run(tt, at(12, 30), fleet)
     assert r["status"] == "unknown"
     assert r["reason"] == "low_coverage"
@@ -315,9 +426,11 @@ def test_no_live_data_is_unknown_not_normal(tt):
 
 
 def test_the_answer_carries_its_method_and_caveats(tt):
-    r = run(tt, at(12, 30), on_time_fleet(NOON_30))
+    r = cg.corridor_report(tt, on_time_fleet(NOON_30), at(12, 30), directions=TEST_DIRECTIONS)
     assert "scheduled running times" in r["method"]
+    assert "5 minutes early" in r["method"]
     assert any("not sending its position" in c for c in r["caveats"])
+    assert any("leaving late" in c for c in r["caveats"])
     assert r["as_of"].startswith("2026-09-16T12:30")
 
 
@@ -329,8 +442,9 @@ def _fixed_clock(monkeypatch, main, when):
         def now(cls, tz=None):
             return when.astimezone(tz) if tz else when
     monkeypatch.setattr(main, "datetime", Clock)
-    monkeypatch.setattr(main, "cache_get", lambda key: None)
-    monkeypatch.setattr(main, "cache_set", lambda *a, **k: None)
+    # A private cache, so one test's answer is never another's.
+    monkeypatch.setattr(main, "_cache", {})
+    monkeypatch.setattr(main, "_GAP_MEMORY", {})
 
 
 def test_quiet_hours_answer_without_fetching_anything(monkeypatch):
@@ -362,4 +476,54 @@ def test_without_a_bods_key_the_endpoint_says_unknown_rather_than_failing(monkey
     monkeypatch.setattr(main, "_get_timetable", timetable)
     monkeypatch.setattr(main, "_get_vehicles_or_empty", must_not_be_called)
     body = asyncio.run(main.get_corridor_gaps())
-    assert (body["status"], body["reason"]) == ("unknown", "no_live_data")
+    assert [d["id"] for d in body["directions"]] == ["worthing", "brighton"]
+    assert {(d["status"], d["reason"]) for d in body["directions"]} == {("unknown", "no_live_data")}
+
+
+def _count_feed_fetches(monkeypatch, main, tt):
+    """Stand-ins for the feed and the thread pool that record what they did."""
+    import asyncio
+    seen = {"fetches": 0, "offloaded": []}
+
+    async def fake_fetch():
+        seen["fetches"] += 1
+        await asyncio.sleep(0.05)       # long enough for a second caller to arrive
+        return []
+
+    async def timetable():
+        return tt
+
+    async def spy_off_loop(fn, *args, **kwargs):
+        seen["offloaded"].append(getattr(fn, "__name__", repr(fn)))
+        return fn(*args, **kwargs)
+
+    _fixed_clock(monkeypatch, main, at(12, 30))
+    monkeypatch.setattr(main, "BODS_API_KEY", "test-key")
+    monkeypatch.setattr(main, "_fetch_siri_vm", fake_fetch)
+    monkeypatch.setattr(main, "_get_timetable", timetable)
+    monkeypatch.setattr(main, "off_loop", spy_off_loop)
+    return seen
+
+
+def test_the_map_the_monitor_and_a_bus_panel_share_one_feed_fetch(monkeypatch, tt):
+    # The monitor used to fetch the feed itself whenever the 15 s cache had
+    # lapsed, beside the map's own fetch. Every such call is fair-use traffic.
+    import asyncio
+    import api.main as main
+    seen = _count_feed_fetches(monkeypatch, main, tt)
+
+    async def together():
+        return await asyncio.gather(main.get_vehicles(), main.get_corridor_gaps(),
+                                    main._get_vehicles_or_empty())
+    asyncio.run(together())
+    assert seen["fetches"] == 1, f"{seen['fetches']} feed fetches for one moment"
+
+
+def test_matching_buses_to_trips_never_runs_on_the_event_loop(monkeypatch, tt):
+    # 0.65 s for 233 buses on a desktop, seconds on the free instance, and every
+    # other request waits behind it when it runs on the loop.
+    import asyncio
+    import api.main as main
+    seen = _count_feed_fetches(monkeypatch, main, tt)
+    asyncio.run(main._get_vehicles_or_empty())
+    assert "_enrich_vehicles_with_trip_match" in seen["offloaded"], seen

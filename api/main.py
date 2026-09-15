@@ -979,21 +979,12 @@ async def debug_vehicles_raw(q: str = Query("")):
 async def get_vehicles():
     """Live bus positions from BODS SIRI-VM. Cached 15 s."""
     _check_api_key()
-
-    async def fetch_and_match():
-        vehicles = await _fetch_siri_vm()
-        tt       = await _get_timetable()
-        # Matching every vehicle against the timetable is a synchronous walk
-        # over SQLite results — 86 vehicles at peak, on the event loop.
-        await off_loop(_enrich_vehicles_with_trip_match, vehicles, tt)
-        return {"vehicles": vehicles, "count": len(vehicles)}
-
-    cached = await cache_single_flight_async("vehicles", fetch_and_match, 15)
+    vehicles = await _live_vehicles()
     # 'calls' and 'trip_id' are internal; strip from the public payload
     # to keep responses small. 'trip_headsign' is what the client needs.
     hidden = {"calls", "trip_id", "origin_ref", "destination_ref"}
     public = [{k: val for k, val in v.items() if k not in hidden}
-              for v in cached["vehicles"]]
+              for v in vehicles]
     return {"vehicles": public, "count": len(public)}
 
 
@@ -1447,32 +1438,37 @@ async def get_stop_span(
 @app.get("/api/corridor-gaps")
 async def get_corridor_gaps():
     """
-    Long gaps between westbound buses on the A259 through Shoreham, right now.
+    Long gaps between buses on the A259 through Shoreham, both directions, now.
 
-    Built from the vehicle positions /api/vehicles already fetches and caches,
-    so it makes no upstream call of its own when the map is open, and never
-    touches the TransportAPI prediction quota. See api/corridor_gaps.py for
-    the method and which way its errors lean.
+    Built from the same shared vehicle cache as /api/vehicles, so it makes no
+    upstream call of its own when the map is open, and never touches the
+    TransportAPI prediction quota. See api/corridor_gaps.py for the method and
+    which way its errors lean.
 
     Quiet hours (23:30 to 04:30) answer before anything is fetched: the monitor
     is not shown then, and a request at 2am should not wake BODS to say so.
-    Cached 30 s — positions move every 15 s, and the answer is by the minute.
+    Cached 30 s, and computed once however many ask at the same moment: an
+    alert is only confirmed on a second computation, so two running side by
+    side would each count as the first look.
     """
     now = datetime.now(UK_TZ)
     if corridor_gaps.is_quiet(now):
-        return corridor_gaps.corridor_gaps(None, [], now)
+        return corridor_gaps.corridor_report(None, [], now, _GAP_MEMORY)
 
-    cached = cache_get("corridor-gaps")
-    if cached is not None:
-        return cached
+    async def produce():
+        tt = await _get_timetable()
+        # No key means no live positions, which is "unknown", not an error: the
+        # monitor hides itself rather than the page reporting a fault.
+        vehicles = await _get_vehicles_or_empty() if BODS_API_KEY else []
+        return await off_loop(corridor_gaps.corridor_report, tt, vehicles, now, _GAP_MEMORY)
 
-    tt = await _get_timetable()
-    # No key means no live positions, which is "unknown", not an error: the
-    # monitor hides itself rather than the page reporting a fault.
-    vehicles = await _get_vehicles_or_empty() if BODS_API_KEY else []
-    result = await off_loop(corridor_gaps.corridor_gaps, tt, vehicles, now)
-    cache_set("corridor-gaps", result, 30)
-    return result
+    return await cache_single_flight_async("corridor-gaps", produce, 30)
+
+
+# First sightings of each gap alert, kept between computations so an alert has
+# to be seen twice before it is reported. Lost on a restart, which costs one
+# extra minute of confirmation and nothing else.
+_GAP_MEMORY: dict = {}
 
 
 # The time of day a costed journey is priced at.
@@ -1706,27 +1702,42 @@ def _secs_to_hhmm(secs: Optional[int]) -> str:
     return f"{(secs // 3600) % 24:02d}:{(secs % 3600) // 60:02d}"
 
 
+async def _fetch_and_match_vehicles() -> dict:
+    vehicles = await _fetch_siri_vm()
+    tt       = await _get_timetable()
+    # Matching every vehicle against the timetable is a synchronous walk over
+    # SQLite results: 0.65 s for 233 buses on a desktop, several seconds on the
+    # free instance. On the event loop it holds up every other request.
+    await off_loop(_enrich_vehicles_with_trip_match, vehicles, tt)
+    return {"vehicles": vehicles, "count": len(vehicles)}
+
+
+async def _live_vehicles() -> list:
+    """
+    Live vehicles, trip-matched, from the one 15 s cache every caller shares.
+
+    There is exactly one way in, so concurrent callers join the same fetch and
+    the feed is asked at most once per 15 s whoever is asking. /api/vehicle and
+    the gap monitor used to have a second way in that fetched on a cache miss
+    and matched trips on the event loop, and with the monitor asking every
+    minute that stalled the whole API for seconds at a time.
+    """
+    cached = await cache_single_flight_async("vehicles", _fetch_and_match_vehicles, 15)
+    return cached["vehicles"]
+
+
 async def _get_vehicles_or_empty() -> list:
     """
-    Return live vehicles from the 15s cache, fetching if necessary.
-    Always enriches with trip matches so trip_id is available to
-    /api/vehicle even when the cache was cold.
-    Never raises — if BODS is unreachable we just return [].
+    `_live_vehicles`, for callers that can do without: never raises, and an
+    unreachable feed is an empty list.
     """
-    cached = cache_get("vehicles")
-    if cached:
-        return cached.get("vehicles", [])
     try:
-        vehicles = await _fetch_siri_vm()
+        return await _live_vehicles()
     except HTTPException:
         return []
     except Exception as exc:
-        log.warning("Live vehicle fetch failed during overlay: %s", exc)
+        log.warning("Live vehicle fetch failed: %s", exc)
         return []
-    tt = await _get_timetable()
-    _enrich_vehicles_with_trip_match(vehicles, tt)
-    cache_set("vehicles", {"vehicles": vehicles, "count": len(vehicles)}, 15)
-    return vehicles
 
 
 async def _fetch_nextbuses(stop_id: str) -> Optional[list]:
