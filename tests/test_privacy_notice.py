@@ -224,3 +224,31 @@ def test_the_code_and_content_have_licences():
     content = (ROOT / "LICENSE-content.md").read_text()
     assert "CC BY 4.0" in content and "does not cover" in content
     assert "MIT" in TERMS and "CC BY 4.0" in TERMS
+
+
+# ── Online Safety Act record ────────────────────────────────
+
+def test_the_online_safety_record_covers_what_the_act_asks_for():
+    record = " ".join((ROOT / "docs" / "ONLINE_SAFETY.md").read_text().split())
+    for section in ("User-to-user service", "Search service", "Illegal content risk assessment",
+                    "Children's access assessment", "children's risk assessment",
+                    "accountable", "Review by", "What would change this"):
+        assert section.lower() in record.lower(), f"docs/ONLINE_SAFETY.md does not cover: {section}"
+    # Ofcom's seventeen kinds of priority illegal harm, each assessed.
+    for harm in ("Terrorism", "Child sexual exploitation", "Hate", "Harassment",
+                 "Controlling or coercive", "Intimate image abuse", "Extreme pornography",
+                 "Sexual exploitation of adults", "Human trafficking", "Unlawful immigration",
+                 "Fraud", "Proceeds of crime", "Drugs", "Firearms", "suicide",
+                 "Foreign interference", "Animal cruelty"):
+        assert harm.lower() in record.lower(), f"the risk assessment does not assess: {harm}"
+
+
+def test_the_terms_give_a_way_to_report_content_and_complain():
+    section = TERMS[TERMS.index('id="reporting"'):]
+    section = " ".join(text_of(section[:section.index("<h2>Reusing")]).split())
+    assert CONTACT in TERMS[TERMS.index('id="reporting"'):]
+    # The heading says "complaints", so check the sentences, not the word.
+    for phrase in ("illegal", "harmful to children", "complain about a decision",
+                   "looked at again", "removed as soon as it is found"):
+        assert phrase in section, f"the reporting section does not mention: {phrase}"
+    assert 'href="terms.html#reporting"' in ABOUT

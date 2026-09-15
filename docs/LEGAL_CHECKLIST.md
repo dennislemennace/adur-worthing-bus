@@ -68,10 +68,10 @@ or support particular councillors or candidates.
 
 ## Still needs a person
 
-- [ ] **Set up the private inbox**: create `dennislemennace/adur-worthing-bus-inbox`
+- [x] **Set up the private inbox**: create `dennislemennace/adur-worthing-bus-inbox`
       as Private, clone the labels into it, give the fine-grained token access to
       it, then deploy the Worker (steps in `worker/README.md`).
-- [ ] **Set up `privacy@worthingbrightonbus.co.uk`** with Cloudflare Email Routing,
+- [x] **Set up `privacy@worthingbrightonbus.co.uk`** with Cloudflare Email Routing,
       and send a test message. The pages already publish the address.
 - [ ] **Review the existing public issues** in `dennislemennace/adur-worthing-bus`
       that were filed by the old submission Worker. Delete any carrying someone's
@@ -81,7 +81,14 @@ or support particular councillors or candidates.
       and pay if it says so (tier 1 was £52 a year in 2026).
 - [ ] **Photo rights**: confirm the licence for the three photographs marked
       unconfirmed in `docs/ASSET_RIGHTS.md`, or replace them.
-- [ ] **Online Safety Act**: with submissions now reviewed before anything is
-      public, the site is less likely to be a user-to-user service, but check with
-      Ofcom's online safety regulation checker and keep the result here.
+- [x] **Online Safety Act**: Ofcom's checker flagged "user-to-user service" and
+      "search engine" to investigate. The site is treated as a small, low-risk
+      user-to-user service and not a search service; the scope reasoning, the
+      illegal content risk assessment, the children's access and risk assessments
+      and a precautionary search assessment are in `docs/ONLINE_SAFETY.md`, with
+      the reporting and complaints route in `terms.html#reporting`.
+- [ ] **Online Safety Act, ongoing**: log each report or complaint with the
+      decision and date; review `docs/ONLINE_SAFETY.md` by 15 September 2027, or
+      at once if the site adds commenting, images, accounts, messaging or any
+      publishing without review.
 - [ ] **Optional**: have a solicitor read `terms.html` and `privacy.html` once.
