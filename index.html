@@ -241,6 +241,14 @@
             <span class="status-pill-label">Connecting</span>
             <span class="loading-dots" aria-hidden="true"></span>
           </span>
+          <!-- Shown only while the A259 gap monitor has an alert. On a phone the
+               monitor itself sits below the fold of the resting sheet, so this is
+               how an alert is seen at all, and it costs the map one icon only
+               while there is something to say. -->
+          <button class="btn-icon status-pill-toggle status-pill-gap" id="gap-alert-btn"
+                  type="button" hidden aria-controls="gap-monitor">
+            <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+          </button>
           <button class="btn-icon status-pill-toggle" id="toggle-buses-btn"
                   title="Filter buses" aria-label="Filter buses"
                   aria-expanded="false" aria-controls="bus-filter">
@@ -484,6 +492,13 @@
             <ul class="stop-search-results" id="stop-search-results"
                 aria-label="Matching stops and stations"></ul>
           </form>
+          <!-- A259 gap monitor, filled by app.js renderGapMonitor. In the panel,
+               under the search, and not over the map: the map is the scarcest
+               space on a phone, and a normal service needs one line. Hidden when
+               the answer is unknown and from 23:30 to 04:30. The live region
+               beside it is separate so a minute's tick is not read out again. -->
+          <div class="gap-monitor-host" id="gap-monitor" hidden></div>
+          <p class="visually-hidden" id="gap-monitor-live" role="status" aria-live="polite"></p>
         </div>
 
         <!-- Departure list populated by JS -->

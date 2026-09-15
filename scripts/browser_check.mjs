@@ -1518,6 +1518,124 @@ async function checkLastBusHome(page, where) {
   await sleep(400);
 }
 
+/** A gap-monitor answer to draw with, so the check does not depend on the time
+ *  of day or on a BODS key the local API does not have. */
+const GAP_ALERT = {
+  active: true, status: "alert", reason: null, as_of: "2026-09-16T12:30:00+01:00",
+  alert: { atco: "4400AD0063", name: "Beach Green Hotel, Lancing", minutes: 32,
+           from: "12:31", to: "13:03", from_now: false, to_horizon: false,
+           timetable_minutes: 10, not_reporting: 2, alert: true },
+  stops: [
+    { atco: "4400AD0330", name: "Shoreham Port",
+      next: [{ service: "700", due: "12:34", minutes: 4, source: "live" },
+             { service: "700", due: "12:44", minutes: 14, source: "scheduled" }] },
+    { atco: "4400AD0203", name: "Shoreham High Street",
+      next: [{ service: "2", due: "12:30", minutes: 0, source: "live" }] },
+    { atco: "4400AD0063", name: "Beach Green Hotel, Lancing",
+      next: [{ service: "700", due: "13:03", minutes: 33, source: "live" }] },
+  ],
+};
+
+/**
+ * The gap monitor was asked for on one condition: that it not take map space,
+ * least of all on a phone. So measure the map and the sheet with and without
+ * it, rather than trusting where the markup happens to sit.
+ */
+async function checkGapMonitor(page, where) {
+  await page.evaluate(`(() => { setViewMode("live"); closePanel(); return ""; })()`);
+  await sleep(400);
+
+  // Quiet hours are a promise about the real page, so check the real page when
+  // the run happens to fall inside them.
+  const quiet = await page.evaluate(`String(isGapQuietHours())`);
+  if (quiet === "true") {
+    await page.evaluate(`(() => { fetchGapMonitor(); return ""; })()`);
+    await sleep(200);
+    const hidden = await page.evaluate(`String(document.getElementById("gap-monitor").hidden)`);
+    check(`the gap monitor is hidden between 23:30 and 04:30 — ${where}`, hidden === "true", `hidden=${hidden}`);
+  }
+
+  // Entering Live view starts the real monitor, and its request can land in
+  // the middle of this check and replace the answer being measured. Stop it,
+  // and let anything already in the air come back first.
+  await page.evaluate(`(() => { stopGapMonitor(); return ""; })()`);
+  await waitFor(page, "!state.gapMonitorInFlight", 60000);
+
+  const r = JSON.parse(await page.evaluate(`(() => {
+    stopGapMonitor();
+    if (isSheetLayout()) setSheetDetent(defaultDetentForViewport());
+    const map = document.getElementById("map").getBoundingClientRect();
+    const sheetBefore = sheetOverlapPx();
+    renderGapMonitor(${JSON.stringify(GAP_ALERT)});
+    const host = document.getElementById("gap-monitor");
+    const summary = host.querySelector("summary");
+    const panel = document.getElementById("departure-panel").getBoundingClientRect();
+    const mapAfter = document.getElementById("map").getBoundingClientRect();
+    const b = host.getBoundingClientRect();
+    const s = summary ? summary.getBoundingClientRect() : { top: 0, bottom: 0, height: 0 };
+    return JSON.stringify({
+      shown: !host.hidden && b.height > 0,
+      inPanel: b.left >= panel.left - 1 && b.right <= panel.right + 1 && b.top >= panel.top - 1,
+      mapSame: Math.round(map.width) === Math.round(mapAfter.width)
+            && Math.round(map.height) === Math.round(mapAfter.height),
+      sheetBefore, detentBefore: state.sheetDetent,
+      summaryH: Math.round(s.height), summaryTop: Math.round(s.top), summaryBottom: Math.round(s.bottom),
+      sheet: isSheetLayout(), vh: window.innerHeight,
+    });
+  })()`));
+  // The sheet animates between heights, so a measurement taken in the same
+  // tick as the render cannot see it grow. Look again once it has settled.
+  await sleep(600);
+  Object.assign(r, JSON.parse(await page.evaluate(
+    `JSON.stringify({ sheetAfter: sheetOverlapPx(), detentAfter: state.sheetDetent })`)));
+  check(`the gap monitor sits in the panel, not over the map — ${where}`,
+    r.shown && r.inPanel && r.mapSame, JSON.stringify(r));
+  check(`showing the gap monitor does not grow the sheet — ${where}`,
+    r.sheetBefore === r.sheetAfter && r.detentBefore === r.detentAfter, JSON.stringify(r));
+  // One line, two at most when a long stop name wraps on a narrow phone.
+  check(`the gap monitor's summary stays short — ${where}`,
+    r.summaryH >= 44 && r.summaryH <= 72, JSON.stringify(r));
+
+  // At the resting sheet height the monitor is below the fold on a phone, so
+  // an alert is only seen through the status-pill button. Press it and look.
+  const btn = JSON.parse(await page.evaluate(`(() => {
+    const b = document.getElementById("gap-alert-btn");
+    const r = b.getBoundingClientRect();
+    const out = { shown: !b.hidden && r.width >= 44 && r.height >= 44,
+                  inView: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight };
+    b.click();
+    return JSON.stringify(out);
+  })()`));
+  await sleep(800);
+  const seen = JSON.parse(await page.evaluate(`(() => {
+    const d = document.querySelector("#gap-monitor details");
+    const s = d.querySelector("summary").getBoundingClientRect();
+    const panel = document.getElementById("departure-panel").getBoundingClientRect();
+    return JSON.stringify({ open: d.open, focused: document.activeElement === d.querySelector("summary"),
+      top: Math.round(s.top), bottom: Math.round(s.bottom), panelTop: Math.round(panel.top),
+      vh: innerHeight, detent: state.sheetDetent });
+  })()`));
+  check(`the alert button brings the gap monitor into view — ${where}`,
+    btn.shown && btn.inView && seen.open && seen.focused
+      && seen.top >= seen.panelTop && seen.bottom <= seen.vh,
+    JSON.stringify({ ...btn, ...seen }));
+
+  await checkLayout(page, `gap monitor alert, open — ${where}`);
+  await checkContrastBothThemes(page, `gap monitor alert, open — ${where}`);
+  const normalBtn = await page.evaluate(`(() => {
+    renderGapMonitor(${JSON.stringify({ ...GAP_ALERT, status: "normal", alert: null })});
+    return String(document.getElementById("gap-alert-btn").hidden); })()`);
+  check(`in normal service nothing is added over the map — ${where}`, normalBtn === "true",
+    `alert button hidden=${normalBtn}`);
+  await checkContrastBothThemes(page, `gap monitor normal — ${where}`);
+
+  await page.evaluate(`(() => {
+    renderGapMonitor(null);
+    if (isSheetLayout()) setSheetDetent(defaultDetentForViewport());
+    startGapMonitor();
+    return ""; })()`);
+}
+
 async function checkFailureIsVisible(page, where) {
   // Set and measure in one evaluation. Done as two, a vehicle poll landing in
   // between put the label back to "Updated HH:MM:SS" and the check failed on
@@ -2153,6 +2271,7 @@ await checkObjectiveLead(page, VIEWPORTS[0].name);
 await checkBoundaryLiveButton(page, VIEWPORTS[0].name);
 await checkChipPriority(page, VIEWPORTS[0].name);
 await checkLastBusHome(page, VIEWPORTS[0].name);
+await checkGapMonitor(page, VIEWPORTS[0].name);
 await checkA11yMenu(page, VIEWPORTS[0].name, { desktop: false });
 await checkLargestText(page, VIEWPORTS[0].name);
 await checkCvdContrast(page, VIEWPORTS[0].name);
@@ -2179,6 +2298,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   if (vp.mobile) await checkRouteViewOnAPhone(p, vp.name);
   await checkHeaderControlRow(p, vp.name);
   await checkWakingBanner(p, vp.name);
+  await checkGapMonitor(p, vp.name);
   await checkContrastBothThemes(p, vp.name);
   await checkLargestText(p, vp.name);
   if (vp.name === "desktop") await checkA11yMenu(p, vp.name, { desktop: true });

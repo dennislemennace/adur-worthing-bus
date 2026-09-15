@@ -6009,6 +6009,76 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   justify-content: flex-start;
 }
 
+/* ── A259 gap monitor (live view) ─────────────────────────────
+   One line under the stop search, in the panel rather than over the map, and
+   the same disclosure pattern as the stop's service span. The state is in the
+   words and the icon; the coloured edge repeats it, it does not carry it. */
+.gap-monitor-host {
+  width: 100%;
+  max-width: 34rem;
+  margin: 0 auto;
+  text-align: left;
+}
+.gap-monitor {
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-on-time);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  overflow: hidden;
+}
+.gap-monitor--alert { border-left-color: var(--color-late); }
+.gap-monitor summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: var(--target-min);
+  padding: var(--space-xs) var(--space-sm);
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--font-size-sm);
+  user-select: none;
+}
+.gap-monitor summary::-webkit-details-marker { display: none; }
+.gap-monitor-icon {
+  flex-shrink: 0;
+  color: var(--color-on-time);
+}
+.gap-monitor--alert .gap-monitor-icon { color: var(--color-late); }
+.gap-monitor-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.gap-monitor-chevron {
+  flex-shrink: 0;
+  transition: transform var(--transition);
+}
+.gap-monitor[open] .gap-monitor-chevron { transform: rotate(180deg); }
+.gap-monitor[open] summary { border-bottom: 1px solid var(--color-border); }
+.gap-monitor-body {
+  padding: var(--space-xs) var(--space-sm) var(--space-sm);
+  font-size: var(--font-size-sm);
+}
+.gap-monitor-body p { margin: 0 0 var(--space-xs); }
+.gap-monitor-alert { line-height: 1.45; }
+.gap-monitor-stops {
+  list-style: none;
+  margin: 0 0 var(--space-xs);
+  padding: 0;
+}
+.gap-monitor-stops li { padding: var(--space-xs) 0; }
+.gap-monitor-stops li + li { border-top: 1px solid var(--color-border); }
+.gap-monitor-stop {
+  display: block;
+  font-weight: 600;
+}
+.gap-monitor-body .gap-monitor-method {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
 
 /* U09: 16px is the threshold below which mobile Safari zooms the page in on
    focus, leaving the reader editing a strip of a magnified layout. The

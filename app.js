@@ -28,6 +28,10 @@ const CONFIG = {
   // How often to refresh live bus positions (milliseconds)
   VEHICLE_REFRESH_MS: 20_000,      // 20 seconds
 
+  // The A259 gap monitor. Its answer is by the minute and the server caches it
+  // for 30 s, so polling faster than this would only re-read the same cache.
+  GAP_MONITOR_REFRESH_MS: 60_000,
+
   // How many departures to request from the API
   DEPARTURES_COUNT: 10,
 
@@ -121,6 +125,9 @@ const state = {
   isRefreshing:  true,
   busesVisible:  true,  // header toggle: show bus markers + run live refresh
   vehicleFetchInFlight: false,  // guards against overlapping /api/vehicles polls
+  gapMonitorTimer:    null,   // setInterval handle for /api/corridor-gaps
+  gapMonitorInFlight: false,
+  gapMonitorKey:      "",     // last announced state, so a minute's tick is not re-read aloud
   // Has the backend answered anything yet this session? Until it has, calls
   // get the cold-start budget and the "waking up" banner (see apiFetch).
   apiEverResponded: false,
@@ -267,6 +274,9 @@ const dom = {
   routeFiltersDisc:   document.getElementById("route-filters-disclosure"),
   wakingBanner:       document.getElementById("waking-banner"),
   wakingText:         document.getElementById("waking-text"),
+  gapMonitor:         document.getElementById("gap-monitor"),
+  gapMonitorLive:     document.getElementById("gap-monitor-live"),
+  gapAlertBtn:        document.getElementById("gap-alert-btn"),
   toggleRailBtn:      document.getElementById("toggle-rail-btn"),
   railBoardHost:      document.getElementById("rail-board-host"),
 
@@ -1514,12 +1524,201 @@ function startVehicleRefresh() {
   fetchVehicles();   // immediate first call
   state.refreshTimer = setInterval(fetchVehicles, CONFIG.VEHICLE_REFRESH_MS);
   state.isRefreshing = true;
+  // The gap monitor is built from the same live positions, so it runs exactly
+  // when they do: paused outside Live view, in a hidden tab, or with buses off.
+  startGapMonitor();
 }
 
 function stopVehicleRefresh() {
   clearInterval(state.refreshTimer);
   state.refreshTimer = null;
   state.isRefreshing = false;
+  stopGapMonitor();
+}
+
+// ============================================================
+// A259 GAP MONITOR
+// ============================================================
+// Long gaps between westbound buses through Shoreham, from /api/corridor-gaps.
+//
+// It sits in the Live panel under the stop search, not over the map. On a phone
+// the map is the part of the screen there is least of, and a normal service
+// needs one line rather than a banner; the detail opens on request.
+//
+// Nothing is shown when the answer is not known (no live data, too few buses
+// reporting, an error), so a missing answer never reads as "running normally".
+// Nothing is shown or fetched from 23:30 to 04:30, when the timetable's own
+// gaps are an hour long and a request would only wake a sleeping server.
+
+const GAP_QUIET_FROM = "23:30";
+const GAP_QUIET_TO   = "04:30";
+
+const LONDON_CLOCK = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+});
+
+/** "HH:MM" in London, whatever time zone the visitor's device is set to. */
+function londonClock(date = new Date()) {
+  return LONDON_CLOCK.format(date);
+}
+
+/** Tested as outside the day, not inside the night: the night crosses midnight,
+ *  and a from < now < to test across midnight is never true. */
+function isGapQuietHours(date = new Date()) {
+  const now = londonClock(date);
+  return !(now >= GAP_QUIET_TO && now < GAP_QUIET_FROM);
+}
+
+function gapMinutes(n) {
+  return `${n} minute${n === 1 ? "" : "s"}`;
+}
+
+function gapArrivalText(n) {
+  const when = n.minutes <= 0 ? "due now"
+    : n.minutes < 60 ? `in ${n.minutes} min`
+    : `at ${escapeHtml(n.due)}`;
+  const timetable = n.source === "scheduled" ? " (timetable)" : "";
+  return `${escapeHtml(n.service)} ${when}${timetable}`;
+}
+
+function gapAlertHtml(a) {
+  const where = escapeHtml(a.name);
+  const atLeast = a.to_horizon ? "at least " : "";
+  let span;
+  if (a.from_now && a.to_horizon) {
+    span = `No westbound bus is expected at ${where} in the next hour.`;
+  } else if (a.from_now) {
+    span = `No westbound bus is expected at ${where} until ${escapeHtml(a.to)}, `
+      + `${gapMinutes(a.minutes)} from now.`;
+  } else {
+    span = `No westbound bus is expected at ${where} between ${escapeHtml(a.from)} `
+      + `and ${escapeHtml(a.to)}, a gap of ${atLeast}${gapMinutes(a.minutes)}.`;
+  }
+  const n = a.not_reporting || 0;
+  // A bus that is not sending its position looks exactly like one that is not
+  // running, and that error makes gaps look longer. Say so wherever it applies.
+  const missing = n === 0 ? "" : n === 1
+    ? " One scheduled bus in that time is not sending its position, so it may be running untracked, or not running."
+    : ` ${n} scheduled buses in that time are not sending their positions, so they may be running untracked, or not running.`;
+  return `<p class="gap-monitor-alert">${span} The timetable's own gap there is `
+    + `${gapMinutes(a.timetable_minutes)}.${missing}</p>`;
+}
+
+/** The monitor's markup, or "" when there is nothing honest to show. */
+function gapMonitorHtml(data, { open = false } = {}) {
+  if (!data || data.active !== true) return "";
+  if (data.status !== "normal" && data.status !== "alert") return "";
+  const stops = Array.isArray(data.stops) ? data.stops : [];
+  const alert = data.status === "alert" ? data.alert : null;
+  if (!stops.length || (data.status === "alert" && !alert)) return "";
+
+  const summary = alert
+    ? `Long gap in westbound buses at ${escapeHtml(alert.name)}`
+    : "A259 westbound: buses running to timetable";
+  const rows = stops.map(s => {
+    const next = (s.next || []).map(gapArrivalText).join(", ");
+    return `<li><span class="gap-monitor-stop">${escapeHtml(s.name)}</span> `
+      + `${next || "no bus in the next hour"}</li>`;
+  }).join("");
+  const asOf = typeof data.as_of === "string" ? data.as_of.slice(11, 16) : "";
+
+  return `
+    <details class="gap-monitor${alert ? " gap-monitor--alert" : ""}"${open ? " open" : ""}>
+      <summary>
+        <svg class="icon gap-monitor-icon" aria-hidden="true"><use href="#${alert ? "i-alert" : "i-clock"}"/></svg>
+        <span class="gap-monitor-text">${summary}</span>
+        <svg class="icon gap-monitor-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+      </summary>
+      <div class="gap-monitor-body">
+        ${alert ? gapAlertHtml(alert) : ""}
+        <ul class="gap-monitor-stops" aria-label="Next westbound buses">${rows}</ul>
+        <p class="gap-monitor-method">Estimated${asOf ? ` at ${escapeHtml(asOf)}` : ""}
+          from live bus positions and scheduled running times. Coaches are not
+          counted, and nothing is shown between ${GAP_QUIET_FROM} and ${GAP_QUIET_TO}.</p>
+      </div>
+    </details>`;
+}
+
+function renderGapMonitor(data) {
+  const host = dom.gapMonitor;
+  if (!host) return;
+  const details = host.querySelector("details");
+  const hadFocus = !!details && details.contains(document.activeElement);
+  const html = gapMonitorHtml(data, { open: !!details && details.open });
+  host.innerHTML = html;
+  host.hidden = !html;
+  // Rebuilt every minute, so a keyboard user sitting on it would otherwise be
+  // dropped back to the top of the page each time the numbers move.
+  if (hadFocus && html) host.querySelector("summary")?.focus();
+
+  // The way in on a phone, where the monitor is below the resting sheet.
+  const alerting = !!html && data.status === "alert";
+  if (dom.gapAlertBtn) {
+    dom.gapAlertBtn.hidden = !alerting;
+    if (alerting) {
+      const label = `Long gap in westbound buses at ${data.alert.name}. Show details`;
+      dom.gapAlertBtn.setAttribute("aria-label", label);
+      dom.gapAlertBtn.title = label;
+    }
+  }
+
+  // Announced only when the state changes, not on every tick.
+  const key = html ? `${data.status}:${data.alert ? data.alert.atco : ""}` : "";
+  if (key === state.gapMonitorKey) return;
+  let say = "";
+  if (html && data.status === "alert") {
+    say = `Long gap in westbound buses at ${data.alert.name}.`;
+  } else if (html && state.gapMonitorKey.startsWith("alert")) {
+    say = "Westbound buses on the A259 are running to timetable again.";
+  }
+  if (say && dom.gapMonitorLive) dom.gapMonitorLive.textContent = say;
+  state.gapMonitorKey = key;
+}
+
+async function fetchGapMonitor() {
+  if (state.viewMode !== "live" || isGapQuietHours()) {
+    renderGapMonitor(null);
+    return;
+  }
+  if (state.gapMonitorInFlight) return;
+  state.gapMonitorInFlight = true;
+  try {
+    const data = await apiFetch("/api/corridor-gaps");
+    renderGapMonitor(state.viewMode === "live" ? data : null);
+  } catch (err) {
+    // An error is not a normal service. Hide rather than guess.
+    console.warn("Gap monitor refresh failed:", err);
+    renderGapMonitor(null);
+  } finally {
+    state.gapMonitorInFlight = false;
+  }
+}
+
+/** The status-pill alert button: bring the monitor into view, open. */
+function revealGapMonitor() {
+  // It lives on the stop search screen. A stop or bus left open would hide it,
+  // and pressing the alert is the reader choosing the alert over that.
+  if (state.selectedStop || state.selectedVehicleRef) closePanel();
+  setActiveTab("stop");
+  if (isSheetLayout() && state.sheetDetent === "peek") setSheetDetent("half");
+  const details = dom.gapMonitor && dom.gapMonitor.querySelector("details");
+  if (!details) return;
+  details.open = true;
+  scrollPanelTo(dom.gapMonitor, 8);
+  details.querySelector("summary")?.focus({ preventScroll: true });
+}
+
+function startGapMonitor() {
+  clearInterval(state.gapMonitorTimer);
+  fetchGapMonitor();
+  state.gapMonitorTimer = setInterval(fetchGapMonitor, CONFIG.GAP_MONITOR_REFRESH_MS);
+}
+
+function stopGapMonitor() {
+  clearInterval(state.gapMonitorTimer);
+  state.gapMonitorTimer = null;
+  // Paused positions go stale, and a stale "running to timetable" is a claim.
+  renderGapMonitor(null);
 }
 
 /** Header toggle: show/hide bus markers and pause/resume the live refresh
@@ -3607,6 +3806,10 @@ function bindUIEvents() {
         if (dom.toggleBusesBtn) dom.toggleBusesBtn.focus();
       }
     });
+  }
+
+  if (dom.gapAlertBtn) {
+    dom.gapAlertBtn.addEventListener("click", revealGapMonitor);
   }
 
   // Toggle showing trains (rail stations + tracked train markers).

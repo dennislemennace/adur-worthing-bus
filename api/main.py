@@ -40,6 +40,7 @@ from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from api import corridor_gaps
 from api.timetable_db import (NIGHT_ENDS_SECS, Timetable,
                               path_has_time_gap, service_runs_on)
 
@@ -1439,6 +1440,38 @@ async def get_stop_span(
         },
     }
     cache_set(cache_key, result, 3600)
+    return result
+
+
+# ── /api/corridor-gaps ────────────────────────────────────────
+@app.get("/api/corridor-gaps")
+async def get_corridor_gaps():
+    """
+    Long gaps between westbound buses on the A259 through Shoreham, right now.
+
+    Built from the vehicle positions /api/vehicles already fetches and caches,
+    so it makes no upstream call of its own when the map is open, and never
+    touches the TransportAPI prediction quota. See api/corridor_gaps.py for
+    the method and which way its errors lean.
+
+    Quiet hours (23:30 to 04:30) answer before anything is fetched: the monitor
+    is not shown then, and a request at 2am should not wake BODS to say so.
+    Cached 30 s — positions move every 15 s, and the answer is by the minute.
+    """
+    now = datetime.now(UK_TZ)
+    if corridor_gaps.is_quiet(now):
+        return corridor_gaps.corridor_gaps(None, [], now)
+
+    cached = cache_get("corridor-gaps")
+    if cached is not None:
+        return cached
+
+    tt = await _get_timetable()
+    # No key means no live positions, which is "unknown", not an error: the
+    # monitor hides itself rather than the page reporting a fault.
+    vehicles = await _get_vehicles_or_empty() if BODS_API_KEY else []
+    result = await off_loop(corridor_gaps.corridor_gaps, tt, vehicles, now)
+    cache_set("corridor-gaps", result, 30)
     return result
 
 

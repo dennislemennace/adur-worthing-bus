@@ -93,6 +93,12 @@ wakes for live times.
 - No published hard rate limit; "fair use" applies.
 - Current usage: a single bounding-box poll of `/datafeed/` every
   `VEHICLE_REFRESH_MS` (default 20 s) per active browser tab.
+- The A259 gap monitor (`/api/corridor-gaps`, `api/corridor_gaps.py`) reads the
+  same 15 s vehicle cache and adds no feed calls of its own while the map is
+  polling. The page asks for it once a minute, only in Live view, and not at
+  all from 23:30 to 04:30 London time, so it never wakes the service overnight.
+  Its answer is cached for 30 s. It does not use TransportAPI: three stops
+  polled every minute would have spent the 300-a-day cap by mid-morning.
 
 **Implications**
 
