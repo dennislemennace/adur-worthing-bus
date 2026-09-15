@@ -884,6 +884,68 @@ async function checkDeepLinkIndependence() {
   }
 }
 
+/**
+ * About, privacy and terms are separate pages with their own inline styles, so
+ * none of the checks on the map page ever looked at them. They carry the
+ * legal text and the switch that stops visit counting, and a switch that does
+ * not save, or text too faint to read, is a promise the page is not keeping.
+ */
+async function checkStaticPages() {
+  const base = new URL(SITE);
+  const origin = `${base.origin}${base.pathname.replace(/[^/]*$/, "")}`;
+  for (const name of ["about.html", "privacy.html", "terms.html"]) {
+    for (const vp of [{ label: "mobile", width: 390, height: 844, mobile: true },
+                      { label: "desktop", width: 1440, height: 900, mobile: false }]) {
+      const page = await connect("about:blank");
+      try {
+        await page.send("Page.enable");
+        await page.send("Runtime.enable");
+        await page.send("Network.enable");
+        await page.send("Network.setCacheDisabled", { cacheDisabled: true });
+        await page.send("Emulation.setDeviceMetricsOverride",
+          { width: vp.width, height: vp.height, deviceScaleFactor: 2, mobile: vp.mobile });
+        for (const scheme of ["light", "dark"]) {
+          await page.send("Emulation.setEmulatedMedia",
+            { features: [{ name: "prefers-color-scheme", value: scheme }] });
+          await page.send("Page.navigate", { url: origin + name });
+          await sleep(1500);
+          const where = `${name}, ${vp.label}, ${scheme}`;
+          const over = await page.evaluate(OVERFLOW_SCAN);
+          check(`nothing overflows the viewport — ${where}`, over.length === 0, over.join(", "));
+          const small = await page.evaluate(TARGET_SCAN);
+          check(`touch targets are at least 44px — ${where}`, small.length === 0, small.join(", "));
+          const bad = await page.evaluate(CONTRAST_SCAN);
+          check(`text meets WCAG AA contrast — ${where}`, bad.length === 0, bad.join(", "));
+        }
+        if (name === "privacy.html" && vp.label === "mobile") {
+          // The switch has to save, survive a reload, and say what it did.
+          const before = JSON.parse(await page.evaluate(`JSON.stringify({
+            stored: localStorage.getItem("analytics-opt-out"),
+            button: document.getElementById("counting-switch").textContent })`));
+          await page.evaluate(`(() => { document.getElementById("counting-switch").click(); return ""; })()`);
+          await page.send("Page.navigate", { url: origin + name });
+          await sleep(1200);
+          const after = JSON.parse(await page.evaluate(`JSON.stringify({
+            stored: localStorage.getItem("analytics-opt-out"),
+            state: document.getElementById("counting-state").textContent,
+            button: document.getElementById("counting-switch").textContent })`));
+          check("the privacy page's switch stops visit counting and remembers it",
+            before.stored === null && after.stored === "1"
+              && /not counted/.test(after.state) && /again/.test(after.button),
+            JSON.stringify({ before, after }));
+          // Put it back, so the rest of the run sees a default browser.
+          await page.evaluate(`(() => { localStorage.removeItem("analytics-opt-out"); return ""; })()`);
+        }
+        const errors = page.consoleErrors.filter((e) => JS_ERROR.test(e));
+        check(`no JavaScript exceptions — ${name}, ${vp.label}`, errors.length === 0,
+          errors.slice(0, 2).join(" | "));
+      } finally {
+        page.ws.close();
+      }
+    }
+  }
+}
+
 async function checkFirstUsefulAction(page, where) {
   // A genuinely fresh Live view: no stop, no rail board, default detent.
   // Without closePanel() this inherited whatever the previous check left
@@ -2298,6 +2360,7 @@ await checkJourneyPresets(page);
 await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
 await checkDeepLinkIndependence();   // own page + request interception; keep it apart
+await checkStaticPages();           // own pages: about, privacy, terms
 
 // The other two viewports get the layout assertions whether or not
 // screenshots were asked for — an assertion that only runs with --shots is

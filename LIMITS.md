@@ -137,6 +137,32 @@ lines and timetables are API calls too, and arrive with it.
   upstream allowance, unauthenticated. It now shares the cache and gate. A
   diagnostic is still a caller.
 
+## GoatCounter — visit counting
+
+(`loadAnalytics` and `track` in `app.js`, and `analytics-page.js` for the
+static pages. Off without a site code, and for readers who switch it off on
+`privacy.html`.)
+
+- Hosted service, free for "reasonable public usage". There is no published
+  hard cap, only a note that millions of page views a day is beyond it. This
+  site is several orders of magnitude below that.
+- Each page load is one page view. Events (`track()` names: views, journey
+  checks, councillor letters, submissions, gap alerts, cold starts,
+  accessibility changes) are counted the same way, so a busy session can be a
+  dozen or so. The Live view's polling never counts.
+- Not loaded for Do Not Track, Global Privacy Control, localhost or LAN
+  previews, and usually stopped by content blockers, so every figure is an
+  undercount. Say so beside any number quoted from it (evidence-provenance).
+
+**Implications**
+
+- Do not add a `track()` call inside a timer or a poll. Count things a person
+  did, once.
+- If the free service ever becomes unsuitable, GoatCounter can be self-hosted,
+  and Umami Cloud's free tier (100K events a month) takes the same event model.
+- `privacy.html` lists what is counted. A new event name is a change to that
+  list, and `tests/test_privacy_notice.py` fails until the list says so.
+
 ## Cloudflare Workers + KV — community submission relay
 
 (`worker/` — takes idea / proposal / stop-issue submissions and files them as

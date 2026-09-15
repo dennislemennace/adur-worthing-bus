@@ -10,7 +10,7 @@ intended at various points and is not a description of what exists.
 |---|---|---|
 | Static site | GitHub Pages, legacy branch build from `main` at `/` | `CNAME` claims `worthingbrightonbus.co.uk`; the `dennislemennace.github.io` URL 301s to it. |
 | API | Render (free plan), `api/main.py` | Sleeps when idle; the first request after a sleep is slow. Health check is `/`. |
-| Submissions | Cloudflare Worker, `worker/src/index.js` | Files public GitHub issues. Secrets set via `wrangler secret put`, never in the repo. |
+| Submissions | Cloudflare Worker, `worker/src/index.js` | Files issues in the private `adur-worthing-bus-inbox` repo; nothing is public until published with `scripts/add_*.py`. Secrets set via `wrangler secret put`, never in the repo. |
 | Timetable | SQLite, published as a GitHub release asset | The API downloads it at startup and re-checks hourly. |
 
 ## Routine operations

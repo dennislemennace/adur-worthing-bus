@@ -915,11 +915,16 @@ def test_the_about_page_answers_the_questions_a_reader_would_ask():
     assert page.exists(), "there is no About page"
     text = page.read_text()
 
-    # The distinction the audit singled out: filed publicly now, reviewed later.
-    assert "public issues on GitHub straight away" in text
     assert "independent" in text.lower()
-    for topic in ("postcode", "Rate limiting", "Accessibility", "removed"):
-        assert topic in text, f"the About page does not cover {topic}"
+    assert "Accessibility" in text
+    for page_link in ('href="privacy.html"', 'href="terms.html"'):
+        assert page_link in text, f"the About page does not link to {page_link}"
+    assert "privacy@worthingbrightonbus.co.uk" in text, "no private route to ask for removal"
+
+    # What the About page used to carry now lives on the privacy notice.
+    privacy = " ".join((root / "privacy.html").read_text().split())
+    for topic in ("postcode", "two days", "private", "removal", "Information Commissioner"):
+        assert topic in privacy, f"the privacy notice does not cover {topic}"
 
 
 def test_proposal_lines_pass_through_their_stops_without_looping():

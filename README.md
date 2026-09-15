@@ -14,10 +14,11 @@ Data from the [Bus Open Data Service (BODS)](https://data.bus-data.dft.gov.uk/) 
 
 The Ideas form, the proposal editor's **Submit** button, and the departure
 board's **Report an issue** button all post to a small
-[Cloudflare Worker](./worker/README.md), which files each submission as a
-GitHub issue. **No account is needed to submit** — and unlike an email relay,
-every submission gets a public home the sender can follow, and the sender is
-linked straight to it.
+[Cloudflare Worker](./worker/README.md), which files each submission as an
+issue in a **private** GitHub repository. **No account is needed to submit.**
+Nothing is public until a maintainer has read it and published it to `data/`
+with the `scripts/add_*.py` scripts, and every form carries a box the sender
+ticks to confirm they understand that approved submissions are published.
 
 To switch it on, deploy the Worker (see [`worker/README.md`](./worker/README.md)
 for the full runbook: KV namespace, fine-grained PAT, Turnstile keys) and paste
@@ -30,9 +31,21 @@ and a global daily cap. Submissions are also sanitised server-side before they
 reach an issue — notably `@mentions` are defused, because an issue body is a
 broadcast.
 
+### Visit counting
+
+Visits and a short list of actions are counted with
+[GoatCounter](https://www.goatcounter.com/): no cookies, no stored IP
+addresses, and not loaded at all for browsers that send Do Not Track or Global
+Privacy Control, nor for readers who switch it off on `privacy.html`. The site
+code (the `MYCODE` in `MYCODE.goatcounter.com`) is set in two places that must
+match: `CONFIG.GOATCOUNTER_CODE` in `app.js`, and `var code` in
+`analytics-page.js`, which the static pages load. `privacy.html` lists what is
+counted; `LIMITS.md` has the rules for adding to it.
+
 ### Approving an idea
 
-Nothing is published automatically. Submissions arrive as issues labelled
+Nothing is published automatically. Submissions arrive in the private
+`adur-worthing-bus-inbox` repository as issues labelled
 `community-submission` / `unverified`, and stay there until you publish them —
 so junk never reaches the site. Each idea issue carries a ready-to-publish JSON
 blob. To approve one:

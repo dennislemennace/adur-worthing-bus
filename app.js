@@ -32,6 +32,11 @@ const CONFIG = {
   // for 30 s, so polling faster than this would only re-read the same cache.
   GAP_MONITOR_REFRESH_MS: 60_000,
 
+  // GoatCounter site code: the "MYCODE" in MYCODE.goatcounter.com. Public, not a
+  // secret. Empty means analytics is off and nothing is loaded. Keep it equal
+  // to the code in about.html's loader; a test checks that they match.
+  GOATCOUNTER_CODE: "dennislemennace",
+
   // How many departures to request from the API
   DEPARTURES_COUNT: 10,
 
@@ -106,8 +111,10 @@ function svgIcon(id) {
 // everyone. Filtering tiles we already fetch can't be withdrawn, needs no key,
 // and makes no extra requests: switching theme re-renders rather than
 // re-downloading, which is also kinder to the OSM tile usage policy.
+// One host, exactly as the OSM tile usage policy asks. The a/b/c subdomains
+// this used are ones the policy says "may be slower or withdrawn without notice".
 const TILES = {
-  url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   maxZoom: 19,
 };
@@ -490,6 +497,7 @@ function resolvePendingProposalId() {
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
+  loadAnalytics();
   // The pre-paint script in index.html already applied html.dark-mode from
   // localStorage (or the OS preference on first visit), so there's no flash.
   // Sync our state + the toggle button to whatever it decided.
@@ -1537,6 +1545,95 @@ function stopVehicleRefresh() {
 }
 
 // ============================================================
+// ANALYTICS
+// ============================================================
+// GoatCounter counts visits and a short list of named actions, with no cookies
+// and nothing stored about the person. The privacy section of about.html says
+// exactly what, and has to change whenever this does.
+//
+// Loaded from here rather than from a script tag, so that nothing is fetched
+// at all for a browser that asks not to be tracked, and a preview on this
+// machine or the LAN never counts. With no site code set nothing loads, and
+// track() does nothing.
+
+const ANALYTICS_SCRIPT_URL = "https://gc.zgo.at/count.js";
+const ANALYTICS_QUEUE_MAX = 20;
+const analytics = { enabled: false, queue: [], once: new Set() };
+
+// Views are switched in the address after the #, which GoatCounter does not
+// see, so each one is counted as an event under a name a reader would use.
+const VIEW_EVENT_NAMES = {
+  live: "live", improvements: "route", tickets: "tickets",
+  network: "better-buses", updates: "news",
+};
+
+// Set by the switch on privacy.html. The analytics exemption in PECR, as
+// amended in 2026, depends on readers having a simple, free way to object;
+// a browser privacy signal is one way, and not everyone has one.
+const ANALYTICS_OPT_OUT_KEY = "analytics-opt-out";
+
+function analyticsOptedOut(store = localStorage) {
+  try { return store.getItem(ANALYTICS_OPT_OUT_KEY) === "1"; } catch { return false; }
+}
+
+/** Whether this visit may be counted at all. */
+function analyticsAllowed(nav = navigator, loc = location, win = window, store = localStorage) {
+  if (!/^[a-z0-9-]+$/.test(CONFIG.GOATCOUNTER_CODE || "")) return false;
+  if (analyticsOptedOut(store)) return false;
+  if (nav.globalPrivacyControl === true) return false;
+  const dnt = nav.doNotTrack ?? win.doNotTrack;
+  if (dnt === "1" || dnt === "yes") return false;
+  const host = loc.hostname || "";
+  const local = !host || host === "localhost" || host.endsWith(".local")
+    || /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host)
+    || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+  return !local;
+}
+
+function loadAnalytics() {
+  if (analytics.enabled || !analyticsAllowed()) return;
+  analytics.enabled = true;
+  const s = document.createElement("script");
+  s.async = true;
+  s.src = ANALYTICS_SCRIPT_URL;
+  s.setAttribute("data-goatcounter", `https://${CONFIG.GOATCOUNTER_CODE}.goatcounter.com/count`);
+  s.addEventListener("load", flushAnalytics);
+  document.head.appendChild(s);
+}
+
+/** Count one named action. Names are fixed strings and ids from the site's own
+ *  data, never anything a reader typed. Never throws: a blocked or broken
+ *  counter must not take a feature down with it. */
+function track(name) {
+  if (!analytics.enabled) return;
+  const path = String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "").slice(0, 80);
+  if (!path) return;
+  const gc = goatcounterReady();
+  if (gc) {
+    try { gc.count({ path, title: path, event: true }); } catch { /* not worth breaking the page */ }
+  } else if (analytics.queue.length < ANALYTICS_QUEUE_MAX) {
+    // Before the script arrives. If it never does, these are simply dropped.
+    analytics.queue.push(path);
+  }
+}
+
+function trackOnce(name) {
+  if (analytics.once.has(name)) return;
+  analytics.once.add(name);
+  track(name);
+}
+
+function goatcounterReady() {
+  const gc = typeof window !== "undefined" ? window.goatcounter : null;
+  return gc && typeof gc.count === "function" ? gc : null;
+}
+
+function flushAnalytics() {
+  for (const path of analytics.queue.splice(0)) track(path);
+}
+
+// ============================================================
 // A259 GAP MONITOR
 // ============================================================
 // Long gaps between westbound buses through Shoreham, from /api/corridor-gaps.
@@ -1686,6 +1783,7 @@ function renderGapMonitor(data) {
   const fresh = alerts.filter(d => !before.includes(`${d.id}:${d.alert.atco}`));
   let say = "";
   if (fresh.length) {
+    fresh.forEach(d => track(`gap-alert-${d.id}`));
     say = fresh.map(d => `${d.label}: long gap at ${d.alert.name}.`).join(" ");
   } else if (html && !alerts.length && before.length > 1) {
     say = "Buses on the A259 Coast Rd are running to timetable again.";
@@ -2950,11 +3048,16 @@ function renderBusTab() {
       <div class="suggest-turnstile" id="rb-turnstile"></div>
 
       <p class="suggest-privacy">
-        This posts a public record to the project's issue tracker so it can be
-        counted and quoted. It is not a complaint to the operator and it does
-        not reach the driver. For that, contact
+        This goes privately to the project, so problems can be counted and, once a
+        person has reviewed them, quoted. It is not a complaint to the operator and it
+        does not reach the driver. For that, contact
         ${operatorComplaintLinkHtml(state.selectedVehicle && state.selectedVehicle.operator_ref)}.
+        <a href="privacy.html">How submissions are handled</a>.
       </p>
+      <label class="publish-ack" for="rb-ack">
+        <input type="checkbox" id="rb-ack" name="publishAck">
+        <span>I understand that if this is approved it will be published on this site, with the name I give.</span>
+      </label>
 
       <div class="suggest-actions">
         <button class="editor-action-btn primary" id="rb-submit" type="submit">
@@ -3280,6 +3383,18 @@ function recolourCouncilBoundaries() {
   }
 }
 
+/** A change made in the accessibility dialog: apply it, keep it, count it. */
+function updateA11y(patch) {
+  const next = normaliseA11y({ ...state.a11y, ...patch });
+  applyA11ySettings(next);
+  saveA11ySettings(next);
+  if ("textScale" in patch) {
+    track(`a11y-text-${{ 1: "default", 1.2: "larger", 1.4: "largest" }[next.textScale] || "default"}`);
+  }
+  if ("reduceMotion" in patch) track(`a11y-reduce-motion-${next.reduceMotion ? "on" : "off"}`);
+  if ("cvd" in patch) track(`a11y-colour-blind-${next.cvd ? "on" : "off"}`);
+}
+
 function applyA11ySettings(s) {
   const previous = state.a11y || {};
   state.a11y = s;
@@ -3359,11 +3474,7 @@ function bindThemeLongPress(btn) {
 function bindA11yControls() {
   const d = dom.a11yDialog;
   if (!d) return;
-  const update = (patch) => {
-    const next = normaliseA11y({ ...state.a11y, ...patch });
-    applyA11ySettings(next);
-    saveA11ySettings(next);
-  };
+  const update = updateA11y;
   d.querySelectorAll('input[name="a11y-text"]').forEach(r =>
     r.addEventListener("change", () => { if (r.checked) update({ textScale: Number(r.value) }); }));
   const motion = d.querySelector("#a11y-motion");
@@ -3371,7 +3482,13 @@ function bindA11yControls() {
   const cvd = d.querySelector("#a11y-cvd");
   if (cvd) cvd.addEventListener("change", () => update({ cvd: cvd.checked }));
   const reset = d.querySelector("#a11y-reset");
-  if (reset) reset.addEventListener("click", () => { update(normaliseA11y({})); syncA11yControls(); });
+  if (reset) reset.addEventListener("click", () => {
+    const defaults = normaliseA11y({});
+    applyA11ySettings(defaults);
+    saveA11ySettings(defaults);
+    track("a11y-reset");
+    syncA11yControls();
+  });
   d.querySelectorAll("[data-close-a11y]").forEach(b => b.addEventListener("click", () => d.close()));
   d.addEventListener("close", () => {
     const back = d._returnFocus;
@@ -4345,6 +4462,7 @@ function setViewMode(mode) {
   if (!["live", "improvements", "tickets", "network", "updates"].includes(mode)) return;
   if (state.viewMode === mode) return;
   state.viewMode = mode;
+  track(`view-${VIEW_EVENT_NAMES[mode]}`);
 
   syncSectionNavToViewMode();
 
@@ -6644,6 +6762,7 @@ async function runJourneyPreset(preset) {
   if (!dom.jcFrom || !dom.jcTo) return;
   dom.jcFrom.value = journeyPickerValue(preset.from_name, preset.from);
   dom.jcTo.value   = journeyPickerValue(preset.to_name,   preset.to);
+  track(`journey-preset-${preset.id}`);
   await checkJourney();
 
   // Only scroll to something worth reading. A failed check leaves the result
@@ -6691,6 +6810,8 @@ async function checkJourney() {
   if (!mine()) return;
   setJourneyStatus("");
   renderJourneyResult(journey, fromAtco, toAtco);
+  // That a journey was checked, never which stops: those are what someone typed.
+  track("journey-check");
 }
 
 /**
@@ -8140,13 +8261,17 @@ function renderEditor() {
       <div class="suggest-turnstile" id="ed-turnstile"></div>
 
       <!-- At the action, not only behind the help button. What a submission
-           does (a public issue, immediately, reviewed afterwards) is
+           does (private until reviewed, then published with your name) is
            something to know before pressing Submit, not after. -->
       <p class="suggest-privacy editor-submit-note">
-        Posts to the project's <strong>public</strong> issue tracker straight
-        away, with your name; reviewed before it appears on the site.
+        Goes privately to the project for review. If it's approved it's
+        published on this site with the name you give.
         <button type="button" class="btn-text" id="ed-privacy-more">What this means</button>
       </p>
+      <label class="publish-ack" for="ed-ack">
+        <input type="checkbox" id="ed-ack" name="publishAck">
+        <span>I understand that if this is approved it will be published on this site, with the name I give.</span>
+      </label>
 
       <div class="editor-help-popover hidden" id="ed-help-popover" role="dialog"
            aria-labelledby="ed-help-title" aria-modal="false">
@@ -8162,9 +8287,10 @@ function renderEditor() {
         <ol class="editor-help-steps">
           <li>
             <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-plus"/></svg>
-            <span><strong>Submit</strong> posts your route to the project's public issue
-              tracker. <strong>No account needed.</strong> We'll open your proposal in a new
-              tab so you can follow what happens to it.</span>
+            <span><strong>Submit</strong> sends your route privately to the project.
+              <strong>No account needed.</strong> A person reviews it, and if it's approved
+              it's published on this site with the name you give.
+              <a href="privacy.html">How submissions are handled</a>.</span>
           </li>
           <li>
             <svg class="icon editor-help-step-icon" aria-hidden="true"><use href="#i-copy"/></svg>
@@ -8664,6 +8790,7 @@ async function submitProposal() {
     // Compacted JSON (no pretty-print) keeps a polyline-heavy draft under the
     // Worker's body cap; it re-formats before writing the issue.
     proposalJson: JSON.stringify(obj),
+    publishAck: publishAcknowledged(dom.proposalEditor),
   }, widget);
   resetTurnstile(widget);
 
@@ -8671,7 +8798,7 @@ async function submitProposal() {
     // The link stays on the page rather than being opened for the reader:
     // after an await the gesture has expired and the popup is blocked, which
     // loses the only reference they have to their own submission.
-    setEditorStatusHtml(submissionReceiptHtml(result));
+    setEditorStatusHtml(submissionReceiptHtml());
   } else if (result.reason === "in-flight" || result.reason === "timeout") {
     setEditorStatus(result.message);
   } else if (result.reason === "unconfigured") {
@@ -8681,6 +8808,7 @@ async function submitProposal() {
       ? "Couldn't send. Try Copy JSON instead."
       : result.reason;
     setEditorStatus(msg);
+    focusPublishAck(dom.proposalEditor, result);
   }
 }
 
@@ -9192,6 +9320,7 @@ function openCouncillorDialog(objectiveId) {
   const objective = (state.objectives || []).find(o => o.id === objectiveId);
   if (!dialog || !objective) return;
   state.councillorObjective = objectiveId;
+  track(`councillor-open-${objective.id}`);
   state.councillorBody = objectiveAuthorities(objective)[0] || null;
   state.councillorResult = null;
   renderCouncillorDialog();
@@ -9286,6 +9415,9 @@ function bindCouncillorDialog() {
 function onCouncillorOpenMail() {
   const built = councillorMailtoFromDraft(currentCouncillorDraft());
   if (!built) return;
+  // The objective only. The postcode and the letter never leave the browser,
+  // and the privacy notice says so.
+  track(`councillor-email-${state.councillorObjective}`);
   window.location.href = built.url;
 }
 
@@ -9628,7 +9760,32 @@ function resetTurnstile(container) {
 const SUBMIT_TIMEOUT_MS = 20_000;
 const submissionsInFlight = new Set();
 
+// Every form that sends something in carries a box the sender ticks. Nothing is
+// published until a person reviews it, but what is approved is published with
+// the name given, and that should be agreed to knowingly. The Worker refuses a
+// submission without it too.
+const PUBLISH_ACK_MESSAGE =
+  "Please tick the box to confirm you understand this may be published after review.";
+const RECEIVED_PRIVATELY =
+  "Thanks, received privately for review. Nothing is published unless a person approves it.";
+
+/** The publication box inside a form or panel, ticked or not. */
+function publishAcknowledged(scope) {
+  const box = scope && scope.querySelector('input[name="publishAck"]');
+  return !!(box && box.checked);
+}
+
+/** After a refusal for the box, put the reader on it. */
+function focusPublishAck(scope, result) {
+  if (!result || !result.ack || !scope) return;
+  const box = scope.querySelector('input[name="publishAck"]');
+  if (box && typeof box.focus === "function") box.focus();
+}
+
 async function postSubmission(kind, fields, turnstileContainer) {
+  if (fields.publishAck !== true) {
+    return { ok: false, reason: PUBLISH_ACK_MESSAGE, ack: true };
+  }
   const endpoint = CONFIG.SUBMIT_ENDPOINT;
   if (!endpoint || endpoint.includes("YOUR-WORKER")) {
     return { ok: false, reason: "unconfigured" };
@@ -9657,6 +9814,7 @@ async function postSubmission(kind, fields, turnstileContainer) {
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.ok === true) {
+      track(`submission-${kind}`);
       return { ok: true, url: data.url, number: data.number };
     }
     return { ok: false, reason: data.error || `HTTP ${res.status}` };
@@ -9675,19 +9833,13 @@ async function postSubmission(kind, fields, turnstileContainer) {
 /**
  * What a reader is told after a submission is accepted.
  *
- * Two things this has to get right. "Sent" on its own reads as "published",
- * and it is not: a submission becomes an entry on a public tracker and waits
- * for a person to review it. And the link has to stay on the page — it used
- * to be handed to `window.open` after an await, which browsers block as a
- * popup because the user gesture is long gone, so the only record of where
- * the submission went could vanish silently.
+ * "Sent" on its own reads as "published", and it is not. Submissions used to
+ * become public GitHub issues at once, and this linked to the one just made.
+ * They now go to a private inbox, so there is no page to link to, and the
+ * honest thing to say is that nothing is public yet.
  */
-function submissionReceiptHtml(result) {
-  const link = result.url
-    ? ` <a href="${escapeAttr(safeUrl(result.url))}" target="_blank"
-           rel="noopener noreferrer">View it${result.number ? ` (#${escapeHtml(String(result.number))})` : ""} ↗</a>`
-    : "";
-  return `Received for review. It isn't on the site yet.${link}`;
+function submissionReceiptHtml() {
+  return escapeHtml(RECEIVED_PRIVATELY);
 }
 
 /** Validate + file a community suggestion as a public GitHub issue. */
@@ -9723,7 +9875,8 @@ async function submitSuggestion() {
   // The Worker builds the ready-to-publish JSON itself rather than trusting a
   // blob from the browser, and files the issue. No email is collected: the
   // issue is public, so an address here would be published with it.
-  const fields = { title, details, area, objective, name };
+  const fields = { title, details, area, objective, name,
+                   publishAck: publishAcknowledged(form) };
 
   setSuggestBusy(true);
   setSuggestStatus("Sending…");
@@ -9733,7 +9886,7 @@ async function submitSuggestion() {
 
   if (result.ok) {
     setSuggestStatus("");
-    renderSuggestSuccess(result.url);
+    renderSuggestSuccess();
     form.reset();
   } else if (result.reason === "unconfigured") {
     setSuggestStatus("Suggestions aren't switched on yet. Please try again later.", true);
@@ -9745,6 +9898,7 @@ async function submitSuggestion() {
       ? "Couldn't send. Please try again."
       : result.reason;
     setSuggestStatus(msg, true);
+    focusPublishAck(form, result);
   }
 }
 
@@ -9865,21 +10019,14 @@ async function submitNews() {
     topic:     val("#nw-topic"),
     sourceUrl: val("#nw-source"),
     name:      val("#nw-name"),
+    publishAck: publishAcknowledged(form),
   }, document.getElementById("nw-turnstile"));
   if (submit) submit.disabled = false;
   resetTurnstile(document.getElementById("nw-turnstile"));
 
   if (result.ok) {
     form.reset();
-    const el = document.getElementById("nw-status");
-    if (el && result.url) {
-      el.classList.remove("is-error");
-      el.innerHTML = `Thanks, received for review. It's on the `
-        + `<a href="${escapeAttr(safeUrl(result.url))}" target="_blank" `
-        + `rel="noopener noreferrer">public tracker</a>; it isn't on this page yet.`;
-    } else {
-      setNewsStatus("Thanks, received for review. It isn't on this page yet.");
-    }
+    setNewsStatus(RECEIVED_PRIVATELY);
   } else if (result.reason === "in-flight" || result.reason === "timeout") {
     setNewsStatus(result.message, true);
   } else if (result.reason === "unconfigured") {
@@ -9887,6 +10034,7 @@ async function submitNews() {
   } else {
     setNewsStatus(/^HTTP \d+$/.test(result.reason || "")
       ? "Couldn't send. Please try again." : result.reason, true);
+    focusPublishAck(form, result);
   }
 }
 
@@ -9929,6 +10077,7 @@ async function submitBusIssue() {
     lat:        v.latitude,
     lon:        v.longitude,
     when:       new Date().toISOString().slice(0, 16),
+    publishAck: publishAcknowledged(form),
   };
 
   if (submit) submit.disabled = true;
@@ -9941,15 +10090,7 @@ async function submitBusIssue() {
   if (result.ok) {
     form.reset();
     toggleReportBusForm(false);
-    const el = document.getElementById("rb-status");
-    if (el && result.url) {
-      el.classList.remove("is-error");
-      el.innerHTML = `Thanks, received for review. `
-        + `<a href="${escapeAttr(safeUrl(result.url))}" target="_blank" `
-        + `rel="noopener noreferrer">Track it here</a>.`;
-    } else {
-      setReportBusStatus("Thanks, your report has been received for review.");
-    }
+    setReportBusStatus(RECEIVED_PRIVATELY);
   } else if (result.reason === "in-flight" || result.reason === "timeout") {
     setReportBusStatus(result.message, true);
   } else if (result.reason === "unconfigured") {
@@ -9957,6 +10098,7 @@ async function submitBusIssue() {
   } else {
     setReportBusStatus(/^HTTP \d+$/.test(result.reason || "")
       ? "Couldn't send. Please try again." : result.reason, true);
+    focusPublishAck(form, result);
   }
 }
 
@@ -9998,6 +10140,7 @@ async function submitStopIssue() {
     name:     form.querySelector("#rs-name").value.trim(),
     lat:      pos.lat,
     lon:      pos.lon,
+    publishAck: publishAcknowledged(form),
   };
 
   if (dom.reportStopSubmit) dom.reportStopSubmit.disabled = true;
@@ -10008,14 +10151,7 @@ async function submitStopIssue() {
 
   if (result.ok) {
     form.reset();
-    if (result.url) {
-      dom.reportStopStatus.classList.remove("is-error");
-      dom.reportStopStatus.innerHTML =
-        `Thanks, received for review. <a href="${escapeAttr(safeUrl(result.url))}" ` +
-        `target="_blank" rel="noopener noreferrer">Track it here</a>.`;
-    } else {
-      setReportStopStatus("Thanks, your report has been received for review.");
-    }
+    setReportStopStatus(RECEIVED_PRIVATELY);
   } else if (result.reason === "in-flight" || result.reason === "timeout") {
     setReportStopStatus(result.message, true);
   } else if (result.reason === "unconfigured") {
@@ -10025,25 +10161,15 @@ async function submitStopIssue() {
       ? "Couldn't send. Please try again."
       : result.reason;
     setReportStopStatus(msg, true);
+    focusPublishAck(form, result);
   }
 }
 
 /** Replace the form status line with a link to the issue that was just filed. */
-function renderSuggestSuccess(url) {
+function renderSuggestSuccess() {
   if (!dom.suggestStatus) return;
   dom.suggestStatus.classList.remove("is-error");
-  if (url) {
-    // "on the tracker" is the honest description: the issue is public
-    // immediately, and appearing on the site is a separate, later decision by
-    // a person. Saying "published" here would be wrong in both directions.
-    dom.suggestStatus.innerHTML =
-      `Thanks, received for review. Your idea is on the ` +
-      `<a href="${escapeAttr(safeUrl(url))}" target="_blank" ` +
-      `rel="noopener noreferrer">public tracker</a>; it isn't on the site yet.`;
-  } else {
-    dom.suggestStatus.textContent =
-      "Thanks, received for review. It isn't on the site yet.";
-  }
+  dom.suggestStatus.textContent = RECEIVED_PRIVATELY;
 }
 
 // ============================================================
@@ -10182,6 +10308,9 @@ const API_ERROR_TEXT = {
 
 function showWakingBanner() {
   if (!dom.wakingBanner) return;
+  // Once a page load: how many readers meet a cold start is the evidence for
+  // the keep-warm budget, and a slow start fires this for several calls.
+  trackOnce("api-waking");
   dom.wakingText.textContent =
     "Waking the live service up. This takes about 20 seconds after a quiet "
     // Only the stop list is published with the site. Route lines and

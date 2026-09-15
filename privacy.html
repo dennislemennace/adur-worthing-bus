@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1a4b82" />
+  <title>Privacy | Worthing Brighton Bus</title>
+  <meta name="description" content="What Worthing Brighton Bus does with personal information, who is responsible for it, how long it is kept, and your rights." />
+  <link rel="canonical" href="https://worthingbrightonbus.co.uk/privacy.html" />
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="stylesheet" href="fonts/fonts.css" />
+  <style>
+    /* Self-contained like about.html, so it still works when the map, the API
+       and the application script are all unavailable. */
+    :root { color-scheme: light dark; --ink: #12202f; --muted: #3d4a57; --bg: #fbfaf7; --rule: #d8d3c8; --link: #1a4b82; --panel: #f1eee7; }
+    @media (prefers-color-scheme: dark) {
+      :root { --ink: #e8eef5; --muted: #b9c4d0; --bg: #090e1a; --rule: #263349; --link: #7fb3e8; --panel: #121a2b; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink);
+           font: 16px/1.65 Outfit, system-ui, -apple-system, sans-serif; }
+    .wrap { max-width: 44rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    h1, h2, h3 { font-family: Fraunces, Georgia, serif; line-height: 1.2; }
+    h1 { font-size: 1.9rem; margin: 0 0 .25rem; }
+    h2 { font-size: 1.25rem; margin: 2.25rem 0 .5rem; }
+    h3 { font-size: 1.05rem; margin: 1.5rem 0 .25rem; }
+    .lede { font-size: 1.05rem; margin-top: 0; }
+    .updated { color: var(--muted); font-size: .9rem; }
+    a { color: var(--link); }
+    .back { display: inline-block; margin-bottom: 1.5rem; font-weight: 600; min-height: 44px; padding: .6rem 0; }
+    dt { font-weight: 600; margin-top: .9rem; }
+    dd { margin: .15rem 0 0; }
+    .table-wrap { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+    th, td { text-align: left; vertical-align: top; padding: .5rem .6rem; border-bottom: 1px solid var(--rule); }
+    th { font-weight: 600; }
+    .panel { background: var(--panel); border-radius: 8px; padding: 1rem 1.1rem; margin: 1rem 0; }
+    .switch { font: inherit; font-weight: 600; min-height: 44px; padding: .5rem 1rem; border-radius: 8px;
+              border: 1px solid var(--link); background: transparent; color: var(--link); cursor: pointer; }
+    .switch:focus-visible, a:focus-visible { outline: 3px solid var(--link); outline-offset: 2px; }
+    footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); font-size: .9rem; }
+    footer a { display: inline-block; min-height: 44px; padding: .6rem 0; }
+  </style>
+  <script src="analytics-page.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="./">← Back to the map</a>
+
+  <h1>Privacy</h1>
+  <p class="lede">
+    What this site does with information about you, who is responsible for it,
+    and what you can ask for. It is written to be read, and it describes what the
+    code actually does.
+  </p>
+  <p class="updated">Last updated 15 September 2026.</p>
+
+  <h2>Who is responsible</h2>
+  <p>
+    Worthing Brighton Bus is run by Connor R, a volunteer, who is the data
+    controller for the information described here. For anything about your
+    information, including a request to see it or have it deleted, email
+    <a href="mailto:privacy@worthingbrightonbus.co.uk">privacy@worthingbrightonbus.co.uk</a>.
+    You do not need to use the public issue tracker for this, and you should not
+    put personal details there.
+  </p>
+
+  <h2>In short</h2>
+  <ul>
+    <li>The site sets no cookies and does not ask for your email address.</li>
+    <li>Visits are counted without cookies, and you can switch that off below.</li>
+    <li>Submissions go privately to the project. Nothing is published until a
+      person has read it, and then only with the name you chose to give.</li>
+    <li>The councillor letter is written in your browser and handed to your own
+      email app. This site never sees it.</li>
+  </ul>
+
+  <h2>What is collected, and why</h2>
+
+  <h3>Visiting the site</h3>
+  <p>
+    Pages are served by GitHub Pages. Live departures and timetables come from
+    this project's own server on Render, which receives the stops and services you
+    look at. Map pictures come from the OpenStreetMap Foundation's tile servers,
+    which publish anonymised, aggregated figures about which tiles are used. Each
+    of these sees your IP address, as any website you visit does, and keeps short
+    technical logs under its own policy. None of them receives anything you type.
+  </p>
+  <p>
+    Why: to show you the site and keep it running (legitimate interests).
+  </p>
+
+  <h3 id="counting">Counting visits</h3>
+  <p>
+    Visits, and a short list of things people do here, are counted by
+    <a href="https://www.goatcounter.com/help/privacy" rel="noopener">GoatCounter</a>:
+    which part of the site is opened, a journey checked, a councillor letter
+    opened or passed to an email app, a form sent, a gap alert shown, the live
+    service being woken up, and an accessibility setting changed. GoatCounter sets
+    no cookies, does not keep your IP address and keeps totals rather than a
+    history of anyone's visits. Its servers are in Finland and Germany. Postcodes,
+    letters, the stops you look up and anything else you type are never sent.
+    If your browser asks not to be tracked, with Do Not Track or Global Privacy
+    Control, the counter is not loaded at all. Content blockers usually stop it
+    too, so the numbers are an undercount.
+  </p>
+  <p>
+    Why: to see which parts of the site are used, so it can be improved
+    (legitimate interests; counting of this kind for statistics does not need
+    consent under the Privacy and Electronic Communications Regulations, provided
+    you can object, which you can here).
+  </p>
+  <div class="panel">
+    <p id="counting-state" role="status" aria-live="polite">Checking whether visits from this browser are counted…</p>
+    <button type="button" class="switch" id="counting-switch" hidden></button>
+  </div>
+
+  <h3>Sending an idea, a route, news or a report</h3>
+  <p>
+    What you type, the optional name you give, and details of the stop or bus you
+    were looking at go to a Cloudflare Worker run by this project. Cloudflare
+    Turnstile checks you are not an automated script, which means Cloudflare
+    receives your IP address and some technical details of your browser. The
+    submission is then stored as an issue in a <strong>private</strong> GitHub
+    repository that only the project can see.
+  </p>
+  <p>
+    A person reads it. If it is approved, it is published on this site, with the
+    name you gave if you gave one. You tick a box to confirm you understand this
+    before sending. To stop the forms being abused, your IP address is combined
+    with a secret and scrambled (hashed), and a count is kept against that hash
+    for up to two days. The address itself is never stored. Cloudflare keeps a few
+    days of technical logs about requests to the Worker, which can include your IP
+    address; the Worker itself only logs errors, never what you sent.
+  </p>
+  <p>
+    Why: publishing what you send, with your name, relies on your consent, which
+    you can withdraw by emailing the address above. The anti-abuse checks rely on
+    legitimate interests. Please don't include anyone else's personal details, and
+    if you are under 13, please leave the name blank.
+  </p>
+
+  <h3>Emailing your councillor</h3>
+  <p>
+    The postcode you type is sent from your browser to
+    <a href="https://postcodes.io/" rel="noopener">postcodes.io</a> to find which
+    ward and electoral division you are in. Nothing is stored by this site and
+    nothing is sent anywhere else. The draft letter is composed in your browser
+    and handed to your own email app. This site never sees it and never sends it.
+  </p>
+  <p>
+    Councillors' names, wards and published contact details come from each
+    council's own member directory, because contacting them is what the tool is
+    for. That is information about their public role (legitimate interests). A
+    councillor who finds something out of date can email the address above.
+  </p>
+
+  <h3>Reporting an error on GitHub</h3>
+  <p>
+    The "Report an error" link opens this project's public issue tracker on GitHub.
+    Anything posted there is public, under your own GitHub account and GitHub's
+    terms, which is why personal requests should go by email instead.
+  </p>
+
+  <h2 id="cookies">Cookies and browser storage</h2>
+  <p>
+    This site sets no cookies. It keeps a few settings in your browser's local
+    storage, only because you chose them, and they never leave your device:
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">Stored item</th><th scope="col">What it remembers</th></tr></thead>
+      <tbody>
+        <tr><td><code>darkMode</code></td><td>Light or dark theme</td></tr>
+        <tr><td><code>a11y</code></td><td>Text size, reduced motion and colour-blind-safe colours</td></tr>
+        <tr><td><code>hiddenOperators</code></td><td>Which bus operators you have hidden on the map</td></tr>
+        <tr><td><code>proposalDrafts</code></td><td>Route proposals you have drawn but not sent</td></tr>
+        <tr><td><code>analytics-opt-out</code></td><td>That you have switched visit counting off</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    Storage you ask for is exempt from consent, so there is no cookie banner.
+    Cloudflare Turnstile, which appears only on the forms, gathers signals that
+    Cloudflare describes as strictly necessary for detecting automated abuse.
+    Clearing your browser's site data removes everything in the table.
+  </p>
+
+  <h2>How long it is kept</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">Information</th><th scope="col">How long</th></tr></thead>
+      <tbody>
+        <tr><td>Submissions not approved</td><td>Deleted within 30 days of the decision</td></tr>
+        <tr><td>Approved submissions</td><td>Published for as long as they are relevant, or until you ask for removal</td></tr>
+        <tr><td>Anti-abuse hash of your IP address</td><td>Up to two days</td></tr>
+        <tr><td>Visit counts</td><td>Kept as totals by GoatCounter while the site runs</td></tr>
+        <tr><td>Hosting and network logs</td><td>A few days to a few weeks, under each provider's own policy</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Who else handles it</h2>
+  <p>
+    GitHub (hosting the pages and the private submissions inbox), Cloudflare (the
+    Worker, anti-abuse checks, and email forwarding for the address above), Render
+    (the live data server), GoatCounter (visit counting), the OpenStreetMap
+    Foundation (map pictures) and postcodes.io (postcode lookups). Several of them
+    are based in, or process data in, the United States; each does so under the
+    safeguards set out in its own data processing terms. Nothing is sold, and
+    nothing is shared for advertising.
+  </p>
+
+  <h2>Your rights</h2>
+  <p>
+    Under UK data protection law you can ask to see the information held about
+    you, have it corrected or deleted, restrict or object to how it is used, and
+    take back consent you have given. Email
+    <a href="mailto:privacy@worthingbrightonbus.co.uk">privacy@worthingbrightonbus.co.uk</a>
+    and you will get an answer within one month. In practice, almost everything
+    this site holds about a person is a submission, and removing one is simple.
+  </p>
+  <p>
+    If you are not happy with the answer, you can complain to the Information
+    Commissioner's Office at
+    <a href="https://ico.org.uk/make-a-complaint/" rel="noopener">ico.org.uk/make-a-complaint</a>
+    or on 0303 123 1113.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    If what the site does with information changes, this page changes with it, and
+    the date at the top moves. The history of every change is public in the
+    project's code repository.
+  </p>
+
+  <footer>
+    <a href="about.html">About and corrections</a> ·
+    <a href="terms.html">Terms of use</a> ·
+    <a href="./">Back to the map</a>
+  </footer>
+</div>
+<script>
+  /* The switch for visit counting. It sets the same item app.js and
+     analytics-page.js check before loading anything, so it takes effect on
+     every page from the next one loaded. */
+  (function () {
+    var KEY = "analytics-opt-out";
+    var label = document.getElementById("counting-state");
+    var button = document.getElementById("counting-switch");
+    var signal = navigator.globalPrivacyControl === true
+      || navigator.doNotTrack === "1" || window.doNotTrack === "1";
+    function optedOut() {
+      try { return localStorage.getItem(KEY) === "1"; } catch (e) { return null; }
+    }
+    function render() {
+      var off = optedOut();
+      if (off === null) {
+        label.textContent = "This browser is blocking site storage, so the switch cannot be saved here. "
+          + "Using Do Not Track or Global Privacy Control, or a content blocker, also stops counting.";
+        button.hidden = true;
+        return;
+      }
+      if (signal) {
+        label.textContent = "Your browser is asking not to be tracked, so visits from it are not counted.";
+      } else {
+        label.textContent = off
+          ? "Visits from this browser are not counted."
+          : "Visits from this browser are counted, as described above.";
+      }
+      button.textContent = off ? "Count my visits again" : "Don't count my visits";
+      button.hidden = false;
+    }
+    button.addEventListener("click", function () {
+      try {
+        if (optedOut()) localStorage.removeItem(KEY);
+        else localStorage.setItem(KEY, "1");
+      } catch (e) { /* render explains */ }
+      render();
+    });
+    render();
+  })();
+</script>
+</body>
+</html>

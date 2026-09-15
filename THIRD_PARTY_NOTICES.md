@@ -6,7 +6,9 @@ notice that comment should have pointed at.
 
 ## Leaflet 1.9.4 — BSD 2-Clause
 
-Loaded from unpkg.com. Copyright (c) 2010-2024, Volodymyr Agafonkin;
+Served from `vendor/leaflet-1.9.4/`, copied from the npm registry tarball for
+leaflet@1.9.4 after its sha512 matched the registry's published integrity value.
+The licence file is kept beside it. Copyright (c) 2010-2023, Volodymyr Agafonkin;
 Copyright (c) 2010-2011, CloudMade.
 
 Redistribution and use in source and binary forms, with or without
@@ -65,3 +67,12 @@ Portal. Contains OS data © Crown copyright and database right 2025.
 
 **This project's own licence has not been chosen.** `docs/ASSET_RIGHTS.md`
 records that as an open question for the owner.
+
+## Fraunces, Outfit and JetBrains Mono: SIL Open Font License 1.1
+
+Served from `fonts/`, as Latin and Latin Extended subsets of the variable fonts
+published through Google Fonts. Copyright 2018 The Fraunces Project Authors;
+Copyright 2021 The Outfit Project Authors; Copyright 2020 The JetBrains Mono
+Project Authors. Each font's full licence text is in `fonts/OFL-fraunces.txt`,
+`fonts/OFL-outfit.txt` and `fonts/OFL-jetbrains-mono.txt`. The fonts are used
+unmodified apart from subsetting by Google Fonts, and are not sold on their own.

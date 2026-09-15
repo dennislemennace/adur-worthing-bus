@@ -162,14 +162,15 @@ test("the proposal editor says what submitting does, at the submit button", () =
   const atTheAction = src.slice(start, end)
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ");
-  assert.match(atTheAction, /public issue tracker/,
-    "the notice is not next to the submit button");
-  // Two separate facts, asserted separately so shortening the wording cannot
-  // quietly drop one: it is public *now*, and review happens *before* it is
-  // on the site. The notice was condensed when the editor's action area was
-  // found to be larger than the form it submits; both facts survived.
-  assert.match(atTheAction, /straight away/,
-    "it does not say the submission is public immediately");
-  assert.match(atTheAction, /before it appears on the site/,
-    "it does not distinguish being filed from being published");
+  // Submissions used to be public issues at once, and this said so. They now
+  // go to a private inbox. Two facts, asserted separately so shortening the
+  // wording cannot quietly drop one: it is private until reviewed, and what is
+  // approved is published with the sender's name.
+  assert.match(atTheAction, /privately/,
+    "the notice beside the submit button does not say the submission is private");
+  assert.match(atTheAction, /published on this site with the name you give/,
+    "it does not say an approved proposal is published with the name given");
+  const region = src.slice(start, end);
+  assert.match(region, /name="publishAck"/,
+    "there is no publication box beside the submit button");
 });

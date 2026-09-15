@@ -113,6 +113,17 @@ export default {
       return json({ ok: true, skipped: true }, 200, origin, allowed);
     }
 
+    // ── Publication acknowledgement ───────────────────────────
+    // Anything sent may be published once reviewed, and every form says so
+    // beside a box the sender ticks. Checked here too, so a page cached from
+    // before the box existed, or a script that skips it, is refused rather
+    // than filed.
+    if (payload.publishAck !== true) {
+      return json({ ok: false,
+        error: "Please tick the box to confirm you understand this may be published after review." },
+        400, origin, allowed);
+    }
+
     // ── Validate per kind ─────────────────────────────────────
     let built;
     try {
@@ -165,7 +176,9 @@ export default {
     // ── File it ───────────────────────────────────────────────
     try {
       const result = await fileIssue(env, built);
-      return json({ ok: true, number: result.number, url: result.html_url }, 200, origin, allowed);
+      // No URL: the issue is in a private repo, and a link would take the
+      // sender to a GitHub 404.
+      return json({ ok: true, number: result.number }, 200, origin, allowed);
     } catch (err) {
       // Real reason to Worker logs; the sender gets something generic.
       console.error("GitHub issue creation failed:", err && err.message);

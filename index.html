@@ -39,13 +39,15 @@
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
   <link rel="icon" href="favicon.ico" sizes="any" />
 
-  <!-- Leaflet CSS (map library — free, no API key needed) -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <!-- Leaflet 1.9.4 (map library), served from this site. It came from unpkg,
+       which meant every visit told a third party the reader's IP address and
+       ran whatever that host returned. Copied from the npm tarball after its
+       sha512 matched the registry; see THIRD_PARTY_NOTICES.md. -->
+  <link rel="stylesheet" href="vendor/leaflet-1.9.4/leaflet.css" />
 
-  <!-- Fonts: Fraunces (brand), Outfit (UI), JetBrains Mono (times/codes) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,800&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" />
+  <!-- Fonts: Fraunces (brand), Outfit (UI), JetBrains Mono (times/codes).
+       Self-hosted Latin subsets, for the same reason: no request to Google. -->
+  <link rel="stylesheet" href="fonts/fonts.css" />
 
   <!-- Set the theme before first paint so dark-mode users never see a white
        flash. Falls back to the OS preference on first visit. Mirrored by the
@@ -552,13 +554,17 @@
 
             <p class="suggest-privacy">
               Stops are looked after by the councils, not the bus operators, so this
-              posts a public record to the project's issue tracker so it can be
-              chased, but it doesn't raise a repair job. For anything urgent or
-              unsafe, report it to
+              doesn't raise a repair job. It goes privately to the project so it can be
+              chased, and a person reads it before anything is published. For anything
+              urgent or unsafe, report it to
               <a href="https://www.westsussex.gov.uk/roads-and-travel/report-a-problem-on-the-road/"
                  target="_blank" rel="noopener noreferrer">West Sussex County Council</a>
-              directly as well.
+              directly as well. <a href="privacy.html">How submissions are handled</a>.
             </p>
+            <label class="publish-ack" for="rs-ack">
+              <input type="checkbox" id="rs-ack" name="publishAck">
+              <span>I understand that if this is approved it will be published on this site, with the name I give.</span>
+            </label>
 
             <div class="suggest-actions">
               <button class="editor-action-btn primary" id="rs-submit" type="submit">
@@ -744,10 +750,10 @@
               This site is <strong>open source</strong>. It's built and shared on
               <a href="https://github.com/dennislemennace/adur-worthing-bus"
                  target="_blank" rel="noopener noreferrer">GitHub</a>, the platform
-              that hosts the code and collects community proposals. You don't need
-              an account to contribute: hit <strong>Submit</strong> in the editor and
-              your proposal is posted to the public issue tracker for the maintainers
-              to review, with a link back so you can follow it.
+              that hosts the code. You don't need an account to contribute: hit
+              <strong>Submit</strong> in the editor and your proposal goes privately to
+              the maintainers to review. If it's approved it's published here with the
+              name you give.
             </p>
             <p class="improvements-note">
               Tip: turning on <strong>“Show limited services”</strong> reveals
@@ -976,12 +982,16 @@
               <div class="suggest-turnstile" id="nw-turnstile"></div>
 
               <p class="suggest-privacy">
-                This posts to the project's public issue tracker straight away,
-                with the name you give. A person reviews it before anything
-                appears on this page. Don't include anything you wouldn't want
-                published, and don't put an email address in. We don't ask for
-                one.
+                This goes privately to the project, and a person reads it before anything is
+                published. If it's approved it appears on this site with the name you give, so
+                leave the name blank to stay anonymous. Don't include anything you wouldn't want
+                published, or anyone else's personal details.
+                <a href="privacy.html">How submissions are handled</a>.
               </p>
+              <label class="publish-ack" for="nw-ack">
+                <input type="checkbox" id="nw-ack" name="publishAck">
+                <span>I understand that if this is approved it will be published on this site, with the name I give.</span>
+              </label>
 
               <div class="suggest-actions">
                 <button class="editor-action-btn primary" id="nw-submit" type="submit">
@@ -1098,13 +1108,16 @@
             <div class="suggest-turnstile" id="sg-turnstile"></div>
 
             <p class="suggest-privacy">
-              Your idea is posted publicly to the project's
-              <a href="https://github.com/dennislemennace/adur-worthing-bus/issues"
-                 target="_blank" rel="noopener noreferrer">issue tracker</a>, where you
-              can follow what happens to it, and we'll link you straight to it. Don't
-              include anything you wouldn't want published. We don't ask for your
-              email, so please don't put one in the box above.
+              This goes privately to the project, and a person reads it before anything is
+              published. If it's approved it appears on this site with the name you give, so
+              leave the name blank to stay anonymous. Don't include anything you wouldn't want
+              published, or anyone else's personal details.
+              <a href="privacy.html">How submissions are handled</a>.
             </p>
+            <label class="publish-ack" for="sg-ack">
+              <input type="checkbox" id="sg-ack" name="publishAck">
+              <span>I understand that if this is approved it will be published on this site, with the name I give.</span>
+            </label>
 
             <div class="suggest-actions">
               <button class="editor-action-btn primary" id="sg-submit" type="submit">
@@ -1152,7 +1165,9 @@
       Map &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
     </p>
     <p class="site-footer-links">
-      <a href="about.html">About, privacy &amp; corrections</a> ·
+      <a href="about.html">About &amp; corrections</a> ·
+      <a href="privacy.html">Privacy</a> ·
+      <a href="terms.html">Terms</a> ·
       <a href="#accessibility" id="a11y-footer-link" data-open-a11y>Accessibility</a> ·
       <a href="https://github.com/dennislemennace/adur-worthing-bus/issues"
          target="_blank" rel="noopener">Report an error</a>
@@ -1173,6 +1188,8 @@
       <a href="https://www.realtimetrains.co.uk/" target="_blank" rel="noopener">Realtime Trains</a> ·
       <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> ·
       <a href="about.html">About</a> ·
+      <a href="privacy.html">Privacy</a> ·
+      <a href="terms.html">Terms</a> ·
       <a href="#accessibility" data-open-a11y>Accessibility</a> ·
       <a href="https://github.com/dennislemennace/adur-worthing-bus/issues"
          target="_blank" rel="noopener">Report an error</a>
@@ -1181,7 +1198,7 @@
   </footer>
 
   <!-- Leaflet JS -->
- <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="vendor/leaflet-1.9.4/leaflet.js"></script>
 
   <!-- Main application script -->
   <script src="app.js"></script>

@@ -12,8 +12,12 @@ compatibility_date = "2026-08-01"
 
 # Non-secret config. Secrets go in via `wrangler secret put` — never here.
 [vars]
-# The repo issues are filed against.
-GITHUB_REPO = "dennislemennace/adur-worthing-bus"
+# The repo issues are filed against. PRIVATE: a submission is not public until
+# someone has read it. Filing straight into the public repo published whatever
+# was sent, names and anything defamatory included, before any review, under
+# this project's account. GitHub cannot move an issue from a private repo to a
+# public one, so approved items reach the site through scripts/add_*.py.
+GITHUB_REPO = "dennislemennace/adur-worthing-bus-inbox"
 
 # Comma-separated origin allowlist. This is the check that stops the endpoint
 # being driven from anywhere but the site — keep it tight. Add a localhost

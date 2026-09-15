@@ -75,6 +75,7 @@ const IDEA = {
   title: "A test idea",
   details: "Enough detail to pass validation.",
   turnstileToken: "x",
+  publishAck: true,
 };
 
 // ── The handler always answers ──────────────────────────────
@@ -218,4 +219,36 @@ test("a body that fails mid-read is answered, not dropped", async () => {
   const res = await worker.fetch(req, env(), {});
   assert.ok(res instanceof Response);
   assert.equal((await res.json()).ok, false);
+});
+
+// ── Publication acknowledgement ─────────────────────────────
+
+for (const [label, value] of [["missing", undefined], ["false", false], ["a string", "true"]]) {
+  test(`a submission whose publication box is ${label} is refused and not filed`, async () => {
+    const net = stubNetwork();
+    try {
+      const body = { ...IDEA };
+      if (value === undefined) delete body.publishAck; else body.publishAck = value;
+      const res = await worker.fetch(post(body), env(), {});
+      assert.equal(res.status, 400);
+      assert.match((await res.json()).error, /published/);
+      assert.equal(net.calls.filter(u => u.includes("api.github.com")).length, 0,
+        "an unacknowledged submission reached GitHub");
+    } finally {
+      net.restore();
+    }
+  });
+}
+
+test("an accepted submission gets no link to the private issue", async () => {
+  const net = stubNetwork({ issue: { number: 9, html_url: "https://github.com/x/inbox/issues/9" } });
+  try {
+    const res = await worker.fetch(post(IDEA), env(), {});
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.number, 9);
+    assert.equal(body.url, undefined, "the sender was handed a link to a private repo");
+  } finally {
+    net.restore();
+  }
 });

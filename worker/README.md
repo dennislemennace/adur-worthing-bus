@@ -1,8 +1,17 @@
 # Submission relay (Cloudflare Worker)
 
-Takes a submission from the site and files it as a GitHub issue. Replaces the
-old Web3Forms email relay — submissions are now public and trackable, and the
-sender gets a link to their own issue instead of nothing.
+Takes a submission from the site and files it as an issue in a **private**
+GitHub repository, `dennislemennace/adur-worthing-bus-inbox`. Replaces the old
+Web3Forms email relay.
+
+Submissions used to be filed straight into the public repository, which
+published whatever was sent (names, other people's details, anything
+defamatory) under this project's account before anyone had read it. Now nothing
+is public until a maintainer approves it. GitHub cannot move an issue from a
+private repository to a public one, so approval means publishing the reviewed
+content to `data/` with the scripts below; the issue stays private. Every
+submission must carry `publishAck: true`, the box the sender ticks to confirm
+they understand approved submissions are published.
 
 Handles three kinds on one endpoint (`POST /submit`): `idea`, `proposal`,
 `stop_issue`.
@@ -24,9 +33,16 @@ works without installing anything globally).
 doesn't exist fails the whole request with **422**, which the Worker surfaces as
 a 502. The first real submission would look like a broken Worker.
 
-These eleven are already created on `dennislemennace/adur-worthing-bus`. Run
-this against any other repo, including the scratch repo you test with before
-pointing `GITHUB_REPO` at the real one:
+They already exist on the public `dennislemennace/adur-worthing-bus`. For the
+private inbox, copy them all in one command:
+
+```sh
+gh label clone dennislemennace/adur-worthing-bus --repo dennislemennace/adur-worthing-bus-inbox
+```
+
+(The Worker retries without labels if one is missing, so a submission is not
+lost, but the moderation scripts read the labels.) Or create them by hand
+against any repo, including a scratch repo for testing:
 
 ```sh
 gh label create community-submission --color 1a4b82 --force \
@@ -105,7 +121,7 @@ That is the URL for `CONFIG.SUBMIT_ENDPOINT` in step 9.
 Use a **fine-grained** personal access token, not a classic one:
 
 - GitHub → Settings → Developer settings → Personal access tokens → Fine-grained
-- **Repository access:** only `dennislemennace/adur-worthing-bus`
+- **Repository access:** only `dennislemennace/adur-worthing-bus-inbox` (the private inbox)
 - **Permissions:** `Issues: Read and write`. Nothing else — not Contents, not
   Workflows, not Metadata beyond what GitHub forces.
 - Set an expiry you'll actually notice, and diary the rotation.

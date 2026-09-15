@@ -29,6 +29,12 @@ import sys
 from datetime import date
 from pathlib import Path
 
+# Submissions are filed into a private repository, so nothing anyone sends is
+# public before it is reviewed (see worker/wrangler.toml). GitHub cannot move an
+# issue from a private repo to a public one: approval happens here, by copying
+# the reviewed content into data/, and the issue itself stays private.
+INBOX_REPO = "dennislemennace/adur-worthing-bus-inbox"
+
 ROOT = Path(__file__).resolve().parent.parent
 OFFICIAL = ROOT / "data" / "updates.json"
 COMMUNITY = ROOT / "data" / "community_updates.json"
@@ -84,7 +90,7 @@ def read_issue(number: int) -> dict:
     """
     try:
         out = subprocess.run(
-            ["gh", "issue", "view", str(number), "--json",
+            ["gh", "issue", "view", str(number), "--repo", INBOX_REPO, "--json",
              "body,title,state,labels"],
             cwd=ROOT, check=True, capture_output=True, text=True,
         ).stdout
@@ -140,8 +146,9 @@ def read_issue(number: int) -> dict:
                 + (f" by {reporter}." if reporter and reporter != "anonymous" else "."),
         "topic": "Passenger reports",
         "name": "" if reporter == "anonymous" else reporter,
-        "links": [{"label": f"Original report (#{number})",
-                   "url": f"https://github.com/dennislemennace/adur-worthing-bus/issues/{number}"}],
+        # No link to the report itself: it is an issue in the private inbox, so
+        # a reader following it would reach a GitHub 404.
+        "links": [],
         "_needs_editing": True,
     }
 
@@ -155,7 +162,7 @@ def close_issue(number: int, entry_id: str) -> None:
     """
     try:
         subprocess.run(
-            ["gh", "issue", "close", str(number),
+            ["gh", "issue", "close", str(number), "--repo", INBOX_REPO,
              "--comment", f"Approved for publication in Community News as "
                           f"`{entry_id}` — it will appear on the site with the "
                           f"next deploy. Thanks!"],
@@ -169,7 +176,7 @@ def close_issue(number: int, entry_id: str) -> None:
         return
     try:
         subprocess.run(
-            ["gh", "issue", "edit", str(number), "--remove-label", "unverified"],
+            ["gh", "issue", "edit", str(number), "--repo", INBOX_REPO, "--remove-label", "unverified"],
             cwd=ROOT, check=True, capture_output=True, text=True,
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:

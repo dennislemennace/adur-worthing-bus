@@ -38,6 +38,12 @@ import sys
 from datetime import date
 from pathlib import Path
 
+# Submissions are filed into a private repository, so nothing anyone sends is
+# public before it is reviewed (see worker/wrangler.toml). GitHub cannot move an
+# issue from a private repo to a public one: approval happens here, by copying
+# the reviewed content into data/, and the issue itself stays private.
+INBOX_REPO = "dennislemennace/adur-worthing-bus-inbox"
+
 ROOT = Path(__file__).resolve().parent.parent
 SUGGESTIONS = ROOT / "data" / "suggestions.json"
 
@@ -119,7 +125,7 @@ def read_issue(number: int) -> dict:
     """
     try:
         out = subprocess.run(
-            ["gh", "issue", "view", str(number), "--json", "body,title,state"],
+            ["gh", "issue", "view", str(number), "--repo", INBOX_REPO, "--json", "body,title,state"],
             cwd=ROOT, check=True, capture_output=True, text=True,
         ).stdout
     except FileNotFoundError:
@@ -165,7 +171,7 @@ def close_issue(number: int, entry_id: str) -> None:
     """
     try:
         subprocess.run(
-            ["gh", "issue", "close", str(number),
+            ["gh", "issue", "close", str(number), "--repo", INBOX_REPO,
              "--comment", f"Approved for publication as `{entry_id}` — it will "
                           f"appear on the site with the next deploy. Thanks!"],
             cwd=ROOT, check=True, capture_output=True, text=True,
@@ -179,7 +185,7 @@ def close_issue(number: int, entry_id: str) -> None:
 
     try:
         subprocess.run(
-            ["gh", "issue", "edit", str(number), "--remove-label", "unverified"],
+            ["gh", "issue", "edit", str(number), "--repo", INBOX_REPO, "--remove-label", "unverified"],
             cwd=ROOT, check=True, capture_output=True, text=True,
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:

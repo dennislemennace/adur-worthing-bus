@@ -4425,6 +4425,29 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 }
 .suggest-privacy a { color: var(--color-link); }
 
+/* The box a sender ticks to say they understand approved submissions are
+   published. The whole label is the target, 44px tall, because the checkbox
+   alone is far smaller than that. */
+.publish-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  min-height: var(--target-min);
+  padding: var(--space-xs) 0;
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.publish-ack input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--color-primary);
+}
+
 /* ── Ticket view: boundary penalty calculator ── */
 .journey-calc {
   display: flex;
