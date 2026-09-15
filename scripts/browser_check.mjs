@@ -1595,8 +1595,7 @@ const gapDirection = (id, over = {}) => ({
   id, label: `A259 Coast Rd towards ${id === "brighton" ? "Brighton" : "Worthing"}`,
   towards: `towards ${id === "brighton" ? "Brighton" : "Worthing"}`,
   status: "normal", reason: null, alert: null, stops: GAP_STOPS, ...over });
-// The alerting row is the second one on purpose: a button that opened the
-// first row would pass a check that only ever had one.
+// One direction alerting and one not, so the combined row has to show both.
 const GAP_ALERT = {
   active: true, as_of: "2026-09-16T12:30:00+01:00",
   directions: [
@@ -1664,9 +1663,9 @@ async function checkGapMonitor(page, where) {
     r.shown && r.inPanel && r.mapSame, JSON.stringify(r));
   check(`showing the gap monitor does not grow the sheet — ${where}`,
     r.sheetBefore === r.sheetAfter && r.detentBefore === r.detentAfter, JSON.stringify(r));
-  // One line a direction, two at most when a long stop name wraps on a phone.
-  check(`the gap monitor is one short row a direction — ${where}`,
-    r.rows === 2 && r.heights.every(h => h >= 44 && h <= 72), JSON.stringify(r));
+  // Both directions share one row: one line, two at most when it wraps on a phone.
+  check(`the gap monitor is one short row for the corridor — ${where}`,
+    r.rows === 1 && r.heights.every(h => h >= 44 && h <= 72), JSON.stringify(r));
 
   // At the resting sheet height the monitor is below the fold on a phone, so
   // an alert is only seen through the status-pill button. Press it and look.
@@ -1680,17 +1679,16 @@ async function checkGapMonitor(page, where) {
   })()`));
   await sleep(800);
   const seen = JSON.parse(await page.evaluate(`(() => {
-    const d = document.querySelector('#gap-monitor details[data-direction="brighton"]');
-    const other = document.querySelector('#gap-monitor details[data-direction="worthing"]');
+    const d = document.querySelector("#gap-monitor details");
     const s = d.querySelector("summary").getBoundingClientRect();
     const panel = document.getElementById("departure-panel").getBoundingClientRect();
-    return JSON.stringify({ open: d.open, otherOpen: other.open,
+    return JSON.stringify({ open: d.open, lines: d.querySelectorAll("li").length,
       focused: document.activeElement === d.querySelector("summary"),
       top: Math.round(s.top), bottom: Math.round(s.bottom), panelTop: Math.round(panel.top),
       vh: innerHeight, detent: state.sheetDetent });
   })()`));
   check(`the alert button brings the gap monitor into view — ${where}`,
-    btn.shown && btn.inView && seen.open && !seen.otherOpen && seen.focused
+    btn.shown && btn.inView && seen.open && seen.lines === 6 && seen.focused
       && seen.top >= seen.panelTop && seen.bottom <= seen.vh,
     JSON.stringify({ ...btn, ...seen }));
 

@@ -6057,7 +6057,6 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   overflow: hidden;
 }
 .gap-monitor--alert { border-left-color: var(--color-late); }
-.gap-monitor + .gap-monitor { margin-top: var(--space-xs); }
 .gap-monitor summary {
   display: flex;
   align-items: center;
@@ -6100,8 +6099,8 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 }
 .gap-monitor-stops li { padding: var(--space-xs) 0; }
 .gap-monitor-stops li + li { border-top: 1px solid var(--color-border); }
+/* "Shoreham Port towards Worthing:" then the times, on one line where it fits. */
 .gap-monitor-stop {
-  display: block;
   font-weight: 600;
 }
 .gap-monitor-body .gap-monitor-method {

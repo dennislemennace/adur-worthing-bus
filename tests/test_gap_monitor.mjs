@@ -1,5 +1,6 @@
 /**
- * Tests for the A259 gap monitor in the Live panel, one row per direction.
+ * Tests for the A259 gap monitor in the Live panel: one row for the corridor,
+ * with a line for each stop in each direction.
  *
  * Two promises to the reader, and both are about what is *not* shown:
  *
@@ -178,30 +179,39 @@ test("pausing live positions hides the monitor", async () => {
 
 // ── What it says ────────────────────────────────────────────
 
-test("a normal service is one line a direction, with the detail folded away", () => {
+test("a normal service is one line for the corridor, with the detail folded away", () => {
   const { app } = freshApp();
   const html = app.gapMonitorHtml(NORMAL);
   const summaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)]
     .map(m => m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
-  assert.deepEqual(summaries, [
-    "A259 Coast Rd towards Worthing: running to timetable",
-    "A259 Coast Rd towards Brighton: running to timetable",
-  ]);
+  assert.deepEqual(summaries, ["A259 Coast Rd: running to timetable"]);
   assert.doesNotMatch(html, /gap-monitor--alert/);
   assert.doesNotMatch(html, /<details[^>]*\bopen\b/, "the detail should start closed");
   assert.match(html, /700 in 4 min/);
   assert.match(html, /700 in 14 min \(timetable\)/);
   assert.match(html, /2 due now/);
-  assert.match(html, /Beach Green Hotel, Lancing<\/span> no bus in the next hour/);
   assert.match(html, /Estimated at 12:30/);
   assert.doesNotMatch(html, /NaN|undefined|null/);
+});
+
+test("each line reads stop, direction, then times, with a stop's directions together", () => {
+  const { app } = freshApp();
+  const lines = [...app.gapMonitorHtml(NORMAL).matchAll(/<li>([\s\S]*?)<\/li>/g)]
+    .map(m => m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
+  assert.deepEqual(lines, [
+    "Shoreham Port towards Worthing: 700 in 4 min, 700 in 14 min (timetable)",
+    "Shoreham Port towards Brighton: 700 in 22 min",
+    "Shoreham High Street towards Worthing: 2 due now",
+    "Shoreham High Street towards Brighton: 700 in 17 min",
+    "Beach Green Hotel, Lancing towards Worthing: no bus in the next hour",
+    "Beach Green Hotel, Lancing towards Brighton: 700 in 8 min",
+  ]);
 });
 
 test("an alert names the direction, the stop, the times, the timetable's gap and the missing buses", () => {
   const { app } = freshApp();
   const html = app.gapMonitorHtml(brightonAlert());
-  assert.match(html, /A259 Coast Rd towards Worthing: running to timetable/);
-  assert.match(html, /<summary>[\s\S]*A259 Coast Rd towards Brighton: long gap at Shoreham High Street/);
+  assert.match(html, /<summary>[\s\S]*A259 Coast Rd: long gap towards Brighton/);
   assert.match(html, /No bus towards Brighton is expected at Shoreham High Street between 12:31 and 13:03, a gap of 32 minutes/);
   assert.match(html, /timetable's own gap there is 10 minutes/);
   assert.match(html, /2 scheduled buses in that time are not sending their positions/);
@@ -228,10 +238,9 @@ test("a gap cut off by the hour ahead is 'at least', and a gap from now says unt
 test("names from the server are escaped", () => {
   const { app } = freshApp();
   const data = brightonAlert({ name: "<img src=x onerror=alert(1)>" });
-  data.directions[0].label = "<b>towards</b>";
-  data.directions[0].id = '"><script>';
+  data.directions[0].towards = "<b>towards</b>";
   const html = app.gapMonitorHtml(data);
-  assert.doesNotMatch(html, /<img|<b>|<script>/);
+  assert.doesNotMatch(html, /<img|<b>/);
 });
 
 test("a new alert is announced once, not on every refresh", () => {
@@ -239,23 +248,18 @@ test("a new alert is announced once, not on every refresh", () => {
   app.renderGapMonitor(NORMAL);
   app.renderGapMonitor(brightonAlert());
   app.renderGapMonitor(brightonAlert({ minutes: 31 }));
-  assert.deepEqual(said, ["A259 Coast Rd towards Brighton: long gap at Shoreham High Street."]);
+  assert.deepEqual(said, ["A259 Coast Rd: long gap at Shoreham High Street towards Brighton."]);
   app.renderGapMonitor(NORMAL);
   assert.equal(said.at(-1), "Buses on the A259 Coast Rd are running to timetable again.");
   assert.equal(said.length, 2);
 });
 
-test("each row stays open or closed across a refresh, on its own", () => {
+test("an open tracker stays open across a refresh", () => {
   const { app, host } = freshApp();
   app.renderGapMonitor(NORMAL);
-  const rows = [
-    { dataset: { direction: "worthing" }, open: false, contains: () => false },
-    { dataset: { direction: "brighton" }, open: true, contains: () => false },
-  ];
-  host.querySelectorAll = () => rows;
+  host.querySelector = (sel) => sel === "details" ? { open: true, contains: () => false } : null;
   app.renderGapMonitor(NORMAL);
-  assert.doesNotMatch(host.innerHTML, /data-direction="worthing" open/);
-  assert.match(host.innerHTML, /data-direction="brighton" open/);
+  assert.match(host.innerHTML, /<details[^>]*\bopen\b/);
 });
 
 // ── The way in on a phone ───────────────────────────────────
@@ -271,8 +275,7 @@ test("the status-pill alert button appears only during an alert, naming the dire
   app.renderGapMonitor(brightonAlert());
   assert.equal(button.hidden, false);
   assert.match(button.attrs["aria-label"],
-    /A259 Coast Rd towards Brighton: long gap at Shoreham High Street/);
-  assert.equal(button.dataset.direction, "brighton", "the button would open the wrong row");
+    /A259 Coast Rd: long gap at Shoreham High Street towards Brighton/);
   app.renderGapMonitor(null);
   assert.equal(button.hidden, true, "the alert button outlived the alert");
 });
