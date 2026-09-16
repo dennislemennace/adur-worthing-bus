@@ -35,7 +35,14 @@ function fakeBucket(objects = []) {
   const held = [...objects];
   return {
     puts, deleted, lists, held,
-    async put(key, body, opts) { puts.push({ key, body, opts }); },
+    async put(key, body, opts) {
+      // R2's own rule, and the one this recorder was written against wrongly:
+      // a stream it cannot measure is refused outright.
+      if (body instanceof ReadableStream) {
+        throw new TypeError("Provided readable stream must have a known length");
+      }
+      puts.push({ key, body, opts });
+    },
     async list({ prefix, cursor, limit = 1000 } = {}) {
       lists.push({ prefix, cursor });
       const all = held.filter((o) => o.key.startsWith(prefix || ""));
@@ -77,7 +84,10 @@ function env(over = {}) {
   return { SNAPSHOTS: fakeBucket(), BODS_API_KEY: "test-key", ...over };
 }
 
-const okFeed = (body = "<Siri/>") => async () => ({ ok: true, status: 200, body });
+// A real Response, because the recorder depends on how one behaves: the feed
+// sends no content-length, so `body` is a stream of unknown length.
+const okFeed = (body = "<Siri/>") => async () => new Response(body, { status: 200 });
+const decode = (buf) => new TextDecoder().decode(buf);
 
 // ── When it records ─────────────────────────────────────────
 
@@ -127,16 +137,34 @@ test("a snapshot is stored once, as the feed sent it", async () => {
   assert.equal(e.SNAPSHOTS.puts.length, 1);
   const put = e.SNAPSHOTS.puts[0];
   assert.equal(put.key, "raw/2026-09-16/1245.xml");
-  assert.equal(put.body, body, "the body was not passed through untouched");
+  assert.equal(decode(put.body), body, "the body was not passed through untouched");
   assert.equal(put.opts.customMetadata.recordedAt, "2026-09-16T11:45:00.000Z");
+  assert.equal(r.bytes, body.length);
 });
 
-test("the feed's body is streamed, not read into the Worker", () => {
-  // Reading it would spend the CPU budget copying XML, and the budget is 10 ms.
+test("a feed answering without a content length is still stored", async () => {
+  // Incident, 16 September 2026: the first deploy recorded nothing at all. The
+  // recorder piped res.body into R2, which refuses a stream of unknown length,
+  // and BODS answers chunked — so every minute failed with "Provided readable
+  // stream must have a known length" while the test suite stayed green, because
+  // the test asserted the intended design instead of R2's behaviour.
+  const e = env();
+  const chunked = new Response(new ReadableStream({
+    start(c) { c.enqueue(new TextEncoder().encode("<Siri><Vehicle/></Siri>")); c.close(); },
+  }), { status: 200 });
+  assert.equal(chunked.headers.get("content-length"), null, "the fixture is not a chunked reply");
+  const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"), async () => chunked);
+  assert.equal(r.recorded, true, `a chunked feed was not stored: ${r.error || r.reason}`);
+  assert.equal(decode(e.SNAPSHOTS.puts[0].body), "<Siri><Vehicle/></Siri>");
+});
+
+test("the body is copied, never decoded or parsed", () => {
+  // An ArrayBuffer is a copy; text() would decode ~300 KB of XML and JSON would
+  // parse it, and the Worker has 10 ms of CPU an invocation.
   const src = readFileSync(new URL("../src/recorder.js", import.meta.url), "utf8");
-  assert.match(src, /put\(key, res\.body/);
-  assert.doesNotMatch(src, /await res\.(text|json|arrayBuffer)\(\)/,
-    "the recorder reads the body instead of streaming it");
+  assert.match(src, /await res\.arrayBuffer\(\)/);
+  assert.doesNotMatch(src, /await res\.(text|json)\(\)/,
+    "the recorder decodes the feed instead of copying it");
 });
 
 test("the key never reaches the stored object or the log", () => {
@@ -174,7 +202,7 @@ test("a feed outage is logged and swallowed, not thrown", async () => {
 test("an error response is not stored as if it were a snapshot", async () => {
   const e = env();
   const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"),
-                                 async () => ({ ok: false, status: 429, body: "slow down" }));
+                                 async () => new Response("slow down", { status: 429 }));
   assert.equal(r.recorded, false);
   assert.equal(r.status, 429);
   assert.deepEqual(e.SNAPSHOTS.puts, [], "an HTTP error was stored as data");
@@ -280,7 +308,7 @@ for (const [label, usage, allowed] of [
     let fetched = false;
     const e = env({ RATE_LIMIT: fakeKv(usage ? { "r2-usage": JSON.stringify(usage) } : {}) });
     const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"),
-                                   async () => { fetched = true; return { ok: true, status: 200, body: "<Siri/>" }; });
+                                   async () => { fetched = true; return new Response("<Siri/>", { status: 200 }); });
     assert.equal(r.recorded, allowed);
     assert.equal(e.SNAPSHOTS.puts.length, allowed ? 1 : 0,
       allowed ? "a snapshot inside budget was refused" : "a snapshot was stored past the budget");

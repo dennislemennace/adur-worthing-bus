@@ -14,8 +14,7 @@
  * **Why the raw XML, unparsed.** The feed carries fields the API throws away,
  * including each operator's own journey number, which is what lets a vehicle's
  * day be cut into separate journeys later. Parsing here would bake today's
- * questions into the record. Streaming the body straight to R2 also keeps this
- * inside the Worker's small CPU budget: nothing is read into memory.
+ * questions into the record: the bytes go to R2 as they arrived.
  *
  * Snapshots are working material, not the evidence. The nightly processor turns
  * them into arrival observations and deletes what it has used.
@@ -172,14 +171,20 @@ export async function recordSnapshot(env, when, fetchImpl = fetch) {
       console.error(`snapshot ${key}: feed returned HTTP ${res.status}`);
       return { recorded: false, reason: "upstream", status: res.status, key };
     }
-    // The body is piped, not read: the Worker never holds the XML, which keeps
-    // this well inside the CPU budget however large the feed grows.
-    await env.SNAPSHOTS.put(key, res.body, {
+    // The bytes are read before they are stored, which looks wasteful and is
+    // not optional: R2 rejects a stream whose length it cannot know, and the
+    // feed answers chunked, so piping res.body straight in fails every time
+    // with "Provided readable stream must have a known length". Decoding to
+    // text would cost more; an ArrayBuffer is a copy, not a parse. The feed is
+    // ~300 KB against the Worker's 128 MB, but this is the one place that grows
+    // with the feed, so the size is logged to make growth visible.
+    const body = await res.arrayBuffer();
+    await env.SNAPSHOTS.put(key, body, {
       httpMetadata: { contentType: "application/xml" },
       customMetadata: { recordedAt: when.toISOString() },
     });
-    console.log(`snapshot ${key}: stored in ${Date.now() - started} ms`);
-    return { recorded: true, key };
+    console.log(`snapshot ${key}: ${Math.round(body.byteLength / 1024)} KB in ${Date.now() - started} ms`);
+    return { recorded: true, key, bytes: body.byteLength };
   } catch (err) {
     console.error(`snapshot ${key}: ${err && err.message}`);
     return { recorded: false, reason: "error", error: String(err && err.message), key };

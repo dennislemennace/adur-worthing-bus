@@ -248,10 +248,16 @@ too. The test will say if it does not cover the window.
 
 A second cron (`* * * * *`) takes one snapshot of the BODS vehicle feed a minute
 between 05:00 and 00:30 London and streams it into the R2 bucket
-`adur-worthing-reliability` as `raw/YYYY-MM-DD/HHMM.xml`. The body is piped, not
-read, so the Worker never holds the XML and stays inside its 10 ms of CPU. A
-nightly GitHub Action turns a day of snapshots into arrival observations; the
-snapshots are working material, not the evidence.
+`adur-worthing-reliability` as `raw/YYYY-MM-DD/HHMM.xml`. A nightly GitHub
+Action turns a day of snapshots into arrival observations; the snapshots are
+working material, not the evidence.
+
+The XML is read into memory before it is stored, which is not a choice: R2
+refuses a stream whose length it cannot know and the feed answers chunked, so
+piping `res.body` fails every minute with *"Provided readable stream must have a
+known length"*. That is how the first deploy recorded nothing while the tests
+stayed green. It is copied, never decoded or parsed — ~300 KB against the
+Worker's 128 MB — and the size is logged so growth is visible.
 
 Setup, once:
 
