@@ -30,6 +30,8 @@ const MAX_BODY_BYTES = 8 * 1024;   // proposal drafts are the large case
 const PER_HOUR_LIMIT = 5;          // per client
 const PER_DAY_LIMIT  = 20;         // per client
 const GLOBAL_DAY_LIMIT = 200;      // bounds the damage from a distributed flood
+import { recordSnapshot } from "./recorder.js";
+
 const GITHUB_API = "https://api.github.com";
 const USER_AGENT = "adur-worthing-bus-submissions";
 
@@ -57,14 +59,21 @@ const STOP_ISSUE_CATEGORIES = new Set([
 // Service Vehicles (Accessible Information) Regulations 2023 bear on — a
 // resident's report of a missing next-stop announcement is evidence about
 // compliance, and there is nowhere else on this site to put it.
+// The per-minute trigger in wrangler.toml. Anything else is the keep-warm.
+const RECORDER_CRON = "* * * * *";
+
 const BUS_ISSUE_CATEGORIES = new Set([
   "full", "cancelled", "accessibility", "onboard-info", "late", "other",
 ]);
 
 export default {
-  // Keeps the Render API awake from 07:30 to 23:30 London time. See keepWarm().
+  // Two schedules, told apart by which one fired. Every minute records what the
+  // live feed says (recordSnapshot); every ten minutes keeps the Render API
+  // awake (keepWarm). Both are no-ops outside their own hours.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(keepWarm(env, new Date(event.scheduledTime)));
+    const when = new Date(event.scheduledTime);
+    if (event.cron === RECORDER_CRON) ctx.waitUntil(recordSnapshot(env, when));
+    else ctx.waitUntil(keepWarm(env, when));
   },
 
   async fetch(request, env, ctx) {

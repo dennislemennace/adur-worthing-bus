@@ -173,7 +173,8 @@ GitHub issues. Replaced the Web3Forms email relay.)
 - The keep-warm cron runs about 108 times a day (every 10 minutes, 06:00 to
   23:50 UTC); runs outside the London window return without a request. Waiting
   on Render's reply is wall time, not CPU time.
-- Workers KV free plan: **100,000 reads / day, 1,000 writes / day.**
+- Workers KV free plan: **100,000 reads / day, 1,000 writes / day**, shared with
+  the snapshot recorder below (~1,170 reads and ~24 writes a day).
 - Turnstile: free, unlimited.
 - Each submission costs 3 KV reads + 3 KV writes (hour, day and global
   counters), so **the KV write budget caps out around 300 submissions/day** —
@@ -190,6 +191,52 @@ GitHub issues. Replaced the Web3Forms email relay.)
 - If the Worker is unreachable the forms fail with a visible message and nothing
   is lost silently — but submissions are simply not accepted until it returns.
   There is no queue and no fallback path.
+
+## Cloudflare R2 — the reliability record
+
+(`worker/src/recorder.js` — a snapshot of the BODS feed every minute, 05:00 to
+00:30 London, stored as `raw/YYYY-MM-DD/HHMM.xml` for the nightly processor.)
+
+**R2 charges automatically past the free allowances and has no "stop at the
+free tier" switch.** The only cut-off is the one in our own code, so this
+section is the arithmetic that cut-off is set from.
+
+| Free each month | Then | What we use |
+|---|---|---|
+| 10 GB stored | $0.015 / GB | ~350 MB a day written, pruned to ≤ 7 days |
+| 1M Class A (write, list, delete) | $4.50 / M | ~36k writes, ~750 lists, ~36k deletes |
+| 10M Class B (read) | $0.36 / M | ~36k, the processor reading each object once |
+
+- **Operations cannot breach the free tier by construction.** One write a
+  minute is at most 44,640 in the longest month; lists and deletes are bounded
+  by those writes. The total is under a tenth of the Class A allowance, and a
+  test in `worker/test/recorder.test.js` asserts the arithmetic, so a faster
+  cadence cannot be introduced without failing it.
+- **Storage is the only real risk**, and only if the nightly processor stops
+  deleting what it has used. A month of unnoticed failure would reach 10 GB.
+
+**The hard limits, all enforced in the recorder before anything is written**
+
+- **Retention: 7 days.** Once an hour the Worker lists the bucket and deletes
+  whole days older than that, whether or not the processor has been near them.
+  Unattended failure therefore costs about 2.5 GB, not a bill.
+- **Storage budget: 4 GB and 15,000 objects**, 40% of the free allowance. Past
+  either, the recorder stops writing and logs `snapshots paused` rather than
+  spending. The margin absorbs an hour of writing on a stale measurement.
+- **The measurement is cached in KV** (`r2-usage`), read each minute and written
+  only when it is taken — once an hour, ~24 writes a day against the 1,000 the
+  submission counters share. Measuring every minute would spend 1,440 of them,
+  which is what the hourly test exists to prevent.
+- A failed measurement or an unreadable budget never stops recording: losing a
+  minute of evidence is worse than acting on an hour-old measurement.
+
+**Implications**
+
+- Raising the cadence, the retention window or either budget means redoing the
+  arithmetic above. The tests fail on the arithmetic, not on the constants.
+- R2 has no per-account spending cap to fall back on, so treat "the code stops
+  it" as the whole control. A billing alert in the Cloudflare dashboard is worth
+  adding as a second pair of eyes, not as the limit.
 
 ## Diagnostics — `/api/debug/*`
 

@@ -244,6 +244,43 @@ To change the hours, edit `WARM_FROM` and `WARM_TO` in `src/index.js`, and if
 the new window reaches outside 06:00 to 23:59 UTC, widen the cron's hour range
 too. The test will say if it does not cover the window.
 
+## Recording the feed for reliability figures
+
+A second cron (`* * * * *`) takes one snapshot of the BODS vehicle feed a minute
+between 05:00 and 00:30 London and streams it into the R2 bucket
+`adur-worthing-reliability` as `raw/YYYY-MM-DD/HHMM.xml`. The body is piped, not
+read, so the Worker never holds the XML and stays inside its 10 ms of CPU. A
+nightly GitHub Action turns a day of snapshots into arrival observations; the
+snapshots are working material, not the evidence.
+
+Setup, once:
+
+```sh
+npx wrangler r2 bucket create adur-worthing-reliability   # done
+npx wrangler secret put BODS_API_KEY                      # the same key the API uses
+npx wrangler deploy                                       # registers the minute cron
+npx wrangler tail                                         # expect `snapshot raw/…: stored in N ms`
+```
+
+**Spending guard.** R2 bills automatically past its free tier and offers no
+cut-off switch, so the recorder enforces one itself: it deletes days older than
+7, refuses to write once the bucket passes 4 GB or 15,000 objects (40% of the
+free 10 GB), and measures the bucket once an hour rather than once a minute so
+the KV writes stay inside their own budget. Writes cannot approach the 1M free
+Class A operations at one a minute, and a test asserts that arithmetic. The
+constants are `RETENTION_DAYS`, `MAX_STORED_BYTES` and `MAX_STORED_OBJECTS` in
+`src/recorder.js`; changing any of them means redoing the sums in `../LIMITS.md`.
+
+To check the bucket against those limits without trusting our own counter:
+
+```sh
+npx wrangler r2 bucket info adur-worthing-reliability   # object_count and bucket_size
+```
+
+If recording stops, `wrangler tail` says why: `quiet_hours`, `no_bucket`,
+`no_key`, `upstream` (the feed's own error) or `byte_budget` / `object_budget`,
+which means the nightly processor has stopped clearing the bucket.
+
 ## Free-tier caps
 
 Cloudflare Workers free: 100,000 requests/day, 10 ms CPU per request. KV free:

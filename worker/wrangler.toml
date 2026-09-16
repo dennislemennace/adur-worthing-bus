@@ -52,5 +52,15 @@ enabled = true
 # enforced in keepWarm(), so runs outside it do nothing. About 108 runs a day
 # against 100,000 free requests. tests/keep_warm.test.js checks this range
 # covers the window in summer and winter.
+# The second trigger records the live feed every minute, 05:00 to 00:30 London
+# time (enforced in recordSnapshot, so runs outside it do nothing). About 1,170
+# snapshots a day against 100,000 free requests. Sampling has to be regular:
+# gaps in the record bias every punctuality figure computed from it.
 [triggers]
-crons = ["*/10 6-23 * * *"]
+crons = ["*/10 6-23 * * *", "* * * * *"]
+
+# Where snapshots go. Working material, not evidence: the nightly processor
+# turns a day into arrival observations and deletes what it has used.
+[[r2_buckets]]
+binding = "SNAPSHOTS"
+bucket_name = "adur-worthing-reliability"
