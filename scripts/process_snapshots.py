@@ -53,7 +53,9 @@ LONDON = ZoneInfo("Europe/London")
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
 
+import reliability_stats                      # noqa: E402
 from api import trip_match                    # noqa: E402
 from api.timetable_db import Timetable        # noqa: E402
 
@@ -311,11 +313,26 @@ def observe_day(tt, day, snapshots, atcos=CORRIDOR_ATCOS):
         route_id = inst["trip"].get("route_id", "")
         # Which of this journey's times the operator actually commits to.
         timepoints = tt.timepoints_for(trip_id)
+        # Which way along the coast, and the operator's own word for where it
+        # is going. Both are settled here, not in analysis later: trip ids
+        # belong to one timetable build, and joining observations to whatever
+        # database happens to be on disk would silently mix two builds.
+        calls = inst["calls"]
+        first_stop = tt.stops.get(calls[0][1]) or {}
+        last_stop = tt.stops.get(calls[-1][1]) or {}
+        direction = "unknown"
+        if first_stop.get("lon") is not None and last_stop.get("lon") is not None:
+            shift = last_stop["lon"] - first_stop["lon"]
+            if abs(shift) >= 0.002:          # ~140 m, more than one pole apart
+                direction = "westbound" if shift < 0 else "eastbound"
+        headsign = (inst["trip"].get("headsign") or "").strip()
+        journey_start = calls[0][0]
+
         # One journey can be matched to more than one vehicle across a day if a
         # bus is swapped; the one seen most often is the journey's bus.
         refs = [s[3] for s in samples if s[3]]
         vehicle = max(set(refs), key=refs.count) if refs else ""
-        for scheduled_secs, atco in inst["calls"]:
+        for stop_index, (scheduled_secs, atco) in enumerate(calls):
             stop = tt.stops.get(atco) or {}
             if stop.get("lat") is None:
                 continue
@@ -350,6 +367,16 @@ def observe_day(tt, day, snapshots, atcos=CORRIDOR_ATCOS):
                 "samples": len(samples),
                 # 1 a timing point, 0 a time GTFS interpolated, None unstated.
                 "timepoint": timepoints.get(atco),
+                "direction": direction,
+                "headsign": headsign,
+                # Where this stop sits in the journey. A stop near the end
+                # inherits every minute lost upstream, so any ranking of stops
+                # needs to know that rather than discover it as a finding.
+                "stop_index": stop_index,
+                "calls_total": len(calls),
+                # The journey's own identity to a reader: "the 17:22".
+                "journey_start": trip_match.clock(journey_start),
+                "journey_start_secs": journey_start,
             })
 
     coverage = {
@@ -365,24 +392,14 @@ def observe_day(tt, day, snapshots, atcos=CORRIDOR_ATCOS):
     return observations, coverage
 
 
-# DfT's yardstick for a non-frequent service, used so nobody can argue with
-# the definition: on time is no more than one minute early and no more than
-# five minutes 59 seconds late. BUS09 judges frequent services (6+ an hour) on
-# excess waiting time instead, which needs headways rather than single
-# arrivals — that is a later figure, and this one does not claim to be it.
-ON_TIME_FROM_SECS = -60
-ON_TIME_TO_SECS = 359
-
-
-def band(lateness_secs):
-    """Which punctuality band an arrival falls in."""
-    if lateness_secs < ON_TIME_FROM_SECS:
-        return "early"
-    if lateness_secs <= ON_TIME_TO_SECS:
-        return "on_time"
-    if lateness_secs <= 15 * 60:
-        return "late"
-    return "very_late"
+# DfT's yardstick, defined once in reliability_stats so the daily summary and
+# any later analysis cannot drift apart on what "on time" means. BUS09 judges
+# frequent services (6+ an hour) on excess waiting time instead, which needs
+# headways rather than single arrivals — a later figure, and this does not
+# claim to be it.
+ON_TIME_FROM_SECS = reliability_stats.ON_TIME_FROM_SECS
+ON_TIME_TO_SECS = reliability_stats.ON_TIME_TO_SECS
+band = reliability_stats.band
 
 
 def timepoint_class(flag):
@@ -423,7 +440,10 @@ def summarise(observations, coverage):
         bands[b] += 1
         svc = by_service.setdefault(o["service"], {k: 0 for k in bands})
         svc[b] += 1
-        hour = f'{o["observed_secs"] // 3600 % 24:02d}'
+        # Bucketed on the *scheduled* hour. A bus due 17:45 and seen 18:05
+        # belongs to the 17:00 timetable; counting it at 18:00 moves delay out
+        # of the hour that caused it and flatters the peak.
+        hour = f'{o["scheduled_secs"] // 3600 % 24:02d}'
         hr = by_hour.setdefault(hour, {k: 0 for k in bands})
         hr[b] += 1
         tp = by_timepoint.setdefault(timepoint_class(o.get("timepoint")),
@@ -434,6 +454,7 @@ def summarise(observations, coverage):
         "bands": bands,
         "by_service": by_service,
         "by_hour": by_hour,
+        "by_hour_basis": "scheduled departure hour, not the hour observed",
         # The headline belongs to "timing_point" where there is one. The other
         # two series are published beside it, never merged into it.
         "by_timepoint": by_timepoint,

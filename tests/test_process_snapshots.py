@@ -487,3 +487,45 @@ def test_a_feed_that_does_not_say_is_not_counted_as_a_timing_point(tt):
     assert ps.timepoint_class(None) == "unstated"
     assert ps.timepoint_class(1) == "timing_point"
     assert ps.timepoint_class(0) == "interpolated"
+
+
+# ── What an observation has to carry for analysis ───────────
+
+def test_an_observation_knows_its_direction_and_its_place_in_the_journey(tt):
+    # Settled here, where the timetable is to hand. Deriving direction later
+    # means joining observations to whatever database is on disk, and two
+    # timetable builds are now in play — trip ids belong to one of them.
+    obs, _ = observations(tt, day_of(range(600, 646)))
+    assert obs
+    # The fixture's westbound trips run from stop 0 to stop 59, longitude
+    # decreasing, so every arrival on them is westbound.
+    assert {o["direction"] for o in obs} == {"westbound"}
+    assert {o["headsign"] for o in obs} == {"Worthing"}
+    one = for_stop(obs, 20)
+    assert one["stop_index"] == 20
+    assert one["calls_total"] == 60
+    assert one["journey_start"] == "10:00", "the journey cannot be named to a reader"
+
+
+def test_the_summary_buckets_hours_by_when_the_bus_was_due(tt):
+    # A bus due 10:55 and seen 11:05 belongs to the 10:00 timetable. Counting
+    # it at 11:00 moves the delay out of the hour that caused it.
+    # Four minutes late, and tracked past 11:00: the stops due 10:56–10:59 are
+    # then observed in the 11:00 hour while belonging to the 10:00 timetable,
+    # which is the only shape that can tell the two bases apart. A bigger delay
+    # would not do it — past half the ten-minute headway the matcher attributes
+    # the bus to the following journey instead.
+    obs, coverage = observations(tt, day_of(range(600, 670), offset=4))
+    summary = ps.summarise(obs, coverage)
+    assert "scheduled" in summary["by_hour_basis"]
+    # Counts per hour, not just which hours appear: at an eight-minute delay
+    # the two bases produce the same set of hours and different totals, which
+    # is how a key-set assertion passed a deliberately broken bucket.
+    counted = {h: sum(bands.values()) for h, bands in summary["by_hour"].items()}
+    by_scheduled, by_observed = {}, {}
+    for o in obs:
+        by_scheduled[o["scheduled"][:2]] = by_scheduled.get(o["scheduled"][:2], 0) + 1
+        by_observed[o["observed"][:2]] = by_observed.get(o["observed"][:2], 0) + 1
+    assert by_scheduled != by_observed, "this fixture cannot tell the two apart"
+    assert counted == by_scheduled, \
+        f"hours bucketed on something other than the scheduled time: {counted}"
