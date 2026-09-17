@@ -175,3 +175,33 @@ def test_departure_board_reads_rebuilt_service_days(
 ])
 def test_service_day_epoch_uses_elapsed_hours_across_clock_changes(service_date, expected_text):
     assert main._service_day_start(service_date).astimezone(timezone.utc).isoformat() == expected_text
+
+
+def test_the_osrm_phase_reads_an_entry_that_has_grown(monkeypatch):
+    """A stop_times entry has grown twice; this reader must keep up.
+
+    The timing-point flag made entries four-long, and `_osrm_fill` unpacked
+    exactly three values. No test caught it: every test in this suite sets
+    SKIP_OSRM=1, and the OSRM phase is skipped at its call site, so the only
+    thing that exercised the line was a real rebuild — which failed in CI
+    after downloading and parsing 4.8 million rows first.
+
+    The fixture gives every trip a shape, so no route needs filling and
+    nothing is requested from OSRM. What runs is the inversion that broke.
+    """
+    assert build_timetable.read_stop_time([32400, "t1"]) == (32400, "t1", -1, None)
+    assert build_timetable.read_stop_time([32400, "t1", 10]) == (32400, "t1", 10, None)
+    assert build_timetable.read_stop_time([32400, "t1", 10, 1]) == (32400, "t1", 10, 1)
+
+    inside = {"lat": 50.8400, "lon": -0.2000}
+    timetable = {
+        "stop_times": {"4400A": [[32400, "t1", 10, 1]], "4400B": [[32460, "t1", 20, 0]]},
+        "stops": {"4400A": dict(inside), "4400B": dict(inside)},
+        "trips": {"t1": {"route_id": "r", "shape_id": "shp"}},
+        "routes": {"r": {"short_name": "700"}},
+        "shapes": {"shp": [[50.84, -0.20]]},
+    }
+    monkeypatch.setattr(build_timetable, "OSRM_BASE_URL", "http://127.0.0.1:1")
+    build_timetable._osrm_fill(timetable, {"4400A", "4400B"}, {"4400A", "4400B"})
+    # Nothing to fill, so nothing invented — and no exception on the way.
+    assert set(timetable["shapes"]) == {"shp"}

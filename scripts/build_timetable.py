@@ -535,6 +535,22 @@ def _hms_to_secs(t: str) -> int:
 
 
 # ── OSRM road-following gap-fill ──────────────────────────────
+def read_stop_time(entry):
+    """`(dep_secs, trip_id, seq, timepoint)` from a stop_times entry.
+
+    Entries have grown twice — first the feed's own `stop_sequence`, then the
+    timing-point flag — and each time the shorter form stayed valid in an
+    already-built timetable.json. Reading them in one place is not tidiness:
+    adding the flag broke `_osrm_fill`, which unpacked three values, and no
+    test caught it because every test sets SKIP_OSRM=1. A rebuild failed in
+    CI instead.
+    """
+    dep_secs, trip_id = entry[0], entry[1]
+    seq = entry[2] if len(entry) > 2 else -1
+    timepoint = entry[3] if len(entry) > 3 else None
+    return dep_secs, trip_id, seq, timepoint
+
+
 def _osrm_fill(timetable: dict, ws_stop_ids: set, bbox_stop_ids: set) -> None:
     """For each route in our bbox whose representative trip(s) lack a
     GTFS shape, call OSRM /route on the trip's stop sequence and store
@@ -558,7 +574,8 @@ def _osrm_fill(timetable: dict, ws_stop_ids: set, bbox_stop_ids: set) -> None:
     # Invert stop_times into per-trip ordered stop sequences.
     per_trip: dict = {}   # tid -> [(seq, dep_secs, stop_id)]
     for stop_id, entries in timetable["stop_times"].items():
-        for dep_secs, trip_id, seq in entries:
+        for entry in entries:
+            dep_secs, trip_id, seq, _tp = read_stop_time(entry)
             per_trip.setdefault(trip_id, []).append((seq, dep_secs, stop_id))
     # Ordered by the feed's own stop_sequence, with departure time only as a
     # tiebreak for a feed that omitted it (seq == -1 for all of them).
