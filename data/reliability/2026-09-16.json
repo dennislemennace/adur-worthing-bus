@@ -1,5 +1,5 @@
 {
- "as_of": "2026-09-17T02:02:41+00:00",
+ "as_of": "2026-09-17T12:00:33+00:00",
  "bands": {
   "early": 719,
   "late": 462,
@@ -7,61 +7,68 @@
   "very_late": 44
  },
  "by_hour": {
-  "15": {
-   "early": 49,
-   "late": 56,
-   "on_time": 340,
+  "00": {
+   "early": 1,
+   "late": 0,
+   "on_time": 0,
    "very_late": 0
   },
+  "15": {
+   "early": 47,
+   "late": 60,
+   "on_time": 359,
+   "very_late": 4
+  },
   "16": {
-   "early": 94,
-   "late": 63,
-   "on_time": 542,
-   "very_late": 18
+   "early": 95,
+   "late": 79,
+   "on_time": 541,
+   "very_late": 23
   },
   "17": {
-   "early": 83,
-   "late": 146,
-   "on_time": 543,
-   "very_late": 18
+   "early": 81,
+   "late": 136,
+   "on_time": 534,
+   "very_late": 9
   },
   "18": {
-   "early": 171,
-   "late": 42,
-   "on_time": 419,
+   "early": 164,
+   "late": 38,
+   "on_time": 418,
    "very_late": 5
   },
   "19": {
-   "early": 100,
-   "late": 38,
+   "early": 104,
+   "late": 43,
    "on_time": 502,
-   "very_late": 2
+   "very_late": 3
   },
   "20": {
-   "early": 35,
-   "late": 91,
-   "on_time": 442,
-   "very_late": 1
+   "early": 40,
+   "late": 82,
+   "on_time": 448,
+   "very_late": 0
   },
   "21": {
-   "early": 59,
-   "late": 14,
+   "early": 58,
+   "late": 12,
    "on_time": 412,
    "very_late": 0
   },
   "22": {
-   "early": 46,
+   "early": 44,
    "late": 12,
-   "on_time": 391,
+   "on_time": 384,
    "very_late": 0
   },
   "23": {
-   "early": 82,
+   "early": 85,
    "late": 0,
-   "on_time": 263,
+   "on_time": 256,
    "very_late": 0
   }
  },
+ "by_hour_basis": "scheduled departure hour, not the hour observed",
  "by_service": {
   "19": {
    "early": 5,
