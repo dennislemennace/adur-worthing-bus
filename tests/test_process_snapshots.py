@@ -430,3 +430,17 @@ def test_both_outputs_carry_their_provenance(tt, tmp_path):
         assert doc["data_version"].startswith("timetable.sqlite sha256:"), \
             f'{path.name} cannot say which timetable produced it: {doc["data_version"]}'
     sidecar.unlink()
+
+
+def test_the_censored_tails_are_written_down(tt):
+    # Measured on a real day: 5,079 observations, not one outside [-5, +25]
+    # minutes — the matcher's own window, not the service behaving. Both tails
+    # are cut off, so every count of early or very late running is a floor and
+    # the on-time share is optimistic. A reader given the percentage without
+    # this sentence would be misled in the operator's favour.
+    censoring = [c for c in ps.CAVEATS if "censored" in c]
+    assert censoring, "the censored tails are not stated in the caveats"
+    assert "floor" in censoring[0] and "optimistic" in censoring[0], \
+        "the caveat does not say which way the censoring cuts"
+    assert "censored" in ps.METHOD or "cannot be observed" in ps.METHOD, \
+        "the method does not mention the matching window's effect on the figures"

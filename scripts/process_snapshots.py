@@ -98,7 +98,10 @@ METHOD = (
     "the recorded position nearest that stop, where it came within 150 m, so "
     "times are accurate to about 30 seconds either way. Journeys with no "
     "tracked bus produce no observation and are counted as missing coverage, "
-    "never as lateness. Coaches are excluded."
+    "never as lateness. Lateness outside 5 minutes early to 25 minutes late "
+    "cannot be observed at all: such a bus is matched to a neighbouring "
+    "journey, so both tails of the distribution are censored and the share on "
+    "time is optimistic. Coaches are excluded."
 )
 
 CAVEATS = [
@@ -115,6 +118,12 @@ CAVEATS = [
     "journey running early, because the feed publishes no journey identifier "
     "that matches the timetable. Such a journey is recorded as the later one, "
     "so measured lateness is a floor and the real figure is this or worse.",
+    "Lateness is censored at the matching window: a bus more than 5 minutes "
+    "early or 25 minutes late for a journey is attributed to a neighbouring "
+    "one instead, so no observation can fall outside that range. In a measured "
+    "day of 5,079 observations, none did. Both tails are therefore cut off, "
+    "every count of early or very late running is a floor, and the share on "
+    "time is correspondingly optimistic.",
 ]
 
 
