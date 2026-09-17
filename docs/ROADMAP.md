@@ -526,6 +526,15 @@ Not part of the three phases, but still open:
   `_OPERATOR_OVERRIDES`; the TODO is still open.
 - **`app.js` is 6,539 lines** in one file.
 - **Env vars are still named `NEXTBUSES_*`** while pointing at TransportAPI.
+- **Three-bus journeys cannot walk at the first change.** In
+  `api/timetable_db.py`, the middle leg is searched only among trips calling at
+  a stop the first bus reaches *exactly* (`trips_at(set(first))`), while the
+  second interchange already allows a walk via `nearby(last_grid, pt)`. Moving a
+  boarding pole 37 m makes an otherwise valid itinerary disappear. Raised in a
+  review on 17 September 2026 and deliberately left out of the reliability work:
+  widening the candidate set costs time in the heaviest endpoint on Render's
+  free tier, so it needs measuring against `LIMITS.md` first — most likely by
+  reusing the same walking grid the second change already builds.
 
 ---
 

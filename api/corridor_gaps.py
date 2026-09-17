@@ -44,8 +44,10 @@ Quiet hours, 23:30 to 04:30, are not measured at all. The timetable leaves
 hour-long gaps then by design, and the question this answers is a daytime one.
 """
 
-import math
-from datetime import timedelta
+# The matching layer — which journey each bus is running — is shared with the
+# nightly processor, so a live alert and a published figure cannot disagree.
+from api import trip_match
+from api.trip_match import clock as _clock
 
 # In the order a bus in that direction reaches them. Each pole serves one side
 # of the road, so naming the pole is what makes a direction; there is no
@@ -81,13 +83,6 @@ ALERT_OVER_SCHEDULE_SECS = 10 * 60
 # cached for 30 s, so a second look is 30 to 60 s after the first.
 CONFIRM_SECS = 45
 
-# Late by up to 25 minutes, the same bound the single-vehicle trip match uses.
-# Early by no more than 5: a bus mid-route cannot be running a departure that
-# has not left yet.
-MATCH_TOLERANCE_SECS = 25 * 60
-EARLY_TOLERANCE_SECS = 5 * 60
-# A bus further than this from every stop on a trip is not running that trip.
-MAX_OFF_ROUTE_KM = 0.4
 # A scheduled bus this far past its watchpoint time with nothing tracked has
 # probably gone by, or never came; either way it is no longer a future arrival.
 PASSED_GRACE_SECS = 5 * 60
@@ -97,10 +92,6 @@ LATE_START_GRACE_SECS = 15 * 60
 # than about the service, and nothing is shown.
 MIN_COVERAGE = 0.5
 MIN_EXPECTED_FOR_COVERAGE = 3
-
-# Coaches and airport shuttles call at these poles but are not local buses:
-# they need their own ticket and are not what anyone at a bus stop is waiting for.
-COACH_NOCS = frozenset({"NATX", "FLIX", "OXBC", "GHOP", "BMCS", "UNTM"})
 
 NEXT_SHOWN = 3
 
@@ -135,35 +126,6 @@ def is_quiet(now_local) -> bool:
     # Written as "outside the day", not "inside the night": the night crosses
     # midnight, and a from < now < to test across midnight is never true.
     return not (QUIET_TO_SECS <= secs < QUIET_FROM_SECS)
-
-
-def _clock(secs: int) -> str:
-    secs = int(secs) % 86400
-    return f"{secs // 3600:02d}:{secs % 3600 // 60:02d}"
-
-
-def _km(lat1, lon1, lat2, lon2) -> float:
-    dlat = (lat2 - lat1) * 111.0
-    dlon = (lon2 - lon1) * 111.0 * math.cos(math.radians((lat1 + lat2) / 2))
-    return math.hypot(dlat, dlon)
-
-
-def _bearing(lat1, lon1, lat2, lon2) -> float:
-    dlon = (lon2 - lon1) * math.cos(math.radians((lat1 + lat2) / 2))
-    return math.degrees(math.atan2(dlon, lat2 - lat1)) % 360
-
-
-def _service_keys(name: str) -> set:
-    """"025" and "25", "N700" and "700": the feed and the timetable disagree."""
-    name = (name or "").strip().upper()
-    if not name:
-        return set()
-    zero = name.lstrip("0") or name
-    keys = {name, zero}
-    for k in list(keys):
-        if len(k) > 1 and k[0] == "N" and k[1:].isdigit():
-            keys.add(k[1:])
-    return keys
 
 
 def corridor_report(tt, vehicles, now_local, memory=None, directions=DIRECTIONS) -> dict:
@@ -205,109 +167,18 @@ def direction_gaps(tt, vehicles, now_local, watchpoints, memory=None, memory_key
 
     now = now_local.hour * 3600 + now_local.minute * 60 + now_local.second
     today = now_local.date()
-    service_days = ((today, 0), (today - timedelta(days=1), 86400))
-    runs: dict = {}
 
-    def running(service_id, day):
-        key = (service_id, day)
-        if key not in runs:
-            runs[key] = tt.runs_on(service_id, day)
-        return runs[key]
-
-    # ── Every scheduled call at a watchpoint worth knowing about ──
-    # Keyed by (trip, service day): a trip written as 28:40 on yesterday's
-    # service is a bus this morning, and the same trip_id also runs today.
-    window_lo, window_hi = now - 2 * HORIZON_SECS, now + 2 * HORIZON_SECS
-    instances: dict = {}          # (trip_id, day) -> {"shift", "trip", ...}
-    scheduled: dict = {atco: [] for atco, _ in watchpoints}
-    for atco, _name in watchpoints:
-        for secs, trip_id in tt.stop_times_for(atco):
-            if secs is None:
-                continue
-            trip = tt.trips.get(trip_id) or {}
-            if tt.noc_for_route(trip.get("route_id", "")) in COACH_NOCS:
-                continue
-            for day, shift in service_days:
-                t = secs - shift
-                if not (window_lo <= t <= window_hi):
-                    continue
-                if not running(trip.get("service_id", ""), day):
-                    continue
-                key = (trip_id, day)
-                scheduled[atco].append((t, key))
-                instances.setdefault(key, {"shift": shift, "trip": trip})
-    for atco in scheduled:
-        scheduled[atco].sort()
-
+    # Two hours either side: enough to see a bus already running towards a pole
+    # and the departures about to follow it.
+    window = (now - 2 * HORIZON_SECS, now + 2 * HORIZON_SECS)
+    instances, scheduled = trip_match.build_instances(
+        tt, today, [atco for atco, _ in watchpoints], window)
     if not instances:
         return {"status": "unknown", "reason": "no_timetable"}
-
-    for key, inst in instances.items():
-        calls = tt.trip_stops_for(key[0])
-        inst["calls"] = [(secs - inst["shift"], atco) for secs, atco in calls
-                         if secs is not None]
-        route = tt.routes.get(inst["trip"].get("route_id", "")) or {}
-        inst["service"] = route.get("short_name", "")
-        inst["keys"] = _service_keys(inst["service"])
-        inst["first"] = inst["calls"][0][0] if inst["calls"] else None
+    for inst in instances.values():
         inst["started"] = inst["first"] is not None and inst["first"] <= now
 
-    # ── Place each tracked bus on at most one trip, and each trip on one bus ──
-    options = []
-    for vi, v in enumerate(vehicles):
-        if (v.get("operator_ref") or "").upper() in COACH_NOCS:
-            continue
-        vkeys = _service_keys(v.get("service_ref"))
-        vlat, vlon = v.get("latitude"), v.get("longitude")
-        if not vkeys or vlat is None or vlon is None:
-            continue
-        dest = (v.get("destination") or "").replace("_", " ").strip().lower()
-        heading = v.get("bearing")
-        # Feeds send 0 for "no heading". Trusting it would rule out every
-        # bus on an east-west road and invent the gap this reports.
-        if not heading:
-            heading = None
-        per_vehicle = []
-        for key, inst in instances.items():
-            if not (vkeys & inst["keys"]) or not inst["calls"]:
-                continue
-            best_i, best_d = None, None
-            for i, (_secs, atco) in enumerate(inst["calls"]):
-                s = tt.stops.get(atco) or {}
-                if s.get("lat") is None:
-                    continue
-                d = _km(vlat, vlon, s["lat"], s["lon"])
-                if best_d is None or d < best_d:
-                    best_i, best_d = i, d
-            if best_i is None or best_d > MAX_OFF_ROUTE_KM:
-                continue
-            lateness = now - inst["calls"][best_i][0]
-            if not (-EARLY_TOLERANCE_SECS <= lateness <= MATCH_TOLERANCE_SECS):
-                continue
-            # A bus on the other side of the road sits within metres of this
-            # trip's poles. Its heading, when the feed sends one, rules it out.
-            if heading is not None and not _heading_agrees(tt, inst["calls"], best_i, heading):
-                continue
-            headsign = (inst["trip"].get("headsign") or "").lower()
-            last = (tt.stops.get(inst["calls"][-1][1]) or {}).get("name", "").lower()
-            dir_match = bool(dest) and (dest in headsign or dest in last
-                                        or (headsign and headsign in dest)
-                                        or (last and last in dest))
-            per_vehicle.append((abs(lateness), key, best_i, dir_match))
-        # Where the destination names a trip, only trips it names are in the
-        # running; otherwise a fresher trip the other way could win on time.
-        if any(m for *_, m in per_vehicle):
-            per_vehicle = [p for p in per_vehicle if p[3]]
-        for score, key, idx, _m in per_vehicle:
-            options.append((score, vi, key, idx))
-
-    placed: dict = {}             # (trip_id, day) -> (vehicle index, nearest call index)
-    used = set()
-    for score, vi, key, idx in sorted(options, key=lambda o: o[0]):
-        if vi in used or key in placed:
-            continue
-        placed[key] = (vi, idx)
-        used.add(vi)
+    placed = trip_match.place_vehicles(tt, vehicles, instances, now)
 
     def leaving_late(inst):
         return inst["started"] and now - inst["first"] <= LATE_START_GRACE_SECS
@@ -338,7 +209,7 @@ def direction_gaps(tt, vehicles, now_local, watchpoints, memory=None, memory_key
                 p = next((i for i, (_s, a) in enumerate(inst["calls"]) if a == atco), None)
                 if p is None:
                     continue
-                if idx < p or (idx == p and not _past_pole(tt, vehicles[vi], inst["calls"], p)):
+                if idx < p or (idx == p and not trip_match.past_pole(tt, vehicles[vi], inst["calls"], p)):
                     eta = now + max(0, inst["calls"][p][0] - inst["calls"][idx][0])
                     arrivals.append((eta, inst["service"], "live"))
             elif not inst["started"]:
@@ -433,29 +304,3 @@ def _timetable_gap(sched_times, x, y) -> int:
         else:
             worst = max(worst, y - x)
     return worst
-
-
-def _heading_agrees(tt, calls, i, heading) -> bool:
-    j, k = (i, i + 1) if i + 1 < len(calls) else (i - 1, i)
-    if j < 0:
-        return True
-    a = tt.stops.get(calls[j][1]) or {}
-    b = tt.stops.get(calls[k][1]) or {}
-    if a.get("lat") is None or b.get("lat") is None:
-        return True
-    if _km(a["lat"], a["lon"], b["lat"], b["lon"]) < 0.02:
-        return True
-    diff = abs((_bearing(a["lat"], a["lon"], b["lat"], b["lon"]) - float(heading) + 180) % 360 - 180)
-    return diff <= 90
-
-
-def _past_pole(tt, vehicle, calls, p) -> bool:
-    """Nearest stop is the watchpoint itself: has the bus gone by it yet?"""
-    if p + 1 >= len(calls):
-        return False
-    pole = tt.stops.get(calls[p][1]) or {}
-    nxt = tt.stops.get(calls[p + 1][1]) or {}
-    if pole.get("lat") is None or nxt.get("lat") is None:
-        return False
-    return (_km(vehicle["latitude"], vehicle["longitude"], nxt["lat"], nxt["lon"])
-            < _km(pole["lat"], pole["lon"], nxt["lat"], nxt["lon"]))

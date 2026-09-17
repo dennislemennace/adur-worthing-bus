@@ -117,7 +117,7 @@ test("in the day it asks for the corridor and shows the answer", async () => {
   await app.fetchGapMonitor();
   assert.deepEqual(asked, ["/api/corridor-gaps"]);
   assert.equal(host.hidden, false);
-  assert.match(host.innerHTML, /running to timetable/);
+  assert.match(host.innerHTML, /no confirmed long gaps/);
 });
 
 test("outside Live view it does not ask", async () => {
@@ -154,7 +154,7 @@ test("a direction the server could not judge is left out, and the other still sh
   const html = app.gapMonitorHtml({ ...NORMAL, directions: [
     direction("worthing", { status: "unknown", reason: "low_coverage" }), direction("brighton")] });
   assert.doesNotMatch(html, /towards Worthing/);
-  assert.match(html, /A259 Coast Rd towards Brighton: running to timetable/);
+  assert.match(html, /A259 Coast Rd towards Brighton: no confirmed long gaps/);
 });
 
 test("an error hides the monitor rather than leaving the last answer up", async () => {
@@ -165,7 +165,7 @@ test("an error hides the monitor rather than leaving the last answer up", async 
   assert.equal(host.hidden, false);
   app.apiFetch = async () => { throw new Error("502"); };
   await app.fetchGapMonitor();
-  assert.equal(host.hidden, true, "a stale 'running to timetable' stayed on screen");
+  assert.equal(host.hidden, true, "a stale 'no confirmed long gaps' stayed on screen");
 });
 
 test("pausing live positions hides the monitor", async () => {
@@ -184,7 +184,7 @@ test("a normal service is one line for the corridor, with the detail folded away
   const html = app.gapMonitorHtml(NORMAL);
   const summaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)]
     .map(m => m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
-  assert.deepEqual(summaries, ["A259 Coast Rd: running to timetable"]);
+  assert.deepEqual(summaries, ["A259 Coast Rd: no confirmed long gaps"]);
   assert.doesNotMatch(html, /gap-monitor--alert/);
   assert.doesNotMatch(html, /<details[^>]*\bopen\b/, "the detail should start closed");
   assert.match(html, /700 in 4 min/);
@@ -250,7 +250,7 @@ test("a new alert is announced once, not on every refresh", () => {
   app.renderGapMonitor(brightonAlert({ minutes: 31 }));
   assert.deepEqual(said, ["A259 Coast Rd: long gap at Shoreham High Street towards Brighton."]);
   app.renderGapMonitor(NORMAL);
-  assert.equal(said.at(-1), "Buses on the A259 Coast Rd are running to timetable again.");
+  assert.equal(said.at(-1), "No confirmed long gaps on the A259 Coast Rd now.");
   assert.equal(said.length, 2);
 });
 
@@ -292,4 +292,62 @@ test("while the service wakes, the banner promises only what is already there", 
   app.showWakingBanner();
   assert.match(text.textContent, /stops are ready/i);
   assert.doesNotMatch(text.textContent, /(routes|timetables)[^.]*\bready now\b/i);
+});
+
+
+// ── Saying only what was measured ───────────────────────────
+
+test("a gap awaiting confirmation is not called running to timetable", () => {
+  // A 30-minute gap over the threshold is held back until a second look, at
+  // least 45 seconds later, still finds it. During that hold there is no
+  // confirmed alert — but the service is not known to be fine either, and the
+  // old wording claimed it was.
+  const { app } = freshApp();
+  const held = direction("worthing");
+  held.stops[0].longest_gap = { minutes: 30, from: "12:00", to: "12:30",
+                                timetable_minutes: 12, not_reporting: 0,
+                                alert: false, pending: true };
+  const html = app.gapMonitorHtml({ ...NORMAL, directions: [held] });
+  assert.match(html, /checking a possible long gap/);
+  assert.doesNotMatch(html, /no confirmed long gaps/,
+    "a 30-minute gap under confirmation was reported as a normal service");
+});
+
+test("a gap containing an untracked bus is not called running to timetable either", () => {
+  // A bus that is not reporting cannot be told from one that never ran, so the
+  // gap is never called a wait — and must not be called fine.
+  const { app } = freshApp();
+  const quiet = direction("worthing");
+  quiet.stops[0].longest_gap = { minutes: 28, from: "12:00", to: "12:28",
+                                 timetable_minutes: 10, not_reporting: 2,
+                                 alert: false };
+  const html = app.gapMonitorHtml({ ...NORMAL, directions: [quiet] });
+  assert.doesNotMatch(html, /no confirmed long gaps/);
+});
+
+test("an answer already in the air does not revive a stopped monitor", async () => {
+  // Turning buses off stops the monitor and clears the panel. A request sent a
+  // moment earlier used to land afterwards and redraw it, leaving an answer on
+  // screen that nothing would ever refresh.
+  const { app, host } = freshApp();
+  app.isGapQuietHours = () => false;
+  let release;
+  app.apiFetch = () => new Promise(resolve => { release = () => resolve(NORMAL); });
+  const inFlight = app.fetchGapMonitor();
+  app.stopGapMonitor();
+  assert.equal(host.hidden, true, "stopping did not clear the panel");
+  release();
+  await inFlight;
+  assert.equal(host.hidden, true, "a stale answer brought the monitor back");
+});
+
+test("a restarted monitor still shows the answer it asked for", async () => {
+  // The guard must not throw away the answer to the current request.
+  const { app, host } = freshApp();
+  app.isGapQuietHours = () => false;
+  app.apiFetch = async () => NORMAL;
+  app.startGapMonitor();
+  await app.fetchGapMonitor();
+  assert.equal(host.hidden, false, "the monitor stopped showing anything at all");
+  app.stopGapMonitor();
 });

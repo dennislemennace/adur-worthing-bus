@@ -1,0 +1,163 @@
+name: Process Snapshots
+
+# Turn yesterday's recorded feed snapshots into arrival observations.
+#
+# The Worker records a snapshot a minute into R2 (`worker/src/recorder.js`);
+# this reads a day of them and measures punctuality against the timetable.
+#
+# **Why a nightly Action and not the Worker or Render.** Render's free tier has
+# no disk and sleeps, and its cron is a paid feature. The Worker has 10 ms of
+# CPU an invocation, nowhere near enough to match a day of positions against a
+# timetable. A public repo has unlimited Action minutes, and the output belongs
+# in the repo anyway, so the write half needs no credentials.
+#
+# GitHub's schedules are unreliable — 13 runs in 38 hours, measured — which is
+# why they are not used for *recording*, where a missed minute is a hole in the
+# evidence. For a nightly batch it does not matter: if this fires at 04:10
+# instead of 03:20, yesterday's snapshots are still sitting in R2.
+
+on:
+  schedule:
+    # 03:20 UTC: past midnight in both BST and GMT, so "yesterday" is a
+    # complete service day including night buses recorded until 00:30.
+    - cron: "20 3 * * *"
+  workflow_dispatch:
+    inputs:
+      day:
+        description: "Service day to process (YYYY-MM-DD). Blank means yesterday."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+# Two runs must not interleave: both commit to main and both upload to the
+# same release.
+concurrency:
+  group: reliability-processing
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # The matcher these figures rest on. If it is broken, publishing a
+      # punctuality number is worse than publishing nothing at all.
+      - name: Test the matcher and the processor
+        run: python -m pytest -q tests/test_trip_match.py tests/test_process_snapshots.py
+
+      - name: Choose the day
+        id: day
+        run: |
+          DAY="${{ inputs.day }}"
+          if [ -z "$DAY" ]; then
+            # Yesterday in London: the service day just finished.
+            DAY=$(TZ=Europe/London date -d "yesterday" +%Y-%m-%d)
+          fi
+          echo "day=$DAY" >> "$GITHUB_OUTPUT"
+          echo "Processing $DAY"
+
+      # Built weekly by update-timetable.yml and published as a release asset:
+      # 59 MB, too large for the repo and far too slow to rebuild nightly.
+      - name: Fetch the timetable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data
+          gh release download timetable-latest \
+            --pattern 'timetable.sqlite*' --dir data --clobber
+          # The sidecar exists to be checked, not shipped and ignored.
+          cd data
+          sha256sum -c <(printf '%s  timetable.sqlite\n' "$(cat timetable.sqlite.sha256)")
+
+      - name: Fetch the day's snapshots from R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          # R2 rejects the checksum headers newer AWS CLI versions send by
+          # default, with an error that never mentions checksums.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          DAY="${{ steps.day.outputs.day }}"
+          aws s3 sync \
+            "s3://adur-worthing-reliability/raw/$DAY/" "snapshots/$DAY/" \
+            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+            --no-progress
+          COUNT=$(find "snapshots/$DAY" -name '*.xml' | wc -l)
+          echo "Downloaded $COUNT snapshots"
+          # A full day is about 1,170. Far fewer means the recorder stopped,
+          # and a figure from a part-day understates coverage without saying
+          # so, so fail loudly rather than publish it.
+          if [ "$COUNT" -lt 600 ]; then
+            if [ -n "${{ inputs.day }}" ]; then
+              # A named day is someone deliberately processing a part-day, such
+              # as the first afternoon of recording. Their figures, their call.
+              echo "::warning::only $COUNT snapshots for $DAY — coverage will be partial"
+            else
+              echo "::error::only $COUNT snapshots for $DAY (expected ~1170) — not publishing"
+              exit 1
+            fi
+          fi
+
+      - name: Measure the day
+        run: |
+          DAY="${{ steps.day.outputs.day }}"
+          mkdir -p data/reliability
+          python -u scripts/process_snapshots.py \
+            --day "$DAY" \
+            --snapshots "snapshots/$DAY" \
+            --timetable data/timetable.sqlite \
+            --out "observations-$DAY.json" \
+            --summary-out "data/reliability/$DAY.json"
+          gzip -9 "observations-$DAY.json"
+
+      # The full observations are the working out: too large for the repo, but
+      # published so anyone can check a figure instead of taking it on trust.
+      - name: Publish the observations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DAY="${{ steps.day.outputs.day }}"
+          MONTH=$(echo "$DAY" | cut -c1-7)
+          TAG="reliability-$MONTH"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "Reliability observations $MONTH" \
+              --notes "Arrival observations derived from recorded BODS vehicle positions, one asset a day. Method and caveats: scripts/process_snapshots.py."
+          fi
+          gh release upload "$TAG" "observations-$DAY.json.gz" --clobber
+
+      # The site reads the summary from the repo, so it has to land here — the
+      # same reason update-timetable.yml commits its statistics.
+      - name: Commit the day's summary
+        run: |
+          DAY="${{ steps.day.outputs.day }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage first, then ask about the *staged* diff. `git diff` alone says
+          # nothing about an untracked file, so checking before staging reported
+          # "unchanged" for every new day and published none of them. The same
+          # shape works in update-timetable.yml only because its files already
+          # exist in the tree.
+          git add "data/reliability/$DAY.json"
+          if git diff --cached --quiet -- "data/reliability/$DAY.json"; then
+            echo "Summary unchanged — nothing to commit."
+            exit 0
+          fi
+          git commit -m "Reliability summary for $DAY"
+          git push

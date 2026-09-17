@@ -324,3 +324,35 @@ test("the switch on the privacy page uses the key the loaders check", () => {
   assert.match(privacy, new RegExp(`var KEY = "${key}"`));
   assert.match(pageLoader, new RegExp(`getItem\\("${key}"\\) === "1"`));
 });
+
+
+// ── A browser that refuses storage ──────────────────────────
+
+test("counting survives a browser that refuses localStorage", () => {
+  // Reading `window.localStorage` throws outright with cookies blocked, and in
+  // some private modes. It used to be read in a default argument, which is
+  // evaluated before any try block — and `loadAnalytics()` is the first
+  // statement of `init()`, so the throw took the map, the stops and the buses
+  // down with it before anything was drawn.
+  const { app } = fresh();
+  Object.defineProperty(app.window, "localStorage", {
+    configurable: true,
+    get() { throw new DOMException("The operation is insecure.", "SecurityError"); },
+  });
+  const allowed = vm.runInContext("analyticsAllowed", app);
+  const optedOut = vm.runInContext("analyticsOptedOut", app);
+  const loadAnalytics = vm.runInContext("loadAnalytics", app);
+
+  assert.equal(optedOut(), false, "a refused store read as an opt-out");
+  assert.doesNotThrow(() => allowed(
+    { globalPrivacyControl: false, doNotTrack: null }, LIVE_SITE, app.window));
+  assert.doesNotThrow(loadAnalytics, "a refused store stopped the site loading");
+});
+
+test("an explicit store still wins over the browser's", () => {
+  // The other tests pass a stand-in store; that must keep working.
+  const { app } = fresh();
+  const optedOut = vm.runInContext("analyticsOptedOut", app);
+  assert.equal(optedOut({ getItem: () => "1" }), true);
+  assert.equal(optedOut({ getItem: () => null }), false);
+});

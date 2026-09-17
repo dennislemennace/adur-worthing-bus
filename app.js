@@ -134,6 +134,10 @@ const state = {
   vehicleFetchInFlight: false,  // guards against overlapping /api/vehicles polls
   gapMonitorTimer:    null,   // setInterval handle for /api/corridor-gaps
   gapMonitorInFlight: false,
+  // Bumped whenever the monitor starts or stops. A request already in the air
+  // when tracking is paused would otherwise land and redraw the panel, leaving
+  // a stale answer on screen with nothing refreshing it.
+  gapMonitorGeneration: 0,
   gapMonitorKey:      "",     // last announced state, so a minute's tick is not re-read aloud
   // Has the backend answered anything yet this session? Until it has, calls
   // get the cold-start budget and the "waking up" banner (see apiFetch).
@@ -1572,12 +1576,22 @@ const VIEW_EVENT_NAMES = {
 // a browser privacy signal is one way, and not everyone has one.
 const ANALYTICS_OPT_OUT_KEY = "analytics-opt-out";
 
-function analyticsOptedOut(store = localStorage) {
-  try { return store.getItem(ANALYTICS_OPT_OUT_KEY) === "1"; } catch { return false; }
+/** localStorage, or null where the browser refuses to hand it over.
+ *  Reading `window.localStorage` *throws* with cookies blocked or in some
+ *  private modes — and a default argument is evaluated before any try block
+ *  can catch it. `loadAnalytics()` is the first statement of `init()`, so that
+ *  throw took the whole map down with it: no map, no stops, no buses. */
+function safeStorage() {
+  try { return window.localStorage; } catch { return null; }
+}
+
+function analyticsOptedOut(store) {
+  const s = store === undefined ? safeStorage() : store;
+  try { return !!s && s.getItem(ANALYTICS_OPT_OUT_KEY) === "1"; } catch { return false; }
 }
 
 /** Whether this visit may be counted at all. */
-function analyticsAllowed(nav = navigator, loc = location, win = window, store = localStorage) {
+function analyticsAllowed(nav = navigator, loc = location, win = window, store) {
   if (!/^[a-z0-9-]+$/.test(CONFIG.GOATCOUNTER_CODE || "")) return false;
   if (analyticsOptedOut(store)) return false;
   if (nav.globalPrivacyControl === true) return false;
@@ -1740,6 +1754,13 @@ function gapMonitorHtml(data, { open = false } = {}) {
   const shown = gapShownDirections(data);
   if (!shown.length) return "";
   const alerts = shown.filter(d => d.status === "alert");
+  // A gap over the threshold is held back until a second look confirms it, and
+  // a gap containing a bus that is not reporting is never called a wait. In
+  // both cases there is no confirmed alert — but "running to timetable" would
+  // be a claim about the service, and during a 30-minute gap awaiting
+  // confirmation it is the wrong one.
+  const pending = shown.some(d => (d.stops || []).some(
+    s => s.longest_gap && (s.longest_gap.pending || s.longest_gap.not_reporting > 0)));
   // Named in full only when one direction could be judged, so "running to
   // timetable" never speaks for a direction nobody measured.
   const corridor = shown.length === 1
@@ -1749,7 +1770,9 @@ function gapMonitorHtml(data, { open = false } = {}) {
     ? `${corridor}: long gap towards ${alerts.map(d => escapeHtml(gapPlace(d))).join(" and ")}`
     : alerts.length
       ? `${corridor}: long gap at ${escapeHtml(alerts[0].alert.name)}`
-      : `${corridor}: running to timetable`;
+      : pending
+        ? `${corridor}: checking a possible long gap`
+        : `${corridor}: no confirmed long gaps`;
   const asOf = typeof data.as_of === "string" ? data.as_of.slice(11, 16) : "";
   return `
     <details class="gap-monitor${alerts.length ? " gap-monitor--alert" : ""}"${open ? " open" : ""}>
@@ -1804,7 +1827,7 @@ function renderGapMonitor(data) {
     say = fresh.map(d => `${GAP_CORRIDOR_NAME}: long gap at ${d.alert.name} ${d.towards || ""}.`
       .replace(/\s+\./, ".")).join(" ");
   } else if (html && !alerts.length && before.length > 1) {
-    say = "Buses on the A259 Coast Rd are running to timetable again.";
+    say = "No confirmed long gaps on the A259 Coast Rd now.";
   }
   if (say && dom.gapMonitorLive) dom.gapMonitorLive.textContent = say;
   state.gapMonitorKey = key;
@@ -1817,12 +1840,15 @@ async function fetchGapMonitor() {
   }
   if (state.gapMonitorInFlight) return;
   state.gapMonitorInFlight = true;
+  const generation = state.gapMonitorGeneration;
   try {
     const data = await apiFetch("/api/corridor-gaps");
+    if (generation !== state.gapMonitorGeneration) return;
     renderGapMonitor(state.viewMode === "live" ? data : null);
   } catch (err) {
     // An error is not a normal service. Hide rather than guess.
     console.warn("Gap monitor refresh failed:", err);
+    if (generation !== state.gapMonitorGeneration) return;
     renderGapMonitor(null);
   } finally {
     state.gapMonitorInFlight = false;
@@ -1844,15 +1870,18 @@ function revealGapMonitor() {
 }
 
 function startGapMonitor() {
+  state.gapMonitorGeneration += 1;
   clearInterval(state.gapMonitorTimer);
   fetchGapMonitor();
   state.gapMonitorTimer = setInterval(fetchGapMonitor, CONFIG.GAP_MONITOR_REFRESH_MS);
 }
 
 function stopGapMonitor() {
+  // Any answer still in the air belongs to the monitor we are stopping.
+  state.gapMonitorGeneration += 1;
   clearInterval(state.gapMonitorTimer);
   state.gapMonitorTimer = null;
-  // Paused positions go stale, and a stale "running to timetable" is a claim.
+  // Paused positions go stale, and a stale "no confirmed long gaps" is a claim.
   renderGapMonitor(null);
 }
 
