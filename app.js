@@ -1668,7 +1668,23 @@ const LONDON_CLOCK = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
 });
 
-/** "HH:MM" in London, whatever time zone the visitor's device is set to. */
+const LONDON_CLOCK_SECONDS = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London", hour: "2-digit", minute: "2-digit",
+  second: "2-digit", hourCycle: "h23",
+});
+
+/** "HH:MM:SS" in London. See `londonClock` for why the zone is pinned. */
+function londonClockSeconds(date = new Date()) {
+  return LONDON_CLOCK_SECONDS.format(date);
+}
+
+/** "HH:MM" in London, whatever time zone the visitor's device is set to.
+ *
+ *  Every time on this page is a London time: the feeds publish them that way,
+ *  and a bus leaves Shoreham when it leaves Shoreham. Formatting any of them
+ *  in the device's own zone put two zones in one line — "next bus 21:15 · as
+ *  of 16:07" for a reader abroad, or on a device whose clock is set wrong. It
+ *  also broke CI, which runs in UTC while this machine is on BST. */
 function londonClock(date = new Date()) {
   return LONDON_CLOCK.format(date);
 }
@@ -2053,7 +2069,7 @@ async function fetchVehicles() {
     updateVehicleMarkers(data.vehicles);
     resolvePendingBusRef();
 
-    const now = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const now = londonClockSeconds();
     setStatusLabel({ text: `Updated ${now}`, loading: false });
   } catch (err) {
     console.warn("Vehicle refresh failed:", err);
@@ -2730,7 +2746,7 @@ function updateDepartureCount(shown, total) {
   if (!dom.departuresCount) return;
   const at = state.departuresAsOf;
   const asOf = at
-    ? ` · as of ${at.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`
+    ? ` · as of ${londonClock(at)}`
     : "";
   if (shown === 0) {
     dom.departuresCount.textContent = total > 0
@@ -2867,7 +2883,7 @@ function formatDueTime(isoString, now = new Date()) {
     if (diffMins < 60)   return `${diffMins} mins`;
 
     // Show clock time for further out
-    return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    return londonClock(d);
   } catch {
     return isoString;
   }
@@ -3308,12 +3324,12 @@ function formatAgo(ts) {
   if (secs < 60) return `${secs}s ago`;
   const mins = Math.floor(secs / 60);
   if (mins < 60) return `${mins} min${mins !== 1 ? "s" : ""} ago`;
-  return ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return londonClock(ts);
 }
 
 function formatTimeOfDay(ts) {
   if (!ts) return "–";
-  return ts.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return londonClock(ts);
 }
 
 // ============================================================
@@ -10855,8 +10871,7 @@ function parseRailTime(iso) {
 function formatRailTime(iso) {
   const t = parseRailTime(iso);
   if (t == null) return "–";
-  return new Date(t).toLocaleTimeString("en-GB",
-    { hour: "2-digit", minute: "2-digit", hour12: false });
+  return londonClock(new Date(t));
 }
 
 // Pick the most useful "expected" time for display: actual > forecast > scheduled.

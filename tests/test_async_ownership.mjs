@@ -320,3 +320,39 @@ test("a board showing everything it has does not say 'of'", () => {
   assert.match(countText, /^4 departures/);
   assert.doesNotMatch(countText, / of /);
 });
+
+
+// ── Whose clock the page shows ──────────────────────────────
+
+test("times are shown in London, not in the visitor's time zone", () => {
+  // Every time on this page is a London time: the feeds publish them that way,
+  // and a bus leaves Shoreham when it leaves Shoreham. Six formatters used the
+  // device's own zone instead, which put two zones in one line — "next bus
+  // 21:15 · as of 16:07" for a reader abroad, or on a device with its clock
+  // set wrong.
+  //
+  // This test only bites where the runner is not on London time. That is
+  // exactly how the bug survived: it passed on a BST machine and failed in CI,
+  // which runs in UTC — and it blocked a timetable rebuild to say so. Run it
+  // both ways:  TZ=UTC node --test tests/test_async_ownership.mjs
+  const app = loadApp();
+  const state = vm.runInContext("state", app);
+  const dom = vm.runInContext("dom", app);
+  const formatTimeOfDay = vm.runInContext("formatTimeOfDay", app);
+  const londonClockSeconds = vm.runInContext("londonClockSeconds", app);
+
+  // 20:07 UTC is 21:07 in Shoreham in September.
+  assert.equal(formatTimeOfDay(new Date("2026-09-10T20:07:00Z")), "21:07");
+  // And in January there is no shift, so the same wall clock reads through.
+  assert.equal(formatTimeOfDay(new Date("2027-01-10T09:30:00Z")), "09:30");
+  assert.match(londonClockSeconds(new Date("2026-09-10T20:07:09Z")), /^21:07:09$/);
+
+  let countText = "";
+  dom.departuresCount = {
+    set textContent(v) { countText = v; }, get textContent() { return countText; },
+  };
+  state.departuresAsOf = new Date("2026-09-10T20:07:00Z");
+  vm.runInContext("updateDepartureCount", app)(10, 16);
+  assert.match(countText, /as of 21:07/,
+    "the as-of stamp followed the viewer's clock instead of London's");
+});
