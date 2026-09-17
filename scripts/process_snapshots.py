@@ -114,6 +114,10 @@ CAVEATS = [
     "journey identifier: the feed's journey reference matches no timetable "
     "trip here. A mismatch would move a journey's lateness, not invent it.",
     "Only journeys calling at the six A259 corridor poles are processed.",
+    "Lateness at a stop GTFS interpolated between two timing points is partly "
+    "a measure of that interpolation, not of the service. Arrivals are "
+    "therefore reported separately for the operator's own timing points, for "
+    "interpolated stops, and for feeds that do not say which is which.",
     "A bus more than half a headway late cannot be told apart from the next "
     "journey running early, because the feed publishes no journey identifier "
     "that matches the timetable. Such a journey is recorded as the later one, "
@@ -305,6 +309,8 @@ def observe_day(tt, day, snapshots, atcos=CORRIDOR_ATCOS):
         inst = instances[key]
         trip_id, service_day = key
         route_id = inst["trip"].get("route_id", "")
+        # Which of this journey's times the operator actually commits to.
+        timepoints = tt.timepoints_for(trip_id)
         # One journey can be matched to more than one vehicle across a day if a
         # bus is swapped; the one seen most often is the journey's bus.
         refs = [s[3] for s in samples if s[3]]
@@ -342,6 +348,8 @@ def observe_day(tt, day, snapshots, atcos=CORRIDOR_ATCOS):
                 "lateness_secs": best[0] - scheduled_secs,
                 "nearest_m": metres,
                 "samples": len(samples),
+                # 1 a timing point, 0 a time GTFS interpolated, None unstated.
+                "timepoint": timepoints.get(atco),
             })
 
     coverage = {
@@ -377,6 +385,26 @@ def band(lateness_secs):
     return "very_late"
 
 
+def timepoint_class(flag):
+    """Whose time an arrival was judged against.
+
+    A bus is "late" only against a time somebody promised. GTFS marks the
+    operator's own timing points, and interpolates the stops between them —
+    so lateness at an interpolated stop is partly a measure of the
+    interpolation. DfT assesses timing points for exactly this reason, and
+    these are kept apart rather than averaged into one headline.
+
+    "unstated" is its own answer: a feed that omits the flag entirely is not
+    the same as a feed calling every stop a timing point, though the GTFS
+    spec would let us read it that way.
+    """
+    if flag == 1:
+        return "timing_point"
+    if flag == 0:
+        return "interpolated"
+    return "unstated"
+
+
 def summarise(observations, coverage):
     """Counts, with their denominators, small enough to keep for ever.
 
@@ -389,6 +417,7 @@ def summarise(observations, coverage):
     bands = {k: 0 for k in ("early", "on_time", "late", "very_late")}
     by_service = {}
     by_hour = {}
+    by_timepoint = {}
     for o in observations:
         b = band(o["lateness_secs"])
         bands[b] += 1
@@ -397,15 +426,23 @@ def summarise(observations, coverage):
         hour = f'{o["observed_secs"] // 3600 % 24:02d}'
         hr = by_hour.setdefault(hour, {k: 0 for k in bands})
         hr[b] += 1
+        tp = by_timepoint.setdefault(timepoint_class(o.get("timepoint")),
+                                     {k: 0 for k in bands})
+        tp[b] += 1
     return {
         "observations": len(observations),
         "bands": bands,
         "by_service": by_service,
         "by_hour": by_hour,
+        # The headline belongs to "timing_point" where there is one. The other
+        # two series are published beside it, never merged into it.
+        "by_timepoint": by_timepoint,
         "coverage": coverage,
         "on_time_definition": (
             "DfT BUS09: no more than 1 minute early and no more than "
-            "5 minutes 59 seconds late, per observed arrival."
+            "5 minutes 59 seconds late, per observed arrival. Judge a service "
+            "by its timing_point figures: at interpolated stops the scheduled "
+            "time is GTFS's estimate, not the operator's promise."
         ),
     }
 

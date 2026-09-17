@@ -310,8 +310,17 @@ def parse_gtfs(zip_path: str) -> dict:
                     seq = int(row.get("stop_sequence", ""))
                 except (TypeError, ValueError):
                     seq = -1
+                # `timepoint` says whether the operator commits to this time
+                # or GTFS interpolated it between two timing points. Measuring
+                # punctuality at an interpolated stop partly measures the
+                # interpolation, which is why DfT assesses timing points. The
+                # spec treats an empty value as exact; we keep "unstated"
+                # distinct from a stated 1, because "the feed does not say" is
+                # weaker evidence than "the feed says this is a timing point".
+                tp = (row.get("timepoint") or "").strip()
+                timepoint = int(tp) if tp in ("0", "1") else None
                 timetable["stop_times"].setdefault(stop_id, []).append(
-                    (dep_secs, trip_id, seq))
+                    (dep_secs, trip_id, seq, timepoint))
                 needed_trip_ids.add(trip_id)
                 kept_count += 1
         log.info(

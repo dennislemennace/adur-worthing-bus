@@ -146,9 +146,14 @@ def tt(tmp_path_factory, monkeypatch_module):
         z.writestr("trips.txt", _csv(
             [(t, r, s, h, "") for t, r, s, h, _ in TRIPS],
             ["trip_id", "route_id", "service_id", "trip_headsign", "shape_id"]))
+        # Every tenth stop is one of the operator's timing points, the rest
+        # interpolated between them — the shape real GTFS has, and what the
+        # punctuality measurement has to keep apart.
         z.writestr("stop_times.txt", _csv(
-            [(t, seq, sid, x, x) for t, _, _, _, calls in TRIPS for seq, sid, x in calls],
-            ["trip_id", "stop_sequence", "stop_id", "arrival_time", "departure_time"]))
+            [(t, seq, sid, x, x, 1 if (seq - 1) % 10 == 0 else 0)
+             for t, _, _, _, calls in TRIPS for seq, sid, x in calls],
+            ["trip_id", "stop_sequence", "stop_id", "arrival_time",
+             "departure_time", "timepoint"]))
         z.writestr("calendar.txt", _csv(
             [("WK", 1, 1, 1, 1, 1, 0, 0, "20260101", "20271231")],
             ["service_id", "monday", "tuesday", "wednesday", "thursday",

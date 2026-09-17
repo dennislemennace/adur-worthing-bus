@@ -67,6 +67,10 @@ CREATE TABLE stop_times (
     seq      INTEGER NOT NULL,
     sid      INTEGER NOT NULL,
     dep_secs INTEGER NOT NULL,
+    -- 1 the operator's own timing point, 0 a time GTFS interpolated between
+    -- two of them, NULL the feed did not say. Punctuality means something
+    -- different at each, so the measurement keeps them apart.
+    timepoint INTEGER,
     PRIMARY KEY (tid, seq)
 ) WITHOUT ROWID;
 CREATE INDEX idx_stop_times_stop ON stop_times(sid, dep_secs);
@@ -191,14 +195,18 @@ def convert(tt: dict, db_path: Path) -> None:
     # (dep_secs, trip_id) only, and the order was re-derived below by sorting
     # on departure seconds — which reversed every trip crossing midnight and
     # could not separate two stops timed to the same minute.
-    per_trip: dict[int, list[tuple[int, int, int]]] = defaultdict(list)
+    per_trip: dict[int, list[tuple[int, int, int, object]]] = defaultdict(list)
     for stop_id_text, entries in tt["stop_times"].items():
         sid = stop_sid.get(stop_id_text)
         if sid is None:
             continue
         for entry in entries:
-            # Tolerate a timetable.json written before stop_sequence was kept.
-            if len(entry) == 3:
+            # Tolerate a timetable.json written before stop_sequence, or before
+            # the timing-point flag, was kept.
+            timepoint = None
+            if len(entry) == 4:
+                dep_secs, trip_id_text, seq, timepoint = entry
+            elif len(entry) == 3:
                 dep_secs, trip_id_text, seq = entry
             else:
                 dep_secs, trip_id_text = entry
@@ -206,7 +214,7 @@ def convert(tt: dict, db_path: Path) -> None:
             tid = trip_tid.get(trip_id_text)
             if tid is None:
                 continue
-            per_trip[tid].append((seq, dep_secs, sid))
+            per_trip[tid].append((seq, dep_secs, sid, timepoint))
 
     route_short = {
         route_rid[rid]: r.get("short_name", "")
@@ -221,16 +229,16 @@ def convert(tt: dict, db_path: Path) -> None:
         calls.sort(key=lambda c: (c[0], c[1]))
         # `seq` is renumbered 0..n so it stays dense, but the order it
         # preserves is the feed's, not this file's opinion of it.
-        for seq, (_src_seq, dep_secs, sid) in enumerate(calls):
-            st_rows.append((tid, seq, sid, dep_secs))
+        for seq, (_src_seq, dep_secs, sid, timepoint) in enumerate(calls):
+            st_rows.append((tid, seq, sid, dep_secs, timepoint))
         # The trip's first stop, not its earliest clock time: on an overnight
         # trip those are different rows, and GTFS-RT matching wants the first.
-        _, first_dep, first_sid = calls[0]
-        _, _, last_sid = calls[-1]
+        _, first_dep, first_sid, _ = calls[0]
+        last_sid = calls[-1][2]
         short = route_short.get(trip_rid.get(tid, 0), "")
         endpoint_rows.append((tid, short, first_sid, last_sid, first_dep))
 
-    con.executemany("INSERT INTO stop_times VALUES (?,?,?,?)", st_rows)
+    con.executemany("INSERT INTO stop_times VALUES (?,?,?,?,?)", st_rows)
     print(f"  stop_times: {len(st_rows)} (across {len(per_trip)} trips)")
 
     con.executemany("INSERT INTO trip_endpoints VALUES (?,?,?,?,?)", endpoint_rows)

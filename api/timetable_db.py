@@ -237,6 +237,7 @@ class Timetable:
         # differs from the released sidecar, and the freshness check would read
         # that as "stale" and overwrite the thing being published.
         self._allow_fetch = allow_fetch
+        self._timepoint_column: Optional[bool] = None
         self._lock = threading.Lock()
         # One read-only connection per thread, not one shared across all of
         # them. The queries here run in a worker thread now (see the API's
@@ -569,6 +570,43 @@ class Timetable:
                 (sid,),
             )
         ]
+
+    def timepoints_for(self, trip_id: str) -> dict:
+        """`{stop_id: 1 | 0 | None}` — which of a trip's times the operator commits to.
+
+        1 is the operator's own timing point, 0 a time GTFS interpolated
+        between two of them, None the feed not saying. Punctuality at an
+        interpolated stop partly measures the interpolation, so anything
+        published has to keep them apart.
+
+        Returns an empty dict against a database built before the column
+        existed — the live one is rebuilt weekly, and a caller must treat
+        "no answer" as "unstated" rather than assume a timing point.
+        """
+        if self._con is None or not self._has_timepoint():
+            return {}
+        trip = self.trips.get(trip_id)
+        if not trip:
+            return {}
+        sid_to_stop = self._sid_to_stop
+        return {
+            sid_to_stop[sid]: tp
+            for sid, tp in self._conn().execute(
+                "SELECT sid, timepoint FROM stop_times WHERE tid=? ORDER BY seq",
+                (trip["_tid"],),
+            )
+            if sid in sid_to_stop
+        }
+
+    def _has_timepoint(self) -> bool:
+        """Whether this database has the timing-point column. Asked once."""
+        if self._timepoint_column is None:
+            try:
+                cols = {r[1] for r in self._conn().execute("PRAGMA table_info(stop_times)")}
+            except sqlite3.Error:
+                cols = set()
+            self._timepoint_column = "timepoint" in cols
+        return self._timepoint_column
 
     def trip_stops_for(self, trip_id: str) -> list:
         """Return [(dep_secs, stop_id), ...] in trip sequence order."""

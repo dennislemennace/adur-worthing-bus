@@ -41,14 +41,17 @@ def built_timetable(tmp_path, monkeypatch):
             "route,service,overnight,Last\n"
             "route,service,tied,Last\n"
         ),
+        # `timepoint` distinguishes the operator's own timing points from
+        # times GTFS interpolated between them, and the last row leaves it
+        # blank, as plenty of real feeds do.
         "stop_times.txt": (
-            "trip_id,departure_time,stop_id,stop_sequence\n"
-            "overnight,24:10:00,4400C,30\n"
-            "overnight,23:55:00,4400A,10\n"
-            "overnight,24:05:00,4400B,20\n"
-            "tied,09:00:00,4400B,20\n"
-            "tied,09:00:00,4400A,10\n"
-            "tied,09:01:00,4400C,30\n"
+            "trip_id,departure_time,stop_id,stop_sequence,timepoint\n"
+            "overnight,24:10:00,4400C,30,1\n"
+            "overnight,23:55:00,4400A,10,1\n"
+            "overnight,24:05:00,4400B,20,0\n"
+            "tied,09:00:00,4400B,20,0\n"
+            "tied,09:00:00,4400A,10,1\n"
+            "tied,09:01:00,4400C,30,\n"
         ),
         "calendar_dates.txt": (
             "service_id,date,exception_type\nservice,20260908,1\n"
@@ -76,7 +79,8 @@ def built_timetable(tmp_path, monkeypatch):
 def test_real_build_entry_points_preserve_service_times_and_source_order(built_timetable):
     json_path, database_path = built_timetable
     timetable = json.loads(json_path.read_text())
-    assert [86700, "overnight", 20] in timetable["stop_times"]["4400B"]
+    # The entry carries the timing-point flag, interpolated here.
+    assert [86700, "overnight", 20, 0] in timetable["stop_times"]["4400B"]
     with sqlite3.connect(database_path) as connection:
         for trip_id, times in (
             ("overnight", [86100, 86700, 87000]),
@@ -88,6 +92,26 @@ def test_real_build_entry_points_preserve_service_times_and_source_order(built_t
                 "WHERE t.trip_id = ? ORDER BY st.seq", (trip_id,),
             ).fetchall()
             assert rows == list(zip(["4400A", "4400B", "4400C"], times))
+
+
+def test_the_timing_point_flag_survives_the_build(built_timetable):
+    # Punctuality means something different at a timing point and at a stop
+    # GTFS interpolated, so the flag has to reach the database — the first day
+    # of real measurement could not tell them apart because it did not.
+    _json_path, database_path = built_timetable
+    with sqlite3.connect(database_path) as connection:
+        rows = dict(connection.execute(
+            "SELECT s.stop_id, st.timepoint FROM stop_times st "
+            "JOIN trips t ON t.tid = st.tid JOIN stops s ON s.sid = st.sid "
+            "WHERE t.trip_id = 'overnight'").fetchall())
+    assert rows == {"4400A": 1, "4400B": 0, "4400C": 1}
+    with sqlite3.connect(database_path) as connection:
+        blank = connection.execute(
+            "SELECT st.timepoint FROM stop_times st "
+            "JOIN trips t ON t.tid = st.tid JOIN stops s ON s.sid = st.sid "
+            "WHERE t.trip_id = 'tied' AND s.stop_id = '4400C'").fetchone()
+    # A blank stays unknown rather than becoming a promise the feed never made.
+    assert blank == (None,)
     assert check_timetable.main(database_path, allow_small=True) == 0
 
 

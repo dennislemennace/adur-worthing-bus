@@ -444,3 +444,46 @@ def test_the_censored_tails_are_written_down(tt):
         "the caveat does not say which way the censoring cuts"
     assert "censored" in ps.METHOD or "cannot be observed" in ps.METHOD, \
         "the method does not mention the matching window's effect on the figures"
+
+
+# ── Whose promise a bus is late against ─────────────────────
+#
+# GTFS marks the operator's own timing points and interpolates the stops
+# between them. Lateness at an interpolated stop is partly a measure of the
+# interpolation, so a headline that averages the two is not a measure of the
+# service. DfT assesses timing points; our first day of real data could not
+# tell them apart at all, because the build discarded the flag.
+
+def test_an_arrival_says_whether_the_time_was_promised_or_interpolated(tt):
+    obs, _ = observations(tt, day_of(range(600, 646)))
+    assert obs
+    flags = {o["atco"]: o["timepoint"] for o in obs}
+    # The fixture marks every tenth stop, so both kinds must appear.
+    assert 1 in flags.values(), "no arrival was matched to a timing point"
+    assert 0 in flags.values(), "no arrival was marked interpolated"
+    assert flags["4400TW0020"] == 1, "stop 20 is a timing point in the fixture"
+    assert flags["4400TW0021"] == 0, "stop 21 is interpolated in the fixture"
+
+
+def test_the_summary_keeps_the_two_series_apart(tt):
+    obs, coverage = observations(tt, day_of(range(600, 646), offset=3))
+    summary = ps.summarise(obs, coverage)
+    series = summary["by_timepoint"]
+    assert "timing_point" in series and "interpolated" in series
+    total = sum(sum(v.values()) for v in series.values())
+    assert total == len(obs), "arrivals went missing between the two series"
+    assert "timing_point" in summary["on_time_definition"], \
+        "the definition does not say which series to judge a service by"
+
+
+def test_a_feed_that_does_not_say_is_not_counted_as_a_timing_point(tt):
+    # The GTFS spec reads an empty timepoint as exact. Following that would let
+    # a feed that simply omits the flag look like one where the operator
+    # commits to every stop, which is a stronger claim than the data supports.
+    obs, coverage = observations(tt, day_of(range(600, 646)))
+    stripped = [{**o, "timepoint": None} for o in obs]
+    series = ps.summarise(stripped, coverage)["by_timepoint"]
+    assert set(series) == {"unstated"}, f"an unstated flag was classified as {set(series)}"
+    assert ps.timepoint_class(None) == "unstated"
+    assert ps.timepoint_class(1) == "timing_point"
+    assert ps.timepoint_class(0) == "interpolated"
