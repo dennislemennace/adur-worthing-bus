@@ -529,3 +529,64 @@ def test_the_summary_buckets_hours_by_when_the_bus_was_due(tt):
     assert by_scheduled != by_observed, "this fixture cannot tell the two apart"
     assert counted == by_scheduled, \
         f"hours bucketed on something other than the scheduled time: {counted}"
+
+
+# ── A bus standing at a stand ───────────────────────────────
+
+def test_a_bus_waiting_at_a_stand_is_timed_by_when_it_left(tt):
+    """The timetable time is a *departure* time, so the observation must be too.
+
+    W600 is due away from stop 0 at 10:00. This bus pulls onto the stand at
+    09:56 and leaves on time. Timed by its nearest approach it "arrived" at
+    09:56 and reads as four minutes early — which is how 56% of arrivals at
+    Old Steine and 51% at Marine Parade came out early on 17 September, both
+    of them layover points, against 13% across the rest of the route.
+    """
+    samples = []
+    for minute in range(596, 601):          # standing at stop 0, five samples
+        bus = bus_at(0)
+        bus["vehicle_ref"] = "STAND-1"
+        bus["recorded_secs"] = minute * 60
+        samples.append((minute * 60, [bus]))
+    for minute in range(601, 640):          # then away, a stop a minute
+        bus = bus_at(minute - 600)
+        bus["vehicle_ref"] = "STAND-1"
+        bus["recorded_secs"] = minute * 60
+        samples.append((minute * 60, [bus]))
+
+    obs, _ = observations(tt, samples)
+    stand = for_stop(obs, 0)
+    assert stand is not None, "the stop it started from produced no observation"
+    assert stand["observed"] == "10:00", \
+        f'timed at {stand["observed"]}, which is when it arrived, not when it left'
+    assert stand["lateness_secs"] == 0
+
+
+def test_a_bus_passing_a_stop_is_still_timed_as_it_passes(tt):
+    # The change must not move ordinary arrivals: a bus that does not dwell has
+    # one sample in range, so departure and nearest approach are the same.
+    obs, _ = observations(tt, day_of(range(600, 646), offset=3))
+    assert all(o["lateness_secs"] == 180 for o in obs), \
+        sorted({o["lateness_secs"] for o in obs})
+
+
+def test_a_stop_the_bus_was_already_leaving_is_not_timed_from_a_crawl(tt):
+    """Recording starts with the bus just past stop 5, crawling in traffic.
+
+    Its real closest approach to that stop happened before the first snapshot,
+    so the stop cannot be timed — the same family of error as a stop the bus
+    had not yet reached. The dwell walk must not launder it into an
+    observation by stepping forward through two samples that are both inside
+    the arrival radius.
+    """
+    samples = []
+    for n, (idx, along) in enumerate([(5, 0.30), (5, 0.35), (6, 0.0), (7, 0.0),
+                                      (8, 0.0), (9, 0.0), (10, 0.0)]):
+        bus = bus_at(idx, toward_next=along)
+        bus["vehicle_ref"] = "CRAWL-1"
+        bus["recorded_secs"] = (605 + n) * 60
+        samples.append(((605 + n) * 60, [bus]))
+    obs, _ = observations(tt, samples)
+    assert for_stop(obs, 5) is None, \
+        "a stop the bus had already left was timed from where it happened to be"
+    assert for_stop(obs, 7) is not None, "a stop it genuinely passed was dropped"

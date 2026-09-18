@@ -337,17 +337,31 @@ def observe_day(tt, day, snapshots, atcos=CORRIDOR_ATCOS):
             if stop.get("lat") is None:
                 continue
             dists = [trip_match.km(s[1], s[2], stop["lat"], stop["lon"]) for s in samples]
-            i = min(range(len(dists)), key=dists.__getitem__)
-            metres = round(dists[i] * 1000)
+            nearest = min(range(len(dists)), key=dists.__getitem__)
+            metres = round(dists[nearest] * 1000)
             if metres > ARRIVAL_RADIUS_M:
                 continue
-            # The nearest approach must be an interior sample: the bus was seen
-            # coming *and* going. At the first or last sample the real nearest
+            # When the bus *left*, not when it first got there. The timetable
+            # time this is judged against is a departure time — the builder
+            # reads departure_time — and at a terminus a bus stands for
+            # minutes. Taking its nearest approach timed the middle of the
+            # layover and reported the bus as leaving early: measured on 17
+            # September, 56% of arrivals at Old Steine and 51% at Marine
+            # Parade came out early, against 13% across the route.
+            #
+            # Only the run of samples containing the nearest approach counts,
+            # so a route that passes the same stop twice does not have its two
+            # visits merged into one long dwell.
+            i = nearest
+            while i + 1 < len(dists) and dists[i + 1] * 1000 <= ARRIVAL_RADIUS_M:
+                i += 1
+            # The visit must be bounded by the recording: the bus seen coming
+            # *and* going. At the first or last sample the real nearest
             # approach may lie outside the recording, which reads as a bus
             # arriving early at a stop it had not reached — measured on live
             # data, a stop due at 15:31 was recorded as reached at 15:28
             # because that was simply the last snapshot taken.
-            if (i == 0 or i == len(samples) - 1) and metres > AT_THE_STOP_M:
+            if (nearest == 0 or i == len(samples) - 1) and metres > AT_THE_STOP_M:
                 continue
             best = samples[i]
             observations.append({
