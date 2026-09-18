@@ -153,6 +153,26 @@ jobs:
           fi
           gh release upload "$TAG" "observations-$DAY.json.gz" --clobber
 
+      # The site reads the summary from the repo, so it has to land here — the
+      # same reason update-timetable.yml commits its statistics.
+      - name: Commit the day's summary
+        run: |
+          DAY="${{ steps.day.outputs.day }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage first, then ask about the *staged* diff. `git diff` alone says
+          # nothing about an untracked file, so checking before staging reported
+          # "unchanged" for every new day and published none of them. The same
+          # shape works in update-timetable.yml only because its files already
+          # exist in the tree.
+          git add "data/reliability/$DAY.json"
+          if git diff --cached --quiet -- "data/reliability/$DAY.json"; then
+            echo "Summary unchanged — nothing to commit."
+            exit 0
+          fi
+          git commit -m "Reliability summary for $DAY"
+          git push
+
       # The journey-time tool reads these, and they are too large and too
       # changeable to commit: a few megabytes rewritten nightly is over a
       # gigabyte of history a year. They go to R2 and are served by the Worker
@@ -188,23 +208,3 @@ jobs:
           aws s3 sync journey-times/ "s3://adur-worthing-published/journey-times/" \
             --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
             --delete --no-progress
-
-      # The site reads the summary from the repo, so it has to land here — the
-      # same reason update-timetable.yml commits its statistics.
-      - name: Commit the day's summary
-        run: |
-          DAY="${{ steps.day.outputs.day }}"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Stage first, then ask about the *staged* diff. `git diff` alone says
-          # nothing about an untracked file, so checking before staging reported
-          # "unchanged" for every new day and published none of them. The same
-          # shape works in update-timetable.yml only because its files already
-          # exist in the tree.
-          git add "data/reliability/$DAY.json"
-          if git diff --cached --quiet -- "data/reliability/$DAY.json"; then
-            echo "Summary unchanged — nothing to commit."
-            exit 0
-          fi
-          git commit -m "Reliability summary for $DAY"
-          git push
