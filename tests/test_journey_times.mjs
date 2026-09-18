@@ -174,3 +174,29 @@ test("with no promised times there is no comparison to publish", () => {
 test("nothing to show is not an empty chart pretending", () => {
   assert.equal(summarise([]), null);
 });
+
+
+// ── Not offered until it is worth offering ──────────────────
+
+test("the view is not in the menu until the data justifies it", () => {
+  // Three days, two of them part-days, is not something to put in front of a
+  // reader who will read "median 79 minutes" as a fact about their route.
+  const fresh = loadApp();
+  const CONFIG = vm.runInContext("CONFIG", fresh);
+  assert.equal(CONFIG.JOURNEY_TIMES_PUBLIC, false,
+    "the view was announced before a week of data existed");
+});
+
+test("preview is a deliberate act, not a remembered one", () => {
+  // A shared link must show the site as published. Remembering the flag in
+  // storage would leak unfinished work to whoever the link reaches.
+  const fresh = loadApp();
+  const preview = vm.runInContext("previewEnabled", fresh);
+  const loc = vm.runInContext("location", fresh);
+  loc.search = "?preview=1";
+  assert.equal(preview(), true);
+  loc.search = "";
+  assert.equal(preview(), false, "preview outlived the URL that asked for it");
+  loc.search = "?preview=0";
+  assert.equal(preview(), false);
+});

@@ -25,6 +25,13 @@ const CONFIG = {
   // (signed URLs, an hour's life, no CORS header).
   JOURNEY_TIMES_BASE: "https://adur-worthing-submissions.dennislemennace.workers.dev/journey-times",
 
+  // The journey-time view is built but not announced. Three days of data, two
+  // of them part-days, is not something to put in front of a reader who will
+  // take "median 79 minutes" as a fact about the route. Reachable meanwhile
+  // with ?preview=1, which is how it gets looked at before it is published.
+  // Flip this when a full week exists.
+  JOURNEY_TIMES_PUBLIC: false,
+
   // Geographic centre of Adur & Worthing
   MAP_CENTER:  [50.818, -0.372],   // [lat, lon] — Worthing town centre area
   MAP_ZOOM:    13,
@@ -508,6 +515,11 @@ document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
   loadAnalytics();
+  // A view can be built and reachable without being offered to everyone.
+  if (!CONFIG.JOURNEY_TIMES_PUBLIC && !previewEnabled()) {
+    document.querySelector('[data-mode="journeytimes"]')?.remove();
+    document.querySelector('#section-nav-menu [data-mode="journeytimes"]')?.remove();
+  }
   // Changing any picker redraws; the data is already in memory, so this is
   // cheap and needs no spinner.
   for (const id of ["journey-times-service", "journey-times-from",
@@ -1797,6 +1809,19 @@ function journeyTimesChart(timings, summary) {
     ${steps.join("")}${hours.join("")}${promise}${dots}
     <text class="jt-axis jt-axis-title" x="${L}" y="${T - 4}">minutes</text>
   </svg>`;
+}
+
+/** Whether unfinished work is being looked at on purpose.
+ *
+ *  `?preview=1` in the URL. Deliberately not remembered: a reader who lands on
+ *  a shared link should see the site as it is published, not as it will be.
+ */
+function previewEnabled() {
+  try {
+    return new URLSearchParams(location.search).get("preview") === "1";
+  } catch {
+    return false;
+  }
 }
 
 /** The panel: pickers, chart, the numbers, and what they rest on. */
