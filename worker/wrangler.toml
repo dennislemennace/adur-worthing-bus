@@ -64,3 +64,11 @@ crons = ["*/10 6-23 * * *", "* * * * *"]
 [[r2_buckets]]
 binding = "SNAPSHOTS"
 bucket_name = "adur-worthing-reliability"
+
+
+# Published measurements, served read-only to anyone by the /journey-times
+# route. A separate bucket from the raw record: the nightly Action needs to
+# write here, and must not be able to touch the snapshots it reads.
+[[r2_buckets]]
+binding = "PUBLISHED"
+bucket_name = "adur-worthing-published"

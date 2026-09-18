@@ -66,6 +66,40 @@ const BUS_ISSUE_CATEGORIES = new Set([
   "full", "cancelled", "accessibility", "onboard-info", "late", "other",
 ]);
 
+/**
+ * Serve a published measurement from R2, or null if this is not one.
+ *
+ * Read-only, GET and HEAD only, and the path is confined to one prefix by
+ * construction rather than by sanitising: anything that is not a known file
+ * name is a 404 before R2 is touched.
+ */
+function servePublished(url, request, env) {
+  const match = /^\/journey-times\/([A-Za-z0-9_-]{1,24}\.json)$/.exec(url.pathname);
+  if (!match) return null;
+  if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "OPTIONS") {
+    return new Response("Method not allowed", { status: 405 });
+  }
+  const headers = {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, HEAD, OPTIONS",
+    // An hour: these are rebuilt nightly, and a reader refreshing a chart
+    // should not wait on R2 every time.
+    "cache-control": "public, max-age=3600",
+    "content-type": "application/json; charset=utf-8",
+  };
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
+  if (!env.PUBLISHED) {
+    return new Response(JSON.stringify({ error: "not configured" }), { status: 503, headers });
+  }
+  return env.PUBLISHED.get(`journey-times/${match[1]}`).then((object) => {
+    if (!object) {
+      return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers });
+    }
+    return new Response(request.method === "HEAD" ? null : object.body, { headers });
+  }).catch(() => new Response(JSON.stringify({ error: "unavailable" }),
+                              { status: 502, headers }));
+}
+
 export default {
   // Two schedules, told apart by which one fired. Every minute records what the
   // live feed says (recordSnapshot); every ten minutes keeps the Render API
@@ -79,6 +113,19 @@ export default {
   async fetch(request, env, ctx) {
     const origin = request.headers.get("Origin") || "";
     const allowed = allowedOrigins(env);
+
+    // Published measurements, read by anyone. They are the evidence this
+    // project exists to produce, so they are deliberately not fenced to our
+    // own origin the way the submission endpoint is: a councillor's analyst
+    // should be able to fetch them and check our arithmetic.
+    //
+    // They live in R2 rather than the repository because they change nightly
+    // and run to megabytes — a year of that committed is over a gigabyte of
+    // history for a chart. GitHub release assets cannot serve them either:
+    // the download redirects to a signed URL that expires within the hour and
+    // carries no CORS header.
+    const published = servePublished(new URL(request.url), request, env);
+    if (published) return published;
 
     if (request.method === "OPTIONS") {
       return preflight(origin, allowed);
