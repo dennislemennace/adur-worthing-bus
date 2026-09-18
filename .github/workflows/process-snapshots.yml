@@ -153,6 +153,42 @@ jobs:
           fi
           gh release upload "$TAG" "observations-$DAY.json.gz" --clobber
 
+      # The journey-time tool reads these, and they are too large and too
+      # changeable to commit: a few megabytes rewritten nightly is over a
+      # gigabyte of history a year. They go to R2 and are served by the Worker
+      # with CORS headers, on a token scoped to this bucket alone so a mistake
+      # here cannot reach the raw record.
+      - name: Publish journey times
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_PUBLISH_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_PUBLISH_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DAY="${{ steps.day.outputs.day }}"
+          mkdir -p window journey-times
+          cp "observations-$DAY.json.gz" window/
+          # A rolling week. Each day was published as a release asset when it
+          # was processed, so the window costs nothing to rebuild and a day
+          # that failed to process simply is not in it.
+          for back in 1 2 3 4 5 6; do
+            PAST=$(date -d "$DAY -$back day" +%Y-%m-%d)
+            gh release download "reliability-${PAST:0:7}" \
+              -p "observations-$PAST.json.gz" -D window --clobber 2>/dev/null || true
+          done
+          echo "window: $(find window -name '*.json.gz' | wc -l) day(s)"
+          python -u scripts/build_journey_times.py \
+            --observations window --out journey-times
+          if [ -z "${{ secrets.R2_PUBLISH_ACCESS_KEY_ID }}" ]; then
+            echo "::warning::no publish credentials — journey times built but not uploaded"
+            exit 0
+          fi
+          aws s3 sync journey-times/ "s3://adur-worthing-published/journey-times/" \
+            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+            --delete --no-progress
+
       # The site reads the summary from the repo, so it has to land here — the
       # same reason update-timetable.yml commits its statistics.
       - name: Commit the day's summary
