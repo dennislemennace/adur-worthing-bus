@@ -43,6 +43,7 @@ Usage:
 
 import argparse
 import json
+import struct
 import sys
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, time, timezone
@@ -55,19 +56,34 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import gtfs_rt                                # noqa: E402
 import reliability_stats                      # noqa: E402
 from api import trip_match                    # noqa: E402
 from api.timetable_db import Timetable        # noqa: E402
 
 SIRI_NS = "http://www.siri.org.uk/siri"
 
-# The corridor this project is about. These six poles only *select* the
-# journeys; observations are then taken at every stop those journeys call at,
-# which is what gives running times between places further along the route.
+# The A259 corridor this project started from. Six poles, kept for
+# --corridor-only, which reproduces the original figures.
 CORRIDOR_ATCOS = (
     "4400AD0330", "4400AD0203", "4400AD0063",   # towards Worthing
     "4400AD0064", "4400AD0204", "4400AD0329",   # towards Brighton
 )
+
+# What is recorded, from worker/src/recorder.js: Adur, Worthing and the
+# Brighton coast. Every journey calling inside it is measured, not just those
+# on the corridor — a stop-pair journey-time tool that only works along one
+# road is not much of a tool, and the recording costs the same either way.
+BOX_MIN_LAT, BOX_MAX_LAT = 50.78, 50.87
+BOX_MIN_LON, BOX_MAX_LON = -0.42, -0.10
+
+
+def stops_in_box(tt):
+    """Every stop inside the recorded box, as ATCO codes."""
+    return [atco for atco, stop in tt.stops.items()
+            if stop.get("lat") is not None
+            and BOX_MIN_LAT <= stop["lat"] <= BOX_MAX_LAT
+            and BOX_MIN_LON <= stop["lon"] <= BOX_MAX_LON]
 
 # How near a bus must come to a stop for its nearest approach to count as an
 # arrival. Generous enough for GPS scatter and a stop set back from the road;
@@ -115,7 +131,10 @@ CAVEATS = [
     "Journeys are matched to the timetable by position and time, not by a "
     "journey identifier: the feed's journey reference matches no timetable "
     "trip here. A mismatch would move a journey's lateness, not invent it.",
-    "Only journeys calling at the six A259 corridor poles are processed.",
+    "Every journey calling at a stop inside the recorded area is measured "
+    "(Adur, Worthing and the Brighton coast). Journeys that only touch the "
+    "area outside it are not, and a journey is measured only where it is "
+    "inside the box.",
     "Lateness at a stop GTFS interpolated between two timing points is partly "
     "a measure of that interpolation, not of the service. Arrivals are "
     "therefore reported separately for the operator's own timing points, for "
@@ -241,6 +260,33 @@ def _same_day(rec_secs, at_secs):
     return rec_secs
 
 
+def declared_journeys(path):
+    """`{vehicle id: trip id}` from one minute of GTFS-RT.
+
+    The feed states which journey each bus is running. SIRI-VM does not — its
+    journey reference matched 0 of 256 timetable trips — so this is the one
+    thing the second feed is for.
+    """
+    try:
+        _header, vehicles = gtfs_rt.parse_feed(Path(path).read_bytes())
+    except (OSError, ValueError, IndexError, struct.error) as err:
+        print(f"unreadable GTFS-RT {path}: {err}", file=sys.stderr)
+        return {}
+    return {v["vehicle_id"]: v["trip_id"]
+            for v in vehicles if v.get("vehicle_id") and v.get("trip_id")}
+
+
+def gtfs_rt_files(directory):
+    """`(seconds from midnight, path)` for every `HHMM.pb`, in time order."""
+    found = []
+    for path in sorted(Path(directory).glob("*.pb")):
+        name = path.stem
+        if len(name) != 4 or not name.isdigit():
+            continue
+        found.append((int(name[:2]) * 3600 + int(name[2:]) * 60, path))
+    return sorted(found)
+
+
 def snapshot_files(directory):
     """`(seconds from midnight, path)` for every `HHMM.xml`, in time order."""
     found = []
@@ -252,18 +298,20 @@ def snapshot_files(directory):
     return sorted(found)
 
 
-def observe_day(tt, day, snapshots, atcos=CORRIDOR_ATCOS):
+def observe_day(tt, day, snapshots, atcos=None):
     """Arrival observations for one day.
 
     `snapshots` is an iterable of `(seconds from midnight, vehicles)`. Returns
     `(observations, coverage)`. Coverage counts scheduled journeys against
     those ever tracked — the denominator every figure derived from this needs.
     """
+    atcos = stops_in_box(tt) if atcos is None else list(atcos)
     instances, _scheduled = trip_match.build_instances(
-        tt, day, list(atcos), (-BEFORE_FIRST_SECS, 86400 + AFTER_LAST_SECS))
+        tt, day, atcos, (-BEFORE_FIRST_SECS, 86400 + AFTER_LAST_SECS))
 
     # Where each journey's bus was, every time it reported.
     tracks = {key: [] for key in instances}
+    declared_journeys_seen = set()   # journeys the feed named rather than us
     seen = set()            # (journey, vehicle, report time): the feed repeats
     window_times = []
     for at_secs, vehicles in snapshots:
@@ -283,8 +331,16 @@ def observe_day(tt, day, snapshots, atcos=CORRIDOR_ATCOS):
         # reported four minutes behind, came out as 7 minutes early.
         when_of = [_same_day(v.get("recorded_secs"), at_secs) for v in vehicles]
         when_of = [at_secs if w is None else w for w in when_of]
-        for key, (vi, _idx) in trip_match.place_vehicles(
-                tt, vehicles, active, at_secs, times=when_of).items():
+
+        # What the feed states, before anything we infer. A declared journey
+        # needs no tolerance window, so nothing it produces is censored.
+        declared, claimed = trip_match.place_declared(tt, vehicles, active, at_secs)
+        for key in declared:
+            declared_journeys_seen.add(key)
+        inferred = trip_match.place_vehicles(
+            tt, vehicles, active, at_secs, times=when_of,
+            skip_vehicles=claimed, skip_journeys=set(declared))
+        for key, (vi, _idx) in {**declared, **inferred}.items():
             v = vehicles[vi]
             when = when_of[vi]
             ref = v.get("vehicle_ref", "")
@@ -318,6 +374,10 @@ def observe_day(tt, day, snapshots, atcos=CORRIDOR_ATCOS):
         inst = instances[key]
         trip_id, service_day = key
         route_id = inst["trip"].get("route_id", "")
+        # Whether this journey's identity came from the feed or from our
+        # matching. Only the second is censored by the tolerance window, and a
+        # figure that mixes them without saying so is two measurements.
+        matched_by = "declared" if key in declared_journeys_seen else "inferred"
         # Which of this journey's times the operator actually commits to.
         timepoints = tt.timepoints_for(trip_id)
         # Which way along the coast, and the operator's own word for where it
@@ -388,6 +448,7 @@ def observe_day(tt, day, snapshots, atcos=CORRIDOR_ATCOS):
                 "samples": len(samples),
                 # 1 a timing point, 0 a time GTFS interpolated, None unstated.
                 "timepoint": timepoints.get(atco),
+                "match": matched_by,
                 "direction": direction,
                 "headsign": headsign,
                 # Where this stop sits in the journey. A stop near the end
@@ -570,7 +631,12 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Process a day of feed snapshots.")
     ap.add_argument("--day", required=True, help="service day, YYYY-MM-DD")
     ap.add_argument("--snapshots", required=True, help="directory of HHMM.xml files")
+    ap.add_argument("--gtfs-rt", help="directory of HHMM.pb files for the same day, "
+                                      "which state which journey each bus is running")
     ap.add_argument("--timetable", default=str(ROOT / "data" / "timetable.sqlite"))
+    ap.add_argument("--corridor-only", action="store_true",
+                    help="measure only journeys calling at the six A259 poles, "
+                         "as the first published figures did")
     ap.add_argument("--out", help="write observations here as JSON")
     ap.add_argument("--summary-out", help="write the day's counts here as JSON")
     ap.add_argument("--timetable-version",
@@ -590,13 +656,30 @@ def main(argv=None):
 
     london = ZoneInfo("Europe/London")
 
+    # The same minute in the other feed, where it was recorded.
+    rt_by_minute = dict(gtfs_rt_files(args.gtfs_rt)) if args.gtfs_rt else {}
+
     def stream():
         for secs, path in files:
             at_utc = datetime.combine(day, time(secs // 3600, secs % 3600 // 60),
                                       tzinfo=london).astimezone(timezone.utc)
-            yield secs, parse_snapshot(path.read_text(encoding="utf-8"), at_utc)
+            vehicles = parse_snapshot(path.read_text(encoding="utf-8"), at_utc)
+            rt_path = rt_by_minute.get(secs)
+            if rt_path:
+                # Both feeds carry the same vehicle ids — checked vehicle by
+                # vehicle against the same minute, agreeing to a median of 0 m
+                # (docs/reliability/gtfs-rt-probe.md).
+                stated = declared_journeys(rt_path)
+                for v in vehicles:
+                    trip = stated.get(v.get("vehicle_ref", ""))
+                    if trip:
+                        v["trip_id"] = trip
+            yield secs, vehicles
 
-    observations, coverage = observe_day(tt, day, stream())
+    observations, coverage = observe_day(
+        tt, day, stream(), atcos=CORRIDOR_ATCOS if args.corridor_only else None)
+    declared = sum(1 for o in observations if o.get("match") == "declared")
+    coverage["declared_share"] = round(declared / len(observations), 3) if observations else 0
     payload = {
         "day": args.day,
         "method": METHOD,

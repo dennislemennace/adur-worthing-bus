@@ -94,10 +94,18 @@ jobs:
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
         run: |
           DAY="${{ steps.day.outputs.day }}"
+          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           aws s3 sync \
             "s3://adur-worthing-reliability/raw/$DAY/" "snapshots/$DAY/" \
-            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
-            --no-progress
+            --endpoint-url "$ENDPOINT" --no-progress
+          # The other feed of the same minutes. It states which journey each
+          # bus is running, which is the one thing SIRI-VM does not say. Days
+          # recorded before it existed simply have none, and are measured the
+          # old way.
+          aws s3 sync \
+            "s3://adur-worthing-reliability/rt/$DAY/" "gtfs-rt/$DAY/" \
+            --endpoint-url "$ENDPOINT" --no-progress || true
+          echo "GTFS-RT objects: $(find "gtfs-rt/$DAY" -name '*.pb' 2>/dev/null | wc -l)"
           COUNT=$(find "snapshots/$DAY" -name '*.xml' | wc -l)
           echo "Downloaded $COUNT snapshots"
           # A full day is about 1,170. Far fewer means the recorder stopped,
@@ -118,9 +126,12 @@ jobs:
         run: |
           DAY="${{ steps.day.outputs.day }}"
           mkdir -p data/reliability
+          RT=""
+          [ -d "gtfs-rt/$DAY" ] && RT="--gtfs-rt gtfs-rt/$DAY"
           python -u scripts/process_snapshots.py \
             --day "$DAY" \
             --snapshots "snapshots/$DAY" \
+            $RT \
             --timetable data/timetable.sqlite \
             --out "observations-$DAY.json" \
             --summary-out "data/reliability/$DAY.json"

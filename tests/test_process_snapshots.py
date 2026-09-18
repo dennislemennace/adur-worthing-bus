@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT))
 
 import process_snapshots as ps                               # noqa: E402
+from test_gtfs_rt import a_feed, a_vehicle                   # noqa: E402
 from test_corridor_gaps import (                             # noqa: E402,F401
     WATCH, at, bus_at, monkeypatch_module, tt, west_xy,
 )
@@ -603,3 +604,169 @@ def test_the_departure_rule_states_its_own_lean(tt):
     assert "20 seconds late" in lean[0]
     assert "23%" in lean[0] and "4%" in lean[0], \
         "the caveat does not say how much worse the rule it replaced was"
+
+
+# ── When the feed says which journey it is ──────────────────
+#
+# GTFS-RT states a trip id; SIRI-VM's own journey reference matched 0 of 256
+# timetable trips. A declared journey needs no tolerance window, which is what
+# removes the censoring: a bus 40 minutes late is 40 minutes late, rather than
+# a bus running early on the departure behind it.
+
+def declaring(minutes, trip, offset=0):
+    """Snapshots of one bus that says which journey it is running."""
+    out = []
+    for minute in minutes:
+        idx = minute - 600 - offset
+        vehicles = []
+        if 0 <= idx < 60:
+            bus = bus_at(idx)
+            bus["vehicle_ref"] = "DECLARED-1"
+            bus["recorded_secs"] = minute * 60
+            bus["trip_id"] = trip
+            vehicles.append(bus)
+        out.append((minute * 60, vehicles))
+    return out
+
+
+def test_a_bus_far_outside_the_matching_window_is_still_placed(tt):
+    # Forty minutes late is beyond the 25-minute inference bound, so without a
+    # declared journey this bus is either unmatched or attributed to a later
+    # departure. Both answers lose the lateness that matters most.
+    obs, _ = observations(tt, declaring(range(640, 700), "W600", offset=40))
+    assert obs, "a bus naming its journey produced no observations"
+    assert {o["trip_id"] for o in obs} == {"W600"}
+    assert {o["match"] for o in obs} == {"declared"}
+    assert all(o["lateness_secs"] == 40 * 60 for o in obs), \
+        f'the lateness was lost: {sorted({o["lateness_secs"] for o in obs})}'
+
+
+def test_inference_does_not_argue_with_what_the_feed_states(tt):
+    # A declared journey is off the table for the matcher, and so is the bus
+    # that declared it — otherwise a second bus could be inferred onto the same
+    # journey and the two would fight over it.
+    samples = []
+    for minute in range(600, 646):
+        idx = minute - 600
+        declared_bus = bus_at(idx)
+        declared_bus.update(vehicle_ref="DECLARED-1", recorded_secs=minute * 60,
+                            trip_id="W600")
+        other = bus_at(idx)
+        other.update(vehicle_ref="GUESSED-1", recorded_secs=minute * 60)
+        samples.append((minute * 60, [declared_bus, other]))
+    obs, _ = observations(tt, samples)
+    by_trip = {o["trip_id"]: o["match"] for o in obs}
+    assert by_trip.get("W600") == "declared"
+    assert all(v == "declared" for k, v in by_trip.items() if k == "W600")
+    assert len({o["vehicle"] for o in obs if o["trip_id"] == "W600"}) == 1
+
+
+def test_a_journey_we_do_not_hold_falls_back_to_inference(tt):
+    # The feed names journeys outside our timetable — city routes it filters
+    # out. Those must still be measurable the old way, not dropped.
+    obs, _ = observations(tt, declaring(range(600, 646), "NOT-IN-OUR-TIMETABLE"))
+    assert obs, "a bus naming an unknown journey was dropped entirely"
+    assert {o["match"] for o in obs} == {"inferred"}
+
+
+def test_the_declared_share_is_reported(tt):
+    # Every figure derived from this needs to say how much of it rests on the
+    # feed's word and how much on our matching, because only the second is
+    # censored by the tolerance window.
+    obs, coverage = observations(tt, declaring(range(600, 646), "W600"))
+    assert obs and all(o["match"] == "declared" for o in obs)
+    assert "match" in obs[0]
+
+
+def siri_minute(minute, lat, lon, ref="SCSO-1234"):
+    """One SIRI snapshot, stamped with the minute it was recorded.
+
+    Distinct timestamps matter: identical ones are the same report repeated,
+    and the processor deduplicates them — correctly, since 38% of real reports
+    are repeats. A fixture with one fixed stamp collapses to a single sighting
+    and measures nothing at all.
+    """
+    stamp = f"2026-09-16T{(minute - 60) // 60:02d}:{minute % 60:02d}:00+00:00"
+    return f"""<?xml version="1.0"?>
+<Siri xmlns="http://www.siri.org.uk/siri"><ServiceDelivery>
+ <VehicleMonitoringDelivery><VehicleActivity>
+  <RecordedAtTime>{stamp}</RecordedAtTime>
+  <MonitoredVehicleJourney>
+   <PublishedLineName>700</PublishedLineName><OperatorRef>SCSO</OperatorRef>
+   <DestinationName>Worthing</DestinationName>
+   <VehicleLocation><Longitude>{lon}</Longitude><Latitude>{lat}</Latitude></VehicleLocation>
+   <Bearing>256.0</Bearing><VehicleRef>{ref}</VehicleRef>
+  </MonitoredVehicleJourney>
+ </VehicleActivity></VehicleMonitoringDelivery>
+</ServiceDelivery></Siri>"""
+
+
+def test_the_two_recorded_feeds_are_joined_by_vehicle(tt, tmp_path):
+    """End to end: a GTFS-RT object beside the SIRI snapshot of the same minute.
+
+    The feeds are joined on the vehicle id, which is the same in both — checked
+    vehicle by vehicle on real data, agreeing to a median of 0 metres
+    (docs/reliability/gtfs-rt-probe.md). Injecting trip ids straight into the
+    fixtures, as the tests above do, never exercises that join.
+    """
+    lat, lon = west_xy(15)
+    snaps, rt = tmp_path / "raw", tmp_path / "rt"
+    snaps.mkdir(), rt.mkdir()
+    for n, minute in enumerate((615, 616, 617, 618)):
+        name = f"{minute // 60:02d}{minute % 60:02d}"
+        blat, blon = west_xy(15 + n)          # a stop a minute, as one does
+        (snaps / f"{name}.xml").write_text(siri_minute(minute, blat, blon))
+        # The SIRI fixture's vehicle is SCSO-1234; the GTFS-RT object names the
+        # journey that vehicle is running.
+        (rt / f"{name}.pb").write_bytes(
+            a_feed([a_vehicle(trip="W600", vehicle="SCSO-1234", lat=blat, lon=blon)]))
+
+    out = tmp_path / "obs.json"
+    rc = ps.main(["--day", DAY.isoformat(), "--snapshots", str(snaps),
+                  "--gtfs-rt", str(rt), "--timetable", str(tt.db_path),
+                  "--out", str(out)])
+    assert rc == 0
+    doc = json.loads(out.read_text())
+    assert doc["observations"], "nothing was measured from the joined feeds"
+    assert {o["match"] for o in doc["observations"]} == {"declared"}, \
+        "the GTFS-RT journey never reached the observations"
+    assert {o["trip_id"] for o in doc["observations"]} == {"W600"}
+    assert doc["coverage"]["declared_share"] == 1.0
+
+
+def test_without_the_second_feed_nothing_changes(tt, tmp_path):
+    # The join is additive: a day recorded before GTFS-RT existed must still
+    # process exactly as it did, by inference.
+    lat, lon = west_xy(15)
+    snaps = tmp_path / "raw"
+    snaps.mkdir()
+    for n, minute in enumerate((615, 616, 617, 618)):
+        blat, blon = west_xy(15 + n)
+        (snaps / f"{minute // 60:02d}{minute % 60:02d}.xml").write_text(
+            siri_minute(minute, blat, blon))
+    out = tmp_path / "obs.json"
+    assert ps.main(["--day", DAY.isoformat(), "--snapshots", str(snaps),
+                    "--timetable", str(tt.db_path), "--out", str(out)]) == 0
+    doc = json.loads(out.read_text())
+    assert {o["match"] for o in doc["observations"]} == {"inferred"}
+    assert doc["coverage"]["declared_share"] == 0
+
+
+def test_only_stops_inside_the_recorded_area_are_measured():
+    """The box is what the recorder actually captures.
+
+    Measuring a journey at a stop outside it would compare the timetable
+    against positions we never recorded, and produce "no bus tracked" for a
+    bus that was simply somewhere we were not looking.
+    """
+    class Timetable:
+        stops = {
+            "IN-MIDDLE":  {"lat": 50.83, "lon": -0.27},
+            "IN-CORNER":  {"lat": 50.78, "lon": -0.42},
+            "NORTH":      {"lat": 51.50, "lon": -0.27},   # London
+            "EAST":       {"lat": 50.83, "lon": 0.50},    # Hastings way
+            "WEST":       {"lat": 50.83, "lon": -1.10},   # Portsmouth way
+            "NO-POSITION": {"lat": None, "lon": None},
+        }
+    inside = set(ps.stops_in_box(Timetable()))
+    assert inside == {"IN-MIDDLE", "IN-CORNER"}, f"the box selected {sorted(inside)}"

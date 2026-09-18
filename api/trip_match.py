@@ -133,7 +133,71 @@ def build_instances(tt, today, atcos, window):
     return instances, scheduled
 
 
-def place_vehicles(tt, vehicles, instances, now, times=None) -> dict:
+def place_declared(tt, vehicles, instances, now):
+    """Place the buses that say which journey they are running.
+
+    GTFS-RT carries a `trip_id`. Measured over our box, 256 of 259 vehicles
+    carry one and 184 name a journey we hold — against 0 of 256 for SIRI-VM's
+    own journey reference, which is why everything else here infers.
+
+    A declared journey needs no tolerance window, so nothing it produces is
+    censored: a bus 40 minutes late is 40 minutes late, not a bus running early
+    on the next departure. Returns `(placed, claimed vehicle indices)`.
+
+    The same trip id can exist on two service days at once around midnight, so
+    the day whose scheduled span sits nearest `now` wins.
+    """
+    by_trip = {}
+    for key in instances:
+        by_trip.setdefault(key[0], []).append(key)
+
+    placed, claimed = {}, set()
+    for vi, v in enumerate(vehicles):
+        trip = (v.get("trip_id") or "").strip()
+        candidates = by_trip.get(trip)
+        if not trip or not candidates:
+            continue
+        key = min(candidates, key=lambda k: _span_distance(instances[k], now))
+        if key in placed:
+            continue                      # two buses claiming one journey
+        idx = nearest_call(tt, instances[key], v.get("latitude"), v.get("longitude"))
+        if idx is None:
+            continue
+        placed[key] = (vi, idx)
+        claimed.add(vi)
+    return placed, claimed
+
+
+def _span_distance(inst, now):
+    """How far `now` sits outside a journey's scheduled span. Zero if inside."""
+    calls = inst.get("calls") or []
+    if not calls:
+        return 86_400
+    first, last = calls[0][0], calls[-1][0]
+    if now < first:
+        return first - now
+    if now > last:
+        return now - last
+    return 0
+
+
+def nearest_call(tt, inst, lat, lon):
+    """Which of a journey's calls the bus is closest to, or None."""
+    if lat is None or lon is None:
+        return None
+    best_i, best_d = None, None
+    for i, (_secs, atco) in enumerate(inst.get("calls") or []):
+        stop = tt.stops.get(atco) or {}
+        if stop.get("lat") is None:
+            continue
+        d = km(lat, lon, stop["lat"], stop["lon"])
+        if best_d is None or d < best_d:
+            best_i, best_d = i, d
+    return best_i
+
+
+def place_vehicles(tt, vehicles, instances, now, times=None,
+                   skip_vehicles=(), skip_journeys=()) -> dict:
     """Which journey each tracked bus is running, at the moment `now`.
 
     Returns `{(trip_id, day): (vehicle index, index of its nearest call)}`. Both
@@ -150,6 +214,11 @@ def place_vehicles(tt, vehicles, instances, now, times=None) -> dict:
     """
     options = []
     for vi, v in enumerate(vehicles):
+        # Buses that already declared their journey, and the journeys they
+        # took, are out of the running: inference exists to fill the gaps the
+        # feed leaves, not to argue with what it states.
+        if vi in skip_vehicles:
+            continue
         if (v.get("operator_ref") or "").upper() in COACH_NOCS:
             continue
         vkeys = service_keys(v.get("service_ref"))
@@ -164,6 +233,8 @@ def place_vehicles(tt, vehicles, instances, now, times=None) -> dict:
             heading = None
         per_vehicle = []
         for key, inst in instances.items():
+            if key in skip_journeys:
+                continue
             if not (vkeys & inst["keys"]) or not inst["calls"]:
                 continue
             best_i, best_d = None, None

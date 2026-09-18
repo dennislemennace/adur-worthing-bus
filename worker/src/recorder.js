@@ -50,11 +50,11 @@ const RECORD_TO = "00:30";
 // So the recorder does not trust the processor. It prunes on its own schedule,
 // and refuses to write at all once the bucket passes a budget set well below
 // the free allowance.
-// Four days while both feeds are recorded: two a minute is roughly 540 MB a
-// day, and seven days of that would crowd the byte budget below. The nightly
-// processor only ever needs yesterday, so this still tolerates three missed
-// nights in a row.
-const RETENTION_DAYS = 4;
+// Seven days of both feeds. Measured rather than guessed: 285 KB of SIRI XML
+// and 34 KB of GTFS-RT a minute is ~330 MB a day, so a week is ~2.3 GB against
+// the 4 GB budget below. The estimate this replaces (540 MB a day, four days)
+// assumed protobuf would be the larger of the two; it is an eighth of the size.
+const RETENTION_DAYS = 7;
 const MAX_STORED_BYTES = 4 * 1024 * 1024 * 1024; // 40% of the 10 GB free tier
 const MAX_STORED_OBJECTS = 15_000;               // ~13 days of minutes; catches a runaway
 const USAGE_KEY = "r2-usage";                    // cached in the KV the Worker already binds

@@ -191,3 +191,38 @@ def test_the_recorded_time_changes_which_journey_wins(tt):
     by_clock = trip_match.place_vehicles(tt, [bus], insts, read_at)
     assert [k[0] for k in by_clock] == ["W620"], \
         f"expected the clock to mislead here: {sorted(k[0] for k in by_clock)}"
+
+
+# ── When the feed names the journey ─────────────────────────
+
+def test_the_service_day_whose_span_contains_now_is_chosen(tt):
+    # One trip id can be running on two service days at once around midnight —
+    # yesterday's 23:50 and today's are the same id and different buses. The
+    # one whose scheduled span contains the moment wins.
+    from datetime import date
+    yesterday = {"calls": [(80_000, "4400TW0000"), (83_000, "4400TW0010")],
+                 "trip": {}, "keys": {"700"}, "service": "700", "first": 80_000}
+    today = {"calls": [(36_000, "4400TW0000"), (39_000, "4400TW0010")],
+             "trip": {}, "keys": {"700"}, "service": "700", "first": 36_000}
+    instances = {("T1", date(2026, 9, 15)): yesterday, ("T1", date(2026, 9, 16)): today}
+    bus = bus_at(0)
+    bus["trip_id"] = "T1"
+    placed, claimed = trip_match.place_declared(tt, [bus], instances, 37_000)
+    assert list(placed)[0][1] == date(2026, 9, 16), "the wrong service day was chosen"
+    assert claimed == {0}
+    placed_late, _ = trip_match.place_declared(tt, [bus], instances, 81_000)
+    assert list(placed_late)[0][1] == date(2026, 9, 15)
+
+
+def test_two_buses_cannot_both_declare_the_same_journey(tt):
+    # Duplicate and ghost records are common in this feed — one vehicle
+    # reporting twice, or a relief bus carrying the same trip id. Letting both
+    # claim the journey would mix two buses' positions into one run.
+    from datetime import date
+    inst = {"calls": [(36_000, "4400TW0000"), (36_060, "4400TW0001")],
+            "trip": {}, "keys": {"700"}, "service": "700", "first": 36_000}
+    instances = {("T1", date(2026, 9, 16)): inst}
+    twins = [dict(bus_at(0), trip_id="T1"), dict(bus_at(1), trip_id="T1")]
+    placed, claimed = trip_match.place_declared(tt, twins, instances, 36_000)
+    assert len(placed) == 1, f"one journey was claimed twice: {placed}"
+    assert len(claimed) == 1, "both buses were treated as placed"

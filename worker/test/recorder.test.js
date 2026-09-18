@@ -295,8 +295,8 @@ test("days past the retention window are deleted, recent ones kept", async () =>
   const e = env({
     SNAPSHOTS: fakeBucket([
       ...dayOf("2026-09-01", 3),   // fifteen days old
-      ...dayOf("2026-09-11", 3),   // five days old, outside the four-day window
-      ...dayOf("2026-09-12", 3),   // four days old: the oldest day still kept
+      ...dayOf("2026-09-08", 3),   // eight days old, outside the week
+      ...dayOf("2026-09-09", 3),   // seven days old: the oldest day still kept
       ...dayOf("2026-09-14", 3),   // two days old
       ...dayOf("2026-09-16", 3),   // today
     ]),
@@ -305,9 +305,9 @@ test("days past the retention window are deleted, recent ones kept", async () =>
   const r = await pruneAndMeasure(e, at("2026-09-16T11:07:00Z"));
   assert.equal(r.deleted, 6, "the wrong number of old snapshots was dropped");
   assert.equal(r.objects, 9, "what was kept is not what was measured");
-  assert.ok(e.SNAPSHOTS.deleted.every((k) => keyDay(k) < "2026-09-12"),
+  assert.ok(e.SNAPSHOTS.deleted.every((k) => keyDay(k) < "2026-09-09"),
     `a snapshot inside the window was deleted: ${e.SNAPSHOTS.deleted.join(", ")}`);
-  assert.ok(e.SNAPSHOTS.held.every((o) => keyDay(o.key) >= "2026-09-12"),
+  assert.ok(e.SNAPSHOTS.held.every((o) => keyDay(o.key) >= "2026-09-09"),
     "an expired snapshot survived the prune");
 });
 
@@ -453,11 +453,11 @@ test("both feeds count against the storage budget", async () => {
     "the bytes the budget is judged on do not include both feeds");
 });
 
-test("four days of two feeds still fits the byte budget", () => {
-  // The retention window dropped from seven days to four when the second feed
-  // arrived. Two feeds a minute is about 540 MB a day at the sizes measured,
-  // and the budget has to hold the whole window with room to spare.
-  const dailyBytes = 540 * 1024 * 1024;
+test("a week of two feeds still fits the byte budget", () => {
+  // Measured: 285 KB of SIRI XML and 34 KB of GTFS-RT a minute, over the
+  // 19.5-hour recording window, is about 330 MB a day. The budget has to hold
+  // the whole retention window with room to spare.
+  const dailyBytes = 330 * 1024 * 1024;
   assert.ok(_internals.RETENTION_DAYS * dailyBytes < _internals.MAX_STORED_BYTES * 0.8,
     `${_internals.RETENTION_DAYS} days at 540 MB does not fit the budget`);
 });
