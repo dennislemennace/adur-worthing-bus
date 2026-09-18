@@ -1,10 +1,10 @@
 {
- "as_of": "2026-09-17T12:00:33+00:00",
+ "as_of": "2026-09-18T01:18:49+00:00",
  "bands": {
-  "early": 719,
-  "late": 462,
-  "on_time": 3854,
-  "very_late": 44
+  "early": 477,
+  "late": 511,
+  "on_time": 4030,
+  "very_late": 47
  },
  "by_hour": {
   "00": {
@@ -14,66 +14,66 @@
    "very_late": 0
   },
   "15": {
-   "early": 47,
+   "early": 32,
    "late": 60,
-   "on_time": 359,
-   "very_late": 4
+   "on_time": 371,
+   "very_late": 5
   },
   "16": {
-   "early": 95,
-   "late": 79,
-   "on_time": 541,
+   "early": 58,
+   "late": 93,
+   "on_time": 561,
    "very_late": 23
   },
   "17": {
-   "early": 81,
-   "late": 136,
-   "on_time": 534,
-   "very_late": 9
+   "early": 52,
+   "late": 152,
+   "on_time": 545,
+   "very_late": 10
   },
   "18": {
-   "early": 164,
-   "late": 38,
-   "on_time": 418,
+   "early": 119,
+   "late": 43,
+   "on_time": 458,
    "very_late": 5
   },
   "19": {
-   "early": 104,
-   "late": 43,
-   "on_time": 502,
-   "very_late": 3
+   "early": 62,
+   "late": 47,
+   "on_time": 537,
+   "very_late": 4
   },
   "20": {
-   "early": 40,
-   "late": 82,
-   "on_time": 448,
+   "early": 21,
+   "late": 88,
+   "on_time": 460,
    "very_late": 0
   },
   "21": {
-   "early": 58,
-   "late": 12,
-   "on_time": 412,
+   "early": 42,
+   "late": 15,
+   "on_time": 423,
    "very_late": 0
   },
   "22": {
-   "early": 44,
-   "late": 12,
-   "on_time": 384,
+   "early": 26,
+   "late": 13,
+   "on_time": 400,
    "very_late": 0
   },
   "23": {
-   "early": 85,
+   "early": 64,
    "late": 0,
-   "on_time": 256,
+   "on_time": 275,
    "very_late": 0
   }
  },
  "by_hour_basis": "scheduled departure hour, not the hour observed",
  "by_service": {
   "19": {
-   "early": 5,
-   "late": 7,
-   "on_time": 71,
+   "early": 1,
+   "late": 8,
+   "on_time": 74,
    "very_late": 0
   },
   "19A": {
@@ -83,16 +83,16 @@
    "very_late": 0
   },
   "2": {
-   "early": 224,
-   "late": 243,
-   "on_time": 1483,
+   "early": 117,
+   "late": 273,
+   "on_time": 1559,
    "very_late": 0
   },
   "700": {
-   "early": 490,
-   "late": 207,
-   "on_time": 2275,
-   "very_late": 44
+   "early": 359,
+   "late": 225,
+   "on_time": 2372,
+   "very_late": 47
   },
   "740": {
    "early": 0,
@@ -103,15 +103,15 @@
  },
  "by_timepoint": {
   "interpolated": {
-   "early": 534,
-   "late": 394,
-   "on_time": 3246,
-   "very_late": 38
+   "early": 464,
+   "late": 425,
+   "on_time": 3273,
+   "very_late": 41
   },
   "timing_point": {
-   "early": 185,
-   "late": 68,
-   "on_time": 608,
+   "early": 13,
+   "late": 86,
+   "on_time": 757,
    "very_late": 6
   }
  },
@@ -125,7 +125,7 @@
   "Lateness is censored at the matching window: a bus more than 5 minutes early or 25 minutes late for a journey is attributed to a neighbouring one instead, so no observation can fall outside that range. In a measured day of 5,079 observations, none did. Both tails are therefore cut off, every count of early or very late running is a floor, and the share on time is correspondingly optimistic."
  ],
  "coverage": {
-  "observations": 5079,
+  "observations": 5065,
   "recorded_from": "15:21",
   "recorded_to": "23:59",
   "scheduled_journeys": 129,
@@ -136,6 +136,6 @@
  "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
  "day": "2026-09-16",
  "method": "Bus positions recorded from the Bus Open Data Service (SIRI-VM) once a minute are matched to scheduled journeys by position, service number and time (at most 5 minutes early or 25 minutes late, within 400 m of the route, heading-checked where published), each position judged at the time the operator recorded it rather than when it was read. A journey's arrival at a stop is the recorded position nearest that stop, where it came within 150 m, so times are accurate to about 30 seconds either way. Journeys with no tracked bus produce no observation and are counted as missing coverage, never as lateness. Lateness outside 5 minutes early to 25 minutes late cannot be observed at all: such a bus is matched to a neighbouring journey, so both tails of the distribution are censored and the share on time is optimistic. Coaches are excluded.",
- "observations": 5079,
+ "observations": 5065,
  "on_time_definition": "DfT BUS09: no more than 1 minute early and no more than 5 minutes 59 seconds late, per observed arrival. Judge a service by its timing_point figures: at interpolated stops the scheduled time is GTFS's estimate, not the operator's promise."
 }
