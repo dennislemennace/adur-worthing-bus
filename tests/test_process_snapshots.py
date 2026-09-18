@@ -770,3 +770,73 @@ def test_only_stops_inside_the_recorded_area_are_measured():
         }
     inside = set(ps.stops_in_box(Timetable()))
     assert inside == {"IN-MIDDLE", "IN-CORNER"}, f"the box selected {sorted(inside)}"
+
+
+# ── Stops between two sightings ─────────────────────────────
+
+def test_a_stop_missed_between_two_sightings_is_estimated(tt):
+    # Buses do not report continuously. A stop that falls in a reporting gap
+    # is worth keeping for a journey-time chart — Open Innovations interpolate
+    # exactly this — as long as it says it is an estimate.
+    samples = []
+    for minute in range(600, 640):
+        idx = minute - 600
+        if idx in (20, 21, 22):          # three minutes of silence mid-route
+            samples.append((minute * 60, []))
+            continue
+        bus = bus_at(idx)
+        bus.update(vehicle_ref="GAP-1", recorded_secs=minute * 60)
+        samples.append((minute * 60, [bus]))
+
+    obs, _ = observations(tt, samples)
+    missed = [o for o in obs if o["stop_index"] in (20, 21, 22)]
+    assert len(missed) == 3, f"the silent stops were dropped: {len(missed)} of 3"
+    assert all(o["estimated"] for o in missed)
+    assert all(o["nearest_m"] is None for o in missed), "an estimate claims a distance"
+    # The bus is exactly on time either side and the stops are a minute apart,
+    # so each estimate lands exactly on its scheduled time. A midpoint guess —
+    # splitting the gap evenly instead of in the timetable's proportion — puts
+    # the first estimate a minute late and the last a minute early.
+    assert [o["lateness_secs"] for o in sorted(missed, key=lambda o: o["stop_index"])] \
+        == [0, 0, 0], sorted((o["stop_index"], o["lateness_secs"]) for o in missed)
+    assert all(not o["estimated"] for o in obs if o["stop_index"] == 10)
+
+
+def test_nothing_is_estimated_beyond_the_last_sighting(tt):
+    # Past either end there is nothing to interpolate between, and guessing
+    # there is what once had a bus "arriving" at a stop it never reached.
+    obs, _ = observations(tt, day_of(range(600, 621)))
+    assert not any(o["estimated"] for o in obs if o["stop_index"] > 20), \
+        "a stop beyond the last sighting was invented"
+
+
+def test_estimates_are_kept_out_of_punctuality(tt):
+    # An interpolated stop cannot be late: its time is its neighbours' lateness
+    # divided by the timetable. Counting it measures our own arithmetic.
+    samples = []
+    for minute in range(600, 640):
+        idx = minute - 600
+        if idx in (20, 21, 22):
+            samples.append((minute * 60, []))
+            continue
+        bus = bus_at(idx)
+        bus.update(vehicle_ref="GAP-1", recorded_secs=minute * 60)
+        samples.append((minute * 60, [bus]))
+    obs, coverage = observations(tt, samples)
+    summary = ps.summarise(obs, coverage)
+    measured = [o for o in obs if not o["estimated"]]
+    assert sum(summary["bands"].values()) == len(measured), \
+        "estimates were counted as punctuality observations"
+    assert summary["measured_only"] is True
+
+
+def test_two_stops_timetabled_to_the_same_minute_do_not_divide_by_zero(tt):
+    # Stops a few metres apart share a scheduled time in real timetables. The
+    # proportion between them is undefined, and an unguarded division would
+    # take the whole night's processing down with it.
+    calls = {0: (36_000, "A", "First"), 1: (36_000, "B", "Second"),
+             2: (36_000, "C", "Third")}
+    template = {"day": "2026-09-16", "trip_id": "T1", "estimated": False}
+    seen = [(0, 36_000, 36_000), (2, 36_000, 36_060)]
+    filled = ps._fill_gaps([template], {("T1", DAY): seen}, {("T1", DAY): calls})
+    assert filled == [], "an undefined proportion produced an estimate anyway"

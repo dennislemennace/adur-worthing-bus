@@ -366,6 +366,8 @@ def observe_day(tt, day, snapshots, atcos=None):
     tracks = _resolve_vehicle_journeys(tracks, spans)
 
     observations = []
+    observed_by_journey = {}     # journey -> [(stop index, scheduled, observed)]
+    calls_by_journey = {}        # journey -> {stop index: (scheduled, atco, name)}
     tracked = 0
     for key, samples in tracks.items():
         if len(samples) < MIN_SAMPLES:
@@ -399,6 +401,7 @@ def observe_day(tt, day, snapshots, atcos=None):
         # bus is swapped; the one seen most often is the journey's bus.
         refs = [s[3] for s in samples if s[3]]
         vehicle = max(set(refs), key=refs.count) if refs else ""
+        seen_here = []          # (stop index, scheduled, observed) for this journey
         for stop_index, (scheduled_secs, atco) in enumerate(calls):
             stop = tt.stops.get(atco) or {}
             if stop.get("lat") is None:
@@ -431,6 +434,7 @@ def observe_day(tt, day, snapshots, atcos=None):
             if (nearest == 0 or i == len(samples) - 1) and metres > AT_THE_STOP_M:
                 continue
             best = samples[i]
+            seen_here.append((stop_index, scheduled_secs, best[0]))
             observations.append({
                 "day": service_day.isoformat(),
                 "trip_id": trip_id,
@@ -449,6 +453,8 @@ def observe_day(tt, day, snapshots, atcos=None):
                 # 1 a timing point, 0 a time GTFS interpolated, None unstated.
                 "timepoint": timepoints.get(atco),
                 "match": matched_by,
+                # A real sighting, not a time worked out from its neighbours.
+                "estimated": False,
                 "direction": direction,
                 "headsign": headsign,
                 # Where this stop sits in the journey. A stop near the end
@@ -460,6 +466,13 @@ def observe_day(tt, day, snapshots, atcos=None):
                 "journey_start": trip_match.clock(journey_start),
                 "journey_start_secs": journey_start,
             })
+        observed_by_journey[key] = seen_here
+        calls_by_journey[key] = {
+            i: (secs, atco, (tt.stops.get(atco) or {}).get("name", ""))
+            for i, (secs, atco) in enumerate(calls)
+            if (tt.stops.get(atco) or {}).get("lat") is not None}
+
+    observations += _fill_gaps(observations, observed_by_journey, calls_by_journey)
 
     coverage = {
         "snapshots": len(window_times),
@@ -513,6 +526,11 @@ def summarise(observations, coverage):
     figure is published, and dropping them now would lose the count that says
     a cell is thin.
     """
+    # Estimates are excluded from every punctuality count. An interpolated
+    # stop cannot be late: its time is the lateness of the stops either side,
+    # divided by the timetable. Counting it would measure our own arithmetic.
+    observations = [o for o in observations if not o.get("estimated")]
+
     bands = {k: 0 for k in ("early", "on_time", "late", "very_late")}
     by_service = {}
     by_hour = {}
@@ -533,6 +551,7 @@ def summarise(observations, coverage):
         tp[b] += 1
     return {
         "observations": len(observations),
+        "measured_only": True,
         "bands": bands,
         "by_service": by_service,
         "by_hour": by_hour,
@@ -554,6 +573,66 @@ def summarise(observations, coverage):
 # and is matched to the outbound within a minute or two. Overlap up to this is
 # a changeover, not a contradiction.
 OVERLAP_GRACE_SECS = 180
+
+
+def _fill_gaps(observations, observed_by_journey, calls_by_journey):
+    """Estimate a stop that was missed between two that were not.
+
+    Buses do not report continuously: a stop can fall between two readings,
+    or in a gap where the bus sent nothing at all. Dropping those stops leaves
+    a journey-time chart full of holes, and Open Innovations' tool interpolates
+    them rather than lose them — flagged as estimates, which is the part that
+    makes it honest.
+
+    The estimate is the observed time either side, divided in the proportion
+    the timetable gives. It is never counted in punctuality: an estimate
+    cannot be late, it can only inherit the lateness of its neighbours, and a
+    figure built on that would be measuring our own arithmetic.
+    """
+    # Keyed as the journeys are: (trip id, service day). Keying it the other
+    # way round silently filled nothing at all, because every lookup missed.
+    by_journey = {}
+    for o in observations:
+        by_journey.setdefault((o["trip_id"], o["day"]), o)
+
+    filled = []
+    for key, seen in observed_by_journey.items():
+        template = by_journey.get((key[0], key[1].isoformat()))
+        if template is None or len(seen) < 2:
+            continue
+        seen = sorted(seen)
+        known = {index for index, _sched, _obs in seen}
+        # Only stops *between* two sightings. Beyond either end there is
+        # nothing to interpolate from, and guessing there is what produced a
+        # bus "arriving" at a stop it had not reached.
+        for (i_before, sched_before, obs_before), (i_after, sched_after, obs_after) \
+                in zip(seen, seen[1:]):
+            span = sched_after - sched_before
+            if span <= 0 or i_after - i_before < 2:
+                continue
+            for index in range(i_before + 1, i_after):
+                if index in known:
+                    continue
+                call = calls_by_journey.get(key, {}).get(index)
+                if call is None:
+                    continue
+                scheduled_secs, atco, name = call
+                share = (scheduled_secs - sched_before) / span
+                observed_secs = round(obs_before + share * (obs_after - obs_before))
+                filled.append({
+                    **template,
+                    "atco": atco,
+                    "stop_name": name,
+                    "scheduled": trip_match.clock(scheduled_secs),
+                    "scheduled_secs": scheduled_secs,
+                    "observed": trip_match.clock(observed_secs),
+                    "observed_secs": observed_secs,
+                    "lateness_secs": observed_secs - scheduled_secs,
+                    "nearest_m": None,
+                    "stop_index": index,
+                    "estimated": True,
+                })
+    return filled
 
 
 def _resolve_vehicle_journeys(tracks, scheduled_spans):
