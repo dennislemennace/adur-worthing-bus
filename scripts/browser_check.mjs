@@ -1613,6 +1613,53 @@ const GAP_NORMAL = { ...GAP_ALERT, directions: [gapDirection("worthing"), gapDir
  * least of all on a phone. So measure the map and the sheet with and without
  * it, rather than trusting where the markup happens to sit.
  */
+/**
+ * The bus panel may name a journey only when the feed named it.
+ *
+ * GTFS-RT states which scheduled journey a bus is running; our own matching
+ * guesses it, and is right about four times in five. "The 14:22" is a claim a
+ * reader will act on — they will let one bus go to catch another — so it has
+ * to come from the operator, not from us.
+ */
+async function checkBusJourney(page, where) {
+  const r = JSON.parse(await page.evaluate(`(() => {
+    setViewMode("live");
+    const declared = {
+      vehicle_ref: "CHECK-DECLARED", service_ref: "700", operator_ref: "SCSO",
+      latitude: 50.832, longitude: -0.27, destination: "Worthing",
+      trip_source: "feed", journey_start: "14:22",
+      nearest_stop_name: "High Street", lateness_secs: 240,
+    };
+    const guessed = {
+      vehicle_ref: "CHECK-GUESSED", service_ref: "700", operator_ref: "SCSO",
+      latitude: 50.832, longitude: -0.27, destination: "Worthing",
+      trip_id: "VJ_guessed", journey_start: "14:32",
+    };
+    // renderBusTab reads state.selectedVehicle, not the ref.
+    state.busDetails = null;
+    state.selectedVehicleRef = declared.vehicle_ref;
+    state.selectedVehicle = declared;
+    renderBusTab();
+    const withFeed = document.getElementById("bus-info-container").textContent;
+    state.busDetails = null;
+    state.selectedVehicleRef = guessed.vehicle_ref;
+    state.selectedVehicle = guessed;
+    renderBusTab();
+    const withGuess = document.getElementById("bus-info-container").textContent;
+    state.selectedVehicle = null;
+    state.selectedVehicleRef = null;
+    closePanel();
+    return JSON.stringify({ withFeed, withGuess });
+  })()`));
+
+  check(`a declared journey is named on the bus panel — ${where}`,
+    /The 14:22/.test(r.withFeed) && /4 min late/.test(r.withFeed),
+    r.withFeed.slice(0, 160));
+  check(`a guessed journey is not named as though it were stated — ${where}`,
+    !/The 14:32/.test(r.withGuess),
+    r.withGuess.slice(0, 160));
+}
+
 async function checkGapMonitor(page, where) {
   await page.evaluate(`(() => { setViewMode("live"); closePanel(); return ""; })()`);
   await sleep(400);
@@ -2344,6 +2391,7 @@ await checkBoundaryLiveButton(page, VIEWPORTS[0].name);
 await checkChipPriority(page, VIEWPORTS[0].name);
 await checkLastBusHome(page, VIEWPORTS[0].name);
 await checkGapMonitor(page, VIEWPORTS[0].name);
+await checkBusJourney(page, VIEWPORTS[0].name);
 await checkA11yMenu(page, VIEWPORTS[0].name, { desktop: false });
 await checkLargestText(page, VIEWPORTS[0].name);
 await checkCvdContrast(page, VIEWPORTS[0].name);

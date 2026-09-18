@@ -2851,6 +2851,25 @@ function buildStatusChip(dep) {
   if (status === "late" || status === "delayed") return { label: "Delayed", cssClass: "status-late" };
   if (status === "cancelled")  return { label: "Cancelled",cssClass: "status-late"   };
 
+  // Lateness measured against the journey the bus itself declared. The feed
+  // publishes no Delay field at all here — 0 of 235 vehicles carried one —
+  // so before GTFS-RT named the journey there was nothing to say.
+  if (dep.lateness_secs != null) {
+    // Under a minute either way is on time. Rounding first made 59 seconds
+    // late read as "1 min late", which is a claim the data does not support
+    // at a resolution of one report every few minutes.
+    if (Math.abs(dep.lateness_secs) < 60) {
+      return { label: "On time", cssClass: "status-on-time" };
+    }
+    // Round the magnitude, not the signed value: Math.round(-1.5) is -1 and
+    // Math.round(1.5) is 2, so 90 seconds late read as two minutes while 90
+    // seconds early read as one.
+    const mins = Math.round(Math.abs(dep.lateness_secs) / 60);
+    return dep.lateness_secs < 0
+      ? { label: `${mins} min early`, cssClass: "status-early" }
+      : { label: `${mins} min late`, cssClass: "status-late" };
+  }
+
   // Derive from delay_seconds if status not set
   if (dep.delay_seconds != null) {
     const mins = Math.round(dep.delay_seconds / 60);
@@ -2997,7 +3016,18 @@ function renderBusTab() {
                          || v.trip_headsign
                        ) || "Unknown";
   const fleetId      = v.vehicle_ref || "–";
-  const chip         = buildStatusChip({ delay_seconds: v.delay_seconds });
+  const chip         = buildStatusChip({ delay_seconds: v.delay_seconds,
+                                         lateness_secs: v.lateness_secs });
+  // Only where the feed named the journey. Inference is right about four
+  // times in five, which is fine for putting a bus on a map and not good
+  // enough to tell someone which departure they are looking at.
+  const journeyHtml  = v.trip_source === "feed" && v.journey_start
+    ? `<div class="bus-info-row">
+        <dt>Journey</dt>
+        <dd>The ${escapeHtml(v.journey_start)}${v.nearest_stop_name
+              ? `, near ${escapeHtml(prettifyName(v.nearest_stop_name))}` : ""}</dd>
+      </div>`
+    : "";
   const upcomingHtml = buildUpcomingStopsHtml();
   const ticketHtml   = buildTicketInfoHtml(v.operator_ref, null, service);
 
@@ -3027,6 +3057,7 @@ function renderBusTab() {
         <dt>Destination</dt>
         <dd>${escapeHtml(destination)}</dd>
       </div>
+      ${journeyHtml}
       <div class="bus-info-row">
         <dt>Status</dt>
         <dd><span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span></dd>
