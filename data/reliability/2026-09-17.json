@@ -1,16 +1,16 @@
 {
- "as_of": "2026-09-18T01:12:22+00:00",
+ "as_of": "2026-09-18T01:17:54+00:00",
  "bands": {
-  "early": 2045,
-  "late": 946,
-  "on_time": 8836,
-  "very_late": 123
+  "early": 1428,
+  "late": 1029,
+  "on_time": 9318,
+  "very_late": 134
  },
  "by_hour": {
   "00": {
-   "early": 26,
+   "early": 23,
    "late": 0,
-   "on_time": 71,
+   "on_time": 74,
    "very_late": 0
   },
   "04": {
@@ -20,127 +20,127 @@
    "very_late": 0
   },
   "05": {
-   "early": 25,
+   "early": 15,
    "late": 6,
-   "on_time": 315,
+   "on_time": 323,
    "very_late": 2
   },
   "06": {
-   "early": 65,
-   "late": 32,
-   "on_time": 585,
+   "early": 44,
+   "late": 34,
+   "on_time": 603,
    "very_late": 2
   },
   "07": {
-   "early": 181,
-   "late": 32,
-   "on_time": 565,
+   "early": 122,
+   "late": 38,
+   "on_time": 615,
    "very_late": 0
   },
   "08": {
-   "early": 86,
-   "late": 68,
-   "on_time": 532,
+   "early": 48,
+   "late": 76,
+   "on_time": 558,
    "very_late": 7
   },
   "09": {
-   "early": 131,
-   "late": 70,
-   "on_time": 483,
-   "very_late": 19
+   "early": 87,
+   "late": 73,
+   "on_time": 521,
+   "very_late": 21
   },
   "10": {
-   "early": 148,
-   "late": 45,
-   "on_time": 560,
-   "very_late": 2
+   "early": 107,
+   "late": 47,
+   "on_time": 596,
+   "very_late": 4
   },
   "11": {
-   "early": 182,
-   "late": 9,
-   "on_time": 655,
+   "early": 131,
+   "late": 11,
+   "on_time": 700,
    "very_late": 1
   },
   "12": {
-   "early": 222,
-   "late": 20,
-   "on_time": 588,
-   "very_late": 0
+   "early": 158,
+   "late": 22,
+   "on_time": 647,
+   "very_late": 1
   },
   "13": {
-   "early": 146,
-   "late": 40,
-   "on_time": 627,
+   "early": 108,
+   "late": 43,
+   "on_time": 658,
    "very_late": 1
   },
   "14": {
-   "early": 110,
-   "late": 45,
-   "on_time": 629,
+   "early": 63,
+   "late": 58,
+   "on_time": 660,
    "very_late": 1
   },
   "15": {
-   "early": 120,
-   "late": 88,
-   "on_time": 453,
+   "early": 85,
+   "late": 102,
+   "on_time": 474,
    "very_late": 0
   },
   "16": {
-   "early": 106,
-   "late": 81,
-   "on_time": 351,
-   "very_late": 0
+   "early": 90,
+   "late": 96,
+   "on_time": 350,
+   "very_late": 1
   },
   "17": {
-   "early": 90,
-   "late": 117,
-   "on_time": 377,
-   "very_late": 10
+   "early": 64,
+   "late": 121,
+   "on_time": 394,
+   "very_late": 14
   },
   "18": {
-   "early": 112,
-   "late": 129,
-   "on_time": 266,
+   "early": 83,
+   "late": 133,
+   "on_time": 286,
    "very_late": 19
   },
   "19": {
-   "early": 87,
-   "late": 61,
-   "on_time": 361,
-   "very_late": 35
+   "early": 55,
+   "late": 64,
+   "on_time": 388,
+   "very_late": 36
   },
   "20": {
-   "early": 34,
-   "late": 32,
-   "on_time": 413,
+   "early": 22,
+   "late": 33,
+   "on_time": 419,
    "very_late": 24
   },
   "21": {
-   "early": 46,
-   "late": 40,
-   "on_time": 383,
+   "early": 30,
+   "late": 41,
+   "on_time": 397,
    "very_late": 0
   },
   "22": {
-   "early": 57,
+   "early": 42,
    "late": 30,
-   "on_time": 325,
+   "on_time": 340,
    "very_late": 0
   },
   "23": {
-   "early": 71,
+   "early": 51,
    "late": 1,
-   "on_time": 296,
+   "on_time": 314,
    "very_late": 0
   }
  },
  "by_hour_basis": "scheduled departure hour, not the hour observed",
  "by_service": {
   "19": {
-   "early": 24,
+   "early": 10,
    "late": 3,
-   "on_time": 346,
-   "very_late": 2
+   "on_time": 357,
+   "very_late": 4
   },
   "19A": {
    "early": 0,
@@ -149,10 +149,10 @@
    "very_late": 0
   },
   "2": {
-   "early": 671,
-   "late": 344,
-   "on_time": 3732,
-   "very_late": 5
+   "early": 382,
+   "late": 387,
+   "on_time": 3972,
+   "very_late": 7
   },
   "59A": {
    "early": 0,
@@ -161,16 +161,16 @@
    "very_late": 0
   },
   "60": {
-   "early": 1,
+   "early": 0,
    "late": 0,
-   "on_time": 19,
+   "on_time": 20,
    "very_late": 0
   },
   "700": {
-   "early": 1349,
-   "late": 588,
-   "on_time": 4712,
-   "very_late": 116
+   "early": 1036,
+   "late": 628,
+   "on_time": 4942,
+   "very_late": 123
   },
   "740": {
    "early": 0,
@@ -181,16 +181,16 @@
  },
  "by_timepoint": {
   "interpolated": {
-   "early": 1562,
-   "late": 797,
-   "on_time": 7414,
-   "very_late": 101
+   "early": 1348,
+   "late": 851,
+   "on_time": 7540,
+   "very_late": 106
   },
   "timing_point": {
-   "early": 483,
-   "late": 149,
-   "on_time": 1422,
-   "very_late": 22
+   "early": 80,
+   "late": 178,
+   "on_time": 1778,
+   "very_late": 28
   }
  },
  "caveats": [
@@ -203,7 +203,7 @@
   "Lateness is censored at the matching window: a bus more than 5 minutes early or 25 minutes late for a journey is attributed to a neighbouring one instead, so no observation can fall outside that range. In a measured day of 5,079 observations, none did. Both tails are therefore cut off, every count of early or very late running is a floor, and the share on time is correspondingly optimistic."
  ],
  "coverage": {
-  "observations": 11950,
+  "observations": 11909,
   "recorded_from": "00:00",
   "recorded_to": "23:59",
   "scheduled_journeys": 307,
@@ -214,6 +214,6 @@
  "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
  "day": "2026-09-17",
  "method": "Bus positions recorded from the Bus Open Data Service (SIRI-VM) once a minute are matched to scheduled journeys by position, service number and time (at most 5 minutes early or 25 minutes late, within 400 m of the route, heading-checked where published), each position judged at the time the operator recorded it rather than when it was read. A journey's arrival at a stop is the recorded position nearest that stop, where it came within 150 m, so times are accurate to about 30 seconds either way. Journeys with no tracked bus produce no observation and are counted as missing coverage, never as lateness. Lateness outside 5 minutes early to 25 minutes late cannot be observed at all: such a bus is matched to a neighbouring journey, so both tails of the distribution are censored and the share on time is optimistic. Coaches are excluded.",
- "observations": 11950,
+ "observations": 11909,
  "on_time_definition": "DfT BUS09: no more than 1 minute early and no more than 5 minutes 59 seconds late, per observed arrival. Judge a service by its timing_point figures: at interpolated stops the scheduled time is GTFS's estimate, not the operator's promise."
 }
