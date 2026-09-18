@@ -100,6 +100,11 @@ KEYS = {
     "hour": (rs.scheduled_hour, "hour due"),
     "service-hour": (lambda r: f'{r.get("service", "?")} {rs.scheduled_hour(r)}',
                      "service, hour due"),
+    # For comparing the same hour across days: "did Thursday's 17:00 look like
+    # Wednesday's?" Sort it with --sort key, or the rows arrive worst-first and
+    # the two days interleave.
+    "day-hour": (lambda r: f'{r.get("day", "?")} {rs.scheduled_hour(r)}',
+                 "day, hour due"),
     "journey": (lambda r: f'{r.get("service", "?")} {r.get("journey_start", "?")}'
                           f' {r.get("direction", "?")[:4]}', "service, departure"),
 }
@@ -119,7 +124,8 @@ def render_table(rows, args):
     if not kept and not thin:
         return ["No arrivals match."]
 
-    order = sorted(kept.items(), key=lambda kv: -kv[1]["not_on_time_share"])
+    order = (sorted(kept.items()) if args.sort == "key"
+             else sorted(kept.items(), key=lambda kv: -kv[1]["not_on_time_share"]))
     head = (f"  {label:<26} {'arrivals':>8} {'journeys':>8} {'not on time':>12} "
             f"{'median':>7} {'p90':>7} {'per-journey':>11}")
     out = [head, "  " + "-" * (len(head) - 2)]
@@ -280,6 +286,8 @@ def main(argv=None):
     ap.add_argument("--min-journeys", type=int, default=rs.MIN_JOURNEYS,
                     help="journeys a cell needs to be shown")
     ap.add_argument("--limit", type=int, default=25, help="rows to print")
+    ap.add_argument("--sort", choices=["worst", "key"], default="worst",
+                    help="worst first, or in key order for comparing like with like")
     ap.add_argument("--mean", action="store_true",
                     help="also print the mean, with its censoring caveat")
     ap.add_argument("--json", action="store_true", help="print the cells as JSON")

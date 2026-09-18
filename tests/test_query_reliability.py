@@ -60,6 +60,7 @@ class Args:
         self.from_hour = self.to_hour = None
         self.all_stops = self.mean = self.segment_hours = self.json = False
         self.min, self.min_journeys, self.limit = 30, 5, 25
+        self.sort = "worst"
         self.report = self.rollup = None
         self.observations = []
         self.__dict__.update(over)
@@ -174,3 +175,25 @@ def test_filters_narrow_to_what_was_asked_for():
     assert {r["service"] for r in qr.filtered(rows, Args(service=["2"]))} == {"2"}
     assert len(qr.filtered(rows, Args(from_hour=11))) < len(both)
     assert qr.filtered(rows, Args(direction="eastbound")) == []
+
+
+# ── Comparing like with like ────────────────────────────────
+
+def test_the_same_hour_can_be_compared_across_days():
+    rows = spread(day="2026-09-16") + spread(day="2026-09-17")
+    cells = qr.rs.group_stats(rows, qr.KEYS["day-hour"][0])
+    assert {k.split()[0] for k in cells} == {"2026-09-16", "2026-09-17"}
+
+
+def test_comparison_rows_can_be_ordered_by_key_not_by_worst():
+    # Worst-first interleaves the two days and makes a comparison unreadable.
+    rows = spread(day="2026-09-16", late=600) + spread(day="2026-09-17", late=0)
+    text = "\n".join(qr.render_table(rows, Args(by="day-hour", sort="key",
+                                                min=8, min_journeys=6)))
+    days = [line.split()[0] for line in text.splitlines()
+            if line.strip().startswith("2026-")]
+    assert days == sorted(days), f"rows are not in day order: {days}"
+    worst_first = "\n".join(qr.render_table(rows, Args(by="day-hour", sort="worst",
+                                                      min=8, min_journeys=6)))
+    assert worst_first.splitlines()[2].split()[0] == "2026-09-16", \
+        "worst-first no longer leads with the worse day"
