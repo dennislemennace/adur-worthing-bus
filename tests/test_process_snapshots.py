@@ -590,3 +590,16 @@ def test_a_stop_the_bus_was_already_leaving_is_not_timed_from_a_crawl(tt):
     assert for_stop(obs, 5) is None, \
         "a stop the bus had already left was timed from where it happened to be"
     assert for_stop(obs, 7) is not None, "a stop it genuinely passed was dropped"
+
+
+def test_the_departure_rule_states_its_own_lean(tt):
+    # Timing a stop by the last report inside the radius can sit up to 150 m
+    # past it, so a non-stopping bus reads slightly late. Small, systematic,
+    # and in the direction that suits this campaign — which is exactly the
+    # kind of bias that has to be written down rather than left for a reader
+    # to find.
+    lean = [c for c in ps.CAVEATS if "150 m past" in c]
+    assert lean, "the departure rule's own bias is not stated"
+    assert "20 seconds late" in lean[0]
+    assert "23%" in lean[0] and "4%" in lean[0], \
+        "the caveat does not say how much worse the rule it replaced was"

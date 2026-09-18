@@ -1,183 +1,327 @@
 {
- "as_of": "2026-09-17T12:02:02+00:00",
+ "as_of": "2026-09-18T01:20:26+00:00",
  "by_hour": {
+  "06": {
+   "at_censoring_bound": 0,
+   "bands": {
+    "early": 4,
+    "late": 6,
+    "on_time": 119,
+    "very_late": 0
+   },
+   "journeys": 27,
+   "median_secs": 60,
+   "not_on_time_share": 0.07751937984496127,
+   "observations": 129,
+   "on_time_share": 0.9224806201550387,
+   "p90_secs": 288,
+   "per_journey_median_secs": 57
+  },
+  "07": {
+   "at_censoring_bound": 0,
+   "bands": {
+    "early": 7,
+    "late": 9,
+    "on_time": 110,
+    "very_late": 0
+   },
+   "journeys": 33,
+   "median_secs": 15.0,
+   "not_on_time_share": 0.12698412698412698,
+   "observations": 126,
+   "on_time_share": 0.873015873015873,
+   "p90_secs": 290,
+   "per_journey_median_secs": 35.0
+  },
+  "08": {
+   "at_censoring_bound": 0,
+   "bands": {
+    "early": 5,
+    "late": 17,
+    "on_time": 100,
+    "very_late": 1
+   },
+   "journeys": 34,
+   "median_secs": 112,
+   "not_on_time_share": 0.1869918699186992,
+   "observations": 123,
+   "on_time_share": 0.8130081300813008,
+   "p90_secs": 427,
+   "per_journey_median_secs": 115.0
+  },
+  "09": {
+   "at_censoring_bound": 0,
+   "bands": {
+    "early": 2,
+    "late": 14,
+    "on_time": 100,
+    "very_late": 6
+   },
+   "journeys": 31,
+   "median_secs": 61.0,
+   "not_on_time_share": 0.180327868852459,
+   "observations": 122,
+   "on_time_share": 0.819672131147541,
+   "p90_secs": 522,
+   "per_journey_median_secs": 60
+  },
+  "10": {
+   "at_censoring_bound": 0,
+   "bands": {
+    "early": 1,
+    "late": 4,
+    "on_time": 123,
+    "very_late": 1
+   },
+   "journeys": 33,
+   "median_secs": 52,
+   "not_on_time_share": 0.046511627906976716,
+   "observations": 129,
+   "on_time_share": 0.9534883720930233,
+   "p90_secs": 243,
+   "per_journey_median_secs": 54
+  },
+  "11": {
+   "at_censoring_bound": 0,
+   "bands": {
+    "early": 4,
+    "late": 2,
+    "on_time": 125,
+    "very_late": 1
+   },
+   "journeys": 36,
+   "median_secs": 49.5,
+   "not_on_time_share": 0.05303030303030298,
+   "observations": 132,
+   "on_time_share": 0.946969696969697,
+   "p90_secs": 188,
+   "per_journey_median_secs": 51.5
+  },
+  "12": {
+   "at_censoring_bound": 0,
+   "bands": {
+    "early": 6,
+    "late": 4,
+    "on_time": 126,
+    "very_late": 1
+   },
+   "journeys": 35,
+   "median_secs": 15,
+   "not_on_time_share": 0.08029197080291972,
+   "observations": 137,
+   "on_time_share": 0.9197080291970803,
+   "p90_secs": 175,
+   "per_journey_median_secs": 34.0
+  },
+  "13": {
+   "at_censoring_bound": 0,
+   "bands": {
+    "early": 2,
+    "late": 7,
+    "on_time": 114,
+    "very_late": 1
+   },
+   "journeys": 35,
+   "median_secs": 54.5,
+   "not_on_time_share": 0.08064516129032262,
+   "observations": 124,
+   "on_time_share": 0.9193548387096774,
+   "p90_secs": 196,
+   "per_journey_median_secs": 57.5
+  },
+  "14": {
+   "at_censoring_bound": 0,
+   "bands": {
+    "early": 2,
+    "late": 6,
+    "on_time": 119,
+    "very_late": 0
+   },
+   "journeys": 31,
+   "median_secs": 58,
+   "not_on_time_share": 0.06299212598425197,
+   "observations": 127,
+   "on_time_share": 0.937007874015748,
+   "p90_secs": 306,
+   "per_journey_median_secs": 63
+  },
   "15": {
    "at_censoring_bound": 0,
    "bands": {
-    "early": 9,
-    "late": 10,
-    "on_time": 50,
+    "early": 7,
+    "late": 25,
+    "on_time": 144,
     "very_late": 0
    },
-   "journeys": 30,
-   "median_secs": 107,
-   "not_on_time_share": 0.2753623188405797,
-   "observations": 69,
-   "on_time_share": 0.7246376811594203,
-   "p90_secs": 467,
-   "per_journey_median_secs": 88.5
+   "journeys": 58,
+   "median_secs": 107.5,
+   "not_on_time_share": 0.18181818181818177,
+   "observations": 176,
+   "on_time_share": 0.8181818181818182,
+   "p90_secs": 416,
+   "per_journey_median_secs": 106.0
   },
   "16": {
    "at_censoring_bound": 0,
    "bands": {
-    "early": 26,
-    "late": 12,
-    "on_time": 75,
+    "early": 14,
+    "late": 40,
+    "on_time": 151,
     "very_late": 3
    },
-   "journeys": 32,
-   "median_secs": 145.0,
-   "not_on_time_share": 0.35344827586206895,
-   "observations": 116,
-   "on_time_share": 0.646551724137931,
-   "p90_secs": 408,
-   "per_journey_median_secs": 162.25
+   "journeys": 60,
+   "median_secs": 172.0,
+   "not_on_time_share": 0.27403846153846156,
+   "observations": 208,
+   "on_time_share": 0.7259615384615384,
+   "p90_secs": 482,
+   "per_journey_median_secs": 124.75
   },
   "17": {
-   "at_censoring_bound": 0,
+   "at_censoring_bound": 1,
    "bands": {
-    "early": 17,
-    "late": 18,
-    "on_time": 93,
-    "very_late": 1
+    "early": 6,
+    "late": 45,
+    "on_time": 187,
+    "very_late": 3
    },
-   "journeys": 36,
-   "median_secs": 109,
-   "not_on_time_share": 0.2790697674418605,
-   "observations": 129,
-   "on_time_share": 0.7209302325581395,
-   "p90_secs": 414,
-   "per_journey_median_secs": 160.75
+   "journeys": 63,
+   "median_secs": 123,
+   "not_on_time_share": 0.22406639004149376,
+   "observations": 241,
+   "on_time_share": 0.7759336099585062,
+   "p90_secs": 533,
+   "per_journey_median_secs": 151.5
   },
   "18": {
    "at_censoring_bound": 0,
    "bands": {
-    "early": 38,
-    "late": 6,
-    "on_time": 63,
-    "very_late": 0
+    "early": 14,
+    "late": 31,
+    "on_time": 157,
+    "very_late": 4
    },
-   "journeys": 29,
-   "median_secs": -15,
-   "not_on_time_share": 0.4112149532710281,
-   "observations": 107,
-   "on_time_share": 0.5887850467289719,
-   "p90_secs": 227,
-   "per_journey_median_secs": -8
+   "journeys": 57,
+   "median_secs": 51.0,
+   "not_on_time_share": 0.23786407766990292,
+   "observations": 206,
+   "on_time_share": 0.7621359223300971,
+   "p90_secs": 474,
+   "per_journey_median_secs": 92
   },
   "19": {
    "at_censoring_bound": 1,
    "bands": {
-    "early": 32,
-    "late": 5,
-    "on_time": 75,
-    "very_late": 2
+    "early": 6,
+    "late": 16,
+    "on_time": 188,
+    "very_late": 8
    },
-   "journeys": 27,
-   "median_secs": 27.0,
-   "not_on_time_share": 0.3421052631578947,
-   "observations": 114,
-   "on_time_share": 0.6578947368421053,
-   "p90_secs": 278,
-   "per_journey_median_secs": 3
+   "journeys": 53,
+   "median_secs": 52.0,
+   "not_on_time_share": 0.13761467889908252,
+   "observations": 218,
+   "on_time_share": 0.8623853211009175,
+   "p90_secs": 408,
+   "per_journey_median_secs": 63.5
   },
   "20": {
    "at_censoring_bound": 0,
    "bands": {
-    "early": 15,
-    "late": 13,
-    "on_time": 70,
-    "very_late": 0
+    "early": 0,
+    "late": 17,
+    "on_time": 169,
+    "very_late": 4
    },
-   "journeys": 22,
-   "median_secs": 106.5,
-   "not_on_time_share": 0.2857142857142857,
-   "observations": 98,
-   "on_time_share": 0.7142857142857143,
-   "p90_secs": 451,
-   "per_journey_median_secs": 109.5
+   "journeys": 43,
+   "median_secs": 126.0,
+   "not_on_time_share": 0.1105263157894737,
+   "observations": 190,
+   "on_time_share": 0.8894736842105263,
+   "p90_secs": 391,
+   "per_journey_median_secs": 125
   },
   "21": {
-   "at_censoring_bound": 1,
+   "at_censoring_bound": 0,
    "bands": {
-    "early": 14,
-    "late": 2,
-    "on_time": 70,
+    "early": 3,
+    "late": 10,
+    "on_time": 152,
     "very_late": 0
    },
-   "journeys": 19,
-   "median_secs": 98.0,
-   "not_on_time_share": 0.18604651162790697,
-   "observations": 86,
-   "on_time_share": 0.813953488372093,
-   "p90_secs": 284,
-   "per_journey_median_secs": 64.0
+   "journeys": 39,
+   "median_secs": 109,
+   "not_on_time_share": 0.07878787878787874,
+   "observations": 165,
+   "on_time_share": 0.9212121212121213,
+   "p90_secs": 295,
+   "per_journey_median_secs": 96.5
   },
   "22": {
    "at_censoring_bound": 0,
    "bands": {
-    "early": 16,
-    "late": 2,
-    "on_time": 62,
+    "early": 5,
+    "late": 8,
+    "on_time": 144,
     "very_late": 0
    },
-   "journeys": 19,
-   "median_secs": 34.0,
-   "not_on_time_share": 0.22499999999999998,
-   "observations": 80,
-   "on_time_share": 0.775,
+   "journeys": 38,
+   "median_secs": 47,
+   "not_on_time_share": 0.08280254777070062,
+   "observations": 157,
+   "on_time_share": 0.9171974522292994,
    "p90_secs": 288,
-   "per_journey_median_secs": -9.5
+   "per_journey_median_secs": 41.5
   },
   "23": {
    "at_censoring_bound": 0,
    "bands": {
-    "early": 18,
-    "late": 0,
-    "on_time": 50,
+    "early": 2,
+    "late": 1,
+    "on_time": 135,
     "very_late": 0
    },
-   "journeys": 15,
-   "median_secs": -8.5,
-   "not_on_time_share": 0.2647058823529411,
-   "observations": 68,
-   "on_time_share": 0.7352941176470589,
-   "p90_secs": 149,
-   "per_journey_median_secs": -2
+   "journeys": 30,
+   "median_secs": 8.5,
+   "not_on_time_share": 0.021739130434782594,
+   "observations": 138,
+   "on_time_share": 0.9782608695652174,
+   "p90_secs": 174,
+   "per_journey_median_secs": 29.25
   }
  },
  "by_service": {
   "2": {
    "at_censoring_bound": 0,
    "bands": {
-    "early": 81,
-    "late": 40,
-    "on_time": 342,
-    "very_late": 0
+    "early": 51,
+    "late": 143,
+    "on_time": 1393,
+    "very_late": 3
    },
-   "journeys": 46,
-   "median_secs": 96,
-   "not_on_time_share": 0.2613390928725702,
-   "observations": 463,
-   "on_time_share": 0.7386609071274298,
-   "p90_secs": 347,
-   "per_journey_median_secs": 91.5
+   "journeys": 148,
+   "median_secs": 63.0,
+   "not_on_time_share": 0.12389937106918236,
+   "observations": 1590,
+   "on_time_share": 0.8761006289308176,
+   "p90_secs": 348,
+   "per_journey_median_secs": 62.25
   },
   "700": {
    "at_censoring_bound": 2,
    "bands": {
-    "early": 101,
-    "late": 23,
-    "on_time": 249,
-    "very_late": 6
+    "early": 41,
+    "late": 110,
+    "on_time": 1040,
+    "very_late": 27
    },
-   "journeys": 71,
-   "median_secs": 26,
-   "not_on_time_share": 0.3430079155672823,
-   "observations": 379,
-   "on_time_share": 0.6569920844327177,
-   "p90_secs": 290,
-   "per_journey_median_secs": 17.5
+   "journeys": 222,
+   "median_secs": 60.0,
+   "not_on_time_share": 0.1461412151067324,
+   "observations": 1218,
+   "on_time_share": 0.8538587848932676,
+   "p90_secs": 372,
+   "per_journey_median_secs": 62.0
   }
  },
  "caveats": [
@@ -187,470 +331,501 @@
   "Only journeys calling at the six A259 corridor poles are processed.",
   "Lateness at a stop GTFS interpolated between two timing points is partly a measure of that interpolation, not of the service. Arrivals are therefore reported separately for the operator's own timing points, for interpolated stops, and for feeds that do not say which is which.",
   "A bus more than half a headway late cannot be told apart from the next journey running early, because the feed publishes no journey identifier that matches the timetable. Such a journey is recorded as the later one, so measured lateness is a floor and the real figure is this or worse.",
+  "A stop is timed by the last report within 150 m of it \u2014 when the bus left \u2014 because the scheduled time it is compared against is a departure time. For a bus that does not stop, that report can be up to 150 m past the stop, so such arrivals read up to about 20 seconds late. The earlier rule, nearest approach, leaned the other way and much harder: it timed the middle of a layover and reported 23% of timing-point arrivals as early, against 4% once corrected.",
   "Lateness is censored at the matching window: a bus more than 5 minutes early or 25 minutes late for a journey is attributed to a neighbouring one instead, so no observation can fall outside that range. In a measured day of 5,079 observations, none did. Both tails are therefore cut off, every count of early or very late running is a floor, and the share on time is correspondingly optimistic."
  ],
  "data_versions": [
   "timetable.sqlite sha256:f1daaae3ed886a18"
  ],
  "days": [
-  "2026-09-16"
+  "2026-09-16",
+  "2026-09-17"
  ],
  "floor": {
-  "journeys": 10,
-  "observations": 10
+  "journeys": 20,
+  "observations": 20
  },
  "hour_basis": "scheduled departure hour",
  "method": "Bus positions recorded from the Bus Open Data Service (SIRI-VM) once a minute are matched to scheduled journeys by position, service number and time (at most 5 minutes early or 25 minutes late, within 400 m of the route, heading-checked where published), each position judged at the time the operator recorded it rather than when it was read. A journey's arrival at a stop is the recorded position nearest that stop, where it came within 150 m, so times are accurate to about 30 seconds either way. Journeys with no tracked bus produce no observation and are counted as missing coverage, never as lateness. Lateness outside 5 minutes early to 25 minutes late cannot be observed at all: such a bus is matched to a neighbouring journey, so both tails of the distribution are censored and the share on time is optimistic. Coaches are excluded.",
  "month": "2026-09",
  "segments": {
   "Beach Green Hotel \u2192 High Street [eastbound]": {
-   "journeys": 20,
-   "median_gained_secs": -55.0,
-   "median_stops_apart": 9.0,
-   "observations": 20,
-   "over_scheduled_share": -0.11458333333333333,
-   "p90_gained_secs": 46,
-   "scheduled_secs": 480.0,
+   "journeys": 67,
+   "median_gained_secs": 4,
+   "median_stops_apart": 9,
+   "observations": 67,
+   "over_scheduled_share": 0.006666666666666667,
+   "p90_gained_secs": 104,
+   "scheduled_secs": 600,
    "services": [
     "700"
    ],
-   "worst_gained_secs": 68
+   "worst_gained_secs": 144
   },
   "Beach Green Hotel \u2192 Marine Parade [westbound]": {
-   "journeys": 28,
-   "median_gained_secs": -154.0,
+   "journeys": 90,
+   "median_gained_secs": -9.0,
    "median_stops_apart": 9.0,
-   "observations": 28,
-   "over_scheduled_share": -0.16041666666666668,
-   "p90_gained_secs": 115,
-   "scheduled_secs": 960.0,
+   "observations": 90,
+   "over_scheduled_share": -0.008333333333333333,
+   "p90_gained_secs": 192,
+   "scheduled_secs": 1080.0,
    "services": [
     "700"
    ],
-   "worst_gained_secs": 242
+   "worst_gained_secs": 895
   },
   "Churchill Square \u2192 King Alfred Leisure Centre [westbound]": {
-   "journeys": 27,
-   "median_gained_secs": 72,
+   "journeys": 87,
+   "median_gained_secs": 7,
    "median_stops_apart": 8,
-   "observations": 27,
-   "over_scheduled_share": 0.1,
-   "p90_gained_secs": 247,
+   "observations": 87,
+   "over_scheduled_share": 0.009722222222222222,
+   "p90_gained_secs": 106,
    "scheduled_secs": 720,
    "services": [
     "700"
    ],
-   "worst_gained_secs": 416
+   "worst_gained_secs": 170
   },
   "Churchill Square \u2192 North Street [eastbound]": {
-   "journeys": 20,
-   "median_gained_secs": 80.5,
+   "journeys": 66,
+   "median_gained_secs": 78.5,
    "median_stops_apart": 1.0,
-   "observations": 20,
-   "over_scheduled_share": 0.6708333333333333,
-   "p90_gained_secs": 240,
+   "observations": 66,
+   "over_scheduled_share": 0.6541666666666667,
+   "p90_gained_secs": 146,
    "scheduled_secs": 120.0,
    "services": [
     "2"
    ],
-   "worst_gained_secs": 290
+   "worst_gained_secs": 772
   },
   "Churchill Square \u2192 Palmeira Square [westbound]": {
-   "journeys": 18,
-   "median_gained_secs": 79.0,
-   "median_stops_apart": 4.0,
-   "observations": 18,
-   "over_scheduled_share": 0.21944444444444444,
-   "p90_gained_secs": 227,
-   "scheduled_secs": 360.0,
+   "journeys": 65,
+   "median_gained_secs": 10,
+   "median_stops_apart": 4,
+   "observations": 65,
+   "over_scheduled_share": 0.027777777777777776,
+   "p90_gained_secs": 83,
+   "scheduled_secs": 360,
    "services": [
     "2"
    ],
    "worst_gained_secs": 310
   },
   "George Street \u2192 Olive Road [westbound]": {
-   "journeys": 15,
-   "median_gained_secs": 182,
+   "journeys": 57,
+   "median_gained_secs": 26,
    "median_stops_apart": 6,
-   "observations": 15,
-   "over_scheduled_share": 0.5055555555555555,
-   "p90_gained_secs": 261,
-   "scheduled_secs": 360,
+   "observations": 57,
+   "over_scheduled_share": 0.06190476190476191,
+   "p90_gained_secs": 141,
+   "scheduled_secs": 420,
    "services": [
     "2"
    ],
-   "worst_gained_secs": 302
+   "worst_gained_secs": 254
   },
   "George Street \u2192 Town Hall [eastbound]": {
-   "journeys": 18,
-   "median_gained_secs": 63.5,
-   "median_stops_apart": 2.0,
-   "observations": 18,
-   "over_scheduled_share": 0.42333333333333334,
-   "p90_gained_secs": 182,
-   "scheduled_secs": 150.0,
-   "services": [
-    "2"
-   ],
-   "worst_gained_secs": 182
-  },
-  "Hammy Lane \u2192 High Street [westbound]": {
-   "journeys": 13,
-   "median_gained_secs": -98,
-   "median_stops_apart": 7,
-   "observations": 13,
-   "over_scheduled_share": -0.1814814814814815,
-   "p90_gained_secs": 68,
-   "scheduled_secs": 540,
-   "services": [
-    "2"
-   ],
-   "worst_gained_secs": 103
-  },
-  "Hammy Lane \u2192 Southlands Outpatients [eastbound]": {
-   "journeys": 13,
-   "median_gained_secs": -5,
+   "journeys": 65,
+   "median_gained_secs": 7,
    "median_stops_apart": 2,
-   "observations": 13,
-   "over_scheduled_share": -0.041666666666666664,
-   "p90_gained_secs": 14,
-   "scheduled_secs": 120,
-   "services": [
-    "2"
-   ],
-   "worst_gained_secs": 16
-  },
-  "High Street \u2192 Beach Green Hotel [westbound]": {
-   "journeys": 30,
-   "median_gained_secs": -56.5,
-   "median_stops_apart": 9.0,
-   "observations": 30,
-   "over_scheduled_share": -0.08968253968253968,
-   "p90_gained_secs": 50,
-   "scheduled_secs": 630.0,
-   "services": [
-    "700"
-   ],
-   "worst_gained_secs": 166
-  },
-  "High Street \u2192 Shoreham-by-Sea Railway Station [eastbound]": {
-   "journeys": 19,
-   "median_gained_secs": 53,
-   "median_stops_apart": 5,
-   "observations": 19,
-   "over_scheduled_share": 0.14722222222222223,
-   "p90_gained_secs": 292,
-   "scheduled_secs": 360,
-   "services": [
-    "2"
-   ],
-   "worst_gained_secs": 308
-  },
-  "High Street \u2192 Station Road [eastbound]": {
-   "journeys": 24,
-   "median_gained_secs": -25.5,
-   "median_stops_apart": 15.0,
-   "observations": 24,
-   "over_scheduled_share": -0.028333333333333332,
-   "p90_gained_secs": 69,
-   "scheduled_secs": 900.0,
-   "services": [
-    "700"
-   ],
-   "worst_gained_secs": 126
-  },
-  "High Street \u2192 The Red Lion [westbound]": {
-   "journeys": 10,
-   "median_gained_secs": 57.0,
-   "median_stops_apart": 3.0,
-   "observations": 10,
-   "over_scheduled_share": 0.475,
-   "p90_gained_secs": 280,
-   "scheduled_secs": 120.0,
-   "services": [
-    "2"
-   ],
-   "worst_gained_secs": 280
-  },
-  "Holmbush Centre \u2192 Southern Cross [eastbound]": {
-   "journeys": 17,
-   "median_gained_secs": 47,
-   "median_stops_apart": 6,
-   "observations": 17,
-   "over_scheduled_share": 0.13055555555555556,
-   "p90_gained_secs": 192,
-   "scheduled_secs": 360,
-   "services": [
-    "2"
-   ],
-   "worst_gained_secs": 364
-  },
-  "Holmbush Centre \u2192 Southlands Outpatients [westbound]": {
-   "journeys": 17,
-   "median_gained_secs": 61,
-   "median_stops_apart": 3,
-   "observations": 17,
-   "over_scheduled_share": 0.5083333333333333,
-   "p90_gained_secs": 171,
-   "scheduled_secs": 120,
-   "services": [
-    "2"
-   ],
-   "worst_gained_secs": 184
-  },
-  "King Alfred Leisure Centre \u2192 Station Road [westbound]": {
-   "journeys": 18,
-   "median_gained_secs": 25.0,
-   "median_stops_apart": 7.0,
-   "observations": 18,
-   "over_scheduled_share": 0.05952380952380952,
-   "p90_gained_secs": 125,
-   "scheduled_secs": 420.0,
-   "services": [
-    "700"
-   ],
-   "worst_gained_secs": 169
-  },
-  "Marine Parade \u2192 Beach Green Hotel [eastbound]": {
-   "journeys": 20,
-   "median_gained_secs": 230.0,
-   "median_stops_apart": 10.0,
-   "observations": 20,
-   "over_scheduled_share": 0.40350877192982454,
-   "p90_gained_secs": 496,
-   "scheduled_secs": 570.0,
-   "services": [
-    "700"
-   ],
-   "worst_gained_secs": 662
-  },
-  "Marine Parade \u2192 Wallace Avenue [westbound]": {
-   "journeys": 16,
-   "median_gained_secs": 148.0,
-   "median_stops_apart": 13.0,
-   "observations": 16,
-   "over_scheduled_share": 0.30833333333333335,
-   "p90_gained_secs": 353,
-   "scheduled_secs": 480.0,
-   "services": [
-    "700"
-   ],
-   "worst_gained_secs": 412
-  },
-  "North Street \u2192 Race Hill [eastbound]": {
-   "journeys": 20,
-   "median_gained_secs": 13.0,
-   "median_stops_apart": 12.0,
-   "observations": 20,
-   "over_scheduled_share": 0.018055555555555554,
-   "p90_gained_secs": 186,
-   "scheduled_secs": 720.0,
-   "services": [
-    "2"
-   ],
-   "worst_gained_secs": 188
-  },
-  "Old Steine \u2192 Churchill Square [westbound]": {
-   "journeys": 45,
-   "median_gained_secs": -54,
-   "median_stops_apart": 2,
-   "observations": 45,
-   "over_scheduled_share": -0.12857142857142856,
-   "p90_gained_secs": 188,
-   "scheduled_secs": 420,
-   "services": [
-    "2",
-    "700"
-   ],
-   "worst_gained_secs": 226
-  },
-  "Olive Road \u2192 George Street [eastbound]": {
-   "journeys": 17,
-   "median_gained_secs": -56,
-   "median_stops_apart": 6,
-   "observations": 17,
-   "over_scheduled_share": -0.11666666666666667,
-   "p90_gained_secs": 50,
-   "scheduled_secs": 480,
-   "services": [
-    "2"
-   ],
-   "worst_gained_secs": 132
-  },
-  "Olive Road \u2192 Southern Cross [westbound]": {
-   "journeys": 15,
-   "median_gained_secs": -3,
-   "median_stops_apart": 6,
-   "observations": 15,
-   "over_scheduled_share": -0.007142857142857143,
-   "p90_gained_secs": 55,
-   "scheduled_secs": 420,
-   "services": [
-    "2"
-   ],
-   "worst_gained_secs": 154
-  },
-  "Palmeira Square \u2192 Town Hall [westbound]": {
-   "journeys": 17,
-   "median_gained_secs": -8,
-   "median_stops_apart": 2,
-   "observations": 17,
-   "over_scheduled_share": -0.044444444444444446,
-   "p90_gained_secs": 61,
+   "observations": 65,
+   "over_scheduled_share": 0.03888888888888889,
+   "p90_gained_secs": 72,
    "scheduled_secs": 180,
    "services": [
     "2"
    ],
-   "worst_gained_secs": 61
+   "worst_gained_secs": 124
   },
-  "Race Hill \u2192 Old Steine [westbound]": {
-   "journeys": 15,
-   "median_gained_secs": -45,
-   "median_stops_apart": 11,
-   "observations": 15,
-   "over_scheduled_share": -0.057692307692307696,
-   "p90_gained_secs": 51,
-   "scheduled_secs": 780,
+  "Hammy Lane \u2192 High Street [westbound]": {
+   "journeys": 47,
+   "median_gained_secs": -2,
+   "median_stops_apart": 7,
+   "observations": 47,
+   "over_scheduled_share": -0.003703703703703704,
+   "p90_gained_secs": 295,
+   "scheduled_secs": 540,
    "services": [
     "2"
    ],
-   "worst_gained_secs": 77
+   "worst_gained_secs": 791
   },
-  "Shoreham-by-Sea Railway Station \u2192 Hammy Lane [eastbound]": {
-   "journeys": 14,
-   "median_gained_secs": 70.0,
-   "median_stops_apart": 4.0,
-   "observations": 14,
-   "over_scheduled_share": 0.2916666666666667,
-   "p90_gained_secs": 221,
-   "scheduled_secs": 240.0,
+  "Hammy Lane \u2192 Southlands Outpatients [eastbound]": {
+   "journeys": 48,
+   "median_gained_secs": -7.0,
+   "median_stops_apart": 2.0,
+   "observations": 48,
+   "over_scheduled_share": -0.058333333333333334,
+   "p90_gained_secs": 19,
+   "scheduled_secs": 120.0,
    "services": [
     "2"
    ],
-   "worst_gained_secs": 356
+   "worst_gained_secs": 73
   },
-  "Southern Cross \u2192 Holmbush Centre [westbound]": {
-   "journeys": 15,
-   "median_gained_secs": 0,
-   "median_stops_apart": 6,
-   "observations": 15,
-   "over_scheduled_share": 0.0,
-   "p90_gained_secs": 69,
-   "scheduled_secs": 480,
+  "High Street \u2192 Beach Green Hotel [westbound]": {
+   "journeys": 94,
+   "median_gained_secs": -15.5,
+   "median_stops_apart": 9.0,
+   "observations": 94,
+   "over_scheduled_share": -0.025833333333333333,
+   "p90_gained_secs": 66,
+   "scheduled_secs": 600.0,
    "services": [
-    "2"
+    "700"
    ],
-   "worst_gained_secs": 74
+   "worst_gained_secs": 291
   },
-  "Southern Cross \u2192 Olive Road [eastbound]": {
-   "journeys": 16,
-   "median_gained_secs": -1.0,
-   "median_stops_apart": 6.0,
-   "observations": 16,
-   "over_scheduled_share": -0.002777777777777778,
-   "p90_gained_secs": 99,
+  "High Street \u2192 Shoreham-by-Sea Railway Station [eastbound]": {
+   "journeys": 68,
+   "median_gained_secs": 11.5,
+   "median_stops_apart": 5.0,
+   "observations": 68,
+   "over_scheduled_share": 0.03194444444444444,
+   "p90_gained_secs": 120,
    "scheduled_secs": 360.0,
    "services": [
-    "2"
+    "2",
+    "60"
    ],
-   "worst_gained_secs": 126
+   "worst_gained_secs": 289
   },
-  "Southlands Outpatients \u2192 Hammy Lane [westbound]": {
-   "journeys": 15,
-   "median_gained_secs": -10,
-   "median_stops_apart": 2,
-   "observations": 15,
-   "over_scheduled_share": -0.08333333333333333,
-   "p90_gained_secs": 12,
+  "High Street \u2192 Station Road [eastbound]": {
+   "journeys": 81,
+   "median_gained_secs": -9,
+   "median_stops_apart": 15,
+   "observations": 81,
+   "over_scheduled_share": -0.01,
+   "p90_gained_secs": 126,
+   "scheduled_secs": 900,
+   "services": [
+    "700"
+   ],
+   "worst_gained_secs": 252
+  },
+  "High Street \u2192 The Red Lion [westbound]": {
+   "journeys": 27,
+   "median_gained_secs": -2,
+   "median_stops_apart": 3,
+   "observations": 27,
+   "over_scheduled_share": -0.016666666666666666,
+   "p90_gained_secs": 57,
    "scheduled_secs": 120,
    "services": [
     "2"
    ],
-   "worst_gained_secs": 19
+   "worst_gained_secs": 96
   },
-  "Southlands Outpatients \u2192 Holmbush Centre [eastbound]": {
-   "journeys": 18,
-   "median_gained_secs": -26.0,
-   "median_stops_apart": 3.0,
-   "observations": 18,
-   "over_scheduled_share": -0.10833333333333334,
-   "p90_gained_secs": 32,
-   "scheduled_secs": 240.0,
+  "Holmbush Centre \u2192 Southern Cross [eastbound]": {
+   "journeys": 63,
+   "median_gained_secs": 19,
+   "median_stops_apart": 6,
+   "observations": 63,
+   "over_scheduled_share": 0.04523809523809524,
+   "p90_gained_secs": 114,
+   "scheduled_secs": 420,
    "services": [
     "2"
    ],
-   "worst_gained_secs": 64
+   "worst_gained_secs": 1443
   },
-  "Station Road \u2192 High Street [westbound]": {
-   "journeys": 21,
-   "median_gained_secs": 9,
-   "median_stops_apart": 15,
-   "observations": 21,
-   "over_scheduled_share": 0.008823529411764706,
-   "p90_gained_secs": 243,
-   "scheduled_secs": 1020,
+  "Holmbush Centre \u2192 Southlands Outpatients [westbound]": {
+   "journeys": 57,
+   "median_gained_secs": 26,
+   "median_stops_apart": 3,
+   "observations": 57,
+   "over_scheduled_share": 0.21666666666666667,
+   "p90_gained_secs": 85,
+   "scheduled_secs": 120,
+   "services": [
+    "2"
+   ],
+   "worst_gained_secs": 136
+  },
+  "King Alfred Leisure Centre \u2192 Station Road [westbound]": {
+   "journeys": 77,
+   "median_gained_secs": 4,
+   "median_stops_apart": 7,
+   "observations": 77,
+   "over_scheduled_share": 0.009523809523809525,
+   "p90_gained_secs": 105,
+   "scheduled_secs": 420,
    "services": [
     "700"
    ],
-   "worst_gained_secs": 374
+   "worst_gained_secs": 287
   },
-  "Station Road \u2192 Old Steine [eastbound]": {
-   "journeys": 10,
-   "median_gained_secs": 55.0,
+  "Marine Parade \u2192 Beach Green Hotel [eastbound]": {
+   "journeys": 69,
+   "median_gained_secs": -7,
+   "median_stops_apart": 10,
+   "observations": 69,
+   "over_scheduled_share": -0.010606060606060607,
+   "p90_gained_secs": 189,
+   "scheduled_secs": 660,
+   "services": [
+    "700"
+   ],
+   "worst_gained_secs": 537
+  },
+  "Marine Parade \u2192 High Street [eastbound]": {
+   "journeys": 22,
+   "median_gained_secs": -55.5,
    "median_stops_apart": 19.0,
-   "observations": 10,
-   "over_scheduled_share": 0.041666666666666664,
-   "p90_gained_secs": 413,
-   "scheduled_secs": 1320.0,
+   "observations": 22,
+   "over_scheduled_share": -0.04404761904761905,
+   "p90_gained_secs": 352,
+   "scheduled_secs": 1260.0,
    "services": [
     "700"
    ],
-   "worst_gained_secs": 413
+   "worst_gained_secs": 743
   },
-  "Town Hall \u2192 Churchill Square [eastbound]": {
-   "journeys": 19,
-   "median_gained_secs": -50,
+  "Marine Parade \u2192 Wallace Avenue [westbound]": {
+   "journeys": 32,
+   "median_gained_secs": -13.5,
+   "median_stops_apart": 13.0,
+   "observations": 32,
+   "over_scheduled_share": -0.028125,
+   "p90_gained_secs": 68,
+   "scheduled_secs": 480.0,
+   "services": [
+    "700"
+   ],
+   "worst_gained_secs": 170
+  },
+  "North Street \u2192 Race Hill [eastbound]": {
+   "journeys": 62,
+   "median_gained_secs": -3.0,
+   "median_stops_apart": 12.0,
+   "observations": 62,
+   "over_scheduled_share": -0.0035714285714285713,
+   "p90_gained_secs": 99,
+   "scheduled_secs": 840.0,
+   "services": [
+    "2"
+   ],
+   "worst_gained_secs": 185
+  },
+  "Old Steine \u2192 Churchill Square [westbound]": {
+   "journeys": 150,
+   "median_gained_secs": -17.0,
+   "median_stops_apart": 2.0,
+   "observations": 150,
+   "over_scheduled_share": -0.04047619047619048,
+   "p90_gained_secs": 67,
+   "scheduled_secs": 420.0,
+   "services": [
+    "2",
+    "700"
+   ],
+   "worst_gained_secs": 248
+  },
+  "Olive Road \u2192 George Street [eastbound]": {
+   "journeys": 61,
+   "median_gained_secs": -14,
    "median_stops_apart": 6,
-   "observations": 19,
-   "over_scheduled_share": -0.08333333333333333,
-   "p90_gained_secs": 109,
+   "observations": 61,
+   "over_scheduled_share": -0.023333333333333334,
+   "p90_gained_secs": 77,
    "scheduled_secs": 600,
    "services": [
     "2"
    ],
-   "worst_gained_secs": 247
+   "worst_gained_secs": 214
   },
-  "Town Hall \u2192 George Street [westbound]": {
-   "journeys": 16,
-   "median_gained_secs": -71.5,
-   "median_stops_apart": 2.0,
-   "observations": 16,
-   "over_scheduled_share": -0.29791666666666666,
-   "p90_gained_secs": -36,
-   "scheduled_secs": 240.0,
+  "Olive Road \u2192 Southern Cross [westbound]": {
+   "journeys": 57,
+   "median_gained_secs": -28,
+   "median_stops_apart": 6,
+   "observations": 57,
+   "over_scheduled_share": -0.06666666666666667,
+   "p90_gained_secs": 56,
+   "scheduled_secs": 420,
    "services": [
     "2"
    ],
-   "worst_gained_secs": 19
+   "worst_gained_secs": 124
   },
-  "Wallace Avenue \u2192 Marine Parade [eastbound]": {
-   "journeys": 25,
-   "median_gained_secs": -189,
-   "median_stops_apart": 12,
-   "observations": 25,
-   "over_scheduled_share": -0.196875,
-   "p90_gained_secs": -6,
-   "scheduled_secs": 960,
+  "Palmeira Square \u2192 Town Hall [westbound]": {
+   "journeys": 63,
+   "median_gained_secs": -3,
+   "median_stops_apart": 2,
+   "observations": 63,
+   "over_scheduled_share": -0.016666666666666666,
+   "p90_gained_secs": 49,
+   "scheduled_secs": 180,
+   "services": [
+    "2"
+   ],
+   "worst_gained_secs": 94
+  },
+  "Race Hill \u2192 Old Steine [westbound]": {
+   "journeys": 52,
+   "median_gained_secs": 6.0,
+   "median_stops_apart": 11.0,
+   "observations": 52,
+   "over_scheduled_share": 0.007142857142857143,
+   "p90_gained_secs": 104,
+   "scheduled_secs": 840.0,
+   "services": [
+    "2"
+   ],
+   "worst_gained_secs": 258
+  },
+  "Shoreham-by-Sea Railway Station \u2192 Hammy Lane [eastbound]": {
+   "journeys": 53,
+   "median_gained_secs": 3,
+   "median_stops_apart": 4,
+   "observations": 53,
+   "over_scheduled_share": 0.01,
+   "p90_gained_secs": 80,
+   "scheduled_secs": 300,
+   "services": [
+    "2",
+    "60"
+   ],
+   "worst_gained_secs": 221
+  },
+  "Southern Cross \u2192 Holmbush Centre [westbound]": {
+   "journeys": 52,
+   "median_gained_secs": 8.5,
+   "median_stops_apart": 6.0,
+   "observations": 52,
+   "over_scheduled_share": 0.014912280701754385,
+   "p90_gained_secs": 75,
+   "scheduled_secs": 570.0,
+   "services": [
+    "2"
+   ],
+   "worst_gained_secs": 178
+  },
+  "Southern Cross \u2192 Olive Road [eastbound]": {
+   "journeys": 59,
+   "median_gained_secs": -16,
+   "median_stops_apart": 6,
+   "observations": 59,
+   "over_scheduled_share": -0.0380952380952381,
+   "p90_gained_secs": 66,
+   "scheduled_secs": 420,
+   "services": [
+    "2"
+   ],
+   "worst_gained_secs": 163
+  },
+  "Southlands Outpatients \u2192 Hammy Lane [westbound]": {
+   "journeys": 55,
+   "median_gained_secs": -4,
+   "median_stops_apart": 2,
+   "observations": 55,
+   "over_scheduled_share": -0.03333333333333333,
+   "p90_gained_secs": 46,
+   "scheduled_secs": 120,
+   "services": [
+    "2"
+   ],
+   "worst_gained_secs": 63
+  },
+  "Southlands Outpatients \u2192 Holmbush Centre [eastbound]": {
+   "journeys": 63,
+   "median_gained_secs": -5,
+   "median_stops_apart": 3,
+   "observations": 63,
+   "over_scheduled_share": -0.016666666666666666,
+   "p90_gained_secs": 64,
+   "scheduled_secs": 300,
+   "services": [
+    "2"
+   ],
+   "worst_gained_secs": 252
+  },
+  "Station Road \u2192 High Street [westbound]": {
+   "journeys": 81,
+   "median_gained_secs": 15,
+   "median_stops_apart": 15,
+   "observations": 81,
+   "over_scheduled_share": 0.016666666666666666,
+   "p90_gained_secs": 187,
+   "scheduled_secs": 900,
    "services": [
     "700"
    ],
-   "worst_gained_secs": 74
+   "worst_gained_secs": 430
+  },
+  "Station Road \u2192 King Alfred Leisure Centre [eastbound]": {
+   "journeys": 40,
+   "median_gained_secs": 2.5,
+   "median_stops_apart": 8.0,
+   "observations": 40,
+   "over_scheduled_share": 0.005952380952380952,
+   "p90_gained_secs": 105,
+   "scheduled_secs": 420.0,
+   "services": [
+    "700"
+   ],
+   "worst_gained_secs": 125
+  },
+  "The Red Lion \u2192 High Street [eastbound]": {
+   "journeys": 26,
+   "median_gained_secs": -60.5,
+   "median_stops_apart": 3.0,
+   "observations": 26,
+   "over_scheduled_share": -0.14404761904761904,
+   "p90_gained_secs": 48,
+   "scheduled_secs": 420.0,
+   "services": [
+    "2",
+    "60"
+   ],
+   "worst_gained_secs": 120
+  },
+  "Town Hall \u2192 Churchill Square [eastbound]": {
+   "journeys": 65,
+   "median_gained_secs": 6,
+   "median_stops_apart": 6,
+   "observations": 65,
+   "over_scheduled_share": 0.00909090909090909,
+   "p90_gained_secs": 112,
+   "scheduled_secs": 660,
+   "services": [
+    "2"
+   ],
+   "worst_gained_secs": 177
+  },
+  "Town Hall \u2192 George Street [westbound]": {
+   "journeys": 62,
+   "median_gained_secs": 2.0,
+   "median_stops_apart": 2.0,
+   "observations": 62,
+   "over_scheduled_share": 0.006666666666666667,
+   "p90_gained_secs": 127,
+   "scheduled_secs": 300.0,
+   "services": [
+    "2"
+   ],
+   "worst_gained_secs": 252
+  },
+  "Wallace Avenue \u2192 Marine Parade [eastbound]": {
+   "journeys": 78,
+   "median_gained_secs": -24.5,
+   "median_stops_apart": 12.0,
+   "observations": 78,
+   "over_scheduled_share": -0.022685185185185187,
+   "p90_gained_secs": 116,
+   "scheduled_secs": 1080.0,
+   "services": [
+    "700"
+   ],
+   "worst_gained_secs": 466
   }
  },
  "series": "timing_point",
  "suppressed": {
-  "hours": 0,
-  "segments": 46,
-  "services": 3
+  "hours": 3,
+  "segments": 77,
+  "services": 5
  }
 }

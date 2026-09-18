@@ -124,6 +124,13 @@ CAVEATS = [
     "journey running early, because the feed publishes no journey identifier "
     "that matches the timetable. Such a journey is recorded as the later one, "
     "so measured lateness is a floor and the real figure is this or worse.",
+    "A stop is timed by the last report within 150 m of it — when the bus "
+    "left — because the scheduled time it is compared against is a departure "
+    "time. For a bus that does not stop, that report can be up to 150 m past "
+    "the stop, so such arrivals read up to about 20 seconds late. The earlier "
+    "rule, nearest approach, leaned the other way and much harder: it timed "
+    "the middle of a layover and reported 23% of timing-point arrivals as "
+    "early, against 4% once corrected.",
     "Lateness is censored at the matching window: a bus more than 5 minutes "
     "early or 25 minutes late for a journey is attributed to a neighbouring "
     "one instead, so no observation can fall outside that range. In a measured "
