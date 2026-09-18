@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from gtfs_rt import parse_feed                                   # noqa: E402
+from api.gtfs_rt import parse_feed                                # noqa: E402
 
 SIRI_NS = {"s": "http://www.siri.org.uk/siri"}
 # The recorded box, from worker/src/recorder.js. Positions outside it would

@@ -56,7 +56,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import gtfs_rt                                # noqa: E402
+from api import gtfs_rt                      # noqa: E402
 import reliability_stats                      # noqa: E402
 from api import trip_match                    # noqa: E402
 from api.timetable_db import Timetable        # noqa: E402

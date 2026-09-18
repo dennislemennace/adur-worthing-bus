@@ -1,6 +1,6 @@
 """Reading GTFS-RT without a protobuf library.
 
-`scripts/gtfs_rt.py` exists because `gtfs-realtime-bindings` cannot be imported
+`api/gtfs_rt.py` exists because `gtfs-realtime-bindings` cannot be imported
 on Python 3.14 while CI runs 3.12. Hand-reading a wire format is the kind of
 decision that earns a sceptical test suite, so this builds messages with an
 *encoder written independently of the decoder* — a decoder checked against its
@@ -17,9 +17,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT))
 
-from gtfs_rt import parse_feed, fields                           # noqa: E402
+from api.gtfs_rt import parse_feed, fields                       # noqa: E402
 
 
 # ── A protobuf encoder, written from the spec, not from the decoder ──

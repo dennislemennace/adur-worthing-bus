@@ -41,6 +41,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from api import corridor_gaps
+from api import gtfs_rt, trip_match
 from api.timetable_db import (NIGHT_ENDS_SECS, Timetable,
                               path_has_time_gap, service_runs_on)
 
@@ -1221,6 +1222,33 @@ async def _fetch_siri_vm() -> list:
     return _parse_siri_vm(resp.text)
 
 
+async def _fetch_declared_journeys() -> dict:
+    """`{vehicle ref: trip id}` from GTFS-RT, or `{}` if it cannot be had.
+
+    The same service's other feed, carrying the one thing SIRI-VM does not:
+    which scheduled journey each bus is running. Measured over this box, 256 of
+    259 vehicles state a trip id and 184 name a journey we hold, against 0 of
+    256 for SIRI-VM's own journey reference. Both feeds carry identical vehicle
+    ids, positions and timestamps, so joining them on the vehicle ref is safe
+    (docs/reliability/gtfs-rt-probe.md).
+
+    Never raises: the live map worked without this yesterday and must keep
+    working if the feed is down. Failure means falling back to inference, not
+    an error page.
+    """
+    params = {"api_key": BODS_API_KEY, "boundingBox": BBOX_STR}
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(f"{BODS_BASE}/gtfsrtdatafeed/", params=params)
+            resp.raise_for_status()
+        _header, vehicles = gtfs_rt.parse_feed(resp.content)
+    except Exception as exc:                    # noqa: BLE001 — see docstring
+        log.info("GTFS-RT unavailable, falling back to inference: %s", exc)
+        return {}
+    return {v["vehicle_id"]: v["trip_id"]
+            for v in vehicles if v.get("vehicle_id") and v.get("trip_id")}
+
+
 def _parse_siri_vm(xml_text: str) -> list:
     try:
         root = ET.fromstring(xml_text)
@@ -1703,7 +1731,14 @@ def _secs_to_hhmm(secs: Optional[int]) -> str:
 
 
 async def _fetch_and_match_vehicles() -> dict:
-    vehicles = await _fetch_siri_vm()
+    # Both feeds at once: the second is 34 KB against the first's 285 KB, and
+    # waiting for them in turn would add its latency to every cache miss.
+    vehicles, declared = await asyncio.gather(_fetch_siri_vm(),
+                                              _fetch_declared_journeys())
+    for v in vehicles:
+        trip = declared.get(v.get("vehicle_ref", ""))
+        if trip:
+            v["declared_trip_id"] = trip
     tt       = await _get_timetable()
     # Matching every vehicle against the timetable is a synchronous walk over
     # SQLite results: 0.65 s for 233 buses on a desktop, several seconds on the
@@ -2024,6 +2059,48 @@ def _delay_to_status(delay_secs: int) -> str:
 
 
 # ── Trip matcher & enrichment ─────────────────────────────────
+def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
+    """Use the journey the feed names, where it names one we hold.
+
+    Attaches `trip_id`, `trip_headsign` and `lateness_secs` — the last being
+    the thing no amount of inference gives honestly: how late this bus is
+    against its own timetable, measured at the stop it is nearest.
+
+    `trip_source` records which it was, because "the 14:22, four minutes late"
+    and "probably the 14:22" are different claims and the map should not make
+    the second sound like the first.
+    """
+    now_local = datetime.now(UK_TZ)
+    now_secs = now_local.hour * 3600 + now_local.minute * 60 + now_local.second
+    for v in vehicles:
+        trip_id = v.get("declared_trip_id")
+        trip = tt.trips.get(trip_id or "")
+        if not trip:
+            continue
+        v["trip_id"] = trip_id
+        v["trip_headsign"] = trip.get("headsign", "")
+        v["trip_source"] = "feed"
+        calls = [(secs, atco) for secs, atco in tt.trip_stops_for(trip_id)
+                 if secs is not None]
+        if not calls:
+            continue
+        v["journey_start"] = _secs_to_hhmm(calls[0][0])
+        inst = {"calls": calls}
+        idx = trip_match.nearest_call(tt, inst, v.get("latitude"), v.get("longitude"))
+        if idx is None:
+            continue
+        # GTFS writes past-midnight times as 24:xx and beyond, so a night bus
+        # is compared on the same clock as the one it is running against.
+        due = calls[idx][0] % 86400
+        lateness = now_secs - due
+        if lateness > 12 * 3600:
+            lateness -= 86400
+        elif lateness < -12 * 3600:
+            lateness += 86400
+        v["lateness_secs"] = lateness
+        v["nearest_stop_name"] = (tt.stops.get(calls[idx][1]) or {}).get("name", "")
+
+
 def _enrich_vehicles_with_trip_match(vehicles: list, tt: Timetable) -> None:
     """
     For each live vehicle, attempt to find the scheduled GTFS trip it
@@ -2041,6 +2118,11 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: Timetable) -> None:
     if not vehicles or not tt.ok():
         return
 
+    # What the feed states, before anything we infer. GTFS-RT names the
+    # journey; the two strategies below exist because SIRI-VM does not, and
+    # they are guesses by comparison — measured at about 80% on this feed.
+    _attach_declared_journeys(vehicles, tt)
+
     now_local = datetime.now(UK_TZ)
     now_secs  = (now_local.hour * 3600
                  + now_local.minute * 60
@@ -2055,6 +2137,10 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: Timetable) -> None:
     stops          = tt.stops
 
     matched_n = 0
+    # Buses whose journey the feed named are already answered for.
+    vehicles = [v for v in vehicles if v.get("trip_source") != "feed"]
+    if not vehicles:
+        return
     for v in vehicles:
         svc = v.get("service_ref") or ""
         if not svc:
