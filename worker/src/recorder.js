@@ -22,6 +22,13 @@
 
 const BODS_FEED = "https://data.bus-data.dft.gov.uk/api/v1/datafeed/";
 
+// The same service's other feed. SIRI-VM gives positions and the operator's own
+// journey number, which matches no timetable trip here — 0 of 256 in a live
+// sample — so every journey has to be inferred from position and time. GTFS-RT
+// states `trip_id` and `current_stop_sequence` outright. If ours carries them,
+// the inference and the caveats it drags with it can go.
+const BODS_GTFS_RT = "https://data.bus-data.dft.gov.uk/api/v1/gtfsrtdatafeed/";
+
 // The same box the API watches: Adur, Worthing and the Brighton coast.
 const BBOX = "-0.42,50.78,-0.10,50.87";
 
@@ -43,7 +50,11 @@ const RECORD_TO = "00:30";
 // So the recorder does not trust the processor. It prunes on its own schedule,
 // and refuses to write at all once the bucket passes a budget set well below
 // the free allowance.
-const RETENTION_DAYS = 7;                        // ~2.5 GB at the observed size
+// Four days while both feeds are recorded: two a minute is roughly 540 MB a
+// day, and seven days of that would crowd the byte budget below. The nightly
+// processor only ever needs yesterday, so this still tolerates three missed
+// nights in a row.
+const RETENTION_DAYS = 4;
 const MAX_STORED_BYTES = 4 * 1024 * 1024 * 1024; // 40% of the 10 GB free tier
 const MAX_STORED_OBJECTS = 15_000;               // ~13 days of minutes; catches a runaway
 const USAGE_KEY = "r2-usage";                    // cached in the KV the Worker already binds
@@ -72,6 +83,18 @@ export function isRecordingTime(when) {
  *  be listed and deleted by prefix once it has been processed. */
 export function snapshotKey(when) {
   return `raw/${LONDON_DATE.format(when)}/${LONDON_CLOCK.format(when).replace(":", "")}.xml`;
+}
+
+/** The same minute's GTFS-RT, beside it. */
+export function gtfsRtKey(when) {
+  return `rt/${LONDON_DATE.format(when)}/${LONDON_CLOCK.format(when).replace(":", "")}.pb`;
+}
+
+/** The service day a key belongs to: "raw/2026-09-18/0740.xml" → "2026-09-18".
+ *  Both feeds are laid out the same way, so pruning reads either. */
+export function keyDay(key) {
+  const parts = key.split("/");
+  return parts.length > 2 ? parts[1] : "";
 }
 
 /** What the bucket held when it was last measured, or null if it never has
@@ -111,12 +134,14 @@ export async function pruneAndMeasure(env, when) {
   const oldestKept = LONDON_DATE.format(new Date(when.getTime() - RETENTION_DAYS * 86_400_000));
   let bytes = 0, objects = 0, deleted = 0, cursor;
   do {
-    const page = await env.SNAPSHOTS.list({ prefix: "raw/", cursor, limit: 1000 });
+    // Every prefix, not just raw/. The second feed lives under rt/, and a
+    // prune that only knew about the first would leave it growing unmeasured
+    // and unbilled-for until it was billed for.
+    const page = await env.SNAPSHOTS.list({ cursor, limit: 1000 });
     const stale = [];
     for (const obj of page.objects) {
-      // "raw/2026-09-16/1245.xml" → "2026-09-16", which compares as a date.
-      const day = obj.key.slice(4, 14);
-      if (day < oldestKept) stale.push(obj.key);
+      const day = keyDay(obj.key);
+      if (day && day < oldestKept) stale.push(obj.key);
       else { bytes += obj.size || 0; objects += 1; }
     }
     if (stale.length) {
@@ -162,6 +187,12 @@ export async function recordSnapshot(env, when, fetchImpl = fetch) {
     return { recorded: false, reason: budget.reason };
   }
 
+  // The second feed is stored beside the first and never blocks it: a GTFS-RT
+  // outage must not cost us the positions we already know how to use.
+  const rt = await storeFeed(env, fetchImpl, gtfsRtKey(when), when,
+                             `${BODS_GTFS_RT}?api_key=${encodeURIComponent(env.BODS_API_KEY)}`
+                             + `&boundingBox=${BBOX}`, "application/x-protobuf");
+
   const key = snapshotKey(when);
   const url = `${BODS_FEED}?api_key=${encodeURIComponent(env.BODS_API_KEY)}&boundingBox=${BBOX}`;
   const started = Date.now();
@@ -169,7 +200,7 @@ export async function recordSnapshot(env, when, fetchImpl = fetch) {
     const res = await fetchImpl(url, { signal: AbortSignal.timeout(45_000) });
     if (!res.ok) {
       console.error(`snapshot ${key}: feed returned HTTP ${res.status}`);
-      return { recorded: false, reason: "upstream", status: res.status, key };
+      return { recorded: false, reason: "upstream", status: res.status, key, rt };
     }
     // The bytes are read before they are stored, which looks wasteful and is
     // not optional: R2 rejects a stream whose length it cannot know, and the
@@ -183,16 +214,40 @@ export async function recordSnapshot(env, when, fetchImpl = fetch) {
       httpMetadata: { contentType: "application/xml" },
       customMetadata: { recordedAt: when.toISOString() },
     });
-    console.log(`snapshot ${key}: ${Math.round(body.byteLength / 1024)} KB in ${Date.now() - started} ms`);
-    return { recorded: true, key, bytes: body.byteLength };
+    console.log(`snapshot ${key}: ${Math.round(body.byteLength / 1024)} KB in ${Date.now() - started} ms`
+                + (rt.stored ? `, rt ${Math.round(rt.bytes / 1024)} KB` : `, rt ${rt.reason}`));
+    return { recorded: true, key, bytes: body.byteLength, rt };
   } catch (err) {
     console.error(`snapshot ${key}: ${err && err.message}`);
-    return { recorded: false, reason: "error", error: String(err && err.message), key };
+    return { recorded: false, reason: "error", error: String(err && err.message), key, rt };
+  }
+}
+
+/**
+ * Fetch one feed and store it. Never throws, and never reports a failure as a
+ * stored object: a feed that answers with an error page is not a snapshot.
+ */
+async function storeFeed(env, fetchImpl, key, when, url, contentType) {
+  try {
+    const res = await fetchImpl(url, { signal: AbortSignal.timeout(45_000) });
+    if (!res.ok) {
+      console.error(`snapshot ${key}: feed returned HTTP ${res.status}`);
+      return { stored: false, reason: `http_${res.status}` };
+    }
+    const body = await res.arrayBuffer();
+    await env.SNAPSHOTS.put(key, body, {
+      httpMetadata: { contentType },
+      customMetadata: { recordedAt: when.toISOString() },
+    });
+    return { stored: true, bytes: body.byteLength, key };
+  } catch (err) {
+    console.error(`snapshot ${key}: ${err && err.message}`);
+    return { stored: false, reason: "error", error: String(err && err.message) };
   }
 }
 
 export const _internals = {
-  isRecordingTime, snapshotKey, pruneAndMeasure, withinBudget, readUsage,
+  isRecordingTime, snapshotKey, gtfsRtKey, keyDay, pruneAndMeasure, withinBudget, readUsage,
   RECORD_FROM, RECORD_TO, BBOX,
   RETENTION_DAYS, MAX_STORED_BYTES, MAX_STORED_OBJECTS, USAGE_REFRESH_MINUTE, USAGE_KEY,
 };

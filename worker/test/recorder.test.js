@@ -22,9 +22,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import worker from "../src/index.js";
 import {
-  recordSnapshot, isRecordingTime, snapshotKey,
+  recordSnapshot, isRecordingTime, snapshotKey, gtfsRtKey, keyDay,
   pruneAndMeasure, withinBudget, readUsage, _internals,
 } from "../src/recorder.js";
+
+/** Both feeds are fetched each minute, so a fixture must answer twice. */
+const bothFeeds = (body = "<Siri/>") => async () => new Response(body, { status: 200 });
+
+/** The stored object for one feed, by prefix. */
+const put = (e, prefix) => e.SNAPSHOTS.puts.find(p => p.key.startsWith(prefix));
 
 const at = (iso) => new Date(iso);
 
@@ -74,9 +80,9 @@ function fakeKv(seed = {}) {
 const MB = 1024 * 1024;
 
 /** A day of snapshots, as objects of a given size. */
-function dayOf(date, count, size = 300 * 1024) {
+function dayOf(date, count, size = 300 * 1024, prefix = "raw", ext = "xml") {
   return Array.from({ length: count }, (_, i) => ({
-    key: `raw/${date}/${String(500 + i).padStart(4, "0")}.xml`, size,
+    key: `${prefix}/${date}/${String(500 + i).padStart(4, "0")}.${ext}`, size,
   }));
 }
 
@@ -132,14 +138,42 @@ test("a key sorts by day and minute, in London time", () => {
 test("a snapshot is stored once, as the feed sent it", async () => {
   const e = env();
   const body = "<Siri><VehicleActivity/></Siri>";
-  const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"), okFeed(body));
+  const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"), bothFeeds(body));
   assert.equal(r.recorded, true);
-  assert.equal(e.SNAPSHOTS.puts.length, 1);
-  const put = e.SNAPSHOTS.puts[0];
-  assert.equal(put.key, "raw/2026-09-16/1245.xml");
-  assert.equal(decode(put.body), body, "the body was not passed through untouched");
-  assert.equal(put.opts.customMetadata.recordedAt, "2026-09-16T11:45:00.000Z");
+  const siri = put(e, "raw/");
+  assert.equal(siri.key, "raw/2026-09-16/1245.xml");
+  assert.equal(decode(siri.body), body, "the body was not passed through untouched");
+  assert.equal(siri.opts.customMetadata.recordedAt, "2026-09-16T11:45:00.000Z");
   assert.equal(r.bytes, body.length);
+});
+
+test("the same minute's GTFS-RT is stored beside it", async () => {
+  // SIRI-VM says where a bus is; GTFS-RT says which journey it is running,
+  // which is the one thing our matching has to infer. Both are kept until the
+  // second is proven to carry what it claims.
+  const e = env();
+  const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"), bothFeeds());
+  assert.equal(e.SNAPSHOTS.puts.length, 2, "only one feed was recorded");
+  const rt = put(e, "rt/");
+  assert.equal(rt.key, "rt/2026-09-16/1245.pb");
+  assert.equal(rt.opts.httpMetadata.contentType, "application/x-protobuf");
+  assert.equal(r.rt.stored, true);
+});
+
+test("a GTFS-RT outage does not cost us the positions", async () => {
+  // The second feed is the experiment; the first is the record. An error from
+  // the new one must not take the working one down with it.
+  const e = env();
+  let call = 0;
+  const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"), async () => {
+    call += 1;
+    if (call === 1) throw new Error("gtfs-rt unavailable");
+    return new Response("<Siri/>", { status: 200 });
+  });
+  assert.equal(r.recorded, true, "the SIRI snapshot was lost with the GTFS-RT one");
+  assert.equal(r.rt.stored, false);
+  assert.equal(e.SNAPSHOTS.puts.length, 1);
+  assert.ok(put(e, "raw/"), "the positions were not stored");
 });
 
 test("a feed answering without a content length is still stored", async () => {
@@ -149,13 +183,15 @@ test("a feed answering without a content length is still stored", async () => {
   // stream must have a known length" while the test suite stayed green, because
   // the test asserted the intended design instead of R2's behaviour.
   const e = env();
-  const chunked = new Response(new ReadableStream({
+  // A fresh reply each call: both feeds are fetched, and a Response body can
+  // only be read once.
+  const chunked = () => new Response(new ReadableStream({
     start(c) { c.enqueue(new TextEncoder().encode("<Siri><Vehicle/></Siri>")); c.close(); },
   }), { status: 200 });
-  assert.equal(chunked.headers.get("content-length"), null, "the fixture is not a chunked reply");
-  const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"), async () => chunked);
+  assert.equal(chunked().headers.get("content-length"), null, "the fixture is not a chunked reply");
+  const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"), async () => chunked());
   assert.equal(r.recorded, true, `a chunked feed was not stored: ${r.error || r.reason}`);
-  assert.equal(decode(e.SNAPSHOTS.puts[0].body), "<Siri><Vehicle/></Siri>");
+  assert.equal(decode(put(e, "raw/").body), "<Siri><Vehicle/></Siri>");
 });
 
 test("the body is copied, never decoded or parsed", () => {
@@ -258,9 +294,9 @@ test("wrangler.toml has both triggers and the bucket the recorder needs", () => 
 test("days past the retention window are deleted, recent ones kept", async () => {
   const e = env({
     SNAPSHOTS: fakeBucket([
-      ...dayOf("2026-09-01", 3),   // sixteen days old
-      ...dayOf("2026-09-08", 3),   // nine days old
-      ...dayOf("2026-09-09", 3),   // seven days old: the oldest day still kept
+      ...dayOf("2026-09-01", 3),   // fifteen days old
+      ...dayOf("2026-09-11", 3),   // five days old, outside the four-day window
+      ...dayOf("2026-09-12", 3),   // four days old: the oldest day still kept
       ...dayOf("2026-09-14", 3),   // two days old
       ...dayOf("2026-09-16", 3),   // today
     ]),
@@ -269,9 +305,9 @@ test("days past the retention window are deleted, recent ones kept", async () =>
   const r = await pruneAndMeasure(e, at("2026-09-16T11:07:00Z"));
   assert.equal(r.deleted, 6, "the wrong number of old snapshots was dropped");
   assert.equal(r.objects, 9, "what was kept is not what was measured");
-  assert.ok(e.SNAPSHOTS.deleted.every((k) => k < "raw/2026-09-09"),
+  assert.ok(e.SNAPSHOTS.deleted.every((k) => keyDay(k) < "2026-09-12"),
     `a snapshot inside the window was deleted: ${e.SNAPSHOTS.deleted.join(", ")}`);
-  assert.ok(e.SNAPSHOTS.held.every((o) => o.key >= "raw/2026-09-09"),
+  assert.ok(e.SNAPSHOTS.held.every((o) => keyDay(o.key) >= "2026-09-12"),
     "an expired snapshot survived the prune");
 });
 
@@ -310,7 +346,7 @@ for (const [label, usage, allowed] of [
     const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"),
                                    async () => { fetched = true; return new Response("<Siri/>", { status: 200 }); });
     assert.equal(r.recorded, allowed);
-    assert.equal(e.SNAPSHOTS.puts.length, allowed ? 1 : 0,
+    assert.equal(e.SNAPSHOTS.puts.length, allowed ? 2 : 0,
       allowed ? "a snapshot inside budget was refused" : "a snapshot was stored past the budget");
     assert.equal(fetched, allowed, "the feed was called for a snapshot that could not be stored");
     if (!allowed) assert.match(r.reason, /budget/);
@@ -359,9 +395,9 @@ test("a failed measurement does not stop the recording", async () => {
   const bucket = fakeBucket();
   bucket.list = async () => { throw new Error("R2 unavailable"); };
   const e = env({ SNAPSHOTS: bucket, RATE_LIMIT: fakeKv() });
-  const r = await recordSnapshot(e, at("2026-09-16T11:07:00Z"), okFeed());
+  const r = await recordSnapshot(e, at("2026-09-16T11:07:00Z"), bothFeeds());
   assert.equal(r.recorded, true);
-  assert.equal(bucket.puts.length, 1);
+  assert.equal(bucket.puts.length, 2);
 });
 
 test("an unreadable budget does not stop the recording either", async () => {
@@ -377,4 +413,76 @@ test("the quiet hours are still free, budget or not", async () => {
   const r = await recordSnapshot(e, at("2026-09-17T02:00:00Z"), okFeed());
   assert.equal(r.reason, "quiet_hours");
   assert.equal(e.SNAPSHOTS.lists.length, 0);
+});
+
+
+// ── Both feeds, one budget ──────────────────────────────────
+//
+// The recorder writes two objects a minute now. A prune that knew only about
+// the first prefix would leave the second growing unmeasured — invisible to
+// the budget that exists to keep R2 free, and visible only on a bill.
+
+test("both feeds are pruned when they expire", async () => {
+  const e = env({
+    SNAPSHOTS: fakeBucket([
+      ...dayOf("2026-09-01", 3),                       // old positions
+      ...dayOf("2026-09-01", 3, 150 * 1024, "rt", "pb"),   // old journeys
+      ...dayOf("2026-09-16", 3),                       // today's positions
+      ...dayOf("2026-09-16", 3, 150 * 1024, "rt", "pb"),   // today's journeys
+    ]),
+    RATE_LIMIT: fakeKv(),
+  });
+  const r = await pruneAndMeasure(e, at("2026-09-16T11:07:00Z"));
+  assert.equal(r.deleted, 6, "an expired feed survived the prune");
+  assert.ok(e.SNAPSHOTS.deleted.some(k => k.startsWith("rt/")),
+    "the GTFS-RT objects were left behind to accumulate");
+  assert.ok(e.SNAPSHOTS.held.every(o => keyDay(o.key) === "2026-09-16"));
+});
+
+test("both feeds count against the storage budget", async () => {
+  const e = env({
+    SNAPSHOTS: fakeBucket([
+      ...dayOf("2026-09-16", 2, 300 * 1024),
+      ...dayOf("2026-09-16", 2, 150 * 1024, "rt", "pb"),
+    ]),
+    RATE_LIMIT: fakeKv(),
+  });
+  const r = await pruneAndMeasure(e, at("2026-09-16T11:07:00Z"));
+  assert.equal(r.objects, 4, "a feed was left out of the count");
+  assert.equal(r.bytes, 2 * 300 * 1024 + 2 * 150 * 1024,
+    "the bytes the budget is judged on do not include both feeds");
+});
+
+test("four days of two feeds still fits the byte budget", () => {
+  // The retention window dropped from seven days to four when the second feed
+  // arrived. Two feeds a minute is about 540 MB a day at the sizes measured,
+  // and the budget has to hold the whole window with room to spare.
+  const dailyBytes = 540 * 1024 * 1024;
+  assert.ok(_internals.RETENTION_DAYS * dailyBytes < _internals.MAX_STORED_BYTES * 0.8,
+    `${_internals.RETENTION_DAYS} days at 540 MB does not fit the budget`);
+});
+
+test("a key says which day it belongs to, whichever feed it is", () => {
+  assert.equal(keyDay("raw/2026-09-18/0740.xml"), "2026-09-18");
+  assert.equal(keyDay("rt/2026-09-18/0740.pb"), "2026-09-18");
+  assert.equal(keyDay("stray-object"), "", "an unrecognised key must not read as a date");
+});
+
+
+test("an error page from the second feed is not stored as journeys", async () => {
+  // BODS answers 403 for a bad key and 429 when throttled, both with a body.
+  // Storing either as a snapshot would put an HTML error page in the record
+  // and leave the processor to discover it a day later.
+  const e = env();
+  let call = 0;
+  const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"), async () => {
+    call += 1;
+    return call === 1
+      ? new Response("<html>Forbidden</html>", { status: 403 })
+      : new Response("<Siri/>", { status: 200 });
+  });
+  assert.equal(r.rt.stored, false);
+  assert.equal(r.rt.reason, "http_403");
+  assert.equal(e.SNAPSHOTS.puts.length, 1, "an error page was stored");
+  assert.ok(put(e, "raw/"), "the positions were lost with it");
 });
