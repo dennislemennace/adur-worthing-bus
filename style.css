@@ -6216,3 +6216,64 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
     min-height: 0;
   }
 }
+
+
+/* ── How long it really takes ───────────────────────────────
+   A chart with no library behind it: plain SVG, sized by viewBox so it
+   scales to a phone without a resize handler. Colours come from the same
+   tokens as everything else, and nothing here is carried by colour alone —
+   an estimated observation is hollow as well as paler, and every number in
+   the chart is repeated in the table below it. */
+.journey-times-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin: .75rem 0 1rem;
+}
+.journey-times-controls .field { flex: 1 1 10rem; min-width: 0; }
+
+.jt-headline { margin: .5rem 0 .75rem; line-height: 1.5; }
+
+.jt-chart {
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  display: block;
+  margin-bottom: .5rem;
+}
+.jt-grid { stroke: var(--color-border); stroke-width: 1; opacity: .5; }
+.jt-axis { fill: var(--color-text-muted); font-size: 11px; }
+.jt-axis-title { font-size: 11px; }
+.jt-dot { fill: var(--color-primary); opacity: .75; }
+/* Hollow, not merely a different hue: colour alone fails WCAG 1.4.1 and a
+   good share of readers. */
+.jt-dot--estimated {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-dasharray: 2 2;
+  opacity: .8;
+}
+.jt-promise { stroke: var(--color-link); stroke-width: 2; stroke-dasharray: 6 4; }
+.jt-promise-label { fill: var(--color-link); }
+
+.jt-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem 1.25rem;
+  padding: 0;
+  margin: .25rem 0 .75rem;
+  list-style: none;
+  color: var(--color-text-muted);
+  font-size: .92rem;
+}
+
+.jt-table-wrap { margin-bottom: .75rem; }
+.jt-table-wrap > summary { cursor: pointer; min-height: 44px; padding: .6rem 0; }
+/* Tables are the one thing allowed to scroll sideways; the page never does. */
+.jt-table-scroll { overflow-x: auto; }
+.jt-table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+.jt-table caption { text-align: left; color: var(--color-text-muted); padding-bottom: .4rem; }
+.jt-table th, .jt-table td { text-align: left; padding: .35rem .6rem .35rem 0; }
+.jt-table thead th { border-bottom: 1px solid var(--color-border); }
+
+.jt-method { color: var(--color-text-muted); font-size: .88rem; line-height: 1.5; }

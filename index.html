@@ -234,6 +234,7 @@
             <li role="option" data-mode="improvements" aria-selected="false" tabindex="-1">Route view</li>
             <li role="option" data-mode="tickets" aria-selected="false" tabindex="-1">Tickets &amp; fares</li>
             <li role="option" data-mode="network" aria-selected="false" tabindex="-1">Better buses</li>
+            <li role="option" data-mode="journeytimes" aria-selected="false" tabindex="-1">How long it really takes</li>
             <li role="option" data-mode="updates" aria-selected="false" tabindex="-1">News &amp; notes</li>
           </ul>
         </div>
@@ -884,6 +885,46 @@
           </div>
         </div>
       </div><!-- /panel-mode[data-mode="tickets"] -->
+
+      <!-- === MEASURED JOURNEY TIMES ===
+           Pick a service and two stops; see every journey we watched make
+           that trip, against what the timetable promised. The data comes
+           from R2 through the Worker, not from this repository: it is a few
+           megabytes and changes nightly. -->
+      <div class="panel-mode" data-mode="journeytimes">
+        <div class="panel-tab-content" id="tab-content-journey-times" role="tabpanel">
+          <h2 class="panel-heading">How long it really takes</h2>
+          <p class="panel-intro" id="journey-times-intro">
+            Every journey we tracked between two stops, against the time the
+            timetable promised. Measured from the operators' own vehicle feed.
+          </p>
+
+          <div class="journey-times-controls">
+            <label class="field">
+              <span class="field-label">Service</span>
+              <select id="journey-times-service" class="field-input"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">From</span>
+              <select id="journey-times-from" class="field-input"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">To</span>
+              <select id="journey-times-to" class="field-input"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">Days</span>
+              <select id="journey-times-days" class="field-input">
+                <option value="all">All days</option>
+                <option value="weekday">Weekdays</option>
+                <option value="weekend">Weekends</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="journey-times-result" aria-live="polite"></div>
+        </div>
+      </div><!-- /panel-mode[data-mode="journeytimes"] -->
 
       <!-- === NETWORK PLAN VIEW (objectives + community ideas) === -->
       <div class="panel-mode" data-mode="updates">

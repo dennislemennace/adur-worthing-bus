@@ -19,6 +19,12 @@ const CONFIG = {
   // Production:   Render deployment URL.
   API_BASE_URL: "https://adur-worthing-bus.onrender.com",
 
+  // Measured journey times, served from R2 by the submissions Worker. Not in
+  // this repository: a few megabytes rebuilt nightly is over a gigabyte of
+  // git history a year, and release assets cannot be fetched from a browser
+  // (signed URLs, an hour's life, no CORS header).
+  JOURNEY_TIMES_BASE: "https://adur-worthing-submissions.dennislemennace.workers.dev/journey-times",
+
   // Geographic centre of Adur & Worthing
   MAP_CENTER:  [50.818, -0.372],   // [lat, lon] — Worthing town centre area
   MAP_ZOOM:    13,
@@ -502,6 +508,19 @@ document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
   loadAnalytics();
+  // Changing any picker redraws; the data is already in memory, so this is
+  // cheap and needs no spinner.
+  for (const id of ["journey-times-service", "journey-times-from",
+                    "journey-times-to", "journey-times-days"]) {
+    document.getElementById(id)?.addEventListener("change", (e) => {
+      // A new service means new stops, so the stop lists are rebuilt.
+      if (e.target.id === "journey-times-service") {
+        document.getElementById("journey-times-from").dataset.service = "";
+      }
+      renderJourneyTimes();
+      track("journey-times-query");
+    });
+  }
   // The pre-paint script in index.html already applied html.dark-mode from
   // localStorage (or the OS preference on first visit), so there's no flash.
   // Sync our state + the toggle button to whatever it decided.
@@ -1568,7 +1587,7 @@ const analytics = { enabled: false, queue: [], once: new Set() };
 // see, so each one is counted as an event under a name a reader would use.
 const VIEW_EVENT_NAMES = {
   live: "live", improvements: "route", tickets: "tickets",
-  network: "better-buses", updates: "news",
+  network: "better-buses", updates: "news", journeytimes: "journey-times",
 };
 
 // Set by the switch on privacy.html. The analytics exemption in PECR, as
@@ -1613,6 +1632,277 @@ function loadAnalytics() {
   s.setAttribute("data-goatcounter", `https://${CONFIG.GOATCOUNTER_CODE}.goatcounter.com/count`);
   s.addEventListener("load", flushAnalytics);
   document.head.appendChild(s);
+}
+
+// ============================================================
+// HOW LONG IT REALLY TAKES
+// ============================================================
+//
+// Published per service as the calls each journey made, so the browser can
+// answer any pair of stops by subtracting one call from another. Open
+// Innovations' shape: precomputing every pair would be n² per route, nearly
+// all of it never looked at.
+//
+// Each call is [stop index, observed seconds, scheduled seconds, flags],
+// where flags carry the two things a chart must not hide — 1 the observation
+// was interpolated between sightings rather than seen, 2 the scheduled time
+// is GTFS's estimate rather than a time the operator commits to.
+
+const JT_ESTIMATED = 1;
+const JT_NO_PROMISE = 2;
+
+/** Every journey that called at both stops, in order, as timings. */
+function journeyTimesBetween(doc, fromIndex, toIndex) {
+  const out = [];
+  for (const journey of doc.journeys || []) {
+    const from = journey.calls.find(c => c[0] === fromIndex);
+    const to   = journey.calls.find(c => c[0] === toIndex);
+    if (!from || !to) continue;
+    // Direction matters: the same pair of names exists on both sides of a
+    // road, and a journey that calls at "to" before "from" is going the
+    // other way, not travelling backwards in time.
+    if (to[2] <= from[2]) continue;
+    out.push({
+      day: journey.day,
+      start: journey.start,
+      direction: journey.direction,
+      departSecs: from[1],
+      observedSecs: to[1] - from[1],
+      scheduledSecs: to[2] - from[2],
+      // An interpolated end makes the measurement an estimate; a scheduled
+      // time GTFS invented makes the *comparison* an estimate. They are
+      // different admissions and the chart makes them separately.
+      estimated: Boolean((from[3] | to[3]) & JT_ESTIMATED),
+      promised: !((from[3] | to[3]) & JT_NO_PROMISE),
+    });
+  }
+  return out.sort((a, b) => a.departSecs - b.departSecs);
+}
+
+/** Weekday/weekend filtering, on the service day rather than the clock. */
+function journeyTimesForDays(timings, which) {
+  if (which === "all") return timings;
+  return timings.filter(t => {
+    const day = new Date(`${t.day}T12:00:00Z`).getUTCDay();
+    const weekend = day === 0 || day === 6;
+    return which === "weekend" ? weekend : !weekend;
+  });
+}
+
+/** The numbers under the chart: how long it takes, and how often it is worse
+ *  than promised. Medians, because a single stuck bus should not move the
+ *  headline, and counts beside every figure. */
+function journeyTimesSummary(timings) {
+  if (!timings.length) return null;
+  const observed = timings.map(t => t.observedSecs).sort((a, b) => a - b);
+  const promised = timings.filter(t => t.promised);
+  const median = xs => xs.length % 2
+    ? xs[(xs.length - 1) / 2]
+    : Math.round((xs[xs.length / 2 - 1] + xs[xs.length / 2]) / 2);
+  const scheduled = promised.length
+    ? median(promised.map(t => t.scheduledSecs).sort((a, b) => a - b))
+    : null;
+  return {
+    journeys: timings.length,
+    estimated: timings.filter(t => t.estimated).length,
+    medianSecs: median(observed),
+    fastestSecs: observed[0],
+    slowestSecs: observed[observed.length - 1],
+    p90Secs: observed[Math.min(observed.length - 1, Math.floor(observed.length * 0.9))],
+    scheduledSecs: scheduled,
+    overPromised: scheduled == null ? null
+      : promised.filter(t => t.observedSecs > t.scheduledSecs + 60).length,
+    promisedJourneys: promised.length,
+  };
+}
+
+// ── Fetching, memoised: each service is one file, cached an hour by the
+// Worker and once here per visit. ──
+const journeyTimesCache = new Map();
+
+async function loadJourneyTimesIndex() {
+  if (!journeyTimesCache.has("_index")) {
+    const res = await fetch(`${CONFIG.JOURNEY_TIMES_BASE}/index.json`);
+    if (!res.ok) throw new Error(`index ${res.status}`);
+    journeyTimesCache.set("_index", await res.json());
+  }
+  return journeyTimesCache.get("_index");
+}
+
+async function loadJourneyTimes(service) {
+  if (!journeyTimesCache.has(service)) {
+    const file = encodeURIComponent(service).replace(/[^A-Za-z0-9_-]/g, "");
+    const res = await fetch(`${CONFIG.JOURNEY_TIMES_BASE}/${file}.json`);
+    if (!res.ok) throw new Error(`${service} ${res.status}`);
+    journeyTimesCache.set(service, await res.json());
+  }
+  return journeyTimesCache.get(service);
+}
+
+/** Minutes, for a reader. */
+function jtMinutes(secs) {
+  return `${Math.round(secs / 60)} min`;
+}
+
+/**
+ * The chart: one dot per journey, departure time across, journey time up.
+ *
+ * Inline SVG because this site has no build step and no chart library, and
+ * because a chart a reader cannot read is worse than a table. Everything the
+ * dots say is also said in the table below them — the shape is the point of
+ * the chart, not the only way to get the numbers.
+ */
+function journeyTimesChart(timings, summary) {
+  const W = 640, H = 260, L = 44, R = 12, T = 16, B = 34;
+  const maxSecs = Math.max(summary.slowestSecs, summary.scheduledSecs || 0) * 1.1;
+  const x = secs => L + (secs / 86400) * (W - L - R);
+  const y = secs => T + (1 - secs / maxSecs) * (H - T - B);
+
+  const hours = [];
+  for (let h = 0; h <= 24; h += 4) {
+    hours.push(`<line class="jt-grid" x1="${x(h * 3600).toFixed(1)}" y1="${T}" `
+      + `x2="${x(h * 3600).toFixed(1)}" y2="${H - B}"></line>`
+      + `<text class="jt-axis" x="${x(h * 3600).toFixed(1)}" y="${H - B + 16}" `
+      + `text-anchor="middle">${String(h % 24).padStart(2, "0")}:00</text>`);
+  }
+  const steps = [];
+  for (let m = 0; m <= maxSecs / 60; m += Math.max(5, Math.ceil(maxSecs / 60 / 4 / 5) * 5)) {
+    steps.push(`<line class="jt-grid" x1="${L}" y1="${y(m * 60).toFixed(1)}" `
+      + `x2="${W - R}" y2="${y(m * 60).toFixed(1)}"></line>`
+      + `<text class="jt-axis" x="${L - 6}" y="${(y(m * 60) + 4).toFixed(1)}" `
+      + `text-anchor="end">${m}</text>`);
+  }
+
+  // The timetable line, only where the operator actually promised a time.
+  const promise = summary.scheduledSecs != null
+    ? `<line class="jt-promise" x1="${L}" y1="${y(summary.scheduledSecs).toFixed(1)}" `
+      + `x2="${W - R}" y2="${y(summary.scheduledSecs).toFixed(1)}"></line>`
+      + `<text class="jt-axis jt-promise-label" x="${W - R}" `
+      + `y="${(y(summary.scheduledSecs) - 6).toFixed(1)}" text-anchor="end">`
+      + `timetable ${jtMinutes(summary.scheduledSecs)}</text>`
+    : "";
+
+  // Estimated observations get a hollow dot as well as a different colour:
+  // colour alone fails anyone who cannot distinguish it.
+  const dots = timings.map(t =>
+    `<circle class="jt-dot${t.estimated ? " jt-dot--estimated" : ""}" `
+    + `cx="${x(t.departSecs % 86400).toFixed(1)}" cy="${y(t.observedSecs).toFixed(1)}" r="3.5">`
+    + `<title>${escapeHtml(t.start)} ${escapeHtml(t.day)} — ${jtMinutes(t.observedSecs)}`
+    + `${t.estimated ? " (estimated)" : ""}</title></circle>`).join("");
+
+  return `<svg class="jt-chart" viewBox="0 0 ${W} ${H}" role="img"
+    aria-label="Journey time by time of day. ${timings.length} journeys, median
+    ${jtMinutes(summary.medianSecs)}${summary.scheduledSecs != null
+      ? `, timetable ${jtMinutes(summary.scheduledSecs)}` : ""}.">
+    ${steps.join("")}${hours.join("")}${promise}${dots}
+    <text class="jt-axis jt-axis-title" x="${L}" y="${T - 4}">minutes</text>
+  </svg>`;
+}
+
+/** The panel: pickers, chart, the numbers, and what they rest on. */
+async function renderJourneyTimes() {
+  const host = document.getElementById("journey-times-result");
+  const serviceSel = document.getElementById("journey-times-service");
+  const fromSel = document.getElementById("journey-times-from");
+  const toSel = document.getElementById("journey-times-to");
+  const daysSel = document.getElementById("journey-times-days");
+  if (!host || !serviceSel) return;
+
+  const mine = claimRender("journeytimes");
+  try {
+    const index = await loadJourneyTimesIndex();
+    if (!mine()) return;
+    if (!serviceSel.options.length) {
+      serviceSel.innerHTML = index.services.map(s =>
+        `<option value="${escapeAttr(s.service)}">Service ${escapeHtml(s.service)} `
+        + `— ${s.journeys} journeys</option>`).join("");
+    }
+    const doc = await loadJourneyTimes(serviceSel.value || index.services[0].service);
+    if (!mine()) return;
+
+    // Stops are listed by direction, then by where they fall along the route.
+    if (fromSel.dataset.service !== doc.service) {
+      const options = doc.stops.map((stop, i) =>
+        `<option value="${i}">${escapeHtml(prettifyName(stop.name))}`
+        + ` (${escapeHtml(stop.direction === "westbound" ? "towards Worthing"
+              : stop.direction === "eastbound" ? "towards Brighton" : "direction unknown")})`
+        + `</option>`).join("");
+      fromSel.innerHTML = options;
+      toSel.innerHTML = options;
+      fromSel.dataset.service = toSel.dataset.service = doc.service;
+      // Open on a pair that actually exists: the ends of the longest journey
+      // we tracked. Choosing by position along the route does not work —
+      // services run variants, so not every journey calls at every stop, and
+      // two plausible-looking stops opened on "no bus made that trip", which
+      // reads as a broken page rather than a default worth changing.
+      const longest = doc.journeys.reduce(
+        (best, j) => (j.calls.length > (best?.calls.length || 0) ? j : best), null);
+      if (longest) {
+        fromSel.value = String(longest.calls[0][0]);
+        toSel.value = String(longest.calls[longest.calls.length - 1][0]);
+      }
+    }
+
+    const timings = journeyTimesForDays(
+      journeyTimesBetween(doc, Number(fromSel.value), Number(toSel.value)),
+      daysSel.value);
+    const summary = journeyTimesSummary(timings);
+
+    if (!summary) {
+      host.innerHTML = `<p class="panel-empty">No bus we tracked made that trip
+        on the days recorded. Try two stops on the same side of the road, or
+        widen the days.</p>`;
+      return;
+    }
+
+    const from = doc.stops[Number(fromSel.value)];
+    const to = doc.stops[Number(toSel.value)];
+    const rows = timings.map(t =>
+      `<tr><td>${escapeHtml(t.day)}</td><td>${escapeHtml(t.start)}</td>`
+      + `<td>${jtMinutes(t.observedSecs)}${t.estimated ? " *" : ""}</td>`
+      + `<td>${t.promised ? jtMinutes(t.scheduledSecs) : "—"}</td></tr>`).join("");
+
+    host.innerHTML = `
+      <p class="jt-headline">
+        ${escapeHtml(prettifyName(from.name))} to ${escapeHtml(prettifyName(to.name))}
+        took a median of <strong>${jtMinutes(summary.medianSecs)}</strong>
+        across ${summary.journeys} tracked journeys${summary.scheduledSecs != null
+          ? `, against ${jtMinutes(summary.scheduledSecs)} in the timetable` : ""}.
+      </p>
+      ${journeyTimesChart(timings, summary)}
+      <ul class="jt-figures">
+        <li>Fastest ${jtMinutes(summary.fastestSecs)}</li>
+        <li>Slowest ${jtMinutes(summary.slowestSecs)}</li>
+        <li>9 in 10 under ${jtMinutes(summary.p90Secs)}</li>
+        ${summary.overPromised != null
+          ? `<li>Over the timetable on ${summary.overPromised} of
+             ${summary.promisedJourneys} journeys</li>` : ""}
+      </ul>
+      <details class="jt-table-wrap">
+        <summary>Every journey as a table (${summary.journeys})</summary>
+        <div class="jt-table-scroll">
+        <table class="jt-table"><caption>Journey times, ${escapeHtml(doc.days.join(", "))}</caption>
+          <thead><tr><th>Day</th><th>Departed</th><th>Took</th><th>Timetable</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>
+      </details>
+      <p class="jt-method">
+        ${summary.estimated ? `${summary.estimated} of ${summary.journeys} journey
+          times include a stop whose time was estimated between two sightings
+          (marked *). ` : ""}
+        ${summary.scheduledSecs == null
+          ? `The timetable does not commit to a time at one of these stops, so
+             there is nothing to compare against — only what we measured. `
+          : ""}
+        Measured from the operators' own vehicle feed, ${escapeHtml(doc.days.join(", "))}.
+        Built from ${escapeHtml((doc.data_versions || []).join(", "))}.
+      </p>`;
+  } catch (err) {
+    console.warn("Journey times unavailable:", err);
+    if (!mine()) return;
+    host.innerHTML = `<p class="panel-empty">Measured journey times are not
+      available just now.</p>`;
+  }
 }
 
 /** Count one named action. Names are fixed strings and ids from the site's own
@@ -4543,7 +4833,8 @@ function setNetworkTab(tab) {
  * visible but don't react to clicks.
  */
 function setViewMode(mode) {
-  if (!["live", "improvements", "tickets", "network", "updates"].includes(mode)) return;
+  if (!["live", "improvements", "tickets", "network", "updates",
+        "journeytimes"].includes(mode)) return;
   if (state.viewMode === mode) return;
   state.viewMode = mode;
   track(`view-${VIEW_EVENT_NAMES[mode]}`);
@@ -4707,6 +4998,16 @@ async function applyViewMode() {
       if (!mine()) return;
       showToast("Could not load ticket data. Try again later.");
     }
+  } else if (state.viewMode === "journeytimes") {
+    // Panel-only, like the updates and network views: no map layers of its
+    // own, so every other view's layers come down.
+    if (state.editor) closeEditor({ skipSave: false });
+    hideRouteLines();
+    hideAllProposalLayers();
+    hideTicketZones();
+    hideCouncilBoundaries();
+    clearJourneyLayers();
+    await renderJourneyTimes();
   } else if (state.viewMode === "updates") {
     // Panel-only, like the network view — no map layers of its own.
     if (state.editor) closeEditor({ skipSave: false });

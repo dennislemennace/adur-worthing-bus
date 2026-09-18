@@ -559,7 +559,7 @@ async function checkSheetFitsViewport(page, where) {
  */
 async function checkReadingLayout(page) {
   const widths = {};
-  for (const mode of ["improvements", "network", "updates"]) {
+  for (const mode of ["improvements", "network", "updates", "journeytimes"]) {
     await page.evaluate(`setViewMode('${mode}')`);
     await sleep(900);
     widths[mode] = await page.evaluate(
@@ -2075,6 +2075,7 @@ async function checkViews(page) {
     ["live", "Live Bus Tracking"], ["improvements", "Route view"],
     ["tickets", "Tickets & fares"], ["network", "Better buses"],
     ["updates", "News & notes"],
+    ["journeytimes", "How long it really takes"],
   ]) {
     await page.evaluate(`setViewMode('${mode}')`);
     await sleep(1500);
@@ -2103,7 +2104,8 @@ async function checkViews(page) {
  * showing when a view opens, so nothing had ever looked at it.
  */
 async function checkReachableAcrossViews(page, where) {
-  for (const mode of ["live", "improvements", "tickets", "network", "updates"]) {
+  for (const mode of ["live", "improvements", "tickets", "network", "updates",
+                      "journeytimes"]) {
     await page.evaluate(`setViewMode('${mode}')`);
     await sleep(1200);
     await checkReachable(page, `${mode} view — ${where}`);
