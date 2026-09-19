@@ -1,5 +1,5 @@
 {
- "as_of": "2026-09-19T22:14:05+00:00",
+ "as_of": "2026-09-19T22:51:08+00:00",
  "bands": {
   "early": 5392,
   "late": 10269,
@@ -136,247 +136,265 @@
  },
  "by_hour_basis": "scheduled departure hour, not the hour observed",
  "by_service": {
-  "1": {
-   "early": 878,
-   "late": 894,
-   "on_time": 8627,
-   "very_late": 60
+  "1 (BHBC)": {
+   "early": 826,
+   "late": 751,
+   "on_time": 8344,
+   "very_late": 36
   },
-  "10": {
+  "1 (SCSO)": {
+   "early": 52,
+   "late": 143,
+   "on_time": 283,
+   "very_late": 24
+  },
+  "10 (SCSO)": {
    "early": 105,
    "late": 120,
    "on_time": 736,
    "very_late": 5
   },
-  "106": {
+  "106 (COMT)": {
    "early": 0,
    "late": 9,
    "on_time": 28,
    "very_late": 0
   },
-  "11": {
+  "11 (SCSO)": {
    "early": 142,
    "late": 102,
    "on_time": 355,
    "very_late": 21
   },
-  "13X": {
+  "13X (BHBC)": {
    "early": 1,
    "late": 10,
    "on_time": 44,
    "very_late": 0
   },
-  "16": {
+  "16 (COMT)": {
    "early": 12,
    "late": 164,
    "on_time": 171,
    "very_late": 88
   },
-  "19": {
+  "19 (COMT)": {
    "early": 11,
    "late": 145,
    "on_time": 187,
    "very_late": 1
   },
-  "19A": {
+  "19A (COMT)": {
    "early": 0,
    "late": 1,
    "on_time": 25,
    "very_late": 0
   },
-  "1X": {
+  "1X (BHBC)": {
    "early": 149,
    "late": 452,
    "on_time": 2170,
    "very_late": 34
   },
-  "2": {
+  "2 (BHBC)": {
    "early": 206,
    "late": 857,
    "on_time": 3510,
    "very_late": 107
   },
-  "21": {
+  "21 (BHBC)": {
    "early": 121,
    "late": 851,
    "on_time": 3491,
    "very_late": 146
   },
-  "23": {
+  "23 (METR)": {
    "early": 33,
    "late": 142,
    "on_time": 248,
    "very_late": 45
   },
-  "23X": {
+  "23X (METR)": {
    "early": 4,
    "late": 21,
    "on_time": 92,
    "very_late": 0
   },
-  "29X": {
+  "29X (BHBC)": {
    "early": 1,
    "late": 0,
    "on_time": 8,
    "very_late": 0
   },
-  "2B": {
+  "2B (BHBC)": {
    "early": 6,
    "late": 0,
    "on_time": 16,
    "very_late": 0
   },
-  "37": {
+  "37 (COMT)": {
    "early": 30,
    "late": 375,
    "on_time": 840,
    "very_late": 18
   },
-  "37B": {
+  "37B (COMT)": {
    "early": 8,
    "late": 251,
    "on_time": 376,
    "very_late": 116
   },
-  "3X": {
+  "3X (BHBC)": {
    "early": 24,
    "late": 537,
    "on_time": 1278,
    "very_late": 101
   },
-  "46": {
+  "46 (BHBC)": {
    "early": 241,
    "late": 640,
    "on_time": 3725,
    "very_late": 181
   },
-  "47": {
+  "47 (COMT)": {
    "early": 32,
    "late": 424,
    "on_time": 659,
    "very_late": 206
   },
-  "49": {
+  "49 (BHBC)": {
    "early": 216,
    "late": 610,
    "on_time": 4392,
    "very_late": 84
   },
-  "5": {
-   "early": 347,
-   "late": 710,
-   "on_time": 4169,
-   "very_late": 96
+  "5 (BHBC)": {
+   "early": 224,
+   "late": 379,
+   "on_time": 3207,
+   "very_late": 39
   },
-  "59": {
+  "5 (SCSO)": {
+   "early": 123,
+   "late": 331,
+   "on_time": 962,
+   "very_late": 57
+  },
+  "59 (BHBC)": {
    "early": 0,
    "late": 0,
    "on_time": 10,
    "very_late": 0
   },
-  "59A": {
+  "59A (BHBC)": {
    "early": 0,
    "late": 10,
    "on_time": 14,
    "very_late": 0
   },
-  "5B": {
+  "5B (BHBC)": {
    "early": 460,
    "late": 880,
    "on_time": 5140,
    "very_late": 226
   },
-  "6": {
+  "6 (BHBC)": {
    "early": 281,
    "late": 296,
    "on_time": 2307,
    "very_late": 51
   },
-  "60": {
+  "60 (BHBC)": {
    "early": 0,
    "late": 0,
    "on_time": 18,
    "very_late": 0
   },
-  "69": {
+  "69 (COMT)": {
    "early": 1,
    "late": 1,
    "on_time": 21,
    "very_late": 0
   },
-  "7": {
-   "early": 322,
-   "late": 690,
-   "on_time": 5239,
-   "very_late": 79
+  "7 (BHBC)": {
+   "early": 315,
+   "late": 623,
+   "on_time": 4950,
+   "very_late": 75
   },
-  "700": {
+  "7 (SCSO)": {
+   "early": 7,
+   "late": 67,
+   "on_time": 289,
+   "very_late": 4
+  },
+  "700 (SCSO)": {
    "early": 1299,
    "late": 675,
    "on_time": 5987,
    "very_late": 27
   },
-  "701": {
+  "701 (SCSO)": {
    "early": 399,
    "late": 228,
    "on_time": 2396,
    "very_late": 28
   },
-  "740": {
+  "740 (COMT)": {
    "early": 8,
    "late": 3,
    "on_time": 21,
    "very_late": 0
   },
-  "8": {
+  "8 (COMT)": {
    "early": 1,
    "late": 3,
    "on_time": 251,
    "very_late": 0
   },
-  "8A": {
+  "8A (COMT)": {
    "early": 2,
    "late": 0,
    "on_time": 93,
    "very_late": 0
   },
-  "9": {
+  "9 (SCSO)": {
    "early": 49,
    "late": 167,
    "on_time": 529,
    "very_late": 346
   },
-  "98": {
+  "98 (BHBC)": {
    "early": 0,
    "late": 0,
    "on_time": 10,
    "very_late": 0
   },
-  "N12": {
+  "N12 (BHBC)": {
    "early": 0,
    "late": 0,
    "on_time": 0,
    "very_late": 10
   },
-  "N25": {
+  "N25 (BHBC)": {
    "early": 2,
    "late": 1,
    "on_time": 15,
    "very_late": 0
   },
-  "N29": {
+  "N29 (BHBC)": {
    "early": 0,
    "late": 0,
    "on_time": 1,
    "very_late": 2
   },
-  "N7": {
+  "N7 (BHBC)": {
    "early": 0,
    "late": 0,
    "on_time": 34,
    "very_late": 0
   },
-  "N700": {
+  "N700 (SCSO)": {
    "early": 1,
    "late": 0,
    "on_time": 0,
