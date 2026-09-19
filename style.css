@@ -3755,7 +3755,8 @@ body[data-view="live"]         .panel-mode[data-mode="live"],
 body[data-view="improvements"] .panel-mode[data-mode="improvements"],
 body[data-view="tickets"]      .panel-mode[data-mode="tickets"],
 body[data-view="network"]      .panel-mode[data-mode="network"],
-body[data-view="updates"]      .panel-mode[data-mode="updates"] { display: flex; }
+body[data-view="updates"]      .panel-mode[data-mode="updates"],
+body[data-view="journeytimes"] .panel-mode[data-mode="journeytimes"] { display: flex; }
 
 /* In the non-live network views stops stay visible but inert (no clicks, no
    popup). Vehicle markers are removed from the map entirely by JS. */
@@ -6230,7 +6231,37 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   gap: .75rem;
   margin: .75rem 0 1rem;
 }
-.journey-times-controls .field { flex: 1 1 10rem; min-width: 0; }
+/* `.field` and `.field-input` were invented here and never styled, which the
+   browser check found the moment the panel became visible: 19px-high selects
+   against the site's 44px rule, and one overflowing the viewport by 114px
+   because a select does not shrink below its longest option without being
+   told to. Stop names are long. */
+.journey-times-controls .field {
+  flex: 1 1 10rem;
+  min-width: 0;          /* lets the flex item shrink; without it, see above */
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+.journey-times-controls .field-label {
+  font-size: .85rem;
+  color: var(--color-text-muted);
+}
+.journey-times-controls .field-input {
+  width: 100%;
+  max-width: 100%;
+  min-height: 44px;      /* WCAG 2.5.8, and the house minimum */
+  padding: .5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.journey-times-controls .field-input:focus-visible {
+  outline: 3px solid var(--color-link);
+  outline-offset: 2px;
+}
 
 .jt-headline { margin: .5rem 0 .75rem; line-height: 1.5; }
 

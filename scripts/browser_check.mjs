@@ -2081,6 +2081,24 @@ async function checkViews(page) {
     await sleep(1500);
     check(`view "${mode}" activates`,
       (await page.evaluate("document.body.dataset.view")) === mode, label);
+
+    // Activating is not showing. A mode with no rule in the visibility
+    // allow-list in style.css sets data-view, renders its content, and stays
+    // display:none — the tab works and the panel is blank. Every other check
+    // passes in that state, because nothing overflows a box of zero height.
+    const shown = JSON.parse(await page.evaluate(`(() => {
+      const el = document.querySelector('.panel-mode[data-mode="${mode}"]');
+      if (!el) return JSON.stringify({ missing: true });
+      const box = el.getBoundingClientRect();
+      return JSON.stringify({
+        height: Math.round(box.height),
+        display: getComputedStyle(el).display,
+        text: (el.textContent || "").trim().length,
+      });
+    })()`));
+    check(`view "${mode}" is actually visible`,
+      !shown.missing && shown.display !== "none" && shown.height > 20 && shown.text > 0,
+      JSON.stringify(shown));
     await screenshot(page, `${mode}`);
     // Measured here, not in one pass up front: a panel that is not the
     // active view is display:none, and its contents cannot be meaningfully

@@ -1774,8 +1774,11 @@ function journeyTimesChart(timings, summary) {
   for (let h = 0; h <= 24; h += 4) {
     hours.push(`<line class="jt-grid" x1="${x(h * 3600).toFixed(1)}" y1="${T}" `
       + `x2="${x(h * 3600).toFixed(1)}" y2="${H - B}"></line>`
+      // The first and last labels are anchored inward: centred, they hang
+      // past the chart's edge and take the whole page with them.
       + `<text class="jt-axis" x="${x(h * 3600).toFixed(1)}" y="${H - B + 16}" `
-      + `text-anchor="middle">${String(h % 24).padStart(2, "0")}:00</text>`);
+      + `text-anchor="${h === 0 ? "start" : h === 24 ? "end" : "middle"}">`
+      + `${String(h % 24).padStart(2, "0")}:00</text>`);
   }
   const steps = [];
   for (let m = 0; m <= maxSecs / 60; m += Math.max(5, Math.ceil(maxSecs / 60 / 4 / 5) * 5)) {
