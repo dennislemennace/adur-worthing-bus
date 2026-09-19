@@ -49,11 +49,27 @@ class Failures:
 
     def __init__(self):
         self.items = []
+        self.counts = {}
 
     def add(self, check, detail):
         self.items.append((check, detail))
 
+    def note(self, label, n=1):
+        """Something worth reporting that is not a reason to stop.
+
+        The first version of this script had no such category, so a journey
+        time of exactly zero — two adjacent stops covered inside one reporting
+        interval — was failed alongside a bus arriving before it set off. That
+        blocked publishing 1,327 times on the first real run, of which 1,325
+        were a feed that reports every few minutes rather than any error at
+        all. A check that cannot tell "impossible" from "below our resolution"
+        gets switched off, and then it catches neither.
+        """
+        self.counts[label] = self.counts.get(label, 0) + n
+
     def report(self, out=sys.stderr):
+        for label, n in sorted(self.counts.items()):
+            print(f"note {label}: {n}", file=out)
         by_check = {}
         for check, detail in self.items:
             by_check.setdefault(check, []).append(detail)
@@ -102,10 +118,17 @@ def check_journey_document(doc, name, fails):
         for before, after in zip(usable, usable[1:]):
             if after[2] <= before[2]:
                 continue                    # same scheduled minute: nothing to compare
-            if after[1] <= before[1]:
-                fails.add("journey time is negative or zero",
+            if after[1] < before[1]:
+                fails.add("journey time is negative",
                           f"{where}: stops {before[0]}->{after[0]} "
                           f"{(after[1] - before[1]) / 60:.1f} min")
+            elif after[1] == before[1]:
+                # Not an error. The feed reports every few minutes, so two
+                # stops a few hundred metres apart are genuinely covered inside
+                # one report. The browser drops such a pair from a chart —
+                # there is no duration to draw — but the observation is true
+                # and belongs in the file.
+                fails.note("stop pairs covered within one report (zero length)")
 
 
 def is_stats_cell(cell):

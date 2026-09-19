@@ -338,7 +338,7 @@ def arrivals_along(samples, calls, stops):
     journey-time tool, that is a bus arriving an hour before it set off, and 69
     such durations were published.
     """
-    floor = 0
+    floor = 0          # no stop is timed from a sample before this one
     for stop_index, (scheduled_secs, atco) in enumerate(calls):
         stop = stops.get(atco) or {}
         if stop.get("lat") is None:
@@ -375,8 +375,42 @@ def arrivals_along(samples, calls, stops):
         # stop cannot be placed, unless the two are near enough to be one place.
         if (nearest == floor or i == len(samples) - 1) and metres > AT_THE_STOP_M:
             continue
+        # The *departure* has to advance too, and constraining the nearest
+        # approach alone does not make it so: a brief pass at a stop can end its
+        # run before a long dwell at the stop before it ends. Measured after the
+        # nearest-approach fix, 2 pairs of 1,049 journeys on 16 September still
+        # ran backwards, the worst by 2.1 minutes — small enough to look like a
+        # real figure on a chart, which is what makes it worth refusing.
         floor = nearest
         yield stop_index, scheduled_secs, atco, i, metres
+
+
+def advancing_only(arrivals):
+    """Drop any arrival whose *departure* precedes the one before it.
+
+    `arrivals_along` constrains which sample may time each stop, which fixes
+    the large errors — a journey timing an early stop from a later pass. It
+    does not quite finish the job, because a stop is timed by when the bus
+    *left* it, the last sample within 150 m: a brief pass at one stop can end
+    its run before a long dwell at the stop before it ends, and the published
+    times then run backwards although the approaches did not.
+
+    Measured after the nearest-approach fix: 2 pairs of 1,049 journeys on
+    16 September still inverted, the worst by 2.1 minutes. Two is not many, and
+    2.1 minutes is small enough to read as a real figure on a chart rather than
+    an error — which is exactly why it is refused rather than tolerated.
+
+    Separate from the geometry because it is a separate claim. The arrangement
+    of stops and samples needed to provoke the case is contrived enough that no
+    fixture built from real stop spacings reproduces it, so the search cannot
+    be tested for this; the rule can, and is.
+    """
+    left_at = -1
+    for arrival in arrivals:
+        if arrival[3] < left_at:
+            continue
+        left_at = arrival[3]
+        yield arrival
 
 
 def observe_day(tt, day, snapshots, atcos=None):
@@ -498,8 +532,8 @@ def observe_day(tt, day, snapshots, atcos=None):
         refs = [s[3] for s in samples if s[3]]
         vehicle = max(set(refs), key=refs.count) if refs else ""
         seen_here = []          # (stop index, scheduled, observed) for this journey
-        for stop_index, scheduled_secs, atco, sample_i, metres in arrivals_along(
-                samples, calls, tt.stops):
+        for stop_index, scheduled_secs, atco, sample_i, metres in advancing_only(
+                arrivals_along(samples, calls, tt.stops)):
             stop = tt.stops.get(atco) or {}
             best = samples[sample_i]
             seen_here.append((stop_index, scheduled_secs, best[0]))

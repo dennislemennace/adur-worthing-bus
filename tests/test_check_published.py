@@ -45,7 +45,7 @@ def test_a_negative_journey_time_is_caught():
     # observed order does not, so subtracting gives a bus arriving before it
     # left. Sixty-nine of these were published, the worst -12 minutes.
     bad = doc([journey([[0, 30600, 30600, 0], [2, 29700, 31800, 0]])])
-    assert "journey time is negative or zero" in failures(
+    assert "journey time is negative" in failures(
         cp.check_journey_document, bad, "700")
 
 
@@ -53,6 +53,19 @@ def test_a_journey_that_holds_together_passes():
     good = doc([journey([[0, 30600, 30600, 0], [2, 31800, 31800, 0],
                          [3, 32400, 32400, 0]])])
     assert failures(cp.check_journey_document, good, "700") == []
+
+
+def test_a_zero_length_journey_time_is_noted_not_failed():
+    # Two stops covered inside one reporting interval. The feed reports every
+    # few minutes, so this is a limit of the evidence rather than an error, and
+    # the first version of this script failed 1,327 documents on it — of which
+    # 1,325 were exactly this. A check that cannot tell "impossible" from
+    # "below our resolution" is one that gets switched off.
+    same = doc([journey([[0, 30600, 30600, 0], [2, 30600, 31800, 0]])])
+    fails = cp.Failures()
+    cp.check_journey_document(same, "700", fails)
+    assert fails.items == [], "a zero-length journey time blocked publishing"
+    assert sum(fails.counts.values()) == 1, "and it was not reported either"
 
 
 def test_two_stops_sharing_a_scheduled_minute_are_not_a_fault():

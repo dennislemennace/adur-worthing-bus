@@ -1027,6 +1027,40 @@ def test_a_journey_that_returns_near_its_own_early_stop_does_not_run_backwards()
         "stop 1 was timed from a later pass than stop 2"
 
 
+def test_a_stop_cannot_be_left_before_the_one_before_it():
+    # Constraining which sample may time each stop fixes the large errors but
+    # not this one. A stop is timed by when the bus *left* it — the last sample
+    # within 150 m — so a brief pass at one stop can end its run before a long
+    # dwell at the stop before it ends, and the published times run backwards
+    # although the approaches did not.
+    #
+    # Measured after the nearest-approach fix: 2 pairs of 1,049 journeys on
+    # 16 September still inverted, the worst by 2.1 minutes — small enough to
+    # read as a real figure on a chart rather than an error, which is why it is
+    # refused rather than tolerated.
+    #
+    # Stated against the rule rather than against geometry. The arrangement of
+    # stops and samples that provokes it is contrived enough that no fixture
+    # built from real stop spacings reproduces it: an earlier version of this
+    # test used one, and passed whether or not the rule was there.
+    arrivals = [
+        (0, 36_000, "A", 3, 10),        # left at sample 3
+        (1, 36_120, "B", 2, 20),        # left at sample 2 — before A
+        (2, 36_240, "C", 5, 15),
+    ]
+    kept = [a[0] for a in ps.advancing_only(arrivals)]
+    assert kept == [0, 2], f"a stop left before the one before it survived: {kept}"
+
+
+def test_stops_sharing_a_departure_sample_both_survive():
+    # Adjacent stops covered inside one reporting interval share their last
+    # sample. Their journey time between them is zero, which is a limit of a
+    # feed reporting every few minutes, not a contradiction — and dropping one
+    # of them would throw away a real arrival to tidy a number.
+    arrivals = [(0, 36_000, "A", 4, 10), (1, 36_060, "B", 4, 12)]
+    assert [a[0] for a in ps.advancing_only(arrivals)] == [0, 1]
+
+
 def test_the_constraint_does_not_cost_closely_spaced_stops_their_arrival():
     # Two poles 15 m apart share their nearest sample. Forcing each stop
     # strictly later than the one before would push one of them off its own
