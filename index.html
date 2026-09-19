@@ -920,6 +920,16 @@
               <select id="journey-times-to" class="field-input"></select>
             </label>
             <label class="field">
+              <!-- Delay first: one timetable line at the median scheduled
+                   duration is up to twelve minutes wrong about any individual
+                   700 journey, in both directions. -->
+              <span class="field-label">Show</span>
+              <select id="journey-times-mode" class="field-input">
+                <option value="delay">Against the timetable</option>
+                <option value="duration">Journey time</option>
+              </select>
+            </label>
+            <label class="field">
               <span class="field-label">Days</span>
               <select id="journey-times-days" class="field-input">
                 <option value="all">All days</option>

@@ -104,11 +104,16 @@ def check_journey_document(doc, name, fails):
 
         for index, n in sorted(counts.items()):
             if n > 1:
-                # A circular service really does call twice, but the browser
-                # cannot tell which visit a reader means and drops the journey.
-                # Publishing it loses the data silently.
-                fails.add("journey calls at one stop more than once",
-                          f"{where}: stop index {index}, {n} times")
+                # Counted, not refused. 843 trips in the timetable genuinely
+                # call at one stop more than once — circular services and
+                # estate loops are an ordinary route shape, not a fault, and
+                # this check first learned that by blocking a publish over
+                # three late-night journeys on the 5, 5B and 46.
+                #
+                # The browser drops such a journey only from pairs naming the
+                # repeated stop, where it cannot tell which visit is meant.
+                # Every other pair on that journey is unaffected.
+                fails.note("journeys calling at one stop more than once")
 
         # The one that reached readers. Wherever the scheduled times advance,
         # the observed times must advance too.

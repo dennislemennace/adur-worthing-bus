@@ -3788,6 +3788,31 @@ body:not([data-view="live"]) .leaflet-marker-icon.stop-marker-icon {
   opacity: 0.55;
 }
 
+/* The journey-time view draws its own stops, so a reader can pick the two ends
+   on the map instead of finding names in a list of 151. Those are very
+   different tasks and the second is the one they are actually doing. This is a
+   layer of its own rather than a restyling of the shared stop markers, which
+   come and go with the zoom. */
+.jt-stop {
+  fill: var(--color-link);
+  fill-opacity: .55;
+  cursor: pointer;
+}
+.jt-stop:hover { fill-opacity: .9; }
+
+/* The chosen pair, told apart by shape and size as well as colour, because
+   colour alone fails WCAG 1.4.1 and a good share of readers with it. */
+.jt-stop--from { fill: var(--color-link); fill-opacity: 1; }
+.jt-stop--to {
+  fill: var(--color-surface);
+  fill-opacity: 1;
+  stroke: var(--color-link);
+}
+.jt-stop:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+
 /* Ticket view is about the zone fills, not individual stops — shrink the dots
    and fade them so ~1400 markers recede into the background behind the zones. */
 body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
@@ -6314,6 +6339,65 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 }
 .jt-promise { stroke: var(--color-link); stroke-width: 2; stroke-dasharray: 6 4; }
 .jt-promise-label { fill: var(--color-link); }
+
+/* Zero on the delay chart. Solid and heavier than the other gridlines, because
+   "above this line is slower than promised" only works if the line is
+   unmistakable. */
+.jt-grid--zero {
+  stroke: var(--color-link);
+  stroke-width: 2;
+  opacity: 1;
+}
+
+/* Each dot is focusable, so the chart can be read with a keyboard rather than
+   being an image of data. A <title> alone is a mouse-only affordance. */
+.jt-dot:focus-visible {
+  outline: none;
+  stroke: var(--color-text);
+  stroke-width: 2.5;
+  r: 5.5;
+}
+
+.jt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem 1.1rem;
+  padding: 0;
+  margin: 0 0 .6rem;
+  list-style: none;
+  color: var(--color-text-muted);
+  font-size: .86rem;
+  line-height: 1.35;
+}
+.jt-legend li {
+  display: flex;
+  align-items: baseline;
+  gap: .4rem;
+  /* A legend entry may carry a sentence of explanation, and it must wrap as a
+     block rather than letting its swatch drift into the middle of the text. */
+  max-width: 22rem;
+}
+.jt-key {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  margin-top: .25rem;
+}
+.jt-key--measured { background: var(--color-primary); opacity: .75; }
+.jt-key--estimated {
+  background: transparent;
+  border: 1.5px dashed var(--color-primary);
+}
+.jt-key--zero,
+.jt-key--promise {
+  border-radius: 1px;
+  height: 3px;
+  margin-top: .45rem;
+  background: var(--color-link);
+}
+.jt-key--promise { background: repeating-linear-gradient(
+  to right, var(--color-link) 0 4px, transparent 4px 7px); }
 
 .jt-figures {
   display: flex;

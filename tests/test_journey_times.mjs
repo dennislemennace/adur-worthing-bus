@@ -27,6 +27,7 @@ const journeyTimesForDays = forDays;
 const summarise = vm.runInContext("journeyTimesSummary", app);
 const directions = vm.runInContext("journeyTimesDirections", app);
 const defaultPair = vm.runInContext("journeyTimesDefaultPair", app);
+const delays = vm.runInContext("journeyTimesDelays", app);
 
 const MIN = 60;
 
@@ -374,4 +375,59 @@ test("a direction with one stop offers no pair at all", () => {
   const doc = { journeys: [headed("Meadowview", [[0, 100, 100, 0]])] };
   assert.equal(defaultPair(doc, directions(doc)[0]), null);
   assert.equal(defaultPair(doc, undefined), null);
+});
+
+
+// ── Each journey against its own promise ────────────────────
+
+test("a journey is compared with its own scheduled time, not the median", () => {
+  // The chart drew one timetable line at the median scheduled duration. The
+  // 700's scheduled run between its ends ranges 61 to 85 minutes, so that line
+  // is up to twelve minutes wrong about every journey it judges — and wrong in
+  // both directions. A bus keeping a slower evening timetable read as late; one
+  // missing a tighter morning timetable read as on time.
+  const journeys = [
+    trip("2026-09-17", 8 * 60, 63, 61),       // 2 min over its own promise
+    trip("2026-09-17", 18 * 60, 80, 85),      // 5 min inside its own promise
+  ];
+  const got = delays(between({ journeys }, 0, 3));
+  assert.equal(JSON.stringify(got.map(t => t.delaySecs / 60)),
+    JSON.stringify([2, -5]),
+    "journeys were judged against an aggregate rather than their own timetable");
+});
+
+test("a journey with no promise is not in a delay chart at all", () => {
+  // A delay measured against GTFS's own interpolation is a delay against our
+  // arithmetic, which is not a finding about a bus.
+  const journeys = [
+    trip("2026-09-17", 8 * 60, 63, 61),
+    trip("2026-09-17", 9 * 60, 70, 61, [2, 2]),     // no promise either end
+    trip("2026-09-17", 10 * 60, 70, 61, [0, 2]),    // none at one end
+  ];
+  const got = delays(between({ journeys }, 0, 3));
+  assert.equal(got.length, 1, "an interpolated schedule was published as a delay");
+  assert.equal(got[0].delaySecs, 2 * 60);
+});
+
+test("the summary's delay figures use each journey's own promise", () => {
+  const journeys = [
+    trip("2026-09-17", 8 * 60, 63, 61),       // +2
+    trip("2026-09-17", 12 * 60, 71, 70),      // +1
+    trip("2026-09-17", 18 * 60, 97, 85),      // +12
+  ];
+  const s = summarise(between({ journeys }, 0, 3));
+  assert.equal(s.medianDelaySecs, 2 * 60);
+  assert.equal(s.worstDelaySecs, 12 * 60);
+  // And the aggregate scheduled figure is still the median of the promises,
+  // which is a different and much weaker statement — kept, but not the basis
+  // of the comparison.
+  assert.equal(s.scheduledSecs, 70 * 60);
+});
+
+test("with nothing promised there are no delay figures to state", () => {
+  const journeys = [trip("2026-09-17", 8 * 60, 63, 61, [2, 2])];
+  const s = summarise(between({ journeys }, 0, 3));
+  assert.equal(s.medianDelaySecs, null);
+  assert.equal(s.worstDelaySecs, null);
+  assert.equal(s.journeys, 1, "the observed time is still worth showing");
 });

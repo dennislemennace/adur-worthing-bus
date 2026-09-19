@@ -75,13 +75,22 @@ def test_two_stops_sharing_a_scheduled_minute_are_not_a_fault():
     assert failures(cp.check_journey_document, same, "700") == []
 
 
-def test_a_journey_calling_at_one_stop_twice_is_reported():
-    # The browser cannot tell which visit a reader means, so it drops the
-    # journey. Published unremarked, that is data lost in silence.
+def test_a_journey_calling_at_one_stop_twice_is_counted_not_refused():
+    # 843 trips in this timetable call at one stop more than once: circular
+    # services and estate loops are an ordinary route shape. This check began
+    # by refusing them and blocked a publish over three late-night journeys on
+    # the 5, 5B and 46 — the same mistake as failing a zero-length duration,
+    # which is confusing "unusual" with "impossible".
+    #
+    # The browser drops such a journey only from pairs naming the repeated
+    # stop, where it genuinely cannot tell which visit is meant.
     loop = doc([journey([[0, 30600, 30600, 0], [2, 31200, 31200, 0],
                          [0, 33000, 33000, 0]])])
-    assert "journey calls at one stop more than once" in failures(
-        cp.check_journey_document, loop, "700")
+    fails = cp.Failures()
+    cp.check_journey_document(loop, "700", fails)
+    assert [c for c, _ in fails.items] == [], \
+        f"a circular route blocked publishing: {fails.items}"
+    assert "journeys calling at one stop more than once" in fails.counts
 
 
 def test_a_call_naming_a_stop_that_is_not_in_the_list_is_caught():

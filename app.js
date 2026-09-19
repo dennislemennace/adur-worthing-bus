@@ -522,12 +522,19 @@ async function init() {
   }
   // Changing any picker redraws; the data is already in memory, so this is
   // cheap and needs no spinner.
-  for (const id of ["journey-times-service", "journey-times-from",
-                    "journey-times-to", "journey-times-days"]) {
+  for (const id of ["journey-times-service", "journey-times-direction",
+                    "journey-times-from", "journey-times-to",
+                    "journey-times-mode", "journey-times-days"]) {
     document.getElementById(id)?.addEventListener("change", (e) => {
-      // A new service means new stops, so the stop lists are rebuilt.
+      // A new service means new directions, and a new direction means new
+      // stops. Both lists are keyed by what they were built for, so clearing
+      // the key is what rebuilds them.
       if (e.target.id === "journey-times-service") {
-        document.getElementById("journey-times-from").dataset.service = "";
+        document.getElementById("journey-times-direction").dataset.service = "";
+        document.getElementById("journey-times-from").dataset.pair = "";
+      }
+      if (e.target.id === "journey-times-direction") {
+        document.getElementById("journey-times-from").dataset.pair = "";
       }
       renderJourneyTimes();
       track("journey-times-query");
@@ -862,7 +869,8 @@ function renderStopMarker(stop) {
   marker.bindPopup(() => buildStopPopup(stop.atco_code, stop.name),
                    { maxWidth: 220 });
 
-  // Clicking anywhere on the marker opens the departure panel
+  // Clicking anywhere on the marker opens the departure panel — unless the
+  // journey-time view is open, where a click means "chart from here".
   marker.on("click", () => {
     openDepartures(stop.atco_code, stop.name);
   });
@@ -1816,6 +1824,131 @@ function journeyTimesDefaultPair(doc, direction) {
   return { from: pick[0].index, to: pick[pick.length - 1].index };
 }
 
+/** Each journey against *its own* scheduled duration.
+ *
+ *  The chart drew one horizontal timetable line at the median scheduled
+ *  duration, which is a fiction wherever a service does not promise the same
+ *  run time all day: the 700's scheduled durations between its ends range from
+ *  61 to 85 minutes, so a single line is up to twelve minutes wrong about every
+ *  journey it is compared against, and wrong in both directions. A bus keeping
+ *  its own slower evening timetable appeared late; one missing its tighter
+ *  morning one appeared on time.
+ *
+ *  Only journeys the operator promised a time for can be in a delay chart at
+ *  all — a delay against GTFS's own interpolation is a delay against our
+ *  arithmetic. Returns them with `delaySecs`, positive meaning slower than
+ *  promised.
+ */
+function journeyTimesDelays(timings) {
+  return timings
+    .filter(t => t.promised && t.scheduledSecs != null)
+    .map(t => ({ ...t, delaySecs: t.observedSecs - t.scheduledSecs }));
+}
+
+// Which stops on the map belong to the pair being charted, and which slot the
+// next click fills. The map must never be the only way in — the selects stay —
+// but reading a stop name off a list of 151 and finding it on a coast road are
+// very different tasks, and the second is the one a reader is actually doing.
+const jtPick = { atcoToIndex: new Map(), from: null, to: null, next: "from",
+                 layer: null };
+
+/** Draw the current direction's stops on the map, with the chosen pair marked.
+ *
+ *  A layer of this view's own, not a restyling of the 1,520 shared stop
+ *  markers. Those are added to and removed from the map as the zoom changes,
+ *  so at the view's opening zoom every one of them has a null element and
+ *  setting classes on them does nothing at all — which is precisely what the
+ *  first version of this did, silently. A layer this view owns is also the
+ *  pattern every other view here follows, and the one the teardown rule is
+ *  written for.
+ */
+function journeyTimesMarkPicks(doc, direction, fromIndex, toIndex) {
+  if (!state.map) return;
+  jtPick.atcoToIndex = new Map();
+  jtPick.from = fromIndex;
+  jtPick.to = toIndex;
+  clearJourneyTimesPicks({ keepIndex: true });
+
+  const layer = L.layerGroup();
+  for (const stop of direction?.stops || []) {
+    const atco = doc.stops[stop.index]?.atco;
+    const at = atco && state.stopData[atco];
+    if (!at) continue;                       // a stop we hold no position for
+    jtPick.atcoToIndex.set(atco, stop.index);
+    const end = stop.index === fromIndex ? "from"
+              : stop.index === toIndex ? "to" : null;
+    // Shape and size as well as colour: colour alone fails WCAG 1.4.1.
+    L.circleMarker([at.lat, at.lon], {
+      radius: end ? 8 : 5,
+      className: `jt-stop${end ? ` jt-stop--${end}` : ""}`,
+      // Leaflet needs these even when the class supplies the paint, or the
+      // default blue shows through on the first frame.
+      color: "#fff", weight: end ? 3 : 1.5, fillOpacity: 1,
+      keyboard: true,
+    })
+      .bindTooltip(
+        `${prettifyName(doc.stops[stop.index]?.name || "")}`
+        + `${end === "from" ? " (start)" : end === "to" ? " (end)" : ""}`,
+        { direction: "top" })
+      .on("click", () => journeyTimesPickStop(atco))
+      .addTo(layer);
+  }
+  layer.addTo(state.map);
+  jtPick.layer = layer;
+}
+
+/** Take the layer back when the view is left.
+ *
+ *  Every other branch of applyViewMode tears its own layers down, and a branch
+ *  that forgets does not fail loudly — it leaves the next view quietly wrong.
+ */
+function clearJourneyTimesPicks(opts = {}) {
+  if (jtPick.layer && state.map?.hasLayer(jtPick.layer)) {
+    state.map.removeLayer(jtPick.layer);
+  }
+  jtPick.layer = null;
+  if (opts.keepIndex) return;
+  jtPick.atcoToIndex = new Map();
+  jtPick.from = jtPick.to = null;
+  jtPick.next = "from";
+}
+
+/** A click on a stop while the journey-time view is open.
+ *
+ *  Returns true when the click was taken as a pick, so the caller knows not to
+ *  open the departure board over it. Clicks alternate From then To, and
+ *  clicking either end of the current pair starts again from that end, which is
+ *  what people try first when they want to change one of the two.
+ */
+function journeyTimesPickStop(atco) {
+  const index = jtPick.atcoToIndex.get(atco);
+  if (index === undefined) return false;
+  const fromSel = document.getElementById("journey-times-from");
+  const toSel = document.getElementById("journey-times-to");
+  if (!fromSel || !toSel) return false;
+
+  if (index === jtPick.from) {
+    jtPick.next = "from";
+  } else if (index === jtPick.to) {
+    jtPick.next = "to";
+  }
+  const slot = jtPick.next;
+  const sel = slot === "from" ? fromSel : toSel;
+  sel.value = String(index);
+  // A pair of one stop is not a journey, so filling one slot with the other's
+  // stop moves the other along rather than charting nothing.
+  const other = slot === "from" ? toSel : fromSel;
+  if (other.value === sel.value) {
+    const stops = [...sel.options].map(o => Number(o.value));
+    const alt = slot === "from" ? stops[stops.length - 1] : stops[0];
+    if (alt !== index) other.value = String(alt);
+  }
+  jtPick.next = slot === "from" ? "to" : "from";
+  renderJourneyTimes();
+  track("journey-times-map-pick");
+  return true;
+}
+
 /** Weekday/weekend filtering, on the service day rather than the clock. */
 function journeyTimesForDays(timings, which) {
   if (which === "all") return timings;
@@ -1862,6 +1995,17 @@ function journeyTimesSummary(timings) {
     overPromised: scheduled == null ? null
       : promised.filter(t => t.observedSecs > t.scheduledSecs + 60).length,
     promisedJourneys: promised.length,
+    // Each journey against its own promise, not against the median of all of
+    // them. On a service whose run time varies through the day these are the
+    // only honest delay figures: the aggregate comparison is up to twelve
+    // minutes wrong about any individual journey on the 700.
+    medianDelaySecs: promised.length
+      ? median(promised.map(t => t.observedSecs - t.scheduledSecs)
+               .sort((a, b) => a - b))
+      : null,
+    worstDelaySecs: promised.length
+      ? Math.max(...promised.map(t => t.observedSecs - t.scheduledSecs))
+      : null,
   };
 }
 
@@ -1901,54 +2045,115 @@ function jtMinutes(secs) {
  * dots say is also said in the table below them — the shape is the point of
  * the chart, not the only way to get the numbers.
  */
-function journeyTimesChart(timings, summary) {
-  const W = 640, H = 260, L = 44, R = 12, T = 16, B = 34;
-  const maxSecs = Math.max(summary.slowestSecs, summary.scheduledSecs || 0) * 1.1;
+/** The chart. `mode` is "delay" — each journey against its own promise — or
+ *  "duration", the raw journey time.
+ *
+ *  Delay is the default because it is the honest comparison: a single timetable
+ *  line drawn at the median scheduled duration is up to twelve minutes wrong
+ *  about any individual 700 journey, in both directions.
+ */
+function journeyTimesChart(timings, summary, mode = "delay") {
+  const delayed = journeyTimesDelays(timings);
+  // Delay needs promises to compare against. With none, the only honest chart
+  // is the raw duration, and saying so beats an empty frame.
+  const showDelay = mode === "delay" && delayed.length > 0;
+  const points = showDelay ? delayed : timings;
+  const valueOf = t => (showDelay ? t.delaySecs : t.observedSecs);
+
+  const W = 640, H = 300, L = 52, R = 14, T = 22, B = 46;
+  const values = points.map(valueOf);
+  let lo, hi;
+  if (showDelay) {
+    // Zero is always in view and always in the same place: a delay chart whose
+    // axis floats is one where "above the line" stops meaning late.
+    const reach = Math.max(120, ...values.map(Math.abs)) * 1.15;
+    lo = -reach; hi = reach;
+  } else {
+    // Zero-based. A truncated axis turns a four-minute spread into a cliff,
+    // which is the fastest way to lose an argument you were winning.
+    lo = 0; hi = Math.max(...values, summary.scheduledSecs || 0) * 1.1;
+  }
   const x = secs => L + (secs / 86400) * (W - L - R);
-  const y = secs => T + (1 - secs / maxSecs) * (H - T - B);
+  const y = secs => T + (1 - (secs - lo) / (hi - lo)) * (H - T - B);
 
   const hours = [];
   for (let h = 0; h <= 24; h += 4) {
     hours.push(`<line class="jt-grid" x1="${x(h * 3600).toFixed(1)}" y1="${T}" `
       + `x2="${x(h * 3600).toFixed(1)}" y2="${H - B}"></line>`
-      // The first and last labels are anchored inward: centred, they hang
-      // past the chart's edge and take the whole page with them.
-      + `<text class="jt-axis" x="${x(h * 3600).toFixed(1)}" y="${H - B + 16}" `
+      // The first and last labels are anchored inward: centred, they hang past
+      // the chart's edge and take the whole page with them.
+      + `<text class="jt-axis" x="${x(h * 3600).toFixed(1)}" y="${H - B + 18}" `
       + `text-anchor="${h === 0 ? "start" : h === 24 ? "end" : "middle"}">`
       + `${String(h % 24).padStart(2, "0")}:00</text>`);
   }
+
+  // Ticks every whole number of minutes, at a spacing that gives four or five
+  // of them whatever the range.
+  const stepMins = Math.max(1, Math.ceil((hi - lo) / 60 / 5));
   const steps = [];
-  for (let m = 0; m <= maxSecs / 60; m += Math.max(5, Math.ceil(maxSecs / 60 / 4 / 5) * 5)) {
-    steps.push(`<line class="jt-grid" x1="${L}" y1="${y(m * 60).toFixed(1)}" `
-      + `x2="${W - R}" y2="${y(m * 60).toFixed(1)}"></line>`
-      + `<text class="jt-axis" x="${L - 6}" y="${(y(m * 60) + 4).toFixed(1)}" `
-      + `text-anchor="end">${m}</text>`);
+  for (let m = Math.ceil(lo / 60 / stepMins) * stepMins; m * 60 <= hi; m += stepMins) {
+    const at = y(m * 60);
+    steps.push(`<line class="jt-grid${showDelay && m === 0 ? " jt-grid--zero" : ""}" `
+      + `x1="${L}" y1="${at.toFixed(1)}" x2="${W - R}" y2="${at.toFixed(1)}"></line>`
+      + `<text class="jt-axis" x="${L - 8}" y="${(at + 4).toFixed(1)}" `
+      + `text-anchor="end">${showDelay && m > 0 ? "+" : ""}${m}</text>`);
   }
 
-  // The timetable line, only where the operator actually promised a time.
-  const promise = summary.scheduledSecs != null
-    ? `<line class="jt-promise" x1="${L}" y1="${y(summary.scheduledSecs).toFixed(1)}" `
-      + `x2="${W - R}" y2="${y(summary.scheduledSecs).toFixed(1)}"></line>`
-      + `<text class="jt-axis jt-promise-label" x="${W - R}" `
-      + `y="${(y(summary.scheduledSecs) - 6).toFixed(1)}" text-anchor="end">`
-      + `timetable ${jtMinutes(summary.scheduledSecs)}</text>`
-    : "";
+  const zeroLabel = showDelay
+    ? `<text class="jt-axis jt-promise-label" x="${W - R}" `
+      + `y="${(y(0) - 6).toFixed(1)}" text-anchor="end">on the timetable</text>`
+    : summary.scheduledSecs != null
+      ? `<line class="jt-promise" x1="${L}" y1="${y(summary.scheduledSecs).toFixed(1)}" `
+        + `x2="${W - R}" y2="${y(summary.scheduledSecs).toFixed(1)}"></line>`
+        + `<text class="jt-axis jt-promise-label" x="${W - R}" `
+        + `y="${(y(summary.scheduledSecs) - 6).toFixed(1)}" text-anchor="end">`
+        + `median timetable ${jtMinutes(summary.scheduledSecs)}</text>`
+      : "";
 
   // Estimated observations get a hollow dot as well as a different colour:
-  // colour alone fails anyone who cannot distinguish it.
-  const dots = timings.map(t =>
-    `<circle class="jt-dot${t.estimated ? " jt-dot--estimated" : ""}" `
-    + `cx="${x(t.departSecs % 86400).toFixed(1)}" cy="${y(t.observedSecs).toFixed(1)}" r="3.5">`
-    + `<title>${escapeHtml(t.start)} ${escapeHtml(t.day)} — ${jtMinutes(t.observedSecs)}`
-    + `${t.estimated ? " (estimated)" : ""}</title></circle>`).join("");
+  // colour alone fails anyone who cannot distinguish it (WCAG 1.4.1).
+  //
+  // Each dot is focusable and carries its own label, so the chart can be read
+  // with a keyboard and by a screen reader rather than being an image of data.
+  // The <title> alone is a mouse-only affordance.
+  const dots = points.map(t => {
+    const value = valueOf(t);
+    const label = showDelay
+      ? `${t.start} ${t.day} — ${value >= 0 ? "" : "-"}${jtMinutes(Math.abs(value))} `
+        + `${value >= 0 ? "slower than" : "inside"} the timetable`
+      : `${t.start} ${t.day} — ${jtMinutes(value)}`;
+    const full = `${label}${t.estimated ? ", part interpolated" : ""}`;
+    return `<circle class="jt-dot${t.estimated ? " jt-dot--estimated" : ""}" `
+      + `cx="${x(t.departSecs % 86400).toFixed(1)}" cy="${y(value).toFixed(1)}" r="3.8" `
+      + `tabindex="0" role="img" aria-label="${escapeAttr(full)}">`
+      + `<title>${escapeHtml(full)}</title></circle>`;
+  }).join("");
 
-  return `<svg class="jt-chart" viewBox="0 0 ${W} ${H}" role="img"
-    aria-label="Journey time by time of day. ${timings.length} journeys, median
-    ${jtMinutes(summary.medianSecs)}${summary.scheduledSecs != null
-      ? `, timetable ${jtMinutes(summary.scheduledSecs)}` : ""}.">
-    ${steps.join("")}${hours.join("")}${promise}${dots}
-    <text class="jt-axis jt-axis-title" x="${L}" y="${T - 4}">minutes</text>
-  </svg>`;
+  const axisTitle = showDelay ? "minutes against the timetable" : "minutes";
+  const summaryText = showDelay
+    ? `${points.length} journeys with a promised time, median `
+      + `${summary.medianDelaySecs >= 0 ? "" : "-"}`
+      + `${jtMinutes(Math.abs(summary.medianDelaySecs))} against the timetable`
+    : `${points.length} journeys, median ${jtMinutes(summary.medianSecs)}`;
+
+  return `<svg class="jt-chart" viewBox="0 0 ${W} ${H}" role="group"
+    aria-label="${escapeAttr(`Journey ${showDelay ? "delay" : "time"} by time of day. `
+      + summaryText)}">
+    ${steps.join("")}${hours.join("")}${zeroLabel}${dots}
+    <text class="jt-axis jt-axis-title" x="${L}" y="${T - 7}">${axisTitle}</text>
+  </svg>
+  <ul class="jt-legend">
+    <li><span class="jt-key jt-key--measured"></span>observed</li>
+    <li><span class="jt-key jt-key--estimated"></span>part interpolated: the bus
+      was not seen at one end, so its time there is worked out from the stops
+      either side</li>
+    ${showDelay
+      ? `<li><span class="jt-key jt-key--zero"></span>on the timetable; above the
+         line is slower than promised</li>`
+      : summary.scheduledSecs != null
+        ? `<li><span class="jt-key jt-key--promise"></span>median scheduled time
+           across these journeys</li>` : ""}
+  </ul>`;
 }
 
 /** Whether unfinished work is being looked at on purpose.
@@ -1972,6 +2177,7 @@ async function renderJourneyTimes() {
   const toSel = document.getElementById("journey-times-to");
   const daysSel = document.getElementById("journey-times-days");
   const dirSel = document.getElementById("journey-times-direction");
+  const modeSel = document.getElementById("journey-times-mode");
   if (!host || !serviceSel) return;
 
   const mine = claimRender("journeytimes");
@@ -1993,7 +2199,7 @@ async function renderJourneyTimes() {
     if (dirSel && dirSel.dataset.service !== doc.service) {
       dirSel.innerHTML = dirs.map((d, i) =>
         `<option value="${i}">${escapeHtml(prettifyName(d.headsign))}`
-        + ` — ${d.journeys} journeys</option>`).join("");
+        + ` (${d.journeys} journeys)</option>`).join("");
       dirSel.dataset.service = doc.service;
       dirSel.value = "0";
     }
@@ -2017,6 +2223,7 @@ async function renderJourneyTimes() {
       }
     }
 
+    journeyTimesMarkPicks(doc, direction, Number(fromSel.value), Number(toSel.value));
     const all = journeyTimesBetween(doc, Number(fromSel.value), Number(toSel.value));
     const timings = journeyTimesForDays(all, daysSel.value);
     const refused = journeyTimesContradictions(
@@ -2054,8 +2261,13 @@ async function renderJourneyTimes() {
           ? ` · ${refused} journey${refused === 1 ? "" : "s"} excluded as
               contradictory` : ""}
       </p>
-      ${journeyTimesChart(timings, summary)}
+      ${journeyTimesChart(timings, summary, modeSel?.value || "delay")}
       <ul class="jt-figures">
+        ${summary.medianDelaySecs != null
+          ? `<li>Median <strong>${summary.medianDelaySecs >= 0 ? "+" : "−"}${
+              jtMinutes(Math.abs(summary.medianDelaySecs))}</strong> against
+             the timetable, over ${summary.promisedJourneys} journeys it
+             promised a time for</li>` : ""}
         <li>Fastest ${jtMinutes(summary.fastestSecs)}</li>
         <li>Slowest ${jtMinutes(summary.slowestSecs)}</li>
         ${summary.p90Secs != null
@@ -5137,6 +5349,13 @@ async function applyViewMode() {
   // it. Desktop has no sheet, so it always opens expanded.
   setSheetDetent(isSheetLayout() ? defaultDetentForViewport() : "half");
 
+  // Journey-time stop highlights belong to one view. Cleared here rather than
+  // in each of the six other branches, because the rule this repo learned the
+  // hard way is that a branch which forgets to tear something down does not
+  // fail loudly — it leaves the next view quietly wrong, with highlights on a
+  // Route-view map and nothing to explain them.
+  if (state.viewMode !== "journeytimes") clearJourneyTimesPicks();
+
   const live = state.viewMode === "live";
   // The "show buses" toggle only does anything in Live view.
   if (dom.toggleBusesBtn) dom.toggleBusesBtn.hidden = !live;
@@ -5200,6 +5419,7 @@ async function applyViewMode() {
       showToast("Could not load ticket data. Try again later.");
     }
   } else if (state.viewMode === "journeytimes") {
+    // Owned here; every other branch clears them below.
     // Panel-only, like the updates and network views: no map layers of its
     // own, so every other view's layers come down.
     if (state.editor) closeEditor({ skipSave: false });

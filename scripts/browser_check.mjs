@@ -2273,6 +2273,103 @@ async function checkJourneyPresets(page) {
     "the result rendered below the fold, so the click looks like it did nothing");
 }
 
+/**
+ * The journey-time view, which is the one that publishes a number about a
+ * named operator, so a chart that silently fails is worse here than anywhere.
+ *
+ * This exists because of the incident that shaped the harness: every check
+ * passed against a panel that was `display: none`, and certified an invisible
+ * view as working. So the first thing asserted is that dots were actually
+ * drawn, before anything about what they mean.
+ */
+async function checkJourneyTimes(page) {
+  await page.evaluate(`setViewMode('journeytimes')`);
+  await sleep(4000);
+
+  const drawn = await page.evaluate(`
+    (() => {
+      const svg = document.querySelector(".jt-chart");
+      const host = document.getElementById("journey-times-result");
+      const r = svg && svg.getBoundingClientRect();
+      return JSON.stringify({
+        chart: !!svg,
+        dots: document.querySelectorAll(".jt-dot").length,
+        painted: !!r && r.width > 100 && r.height > 60,
+        legend: document.querySelectorAll(".jt-legend li").length,
+        zero: document.querySelectorAll(".jt-grid--zero").length,
+        empty: host ? host.textContent.trim().length === 0 : true,
+        directions: document.getElementById("journey-times-direction")?.options.length || 0,
+        headsign: document.getElementById("journey-times-direction")?.options[0]?.text || "",
+      });
+    })()`);
+  const d = JSON.parse(drawn);
+
+  // Without data the rest says nothing, and locally the documents come from
+  // R2 — so an offline run should skip rather than invent failures.
+  if (!d.chart && d.empty) {
+    check("the journey-time view has data to draw", false,
+      "no chart and no message: if R2 is unreachable this is expected, "
+      + "but an empty panel is what a reader would also see");
+    return;
+  }
+
+  check("the journey-time chart is actually drawn", d.chart && d.painted,
+    JSON.stringify(d));
+  check("the chart has points on it", d.dots > 0,
+    "an axis with no data is a chart that failed quietly");
+  check("the chart says what its marks mean", d.legend >= 2,
+    "a dashed dot means 'part interpolated' to nobody who is not told");
+  check("the delay chart marks the timetable", d.zero > 0,
+    "'above the line is slower than promised' needs the line");
+
+  // Direction named by headsign, not by compass. "towards Worthing" appeared
+  // on services that have never been near Worthing.
+  check("directions are named as the bus names them", d.directions > 0
+    && !/^towards (Worthing|Brighton)/.test(d.headsign),
+    `first direction offered: ${d.headsign}`);
+
+  // The map as a way in. The selects stay — this is the second route, not the
+  // only one — but a reader picking two stops on a coast road is doing a
+  // spatial task with a list.
+  const picked = await page.evaluate(`
+    (() => {
+      const before = document.getElementById("journey-times-from").value;
+      // Deliberately not either end. Clicking an end is defined as "start
+      // again from here", so it leaves the selection where it is — a check
+      // that clicked the first marker in the DOM tested that the view does
+      // nothing, and passed.
+      const marker = document.querySelector(
+        ".jt-stop:not(.jt-stop--from):not(.jt-stop--to)");
+      const offered = document.querySelectorAll(".jt-stop").length;
+      if (!marker) return JSON.stringify({ offered });
+      // dispatchEvent, not .click(): these are SVG circles and .click() throws.
+      marker.dispatchEvent(new MouseEvent("click",
+        { bubbles: true, cancelable: true, view: window }));
+      return JSON.stringify({
+        offered,
+        ends: document.querySelectorAll(".jt-stop--from, .jt-stop--to").length,
+        before,
+      });
+    })()`);
+  const m = JSON.parse(picked);
+  check("the service's stops are offered on the map", m.offered > 0,
+    "the markers already exist and join by ATCO; leaving them inert makes the "
+    + "select the only way to name a stop");
+  if (!m.offered) return;
+  check("the chosen pair is marked on the map", m.ends === 2,
+    `${m.ends} ends marked`);
+
+  await sleep(1500);
+  const after = await page.evaluate(
+    `JSON.stringify({ from: document.getElementById("journey-times-from").value,
+                      dots: document.querySelectorAll(".jt-dot").length })`);
+  const a = JSON.parse(after);
+  check("clicking a stop on the map changes the charted pair",
+    a.from !== m.before, `from ${m.before} to ${a.from}`);
+  check("the chart survives being picked on the map", a.dots > 0,
+    "the pair changed and nothing was drawn for it");
+}
+
 async function checkCouncillorContact(page) {
   await page.evaluate(`setViewMode('network')`);
   await sleep(900);
@@ -2431,6 +2528,7 @@ await checkReachableAcrossViews(page, VIEWPORTS[0].name);
 await checkInteractiveSurfaces(page);
 await checkCouncillorContact(page);
 await checkJourneyPresets(page);
+await checkJourneyTimes(page);
 await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
 await checkDeepLinkIndependence();   // own page + request interception; keep it apart

@@ -171,6 +171,12 @@ jobs:
             exit 0
           fi
           git commit -m "Reliability summary for $DAY"
+          # Rebase before pushing. This was a plain push, which is fine for one
+          # nightly run and not for two: processing several days in a row, the
+          # second run checks out before the first has pushed and its own push
+          # is then rejected, losing a day that had already been measured. The
+          # rollup step below already did this; the summary step did not.
+          git pull --rebase --autostash
           git push
 
       # The journey-time tool reads these, and they are too large and too
