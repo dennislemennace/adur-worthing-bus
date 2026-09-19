@@ -194,8 +194,16 @@ GitHub issues. Replaced the Web3Forms email relay.)
 
 ## Cloudflare R2 — the reliability record
 
-(`worker/src/recorder.js` — a snapshot of the BODS feed every minute, 05:00 to
-00:30 London, stored as `raw/YYYY-MM-DD/HHMM.xml` for the nightly processor.)
+(`worker/src/recorder.js` — two feeds, a minute apiece, for the nightly
+processor: BODS SIRI-VM positions 05:00 to 00:30 London as
+`raw/YYYY-MM-DD/HHMM.xml`, and BODS GTFS-RT **around the clock** as
+`rt/YYYY-MM-DD/HHMM.pb`.
+
+The hours differ because the costs do. SIRI-VM is 285 KB a minute and says only
+where a bus is; GTFS-RT is 34 KB and names the scheduled journey it is running,
+which is what makes an arrival measurable. Recording the cheap feed all night
+is what puts the night services — the ones this site is arguing about — into the
+evidence at all; they were simply absent while both feeds shared one window.)
 
 **R2 charges automatically past the free allowances and has no "stop at the
 free tier" switch.** The only cut-off is the one in our own code, so this
@@ -203,15 +211,17 @@ section is the arithmetic that cut-off is set from.
 
 | Free each month | Then | What we use |
 |---|---|---|
-| 10 GB stored | $0.015 / GB | ~350 MB a day written, pruned to ≤ 7 days |
-| 1M Class A (write, list, delete) | $4.50 / M | ~36k writes, ~750 lists, ~36k deletes |
-| 10M Class B (read) | $0.36 / M | ~36k, the processor reading each object once |
+| 10 GB stored | $0.015 / GB | ~392 MB a day written, pruned to ≤ 7 days → 2.74 GB held |
+| 1M Class A (write, list, delete) | $4.50 / M | ~81k writes, ~14k lists, ~81k deletes — 176k, 17.6% |
+| 10M Class B (read) | $0.36 / M | ~81k, the processor reading each object once |
 
-- **Operations cannot breach the free tier by construction.** One write a
-  minute is at most 44,640 in the longest month; lists and deletes are bounded
-  by those writes. The total is under a tenth of the Class A allowance, and a
-  test in `worker/test/recorder.test.js` asserts the arithmetic, so a faster
-  cadence cannot be introduced without failing it.
+- **Operations cannot breach the free tier by construction.** 2,610 writes a
+  day — 1,170 SIRI plus 1,440 GTFS-RT — is 80,910 in the longest month; lists
+  and deletes are bounded by those writes. The total is 17.6% of the Class A
+  allowance. A test in `worker/test/recorder.test.js` asserts this arithmetic
+  *from the constants themselves*, so neither a faster cadence nor a third feed
+  can be introduced without failing it. It used to assert a hard-coded 44,640
+  and said nothing when the second feed doubled it.
 - **Storage is the only real risk**, and only if the nightly processor stops
   deleting what it has used. A month of unnoticed failure would reach 10 GB.
 
@@ -220,9 +230,17 @@ section is the arithmetic that cut-off is set from.
 - **Retention: 7 days.** Once an hour the Worker lists the bucket and deletes
   whole days older than that, whether or not the processor has been near them.
   Unattended failure therefore costs about 2.5 GB, not a bill.
-- **Storage budget: 4 GB and 15,000 objects**, 40% of the free allowance. Past
-  either, the recorder stops writing and logs `snapshots paused` rather than
-  spending. The margin absorbs an hour of writing on a stale measurement.
+- **Storage budget: 4 GB and 30,000 objects.** The 4 GB is 40% of the free
+  allowance and is the limit that matters, because bytes are what R2 charges
+  for. Past either, the recorder stops writing and logs `snapshots paused`
+  rather than spending. The margin absorbs an hour of writing on a stale
+  measurement.
+- **The object ceiling is a runaway guard, not a cost control** — objects are
+  billed as operations, which are nowhere near their limit. It was 15,000, sized
+  when one feed was recorded, and a week of two feeds is 18,270: the recorder
+  would have refused itself partway through every week, which is a scheduled
+  outage written into a constant. A test now derives the window from
+  window × feeds × retention and fails if it does not fit, with headroom.
 - **The measurement is cached in KV** (`r2-usage`), read each minute and written
   only when it is taken — once an hour, ~24 writes a day against the 1,000 the
   submission counters share. Measuring every minute would spend 1,440 of them,

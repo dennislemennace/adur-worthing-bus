@@ -474,6 +474,7 @@ def observe_day(tt, day, snapshots, atcos=None):
 
     observations += _fill_gaps(observations, observed_by_journey, calls_by_journey)
 
+    by_hour, partial, absent = coverage_by_hour(t for t, _ in window_times)
     coverage = {
         "snapshots": len(window_times),
         "recorded_from": trip_match.clock(seen_from) if window_times else None,
@@ -483,8 +484,39 @@ def observe_day(tt, day, snapshots, atcos=None):
         "tracked_journeys": tracked,
         "scheduled_journeys_all_day": len(instances),
         "observations": len(observations),
+        # Minutes captured in each hour. "snapshots: 900" hides a three-hour
+        # hole; twenty-four counts cannot. An hour that is *partly* recorded is
+        # the interesting case — recording stopped and started again — so it is
+        # named apart from an hour that was never in the window at all.
+        "snapshots_by_hour": by_hour,
+        "hours_partial": partial,
+        "hours_absent": absent,
+        "hours_note": ("minutes of feed captured per clock hour, London time. "
+                       "An absent hour may be outside the recording window; a "
+                       "partial one means recording was interrupted."),
     }
     return observations, coverage
+
+
+# Below this many minutes an hour is only partly recorded. Two-thirds rather
+# than "any missing minute": the feed drops the odd minute under load, and a
+# flag that fires most days is one nobody reads.
+HOUR_COMPLETE_MINS = 40
+
+
+def coverage_by_hour(snapshot_secs):
+    """`({hour: minutes captured}, partial hours, absent hours)`.
+
+    Every hour of the clock appears, because a zero is the thing worth seeing
+    and a missing key is not seen at all.
+    """
+    minutes = {f"{h:02d}": set() for h in range(24)}
+    for secs in snapshot_secs:
+        minutes[f"{int(secs) // 3600 % 24:02d}"].add(int(secs) // 60)
+    counts = {hour: len(mins) for hour, mins in minutes.items()}
+    partial = [h for h, n in sorted(counts.items()) if 0 < n < HOUR_COMPLETE_MINS]
+    absent = [h for h, n in sorted(counts.items()) if n == 0]
+    return counts, partial, absent
 
 
 # DfT's yardstick, defined once in reliability_stats so the daily summary and

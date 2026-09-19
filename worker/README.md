@@ -246,11 +246,21 @@ too. The test will say if it does not cover the window.
 
 ## Recording the feed for reliability figures
 
-A second cron (`* * * * *`) takes one snapshot of the BODS vehicle feed a minute
-between 05:00 and 00:30 London and streams it into the R2 bucket
-`adur-worthing-reliability` as `raw/YYYY-MM-DD/HHMM.xml`. A nightly GitHub
-Action turns a day of snapshots into arrival observations; the snapshots are
-working material, not the evidence.
+A second cron (`* * * * *`) records two feeds a minute into the R2 bucket
+`adur-worthing-reliability`. A nightly GitHub Action turns a day of them into
+arrival observations; the snapshots are working material, not the evidence.
+
+| Feed | Key | Hours | Size | What it is for |
+|---|---|---|---|---|
+| BODS SIRI-VM | `raw/YYYY-MM-DD/HHMM.xml` | 05:00–00:30 | 285 KB/min | positions, destination text, operator code |
+| BODS GTFS-RT | `rt/YYYY-MM-DD/HHMM.pb` | all day | 34 KB/min | the `trip_id` the operator declares |
+
+The hours differ because the costs do, eightfold. The cheap feed is the one that
+names the scheduled journey a bus is running, and running it through the night
+is what puts the night services into the evidence — while both feeds shared one
+window they were absent from it entirely. `isRecordingTime` and
+`isJourneyFeedTime` are separate functions for this reason, and a failure of
+either feed never blocks the other.
 
 The XML is read into memory before it is stored, which is not a choice: R2
 refuses a stream whose length it cannot know and the feed answers chunked, so
@@ -270,10 +280,14 @@ npx wrangler tail                                         # expect `snapshot raw
 
 **Spending guard.** R2 bills automatically past its free tier and offers no
 cut-off switch, so the recorder enforces one itself: it deletes days older than
-7, refuses to write once the bucket passes 4 GB or 15,000 objects (40% of the
-free 10 GB), and measures the bucket once an hour rather than once a minute so
+7, refuses to write once the bucket passes 4 GB or 30,000 objects (the 4 GB
+being 40% of the free 10 GB, and the object count a runaway guard rather than a
+cost control — a week of both feeds is 18,270), and measures the bucket once an
+hour rather than once a minute so
 the KV writes stay inside their own budget. Writes cannot approach the 1M free
-Class A operations at one a minute, and a test asserts that arithmetic. The
+Class A operations — 2,610 a day is 17.6% of it with lists and deletes included
+— and a test asserts that arithmetic from the constants, so a third feed cannot
+be added without the sums being redone. The
 constants are `RETENTION_DAYS`, `MAX_STORED_BYTES` and `MAX_STORED_OBJECTS` in
 `src/recorder.js`; changing any of them means redoing the sums in `../LIMITS.md`.
 

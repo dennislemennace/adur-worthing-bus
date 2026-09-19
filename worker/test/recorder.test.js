@@ -113,14 +113,18 @@ for (const [iso, recording, label] of [
   });
 }
 
-test("nothing is fetched or stored during the quiet hours", async () => {
-  let called = false;
+test("in the quiet hours the journey feed still records, the positions do not", async () => {
+  // SIRI is 285 KB a minute and buys nothing while the roads are empty.
+  // GTFS-RT is 34 KB and names the journey — and the night services this
+  // project argues about run past 00:30, so they were simply missing before.
   const e = env();
-  const r = await recordSnapshot(e, at("2026-09-17T02:00:00Z"), async () => { called = true; });
-  assert.equal(r.recorded, false);
+  const r = await recordSnapshot(e, at("2026-09-17T02:00:00Z"), bothFeeds());
+  assert.equal(r.recorded, false, "the expensive feed ran through the night");
   assert.equal(r.reason, "quiet_hours");
-  assert.equal(called, false, "the feed was fetched at 03:00");
-  assert.deepEqual(e.SNAPSHOTS.puts, []);
+  assert.equal(r.rt.stored, true, "the night buses went unrecorded again");
+  assert.equal(e.SNAPSHOTS.puts.length, 1);
+  assert.ok(put(e, "rt/"), "the stored object is not the journey feed");
+  assert.equal(put(e, "raw/"), undefined);
 });
 
 // ── The key ─────────────────────────────────────────────────
@@ -338,7 +342,7 @@ for (const [label, usage, allowed] of [
   ["a bucket inside its budget", { bytes: 2 * 1024 * MB, objects: 7_000 }, true],
   ["nothing measured yet", null, true],
   ["storage past the budget", { bytes: 5 * 1024 * MB, objects: 7_000 }, false],
-  ["more objects than budgeted", { bytes: 100 * MB, objects: 20_000 }, false],
+  ["more objects than budgeted", { bytes: 100 * MB, objects: 40_000 }, false],
 ]) {
   test(`recording ${allowed ? "continues with" : "stops on"} ${label}`, async () => {
     let fetched = false;
@@ -367,12 +371,17 @@ test("the budget holds even at four fifths of the free tier", () => {
 
 test("a month of writing cannot reach the free operation limit", () => {
   // Class A operations are the writes, plus the lists and deletes that follow
-  // them. One write a minute for the longest possible month, each attended by a
-  // prune's handful of lists and its deletes, stays far below a million.
-  const writes = 44_640;                        // 31 days of minutes
-  const prunes = 31 * 24;                       // one an hour
-  const classA = writes + prunes * 4 + writes;  // writes + lists + one delete each
-  assert.ok(classA < 1_000_000 / 2, `Class A operations reach ${classA} a month`);
+  // them. Derived from the constants rather than from "one a minute", which is
+  // what this said when there was one feed: a second feed doubled the writes
+  // and the list pages both, and the arithmetic has to notice a third.
+  const perDay = _internals.RT_OBJECTS_PER_DAY + _internals.SIRI_OBJECTS_PER_DAY;
+  const writes = perDay * 31;
+  const prunes = 31 * 24;                             // one an hour
+  // Each prune lists the whole retained window, 1,000 keys a page.
+  const pages = Math.ceil(perDay * _internals.RETENTION_DAYS / 1000);
+  const classA = writes + prunes * pages + writes;    // writes + lists + deletes
+  assert.ok(classA < 1_000_000 / 2,
+    `Class A operations reach ${Math.round(classA)} a month`);
 });
 
 test("the bucket is measured once an hour, not once a minute", async () => {
@@ -485,4 +494,42 @@ test("an error page from the second feed is not stored as journeys", async () =>
   assert.equal(r.rt.reason, "http_403");
   assert.equal(e.SNAPSHOTS.puts.length, 1, "an error page was stored");
   assert.ok(put(e, "raw/"), "the positions were lost with it");
+});
+
+
+test("a full retention window fits inside the object ceiling", () => {
+  // Derived, not remembered. The ceiling was 15,000 when one feed was
+  // recorded; a second arrived and a week became 16,380 objects, so the
+  // recorder would have refused itself mid-week — an outage written into a
+  // constant. This is the check that would have said so.
+  const perDay = _internals.RT_OBJECTS_PER_DAY + _internals.SIRI_OBJECTS_PER_DAY;
+  const window = perDay * _internals.RETENTION_DAYS;
+  assert.ok(window < _internals.MAX_STORED_OBJECTS,
+    `a ${_internals.RETENTION_DAYS}-day window holds ${Math.round(window)} objects, `
+    + `over a ceiling of ${_internals.MAX_STORED_OBJECTS}`);
+  // And with room: a day's overshoot must not trip it either.
+  assert.ok(window * 1.2 < _internals.MAX_STORED_OBJECTS,
+    "the ceiling leaves no headroom above a full window");
+});
+
+test("a full retention window fits inside the byte budget", () => {
+  // Measured sizes: 285 KB a minute of SIRI, 34 KB of GTFS-RT.
+  const perDay = _internals.SIRI_OBJECTS_PER_DAY * 285 * 1024
+               + _internals.RT_OBJECTS_PER_DAY * 34 * 1024;
+  assert.ok(perDay * _internals.RETENTION_DAYS < _internals.MAX_STORED_BYTES * 0.8,
+    `${Math.round(perDay * _internals.RETENTION_DAYS / 1024 / 1024)} MB a window `
+    + `against a ${Math.round(_internals.MAX_STORED_BYTES / 1024 / 1024)} MB budget`);
+});
+
+test("weeks of recording never refuse themselves", () => {
+  // Simulated rather than reasoned about: walk three weeks a minute at a time
+  // with the prune running hourly, and assert no minute is ever turned away.
+  let objects = 0, refused = 0;
+  const perDay = _internals.RT_OBJECTS_PER_DAY + _internals.SIRI_OBJECTS_PER_DAY;
+  for (let day = 0; day < 21; day++) {
+    objects += perDay;
+    if (day >= _internals.RETENTION_DAYS) objects -= perDay;   // the prune
+    if (!withinBudget({ bytes: 0, objects }).ok) refused += 1;
+  }
+  assert.equal(refused, 0, "recording would stop itself within three weeks");
 });

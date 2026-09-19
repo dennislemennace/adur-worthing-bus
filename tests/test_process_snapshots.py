@@ -185,6 +185,69 @@ def test_coverage_counts_only_journeys_that_could_have_been_seen(tt):
     assert coverage["recorded_from"] == "10:00" and coverage["recorded_to"] == "10:39"
 
 
+def test_a_hole_in_the_recording_is_visible_hour_by_hour():
+    # "900 snapshots" between 05:00 and 23:59 looks like a full day and can
+    # hide three hours of nothing. The hour that went missing is the hour whose
+    # delays are unaccounted for, so it has to be visible without dividing.
+    minutes = list(range(300, 360)) + list(range(420, 480))      # 05:00, 07:00
+    by_hour, partial, absent = ps.coverage_by_hour(m * 60 for m in minutes)
+    assert by_hour["05"] == 60 and by_hour["07"] == 60
+    assert by_hour["06"] == 0, "an hour with no snapshots reported some"
+    assert "06" in absent and "05" not in absent
+    assert partial == [], "two complete hours were reported as interrupted"
+
+
+def test_a_half_recorded_hour_is_called_interrupted_not_absent():
+    # The two failures look identical in a total and are not the same thing:
+    # an absent hour may simply be outside the window, while a half-recorded
+    # one means the recorder stopped and started, which is worth chasing.
+    by_hour, partial, absent = ps.coverage_by_hour(
+        m * 60 for m in list(range(600, 630)) + list(range(660, 720)))
+    assert by_hour["10"] == 30
+    assert partial == ["10"], f"a half-recorded hour was not flagged: {partial}"
+    assert "10" not in absent
+    assert "11" not in partial, "a complete hour was flagged as interrupted"
+
+
+def test_the_odd_dropped_minute_is_not_an_incident():
+    # The feed misses a minute here and there under load. A flag that fires on
+    # every such day is a flag that gets ignored on the day it matters.
+    by_hour, partial, _absent = ps.coverage_by_hour(
+        m * 60 for m in range(600, 660) if m not in (612, 634))
+    assert by_hour["10"] == 58
+    assert partial == [], "58 minutes of 60 was reported as an interruption"
+
+
+def test_the_interruption_threshold_is_where_it_says_it_is():
+    # Pinned on both sides, because a boundary stated only in a comment is a
+    # boundary that moves. Two-thirds of an hour is recorded; a minute less is
+    # an interruption.
+    _c, at_floor, _a = ps.coverage_by_hour(
+        m * 60 for m in range(600, 600 + ps.HOUR_COMPLETE_MINS))
+    _c, below, _a = ps.coverage_by_hour(
+        m * 60 for m in range(600, 600 + ps.HOUR_COMPLETE_MINS - 1))
+    assert at_floor == [], f"{ps.HOUR_COMPLETE_MINS} minutes was called an interruption"
+    assert below == ["10"], f"{ps.HOUR_COMPLETE_MINS - 1} minutes passed as complete"
+
+
+def test_every_hour_of_the_clock_is_accounted_for():
+    by_hour, _partial, absent = ps.coverage_by_hour([])
+    assert len(by_hour) == 24, "an hour with no data was left out rather than zeroed"
+    assert len(absent) == 24
+    assert sorted(by_hour) == [f"{h:02d}" for h in range(24)]
+
+
+def test_the_daily_coverage_reports_its_hours(tt):
+    # Through observe_day, so that the hour-by-hour figures reaching the
+    # published summary are the ones these tests describe.
+    _obs, coverage = observations(tt, day_of(range(600, 630)))
+    assert coverage["snapshots_by_hour"]["10"] == 30
+    assert coverage["snapshots_by_hour"]["09"] == 0
+    assert coverage["hours_partial"] == ["10"], "a half-hour day read as complete"
+    assert "10" not in coverage["hours_absent"]
+    assert len(coverage["hours_absent"]) == 23
+
+
 def test_a_coach_is_not_a_bus(tt):
     obs, _ = observations(tt, day_of(range(600, 640), service="025",
                                      operator="NATX", destination="London"))

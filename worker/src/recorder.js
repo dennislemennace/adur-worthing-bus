@@ -32,10 +32,15 @@ const BODS_GTFS_RT = "https://data.bus-data.dft.gov.uk/api/v1/gtfsrtdatafeed/";
 // The same box the API watches: Adur, Worthing and the Brighton coast.
 const BBOX = "-0.42,50.78,-0.10,50.87";
 
-// London time. Buses run from about 05:00, and the last night bus is off the
-// road by 00:30; recording the quiet hours would be storage spent on nothing.
+// London time, for the SIRI feed only. Its 285 KB a minute is worth spending
+// only while buses are running.
 const RECORD_FROM = "05:00";
 const RECORD_TO = "00:30";
+
+// GTFS-RT runs all night. At 34 KB a minute — an eighth of SIRI — the whole
+// 24 hours costs 49 MB a day, and it is the feed that names the journey. The
+// night services this project argues about (N7, N12, N25, N29, N700) run past
+// 00:30 and were simply not recorded before.
 
 // ── Staying inside R2's free tier ────────────────────────────
 // R2 bills automatically past its free allowances and offers no "stop when the
@@ -55,8 +60,20 @@ const RECORD_TO = "00:30";
 // the 4 GB budget below. The estimate this replaces (540 MB a day, four days)
 // assumed protobuf would be the larger of the two; it is an eighth of the size.
 const RETENTION_DAYS = 7;
+
+// What a week of recording actually comes to, so the ceiling below is derived
+// rather than remembered: GTFS-RT every minute of the day, SIRI every minute
+// of its shorter window.
+const RT_OBJECTS_PER_DAY = 24 * 60;
+const SIRI_OBJECTS_PER_DAY = 19.5 * 60;
 const MAX_STORED_BYTES = 4 * 1024 * 1024 * 1024; // 40% of the 10 GB free tier
-const MAX_STORED_OBJECTS = 15_000;               // ~13 days of minutes; catches a runaway
+// The object ceiling exists to catch a runaway loop, not to control cost —
+// bytes do that. Sized at 15,000 for one feed, it became a scheduled outage
+// the moment a second arrived: a week of both is 16,380 objects, so recording
+// would have refused itself mid-week. Now it is a generous multiple of what a
+// full retention window holds, and a test derives that figure rather than
+// trusting this comment.
+const MAX_STORED_OBJECTS = 30_000;
 const USAGE_KEY = "r2-usage";                    // cached in the KV the Worker already binds
 // The budget is read from KV every minute (~1,400 reads a day, inside the free
 // 100,000) but written only when the bucket is measured, once an hour, because
@@ -77,6 +94,14 @@ const LONDON_DATE = new Intl.DateTimeFormat("en-CA", {
 export function isRecordingTime(when) {
   const now = LONDON_CLOCK.format(when);
   return !(now >= RECORD_TO && now < RECORD_FROM);
+}
+
+/** GTFS-RT is recorded around the clock — 34 KB a minute buys the night
+ *  services, which are exactly the ones a reader asks about and the ones the
+ *  SIRI window threw away. Takes `when` so that narrowing it later is a change
+ *  to one function rather than to the caller. */
+export function isJourneyFeedTime(_when) {
+  return true;
 }
 
 /** Where a snapshot lives: one folder a day, one object a minute, so a day can
@@ -169,7 +194,6 @@ export async function pruneAndMeasure(env, when) {
  * anyone for. The result is returned so the log says what happened.
  */
 export async function recordSnapshot(env, when, fetchImpl = fetch) {
-  if (!isRecordingTime(when)) return { recorded: false, reason: "quiet_hours" };
   if (!env.SNAPSHOTS) return { recorded: false, reason: "no_bucket" };
   if (!env.BODS_API_KEY) return { recorded: false, reason: "no_key" };
 
@@ -187,11 +211,22 @@ export async function recordSnapshot(env, when, fetchImpl = fetch) {
     return { recorded: false, reason: budget.reason };
   }
 
-  // The second feed is stored beside the first and never blocks it: a GTFS-RT
-  // outage must not cost us the positions we already know how to use.
-  const rt = await storeFeed(env, fetchImpl, gtfsRtKey(when), when,
-                             `${BODS_GTFS_RT}?api_key=${encodeURIComponent(env.BODS_API_KEY)}`
-                             + `&boundingBox=${BBOX}`, "application/x-protobuf");
+  // The journey feed runs all night, and never blocks the other: a GTFS-RT
+  // outage must not cost us the positions we already know how to use. The
+  // window is asked for rather than assumed, so that the two feeds' hours stay
+  // two separate decisions — while they were one decision, the night services
+  // this project argues about were the ones missing from the evidence.
+  const rt = isJourneyFeedTime(when)
+    ? await storeFeed(env, fetchImpl, gtfsRtKey(when), when,
+                      `${BODS_GTFS_RT}?api_key=${encodeURIComponent(env.BODS_API_KEY)}`
+                      + `&boundingBox=${BBOX}`, "application/x-protobuf")
+    : { stored: false, reason: "out_of_window" };
+
+  // SIRI is the expensive one — 285 KB against 34 KB — so it keeps to the
+  // hours buses run.
+  if (!isRecordingTime(when)) {
+    return { recorded: false, reason: "quiet_hours", rt };
+  }
 
   const key = snapshotKey(when);
   const url = `${BODS_FEED}?api_key=${encodeURIComponent(env.BODS_API_KEY)}&boundingBox=${BBOX}`;
@@ -247,7 +282,9 @@ async function storeFeed(env, fetchImpl, key, when, url, contentType) {
 }
 
 export const _internals = {
-  isRecordingTime, snapshotKey, gtfsRtKey, keyDay, pruneAndMeasure, withinBudget, readUsage,
+  isRecordingTime, isJourneyFeedTime, snapshotKey, gtfsRtKey, keyDay,
+  pruneAndMeasure, withinBudget, readUsage,
   RECORD_FROM, RECORD_TO, BBOX,
   RETENTION_DAYS, MAX_STORED_BYTES, MAX_STORED_OBJECTS, USAGE_REFRESH_MINUTE, USAGE_KEY,
+  RT_OBJECTS_PER_DAY, SIRI_OBJECTS_PER_DAY,
 };
