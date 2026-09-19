@@ -3222,6 +3222,29 @@ html.dark-mode .header-wave-front { fill: var(--color-surface); }
   padding-left: 2px;
 }
 
+/* The wordmark wraps rather than truncates wherever it does not fit on one
+   line, not only below 700px.
+ *
+ * There was already a rule saying exactly this, inside `@media (max-width:
+ * 700px)`, added because truncation "was putting 'Worthing Brighto…' in the
+ * header". It stopped at 700px and the title still overflowed above it: the
+ * harness measured 84% of it showing at 768px, 71% at 740px, and 46% once the
+ * gap-monitor alert shares the header row and squeezes the brand column. So
+ * the site's own name was clipped across every tablet and landscape phone,
+ * worst at the moment there was something urgent to say.
+ *
+ * Its own breakpoint could not simply be raised: that block also stacks the
+ * panel under the map and fixes the status pill, which is a different
+ * decision that belongs at a different width. Two lines of a wordmark are
+ * always better than one and a half. */
+@media (max-width: 1099px) {
+  .header-title {
+    white-space: normal;
+    overflow: visible;
+    line-height: 1.08;
+  }
+}
+
 /* Two-tone wordmark. #56edfd is the artwork's own cyan, kept because it
    measures 6.29:1 on the light header (#1a4b82) and 12.97:1 on the dark one
    (#0d1525) — AA on both, so the design's colour survives unmodified. The
@@ -5901,7 +5924,12 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
    Routes and fares keep the map-first layout, where the map is the answer. */
 @media (min-width: 1100px) {
   body[data-view="network"],
-  body[data-view="updates"] {
+  body[data-view="updates"],
+  /* The journey-time chart belongs here for a different reason: it is not
+     prose but a chart with axis labels. Squeezed into 360px, a 640-unit
+     viewBox scales its 11px text down to about 6px — legible to nobody, and
+     the numbers are the whole point of the view. */
+  body[data-view="journeytimes"] {
     --panel-width: min(46rem, 52vw);
   }
 }

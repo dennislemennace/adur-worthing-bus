@@ -569,6 +569,14 @@ async function checkReadingLayout(page) {
     widths.network > widths.improvements + 100
     && widths.updates > widths.improvements + 100,
     JSON.stringify(widths));
+  // The journey-time view for a different reason: its chart draws a 640-unit
+  // viewBox, so at 360px the 11px axis labels render at about 6px. This ran
+  // green for a release while reporting `journeytimes: 360` in its own detail
+  // string, which is the difference between measuring something and checking
+  // it.
+  check("the journey-time chart gets a column its labels survive",
+    widths.journeytimes > widths.improvements + 100,
+    JSON.stringify(widths));
   // And the map must still have somewhere to be, so this is not just
   // "make the panel full width".
   const mapWidth = await page.evaluate(

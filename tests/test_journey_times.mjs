@@ -23,7 +23,10 @@ import { loadApp } from "./load_app.mjs";
 const app = loadApp();
 const between = vm.runInContext("journeyTimesBetween", app);
 const forDays = vm.runInContext("journeyTimesForDays", app);
+const journeyTimesForDays = forDays;
 const summarise = vm.runInContext("journeyTimesSummary", app);
+const directions = vm.runInContext("journeyTimesDirections", app);
+const defaultPair = vm.runInContext("journeyTimesDefaultPair", app);
 
 const MIN = 60;
 
@@ -222,6 +225,40 @@ test("with no promised times there is no comparison to publish", () => {
   assert.equal(s.journeys, 1, "the observed times are still worth showing");
 });
 
+test("a nine-in-ten figure is not offered over a handful of journeys", () => {
+  // "9 in 10 under 54 minutes" from two journeys is the slower of the two
+  // wearing a statistic's clothes, and reads as a far stronger claim.
+  const few = [];
+  for (let i = 0; i < 4; i++) few.push(trip("2026-09-17", 8 * 60 + i, 48 + i, 48));
+  const thin = summarise(between({ journeys: few }, 0, 3));
+  assert.equal(thin.p90Secs, null, "a percentile was published over four journeys");
+  assert.equal(thin.journeys, 4);
+  assert.ok(thin.percentileFloor > 4, "the floor is not stated for the reader");
+
+  const many = [];
+  for (let i = 0; i < 12; i++) many.push(trip("2026-09-17", 8 * 60 + i, 48 + i, 48));
+  assert.ok(summarise(between({ journeys: many }, 0, 3)).p90Secs > 0,
+    "a well-evidenced percentile was suppressed too");
+});
+
+test("the days a figure rests on are the days left after filtering", () => {
+  // The panel named the days in the file, not the days in the chart. Filter to
+  // weekdays and the weekend dates stayed in the caption, so a reader checking
+  // one against the other found a day that contributed nothing.
+  const journeys = [
+    trip("2026-09-17", 8 * 60, 52, 48),      // Thursday
+    trip("2026-09-18", 8 * 60, 50, 48),      // Friday
+    trip("2026-09-19", 8 * 60, 40, 48),      // Saturday
+  ];
+  const times = between({ journeys }, 0, 3);
+  const weekdays = summarise(journeyTimesForDays(times, "weekday"));
+  assert.equal(JSON.stringify(weekdays.days),
+    JSON.stringify(["2026-09-17", "2026-09-18"]),
+    "a filtered-out day was still named as contributing");
+  assert.equal(weekdays.journeys, 2);
+  assert.equal(summarise(times).days.length, 3);
+});
+
 test("nothing to show is not an empty chart pretending", () => {
   assert.equal(summarise([]), null);
 });
@@ -250,4 +287,91 @@ test("preview is a deliberate act, not a remembered one", () => {
   assert.equal(preview(), false, "preview outlived the URL that asked for it");
   loc.search = "?preview=0";
   assert.equal(preview(), false);
+});
+
+
+// ── Which way the bus is going ──────────────────────────────
+
+function headed(headsign, calls, day = "2026-09-17", start = "08:15") {
+  return { day, start, direction: "westbound", headsign, calls };
+}
+
+test("directions are named as the bus names them, not by compass", () => {
+  // The selects offered "towards Worthing" and "towards Brighton" for every
+  // service, derived from whether the route's longitude increases — so
+  // services that have never been near Worthing were labelled as going there.
+  // The operator writes the answer on the front of the bus.
+  const doc = { journeys: [
+    headed("Meadowview", [[0, 100, 100, 0], [3, 900, 900, 0]]),
+    headed("Meadowview", [[0, 200, 200, 0], [3, 1000, 1000, 0]]),
+    headed("Beresford Road", [[3, 300, 300, 0], [0, 1100, 1100, 0]]),
+  ] };
+  const got = directions(doc);
+  assert.equal(JSON.stringify(got.map(d => d.headsign)),
+    JSON.stringify(["Meadowview", "Beresford Road"]),
+    "directions were not named by headsign, busiest first");
+  assert.equal(got[0].journeys, 2);
+});
+
+test("stops are ordered by where they fall in that direction's journeys", () => {
+  // Not by their position in the document, which is a median across every
+  // variant the service runs — so the two directions would share one order and
+  // one of them would read backwards.
+  const doc = { journeys: [
+    headed("Out", [[0, 100, 100, 0], [1, 200, 200, 0], [2, 300, 300, 0]]),
+    headed("Back", [[2, 400, 400, 0], [1, 500, 500, 0], [0, 600, 600, 0]]),
+  ] };
+  // Selected by name: with equal journey counts the order is alphabetical,
+  // and a test that depends on which of two ties wins is testing the tiebreak.
+  const byName = Object.fromEntries(directions(doc).map(d => [d.headsign, d]));
+  const out = byName["Out"], back = byName["Back"];
+  assert.equal(JSON.stringify(out.stops.map(s => s.index)), JSON.stringify([0, 1, 2]));
+  assert.equal(JSON.stringify(back.stops.map(s => s.index)), JSON.stringify([2, 1, 0]),
+    "the return direction was listed in the outward order");
+});
+
+test("a service that states no headsign still gets a direction", () => {
+  // Older documents carry none. Falling back on the compass label is worse
+  // than nothing only when it is wrong about the destination; as a last resort
+  // it still separates the two sides of the road.
+  const doc = { journeys: [
+    { day: "2026-09-17", start: "08:15", direction: "eastbound",
+      calls: [[0, 100, 100, 0], [1, 200, 200, 0]] },
+  ] };
+  assert.equal(directions(doc)[0].headsign, "eastbound");
+});
+
+// ── What the view opens on ──────────────────────────────────
+
+test("the default pair is one the timetable actually promises", () => {
+  // Service 37 has 444 promised calls and showed no timetable line at all,
+  // because the pair it opened on was two stops GTFS had interpolated. A
+  // reader sees "no comparison available" and concludes the tool is broken.
+  const doc = { journeys: [
+    headed("Meadowview", [
+      [0, 100, 100, 2],      // interpolated: no promise here
+      [1, 200, 200, 0],      // a timing point
+      [2, 300, 300, 2],
+      [3, 400, 400, 0],      // and another
+      [4, 500, 500, 2],
+    ]),
+  ] };
+  const pair = defaultPair(doc, directions(doc)[0]);
+  assert.equal(JSON.stringify(pair), JSON.stringify({ from: 1, to: 3 }),
+    "the view opened on stops the timetable makes no promise about");
+});
+
+test("a service with no promised stops still opens on something", () => {
+  // Better an honest observed-only chart than an empty view.
+  const doc = { journeys: [
+    headed("Meadowview", [[0, 100, 100, 2], [1, 200, 200, 2], [2, 300, 300, 2]]),
+  ] };
+  assert.equal(JSON.stringify(defaultPair(doc, directions(doc)[0])),
+    JSON.stringify({ from: 0, to: 2 }));
+});
+
+test("a direction with one stop offers no pair at all", () => {
+  const doc = { journeys: [headed("Meadowview", [[0, 100, 100, 0]])] };
+  assert.equal(defaultPair(doc, directions(doc)[0]), null);
+  assert.equal(defaultPair(doc, undefined), null);
 });

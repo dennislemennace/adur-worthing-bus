@@ -1663,6 +1663,13 @@ function loadAnalytics() {
 const JT_ESTIMATED = 1;
 const JT_NO_PROMISE = 2;
 
+// Journeys a pair of stops needs before a percentile is worth printing. Ten is
+// the point at which "9 in 10" describes more than one journey — below it the
+// figure is the slowest or second-slowest observation wearing a statistic's
+// clothes. Deliberately lower than reliability_stats' 30, because a cell there
+// is one stop across many journeys and this is one journey end to end.
+const JT_PERCENTILE_FLOOR = 10;
+
 /** Every journey that called at both stops, in order, as timings. */
 /** The journey's single call at a stop, or null if it is not exactly one.
  *
@@ -1736,6 +1743,79 @@ function journeyTimesContradictions(doc, fromIndex, toIndex) {
   return n;
 }
 
+/** The directions this service actually runs, named as the bus names them.
+ *
+ *  The selects used to offer "towards Worthing" and "towards Brighton" for
+ *  every service, derived from whether the route's longitude increases — which
+ *  put a Worthing label on services that have never been near Worthing. The
+ *  operator already writes the answer on the front of the bus, and the feed
+ *  carries it: the 37 is *Meadowview* or *Beresford Road*, the 1X *Marina
+ *  Cinema* or *Graham Avenue Shops*. Those are the words a passenger at the
+ *  stop is reading.
+ *
+ *  Stops are ordered by where they fall in the journeys running that way, not
+ *  by their position in the document — a service runs variants, and the
+ *  document's order is a median across all of them.
+ */
+function journeyTimesDirections(doc) {
+  const groups = new Map();
+  for (const journey of doc.journeys || []) {
+    const name = (journey.headsign || "").trim() || journey.direction || "unknown";
+    let group = groups.get(name);
+    if (!group) groups.set(name, group = { headsign: name, journeys: 0, order: new Map() });
+    group.journeys += 1;
+    // Calls arrive in scheduled order, so a call's position in the list is its
+    // position along the route for this journey.
+    const calls = journey.calls || [];
+    for (let i = 0; i < calls.length; i++) {
+      const at = group.order.get(calls[i][0]);
+      if (at) at.push(i);
+      else group.order.set(calls[i][0], [i]);
+    }
+  }
+
+  const out = [];
+  for (const group of groups.values()) {
+    const stops = [...group.order.entries()]
+      .map(([index, positions]) => {
+        const sorted = positions.slice().sort((a, b) => a - b);
+        return { index, at: sorted[Math.floor(sorted.length / 2)], seen: positions.length };
+      })
+      .sort((a, b) => a.at - b.at || a.index - b.index);
+    out.push({ headsign: group.headsign, journeys: group.journeys, stops });
+  }
+  // Busiest first: the direction a reader is most likely to want, and a stable
+  // order for a select that must not reshuffle between renders.
+  return out.sort((a, b) => b.journeys - a.journeys
+    || a.headsign.localeCompare(b.headsign));
+}
+
+/** A pair of stops worth opening on: far apart, and both promised.
+ *
+ *  The view opened on the ends of the longest journey, which is a pair that
+ *  exists but says nothing about whether the timetable commits to a time at
+ *  either end. Service 37 has 444 promised calls and showed no timetable line
+ *  at all, because the default pair landed on two stops GTFS had interpolated.
+ *  A reader sees "no comparison available" and concludes the tool is broken.
+ *
+ *  Returns `{from, to}` stop indices, or null if the direction has no pair.
+ */
+function journeyTimesDefaultPair(doc, direction) {
+  const stops = direction?.stops || [];
+  if (stops.length < 2) return null;
+  const promised = new Set();
+  for (const journey of doc.journeys || []) {
+    for (const call of journey.calls || []) {
+      if (!(call[3] & JT_NO_PROMISE)) promised.add(call[0]);
+    }
+  }
+  const timed = stops.filter(s => promised.has(s.index));
+  // Both ends promised if the service has two such stops; otherwise the ends
+  // of the direction, which is still better than nothing to compare against.
+  const pick = timed.length >= 2 ? timed : stops;
+  return { from: pick[0].index, to: pick[pick.length - 1].index };
+}
+
 /** Weekday/weekend filtering, on the service day rather than the clock. */
 function journeyTimesForDays(timings, which) {
   if (which === "all") return timings;
@@ -1759,13 +1839,25 @@ function journeyTimesSummary(timings) {
   const scheduled = promised.length
     ? median(promised.map(t => t.scheduledSecs).sort((a, b) => a - b))
     : null;
+  // Every figure below counts what is in `timings` *after* filtering, so the
+  // days and the denominators describe the chart the reader is looking at
+  // rather than the file behind it.
+  const days = [...new Set(timings.map(t => t.day))].sort();
   return {
     journeys: timings.length,
     estimated: timings.filter(t => t.estimated).length,
+    days,
     medianSecs: median(observed),
     fastestSecs: observed[0],
     slowestSecs: observed[observed.length - 1],
-    p90Secs: observed[Math.min(observed.length - 1, Math.floor(observed.length * 0.9))],
+    // A percentile over a handful of journeys is arithmetic dressed as
+    // evidence: "9 in 10 under 54 minutes" from two journeys means the slower
+    // of the two, and reads as a much stronger claim than that. Below the
+    // floor it is not offered at all.
+    p90Secs: timings.length >= JT_PERCENTILE_FLOOR
+      ? observed[Math.min(observed.length - 1, Math.floor(observed.length * 0.9))]
+      : null,
+    percentileFloor: JT_PERCENTILE_FLOOR,
     scheduledSecs: scheduled,
     overPromised: scheduled == null ? null
       : promised.filter(t => t.observedSecs > t.scheduledSecs + 60).length,
@@ -1879,6 +1971,7 @@ async function renderJourneyTimes() {
   const fromSel = document.getElementById("journey-times-from");
   const toSel = document.getElementById("journey-times-to");
   const daysSel = document.getElementById("journey-times-days");
+  const dirSel = document.getElementById("journey-times-direction");
   if (!host || !serviceSel) return;
 
   const mine = claimRender("journeytimes");
@@ -1893,32 +1986,41 @@ async function renderJourneyTimes() {
     const doc = await loadJourneyTimes(serviceSel.value || index.services[0].service);
     if (!mine()) return;
 
-    // Stops are listed by direction, then by where they fall along the route.
-    if (fromSel.dataset.service !== doc.service) {
-      const options = doc.stops.map((stop, i) =>
-        `<option value="${i}">${escapeHtml(prettifyName(stop.name))}`
-        + ` (${escapeHtml(stop.direction === "westbound" ? "towards Worthing"
-              : stop.direction === "eastbound" ? "towards Brighton" : "direction unknown")})`
-        + `</option>`).join("");
+    // Which way, named as the bus names it. The compass labels this replaced
+    // were derived from whether the route's longitude increases, so services
+    // that have never been near Worthing were offered "towards Worthing".
+    const dirs = journeyTimesDirections(doc);
+    if (dirSel && dirSel.dataset.service !== doc.service) {
+      dirSel.innerHTML = dirs.map((d, i) =>
+        `<option value="${i}">${escapeHtml(prettifyName(d.headsign))}`
+        + ` — ${d.journeys} journeys</option>`).join("");
+      dirSel.dataset.service = doc.service;
+      dirSel.value = "0";
+    }
+    const direction = dirs[Number(dirSel?.value || 0)] || dirs[0];
+
+    // Stops are those the chosen direction actually serves, in the order its
+    // journeys call at them. Listing every stop of every variant offered pairs
+    // no bus has ever run, which reads as a broken page.
+    const pairKey = `${doc.service}|${direction?.headsign || ""}`;
+    if (direction && fromSel.dataset.pair !== pairKey) {
+      const options = direction.stops.map(s =>
+        `<option value="${s.index}">${escapeHtml(prettifyName(
+          doc.stops[s.index]?.name || `Stop ${s.index}`))}</option>`).join("");
       fromSel.innerHTML = options;
       toSel.innerHTML = options;
-      fromSel.dataset.service = toSel.dataset.service = doc.service;
-      // Open on a pair that actually exists: the ends of the longest journey
-      // we tracked. Choosing by position along the route does not work —
-      // services run variants, so not every journey calls at every stop, and
-      // two plausible-looking stops opened on "no bus made that trip", which
-      // reads as a broken page rather than a default worth changing.
-      const longest = doc.journeys.reduce(
-        (best, j) => (j.calls.length > (best?.calls.length || 0) ? j : best), null);
-      if (longest) {
-        fromSel.value = String(longest.calls[0][0]);
-        toSel.value = String(longest.calls[longest.calls.length - 1][0]);
+      fromSel.dataset.pair = toSel.dataset.pair = pairKey;
+      const pair = journeyTimesDefaultPair(doc, direction);
+      if (pair) {
+        fromSel.value = String(pair.from);
+        toSel.value = String(pair.to);
       }
     }
 
-    const timings = journeyTimesForDays(
-      journeyTimesBetween(doc, Number(fromSel.value), Number(toSel.value)),
-      daysSel.value);
+    const all = journeyTimesBetween(doc, Number(fromSel.value), Number(toSel.value));
+    const timings = journeyTimesForDays(all, daysSel.value);
+    const refused = journeyTimesContradictions(
+      doc, Number(fromSel.value), Number(toSel.value));
     const summary = journeyTimesSummary(timings);
 
     if (!summary) {
@@ -1942,11 +2044,24 @@ async function renderJourneyTimes() {
         across ${summary.journeys} tracked journeys${summary.scheduledSecs != null
           ? `, against ${jtMinutes(summary.scheduledSecs)} in the timetable` : ""}.
       </p>
+      <p class="jt-provenance">
+        ${summary.days.length === 1
+          ? `${escapeHtml(summary.days[0])}`
+          : `${escapeHtml(summary.days[0])} to
+             ${escapeHtml(summary.days[summary.days.length - 1])},
+             ${summary.days.length} days`}${summary.estimated
+          ? ` · ${summary.estimated} of ${summary.journeys} part-interpolated` : ""}${refused
+          ? ` · ${refused} journey${refused === 1 ? "" : "s"} excluded as
+              contradictory` : ""}
+      </p>
       ${journeyTimesChart(timings, summary)}
       <ul class="jt-figures">
         <li>Fastest ${jtMinutes(summary.fastestSecs)}</li>
         <li>Slowest ${jtMinutes(summary.slowestSecs)}</li>
-        <li>9 in 10 under ${jtMinutes(summary.p90Secs)}</li>
+        ${summary.p90Secs != null
+          ? `<li>9 in 10 under ${jtMinutes(summary.p90Secs)}</li>`
+          : `<li class="jt-thin">Too few journeys for a 9-in-10 figure
+             (${summary.journeys} of ${summary.percentileFloor})</li>`}
         ${summary.overPromised != null
           ? `<li>Over the timetable on ${summary.overPromised} of
              ${summary.promisedJourneys} journeys</li>` : ""}
