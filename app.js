@@ -3205,6 +3205,12 @@ function openBusFromService(service) {
   openBusInfo(chosen);
 }
 
+// Past this, a position report is old enough that the lateness derived from
+// it is a statement about a few minutes ago rather than about now. The feed's
+// median lag is 186 seconds, so this is roughly its middle: hedging everything
+// would be noise, hedging nothing would be a claim we cannot support.
+const STALE_REPORT_SECS = 120;
+
 function buildStatusChip(dep) {
   // Use the status field from the API if available, otherwise derive from delay
   const status = (dep.status || "").toLowerCase();
@@ -3228,9 +3234,16 @@ function buildStatusChip(dep) {
     // Math.round(1.5) is 2, so 90 seconds late read as two minutes while 90
     // seconds early read as one.
     const mins = Math.round(Math.abs(dep.lateness_secs) / 60);
+    // How old the claim is. Lateness is measured at the moment the bus
+    // reported, which is the only honest way to measure it — but that means a
+    // stale report gives a precise answer to a question about the past. The
+    // feed's median lag is about three minutes, so past two the number is
+    // hedged rather than asserted.
+    const stale = dep.report_age_secs != null && dep.report_age_secs > STALE_REPORT_SECS;
+    const about = stale ? "about " : "";
     return dep.lateness_secs < 0
-      ? { label: `${mins} min early`, cssClass: "status-early" }
-      : { label: `${mins} min late`, cssClass: "status-late" };
+      ? { label: `${about}${mins} min early`, cssClass: "status-early" }
+      : { label: `${about}${mins} min late`, cssClass: "status-late" };
   }
 
   // Derive from delay_seconds if status not set

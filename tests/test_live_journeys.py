@@ -104,6 +104,49 @@ def test_lateness_is_measured_against_the_journey_the_bus_declared(monkeypatch):
     assert bus["lateness_secs"] == 4 * 60, f'{bus["lateness_secs"]} seconds'
 
 
+def test_lateness_is_measured_on_the_bus_clock_not_ours(monkeypatch):
+    # The feed runs a median 186 seconds behind: three quarters of reports are
+    # over a minute stale and half over three. Judging a bus by the moment we
+    # happened to ask therefore adds our own latency to its lateness, against
+    # DfT bands one and six minutes wide — an operator shown late for our
+    # network round trip.
+    #
+    # This bus is at its third stop, due 14:26, and it said so at 14:26. We are
+    # reading the feed at 14:30. It is on time, and four minutes late only if
+    # the clock we use is the wrong one.
+    tt = FakeTimetable()
+    _freeze(monkeypatch, 14, 30)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.832, longitude=-0.27,
+                recorded_at="2026-09-18T14:26:00+01:00")
+    main._attach_declared_journeys([bus], tt)
+    assert bus["lateness_secs"] == 0, \
+        f'{bus["lateness_secs"]}s: the feed\'s latency was charged to the bus'
+
+
+def test_the_age_of_the_report_is_published_beside_it(monkeypatch):
+    # A dot on a map reads as "now". Often it is three minutes old, and on a
+    # stale report that is the difference between on time and late, so the map
+    # is given what it needs to hedge instead of quietly asserting.
+    tt = FakeTimetable()
+    _freeze(monkeypatch, 14, 30)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.832, longitude=-0.27,
+                recorded_at="2026-09-18T14:26:00+01:00")
+    main._attach_declared_journeys([bus], tt)
+    assert bus["report_age_secs"] == 4 * 60
+
+
+def test_a_bus_that_never_said_when_falls_back_to_our_clock(monkeypatch):
+    # Some reports carry no RecordedAtTime. Dropping those buses would empty
+    # the map for a missing field; the honest answer is our clock and an
+    # unstated age, so the map knows not to claim freshness it cannot check.
+    tt = FakeTimetable()
+    _freeze(monkeypatch, 14, 30)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.832, longitude=-0.27)
+    main._attach_declared_journeys([bus], tt)
+    assert bus["lateness_secs"] == 4 * 60
+    assert bus["report_age_secs"] is None, "an unknown age was reported as fresh"
+
+
 def test_a_night_bus_is_not_reported_a_day_late(monkeypatch):
     # GTFS writes half past midnight as 24:30. Comparing that against a clock
     # reading 00:28 without wrapping makes an on-time bus almost a day out.

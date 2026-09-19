@@ -386,7 +386,13 @@ def observe_day(tt, day, snapshots, atcos=None):
                   if i["calls"]
                   and i["calls"][0][0] - BEFORE_FIRST_SECS <= at_secs
                   <= i["calls"][-1][0] + AFTER_LAST_SECS}
-        if not active:
+        # Nothing to match. This was "if not active" — abandoning the whole
+        # snapshot when no journey was plausibly running — which is the same
+        # window by another route, and incoherent now that declared journeys
+        # are matched against every instance. No test here distinguishes the
+        # two: the corridor fixture always has a journey in window, so the
+        # case needs a timetable whose day has genuinely ended.
+        if not vehicles:
             continue
         # Each position is judged at the moment it was recorded, not when it
         # was read. Matching on the fetch time shifts every bus about three
@@ -396,9 +402,18 @@ def observe_day(tt, day, snapshots, atcos=None):
         when_of = [_same_day(v.get("recorded_secs"), at_secs) for v in vehicles]
         when_of = [at_secs if w is None else w for w in when_of]
 
-        # What the feed states, before anything we infer. A declared journey
-        # needs no tolerance window, so nothing it produces is censored.
-        declared, claimed = trip_match.place_declared(tt, vehicles, active, at_secs)
+        # What the feed states, before anything we infer — against *every*
+        # journey, not the active window.
+        #
+        # The window exists so the inference path does not compare a day of
+        # snapshots against a day of journeys, and it is 15 minutes early to 30
+        # late. A declared journey needs no such tolerance: the operator has
+        # named the trip. Passing the window here censored exactly the buses
+        # worth reporting — one 40 minutes down is outside it, so the feed named
+        # its journey and we threw the answer away, leaving the journey counted
+        # as missing coverage instead of very late. It is a dict lookup by trip
+        # id, so the wider search costs nothing.
+        declared, claimed = trip_match.place_declared(tt, vehicles, instances, at_secs)
         for key in declared:
             declared_journeys_seen.add(key)
         inferred = trip_match.place_vehicles(

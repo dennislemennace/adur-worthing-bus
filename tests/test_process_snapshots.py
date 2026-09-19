@@ -704,6 +704,25 @@ def test_a_bus_far_outside_the_matching_window_is_still_placed(tt):
         f'the lateness was lost: {sorted({o["lateness_secs"] for o in obs})}'
 
 
+def test_a_declared_journey_is_measured_to_its_last_stop(tt):
+    # The window the inference path needs for performance — 15 minutes early to
+    # 30 late — was applied to declared journeys too, which needs no tolerance
+    # at all: the operator has named the trip.
+    #
+    # The damage is at the end of the journey, which is where a late bus's
+    # worst lateness lives. This bus is 40 minutes down, so by its last stops
+    # its journey is over half an hour past its scheduled finish and falls out
+    # of the window: 50 of its 60 stops were measured and the final ten — the
+    # most delayed of the run — were dropped, leaving them counted as missing
+    # coverage rather than as very late.
+    obs, _ = observations(tt, declaring(range(640, 700), "W600", offset=40))
+    idxs = sorted(o["stop_index"] for o in obs)
+    assert idxs[-1] == 59, \
+        f"the journey was truncated at stop {idxs[-1]} of 59 by the matching window"
+    assert len(obs) == 60
+    assert all(o["lateness_secs"] == 40 * 60 for o in obs)
+
+
 def test_inference_does_not_argue_with_what_the_feed_states(tt):
     # A declared journey is off the table for the matcher, and so is the bus
     # that declared it — otherwise a second bus could be inferred onto the same

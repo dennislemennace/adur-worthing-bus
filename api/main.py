@@ -2071,7 +2071,6 @@ def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
     the second sound like the first.
     """
     now_local = datetime.now(UK_TZ)
-    now_secs = now_local.hour * 3600 + now_local.minute * 60 + now_local.second
     for v in vehicles:
         trip_id = v.get("declared_trip_id")
         trip = tt.trips.get(trip_id or "")
@@ -2089,15 +2088,30 @@ def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
         idx = trip_match.nearest_call(tt, inst, v.get("latitude"), v.get("longitude"))
         if idx is None:
             continue
+        # Measured on the bus's own clock, not ours. The feed runs a median
+        # 186 seconds behind — three quarters of reports over a minute stale,
+        # half over three minutes — so comparing the timetable against the
+        # moment we happened to ask added our latency to every bus's lateness,
+        # against DfT bands one and six minutes wide. The bus is where it said
+        # it was when it said so, and that is the moment to judge.
+        reported = _parse_iso_datetime(v.get("recorded_at"))
+        at_local = reported.astimezone(UK_TZ) if reported else now_local
+        at_secs = at_local.hour * 3600 + at_local.minute * 60 + at_local.second
         # GTFS writes past-midnight times as 24:xx and beyond, so a night bus
         # is compared on the same clock as the one it is running against.
         due = calls[idx][0] % 86400
-        lateness = now_secs - due
+        lateness = at_secs - due
         if lateness > 12 * 3600:
             lateness -= 86400
         elif lateness < -12 * 3600:
             lateness += 86400
         v["lateness_secs"] = lateness
+        # How old the claim is. A reader looking at a dot on a map assumes it
+        # is now; often it is three minutes ago, and on a stale report that is
+        # the difference between "on time" and "late". Published so the map can
+        # hedge rather than quietly assert.
+        v["report_age_secs"] = (
+            max(0, round((now_local - reported).total_seconds())) if reported else None)
         v["nearest_stop_name"] = (tt.stops.get(calls[idx][1]) or {}).get("name", "")
 
 

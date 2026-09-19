@@ -49,6 +49,23 @@ test("the operator's own status still wins where it exists", () => {
   assert.equal(chip({ status: "on time", lateness_secs: 600 }).label, "On time");
 });
 
+test("a stale report is hedged, not asserted", () => {
+  // Lateness is measured at the moment the bus reported — the only honest way
+  // — but that makes a stale report a precise answer about the past. The feed
+  // runs a median 186 seconds behind, so past two minutes the map says "about"
+  // rather than stating a figure for a bus that has since moved.
+  assert.equal(chip({ lateness_secs: 240, report_age_secs: 200 }).label,
+    "about 4 min late");
+  assert.equal(chip({ lateness_secs: 240, report_age_secs: 30 }).label,
+    "4 min late", "a fresh report was hedged for no reason");
+  assert.equal(chip({ lateness_secs: 240 }).label, "4 min late",
+    "an unknown age was treated as stale");
+  // The class must not change: the bus is still late, and the colour carries
+  // that while the word carries the uncertainty.
+  assert.equal(chip({ lateness_secs: 240, report_age_secs: 200 }).cssClass,
+    "status-late");
+});
+
 test("a minute either way is on time, and the boundary is not fudged", () => {
   // The label is for a reader, so rounding to the nearest minute is right —
   // but 90 seconds late must not read as on time.
