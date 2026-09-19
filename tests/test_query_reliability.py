@@ -155,7 +155,10 @@ def test_a_run_writes_a_report_and_a_rollup(tmp_path):
                   "hour_basis", "floor", "suppressed"):
         assert doc.get(field), f"the rollup publishes figures without {field}"
     assert doc["series"] == "timing_point"
-    assert doc["by_service"]["700"]["journeys"] == 6
+    # Keyed by service *and* operator: the 1, 5 and 7 are each run by two
+    # companies, and a rollup grouped on the number alone attributes one
+    # operator's record to the other.
+    assert doc["by_service"]["700 (SCSO)"]["journeys"] == 6
     assert doc["month"] == "2026-09"
 
 

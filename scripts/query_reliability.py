@@ -91,7 +91,7 @@ def filtered(rows, args):
 
 
 KEYS = {
-    "service": (lambda r: r.get("service", "?"), "service"),
+    "service": (rs.service_key, "service"),
     "operator": (lambda r: r.get("operator", "?"), "operator"),
     "direction": (lambda r: r.get("direction", "unknown"), "direction"),
     "day": (lambda r: r.get("day", "?"), "day"),

@@ -378,7 +378,10 @@ def test_a_summary_splits_by_service_and_hour(tt):
     # "buses are late". Both breakdowns must add up to the same total.
     obs, coverage = observations(tt, day_of(range(600, 640)))
     summary = ps.summarise(obs, coverage)
-    assert set(summary["by_service"]) == {"700"}
+    # Named with its operator: three of the 42 service numbers measured here
+    # are run by two companies, and a figure under the wrong one is worse than
+    # no figure.
+    assert set(summary["by_service"]) == {"700 (SCSO)"}
     assert sum(sum(v.values()) for v in summary["by_service"].values()) == len(obs)
     assert sum(sum(v.values()) for v in summary["by_hour"].values()) == len(obs)
     assert set(summary["by_hour"]) <= {"10", "11"}
@@ -1096,3 +1099,39 @@ def test_a_stop_the_bus_only_nears_from_the_previous_one_is_not_an_arrival():
     assert got[:2] == [0, 1], f"the two stops it did reach were lost: {got}"
     assert 2 not in got, \
         "a stop was timed from the sample that timed the stop before it"
+
+
+
+# ── One number, two companies ───────────────────────────────
+
+def test_two_operators_running_one_number_are_counted_apart(tt):
+    # The 1, the 5 and the 7 are each run by both Brighton & Hove and
+    # Stagecoach here — 63,000 observations over three days. Grouped on the
+    # number alone, one company's punctuality is published under the other's
+    # name, which is the worst thing this site can get wrong: the figure is
+    # then false about a named business, and every other figure on the page is
+    # fairly doubted with it.
+    rows = [
+        {"service": "1", "operator": "BHBC", "lateness_secs": 0,
+         "scheduled_secs": 36_000, "timepoint": 1, "day": "2026-09-17",
+         "trip_id": "A", "estimated": False},
+        {"service": "1", "operator": "SCSO", "lateness_secs": 20 * 60,
+         "scheduled_secs": 36_000, "timepoint": 1, "day": "2026-09-17",
+         "trip_id": "B", "estimated": False},
+    ]
+    summary = ps.summarise(rows, {})
+    assert set(summary["by_service"]) == {"1 (BHBC)", "1 (SCSO)"}, \
+        f'two operators were merged into one service: {set(summary["by_service"])}'
+    assert summary["by_service"]["1 (BHBC)"]["on_time"] == 1
+    assert summary["by_service"]["1 (SCSO)"]["very_late"] == 1
+    assert summary["by_service"]["1 (BHBC)"]["very_late"] == 0, \
+        "one operator was charged with the other's lateness"
+
+
+def test_a_service_with_no_operator_is_not_given_an_empty_bracket(tt):
+    # Unattributed either way; saying so twice adds nothing and "1 ()" reads
+    # like a bug to anyone who sees it.
+    rows = [{"service": "1", "operator": "", "lateness_secs": 0,
+             "scheduled_secs": 36_000, "timepoint": 1, "day": "2026-09-17",
+             "trip_id": "A", "estimated": False}]
+    assert set(ps.summarise(rows, {})["by_service"]) == {"1"}

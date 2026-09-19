@@ -680,7 +680,11 @@ def summarise(observations, coverage):
     for o in observations:
         b = band(o["lateness_secs"])
         bands[b] += 1
-        svc = by_service.setdefault(o["service"], {k: 0 for k in bands})
+        # Named with its operator. The 1, the 5 and the 7 are each run by two
+        # companies here, and a punctuality figure under the wrong one is worse
+        # than no figure at all.
+        svc = by_service.setdefault(reliability_stats.service_key(o),
+                                    {k: 0 for k in bands})
         svc[b] += 1
         # Bucketed on the *scheduled* hour. A bus due 17:45 and seen 18:05
         # belongs to the 17:00 timetable; counting it at 18:00 moves delay out

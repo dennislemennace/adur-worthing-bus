@@ -530,7 +530,7 @@ async function init() {
       // stops. Both lists are keyed by what they were built for, so clearing
       // the key is what rebuilds them.
       if (e.target.id === "journey-times-service") {
-        document.getElementById("journey-times-direction").dataset.service = "";
+        document.getElementById("journey-times-direction").dataset.docKey = "";
         document.getElementById("journey-times-from").dataset.pair = "";
       }
       if (e.target.id === "journey-times-direction") {
@@ -2022,14 +2022,33 @@ async function loadJourneyTimesIndex() {
   return journeyTimesCache.get("_index");
 }
 
-async function loadJourneyTimes(service) {
-  if (!journeyTimesCache.has(service)) {
-    const file = encodeURIComponent(service).replace(/[^A-Za-z0-9_-]/g, "");
-    const res = await fetch(`${CONFIG.JOURNEY_TIMES_BASE}/${file}.json`);
-    if (!res.ok) throw new Error(`${service} ${res.status}`);
-    journeyTimesCache.set(service, await res.json());
+/** One published document, named by the index rather than guessed at.
+ *
+ *  The filename used to be derived from the service number, which worked only
+ *  while a number meant one route. It does not: the 1, the 5 and the 7 are
+ *  each run by two operators over entirely separate roads — zero stops in
+ *  common, in all three cases — so each is now published per operator and the
+ *  index is the only thing that knows the names.
+ */
+async function loadJourneyTimes(file) {
+  if (!journeyTimesCache.has(file)) {
+    const safe = String(file).replace(/[^A-Za-z0-9_.-]/g, "");
+    const res = await fetch(`${CONFIG.JOURNEY_TIMES_BASE}/${safe}`);
+    if (!res.ok) throw new Error(`${file} ${res.status}`);
+    journeyTimesCache.set(file, await res.json());
   }
-  return journeyTimesCache.get(service);
+  return journeyTimesCache.get(file);
+}
+
+/** How a service is named to a reader: the number, and whose bus it is.
+ *
+ *  "Service 1" is two different routes here. Naming the operator is not a
+ *  detail — it is the difference between a figure that is true about Brighton
+ *  & Hove and the same figure published against Stagecoach.
+ */
+function journeyTimesServiceLabel(entry) {
+  const who = entry.operator ? getOperatorName(entry.operator) : "";
+  return `Service ${entry.service}${who ? ` · ${who}` : ""}`;
 }
 
 /** Minutes, for a reader. */
@@ -2185,22 +2204,37 @@ async function renderJourneyTimes() {
     const index = await loadJourneyTimesIndex();
     if (!mine()) return;
     if (!serviceSel.options.length) {
-      serviceSel.innerHTML = index.services.map(s =>
-        `<option value="${escapeAttr(s.service)}">Service ${escapeHtml(s.service)} `
-        + `— ${s.journeys} journeys</option>`).join("");
+      // Ordered by number as a reader reads it — 1, 2, 5, 7, 700 — with a
+      // shared number's two operators adjacent, so the pair is obvious rather
+      // than scattered through an alphabetical list.
+      const services = [...index.services].sort((a, b) =>
+        String(a.service).localeCompare(String(b.service), undefined,
+          { numeric: true, sensitivity: "base" })
+        || String(a.operator || "").localeCompare(String(b.operator || "")));
+      serviceSel.innerHTML = services.map(s =>
+        `<option value="${escapeAttr(s.file)}">`
+        + `${escapeHtml(journeyTimesServiceLabel(s))} (${s.journeys} journeys)`
+        + `</option>`).join("");
+      if (services.length) serviceSel.value = services[0].file;
     }
-    const doc = await loadJourneyTimes(serviceSel.value || index.services[0].service);
+    const doc = await loadJourneyTimes(
+      serviceSel.value || index.services[0].file);
     if (!mine()) return;
 
     // Which way, named as the bus names it. The compass labels this replaced
     // were derived from whether the route's longitude increases, so services
     // that have never been near Worthing were offered "towards Worthing".
     const dirs = journeyTimesDirections(doc);
-    if (dirSel && dirSel.dataset.service !== doc.service) {
+    // Keyed by the published file, not by doc.service: two documents both say
+    // service "1", so keying on the number left the directions from Brighton &
+    // Hove's route showing after switching to Stagecoach's — which shares not
+    // one stop with it.
+    const docKey = serviceSel.value || doc.service;
+    if (dirSel && dirSel.dataset.docKey !== docKey) {
       dirSel.innerHTML = dirs.map((d, i) =>
         `<option value="${i}">${escapeHtml(prettifyName(d.headsign))}`
         + ` (${d.journeys} journeys)</option>`).join("");
-      dirSel.dataset.service = doc.service;
+      dirSel.dataset.docKey = docKey;
       dirSel.value = "0";
     }
     const direction = dirs[Number(dirSel?.value || 0)] || dirs[0];
@@ -2208,7 +2242,7 @@ async function renderJourneyTimes() {
     // Stops are those the chosen direction actually serves, in the order its
     // journeys call at them. Listing every stop of every variant offered pairs
     // no bus has ever run, which reads as a broken page.
-    const pairKey = `${doc.service}|${direction?.headsign || ""}`;
+    const pairKey = `${docKey}|${direction?.headsign || ""}`;
     if (direction && fromSel.dataset.pair !== pairKey) {
       const options = direction.stops.map(s =>
         `<option value="${s.index}">${escapeHtml(prettifyName(

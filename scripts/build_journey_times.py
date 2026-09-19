@@ -48,7 +48,8 @@ MIN_CALLS = 3
 TIMING_POINTS_ONLY = False
 
 
-def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY):
+def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
+                   operator=""):
     """One service: its stops, and every journey observed along them."""
     if timing_points_only:
         rows = [r for r in rows if r.get("timepoint") == 1]
@@ -99,6 +100,12 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY):
 
     return {
         "service": service,
+        # A service number belongs to an operator. The 1, the 5 and the 7 are
+        # each run by both Brighton & Hove and Stagecoach in this area, and
+        # merging them made one document out of two different routes: a stop
+        # list that is the union of both, directions from both, and journey
+        # times between two stops no single bus has ever run in sequence.
+        "operator": operator,
         "as_of": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "days": meta["days"],
         "data_versions": meta["data_versions"],
@@ -118,13 +125,28 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY):
     }
 
 
+def document_name(service, operator):
+    """The file one service-and-operator is published as.
+
+    The operator is always in the name, even where only one runs the number.
+    Naming it only when there is a clash means the name changes the day a
+    second operator appears, which breaks every link to it — and that day is
+    exactly when someone is looking.
+    """
+    safe = "".join(c for c in service if c.isalnum() or c in "-_") or "unknown"
+    noc = "".join(c for c in (operator or "") if c.isalnum()) or "unknown"
+    return f"{safe}-{noc}"
+
+
 def build(rows, meta, timing_points_only=TIMING_POINTS_ONLY):
-    """`{service: document}` for every service with something to show."""
-    by_service = {}
+    """`{(service, operator): document}` for everything with something to show."""
+    grouped = {}
     for row in rows:
-        by_service.setdefault(row.get("service", "?"), []).append(row)
-    return {service: route_document(service, service_rows, meta, timing_points_only)
-            for service, service_rows in by_service.items()}
+        key = (row.get("service", "?"), (row.get("operator") or "").strip())
+        grouped.setdefault(key, []).append(row)
+    return {key: route_document(key[0], rows_here, meta, timing_points_only,
+                                operator=key[1])
+            for key, rows_here in grouped.items()}
 
 
 def main(argv=None):
@@ -146,17 +168,19 @@ def main(argv=None):
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     written, skipped, index = [], [], []
-    for service, doc in sorted(build(rows, meta, args.timing_points_only).items()):
+    for (service, operator), doc in sorted(
+            build(rows, meta, args.timing_points_only).items()):
+        label = f"{service} ({operator})" if operator else service
         if len(doc["journeys"]) < args.min_journeys:
-            skipped.append(service)
+            skipped.append(label)
             continue
-        # One file a service: a reader wants one route, not the county.
-        safe = "".join(c for c in service if c.isalnum() or c in "-_") or "unknown"
-        path = out / f"{safe}.json"
+        # One file a service *as one operator runs it*: a reader wants one
+        # route, not the county, and not two companies' routes overlaid.
+        path = out / f"{document_name(service, operator)}.json"
         path.write_text(json.dumps(doc, separators=(",", ":"), sort_keys=True) + "\n",
                         encoding="utf-8")
-        written.append((service, len(doc["journeys"]), path.stat().st_size))
-        index.append({"service": service, "file": path.name,
+        written.append((label, len(doc["journeys"]), path.stat().st_size))
+        index.append({"service": service, "operator": operator, "file": path.name,
                       "journeys": len(doc["journeys"]), "stops": len(doc["stops"])})
 
     (out / "index.json").write_text(
@@ -165,8 +189,8 @@ def main(argv=None):
                    indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
     total = sum(size for _s, _j, size in written)
-    for service, journeys, size in written:
-        print(f"  {service:<6} {journeys:>4} journeys  {size / 1024:>6.0f} KB")
+    for label, journeys, size in written:
+        print(f"  {label:<14} {journeys:>4} journeys  {size / 1024:>6.0f} KB")
     print(f"{len(written)} services, {total / 1024:.0f} KB total → {out}")
     if skipped:
         print(f"too thin to publish ({args.min_journeys} journeys needed): "

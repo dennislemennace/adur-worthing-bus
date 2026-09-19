@@ -73,6 +73,29 @@ def journey_key(row):
     return (row.get("day", ""), row.get("trip_id", ""))
 
 
+def service_key(row):
+    """A service number and the operator running it, which is the real unit.
+
+    Three of the 42 service numbers measured here are run by two operators —
+    the 1, the 5 and the 7 are each both Brighton & Hove and Stagecoach, some
+    63,000 observations between them. Grouping on the number alone puts one
+    operator's punctuality under another's name, which is the single worst
+    thing a site like this can publish: the figure is then wrong about a named
+    company, and every other figure on the page is fairly doubted with it.
+
+    This repo already learned the shape of that trap once, in `noc_for_route`:
+    "two routes can share a short name across operators", and resolving B&H
+    routes at Portslade to Stagecoach reintroduced exactly the false positive
+    the fare logic exists to prevent.
+
+    A number with no operator stays as it is rather than gaining an empty
+    bracket; it is unattributed either way, and saying so twice adds nothing.
+    """
+    service = row.get("service", "?")
+    noc = (row.get("operator") or "").strip()
+    return f"{service} ({noc})" if noc else service
+
+
 def timing_points(rows):
     """Only arrivals judged against a time the operator committed to."""
     return [r for r in rows if r.get("timepoint") == 1]

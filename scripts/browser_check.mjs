@@ -2322,6 +2322,34 @@ async function checkJourneyTimes(page) {
   check("the delay chart marks the timetable", d.zero > 0,
     "'above the line is slower than promised' needs the line");
 
+  // A service number is not a route. The 1, the 5 and the 7 are each run by
+  // two operators over roads sharing not one stop, so the picker has to say
+  // whose bus it is — otherwise two different services answer to one entry and
+  // the stop list is the union of both.
+  const services = await page.evaluate(`
+    (() => {
+      const sel = document.getElementById("journey-times-service");
+      const opts = [...sel.options];
+      const labels = opts.map(o => o.text);
+      // Same number appearing twice is the case that matters; each must then
+      // name a different operator.
+      const numbers = labels.map(t => (t.match(/Service (\\S+)/) || [])[1]);
+      const dupes = numbers.filter((n, i) => numbers.indexOf(n) !== i);
+      return JSON.stringify({
+        count: opts.length,
+        labels: labels.slice(0, 3),
+        sharedNumbers: [...new Set(dupes)],
+        allDistinct: new Set(labels).size === labels.length,
+        valuesAreFiles: opts.every(o => /\\.json$/.test(o.value)),
+      });
+    })()`);
+  const sv = JSON.parse(services);
+  check("every service entry is distinct", sv.allDistinct,
+    `${sv.count} entries, first: ${sv.labels.join(" | ")}`);
+  check("a service picker entry names the operator", sv.valuesAreFiles
+    && sv.labels.every(t => /·/.test(t) || !sv.sharedNumbers.length),
+    `shared numbers: ${sv.sharedNumbers.join(", ") || "none in this data"}`);
+
   // Direction named by headsign, not by compass. "towards Worthing" appeared
   // on services that have never been near Worthing.
   check("directions are named as the bus names them", d.directions > 0
