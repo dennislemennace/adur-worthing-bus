@@ -2339,7 +2339,11 @@ async function checkJourneyTimes(page) {
         count: opts.length,
         labels: labels.slice(0, 3),
         sharedNumbers: [...new Set(dupes)],
-        allDistinct: new Set(labels).size === labels.length,
+        // Ignoring the journey count, which differs between two operators'
+        // routes anyway and so made this pass with the operator stripped out
+        // — distinct by accident is not distinct.
+        allDistinct: new Set(labels.map(t => t.replace(/\\s*\\(\\d+ journeys\\)$/, "")))
+          .size === labels.length,
         valuesAreFiles: opts.every(o => /\\.json$/.test(o.value)),
       });
     })()`);
