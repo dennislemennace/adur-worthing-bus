@@ -201,10 +201,30 @@ jobs:
           echo "window: $(find window -name '*.json.gz' | wc -l) day(s)"
           python -u scripts/build_journey_times.py \
             --observations window --out journey-times
+
+          # Read what was just built, before anyone else can. The suite was
+          # green while 69 journey times in which a bus arrived before it set
+          # off were published: every test asserted something about the code
+          # and none about the output. This asserts about the output, and exits
+          # non-zero, so a bad night publishes nothing rather than something
+          # wrong.
+          python -u scripts/check_published.py \
+            --journey-times journey-times \
+            --summaries "data/reliability/$DAY.json"
+
           if [ -z "${{ secrets.R2_PUBLISH_ACCESS_KEY_ID }}" ]; then
             echo "::warning::no publish credentials — journey times built but not uploaded"
             exit 0
           fi
+          # Documents first, index last. `aws s3 sync` uploads alphabetically,
+          # which puts index.json ahead of every file it names — so for the
+          # length of the sync the index points at services that are not there
+          # yet, and a reader arriving then gets an empty view with no error
+          # anyone sees.
           aws s3 sync journey-times/ "s3://adur-worthing-published/journey-times/" \
             --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
-            --delete --no-progress
+            --exclude index.json --delete --no-progress
+          aws s3 cp journey-times/index.json \
+            "s3://adur-worthing-published/journey-times/index.json" \
+            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+            --no-progress

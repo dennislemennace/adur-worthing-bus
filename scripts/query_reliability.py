@@ -252,6 +252,10 @@ def write_rollup(rows, meta, args):
         "caveats": CAVEATS,
         "series": "all_stops" if args.all_stops else "timing_point",
         "hour_basis": "scheduled departure hour",
+        # Interpolated times are excluded from every cell here, as they are
+        # from the daily summary. Said once at the top as well as in each cell,
+        # because a rollup is read as a whole far more often than a cell is.
+        "measured_only": True,
         "floor": {"observations": args.min, "journeys": args.min_journeys},
         "suppressed": {"services": len(thin_service), "hours": len(thin_hour),
                        "segments": len(thin_segments)},
