@@ -893,13 +893,153 @@ def test_estimates_are_kept_out_of_punctuality(tt):
     assert summary["measured_only"] is True
 
 
+def test_an_interpolated_stop_carries_its_own_timing_point_flag(tt):
+    # The flag decides whether a stop's scheduled time is a promise the
+    # operator made or a time GTFS invented, and the whole punctuality
+    # measurement is reported separately along that line.
+    #
+    # The estimate was built by spreading a template observation, and the
+    # template is whichever observation of the journey came first — stop 0,
+    # which in this fixture and in real GTFS is a timing point. So every
+    # interpolated stop inherited a 1 and every one of GTFS's own guesses was
+    # published as something the operator had committed to.
+    #
+    # In this fixture every tenth stop is a timing point, so stop 20 really is
+    # one and 21 and 22 really are not. That is the discrimination being tested.
+    samples = []
+    for minute in range(600, 640):
+        idx = minute - 600
+        if idx in (20, 21, 22):
+            samples.append((minute * 60, []))
+            continue
+        bus = bus_at(idx)
+        bus.update(vehicle_ref="GAP-1", recorded_secs=minute * 60)
+        samples.append((minute * 60, [bus]))
+
+    obs, _ = observations(tt, samples)
+    flags = {o["stop_index"]: o["timepoint"] for o in obs if o["estimated"]}
+    assert flags.get(20) == 1, "a genuine timing point lost its flag"
+    assert flags.get(21) == 0, \
+        f'an interpolated stop was published as a timing point: {flags.get(21)!r}'
+    assert flags.get(22) == 0, f'{flags.get(22)!r}'
+    # And the measured stops either side must still be right.
+    measured = {o["stop_index"]: o["timepoint"] for o in obs if not o["estimated"]}
+    assert measured.get(10) == 1 and measured.get(11) == 0
+
+
+def test_an_estimate_is_never_counted_as_a_kept_promise(tt):
+    # The two flags together: a stop that is both interpolated *and* a timing
+    # point is the one combination that must never reach a published figure,
+    # because it reads as "the operator promised this time and missed it" when
+    # the time is ours. The daily summary drops estimates, so this asserts the
+    # rows themselves cannot carry the contradiction into anything downstream.
+    samples = []
+    for minute in range(600, 640):
+        idx = minute - 600
+        if idx in (21, 22):          # neither is a timing point in this fixture
+            samples.append((minute * 60, []))
+            continue
+        bus = bus_at(idx)
+        bus.update(vehicle_ref="GAP-1", recorded_secs=minute * 60)
+        samples.append((minute * 60, [bus]))
+    obs, _ = observations(tt, samples)
+    bad = [o for o in obs if o["estimated"] and o["timepoint"] == 1
+           and o["stop_index"] in (21, 22)]
+    assert bad == [], f"{len(bad)} estimates claim the operator promised the time"
+
+
 def test_two_stops_timetabled_to_the_same_minute_do_not_divide_by_zero(tt):
     # Stops a few metres apart share a scheduled time in real timetables. The
     # proportion between them is undefined, and an unguarded division would
     # take the whole night's processing down with it.
-    calls = {0: (36_000, "A", "First"), 1: (36_000, "B", "Second"),
-             2: (36_000, "C", "Third")}
+    calls = {i: {"scheduled_secs": 36_000, "atco": a, "stop_name": n,
+                 "timepoint": 1}
+             for i, (a, n) in enumerate([("A", "First"), ("B", "Second"),
+                                         ("C", "Third")])}
     template = {"day": "2026-09-16", "trip_id": "T1", "estimated": False}
     seen = [(0, 36_000, 36_000), (2, 36_000, 36_060)]
     filled = ps._fill_gaps([template], {("T1", DAY): seen}, {("T1", DAY): calls})
     assert filled == [], "an undefined proportion produced an estimate anyway"
+
+
+# ── A journey cannot run backwards ──────────────────────────
+#
+# These drive `arrivals_along` directly rather than the whole pipeline. The
+# corridor fixture is a straight line, and the defect needs a route that comes
+# back near one of its own early stops — which on a real network means little
+# more than the other side of a road. Building that geometry here states the
+# case exactly; routing it through a timetable fixture would state it vaguely.
+
+def _line(n, *, lat=50.83, lon0=-0.30, step=0.005):
+    """`n` stops in a line, about 350 m apart."""
+    return {f"S{i:02d}": {"lat": lat, "lon": lon0 + i * step, "name": f"Stop {i}"}
+            for i in range(n)}
+
+
+def _track(points):
+    """`(secs, lat, lon, ref)` samples a minute apart from `(lat, lon)` pairs."""
+    return [(36_000 + i * 60, lat, lon, "BUS-1")
+            for i, (lat, lon) in enumerate(points)]
+
+
+def test_a_journey_that_returns_near_its_own_early_stop_does_not_run_backwards():
+    # The published defect, in miniature. The bus runs S00 → S03, then the
+    # route brings it back past S01 an hour later — the other side of the road,
+    # 20 m from the pole, nearer than it ever came on the way out.
+    #
+    # Timed independently, S01's "arrival" is that later pass, so S01 is
+    # reached after S02 and the journey-time tool subtracts one from the other
+    # and publishes a negative duration. This is what put 69 of them, the worst
+    # -12 minutes, in front of readers.
+    stops = _line(4)
+    calls = [(36_000 + i * 120, f"S{i:02d}") for i in range(4)]
+    out = [(50.8303, -0.300 + i * 0.005) for i in range(4)]    # ~35 m off the poles
+    back = [(50.8302, -0.295)] * 3                             # S01 again, ~25 m
+    samples = _track(out + [(50.8303, -0.28)] * 55 + back)
+
+    got = {stop_index: sample_i
+           for stop_index, _sched, _atco, sample_i, _m in
+           ps.arrivals_along(samples, calls, stops)}
+    assert sorted(got) == sorted(got), "stops came back out of route order"
+    order = [got[i] for i in sorted(got)]
+    assert order == sorted(order), \
+        f"the bus called at its stops out of sequence: {order}"
+    assert got.get(1, 0) < got.get(2, 10**6), \
+        "stop 1 was timed from a later pass than stop 2"
+
+
+def test_the_constraint_does_not_cost_closely_spaced_stops_their_arrival():
+    # Two poles 15 m apart share their nearest sample. Forcing each stop
+    # strictly later than the one before would push one of them off its own
+    # arrival, which is a fix that costs more than the bug.
+    stops = {"A": {"lat": 50.8300, "lon": -0.3000, "name": "A"},
+             "B": {"lat": 50.8300, "lon": -0.29979, "name": "B"},
+             "C": {"lat": 50.8300, "lon": -0.2950, "name": "C"}}
+    calls = [(36_000, "A"), (36_060, "B"), (36_120, "C")]
+    samples = _track([(50.8300, -0.3010), (50.8300, -0.29990), (50.8300, -0.2960),
+                      (50.8300, -0.2940), (50.8300, -0.2900)])
+    got = [(i, s) for i, _sc, _a, s, _m in ps.arrivals_along(samples, calls, stops)]
+    assert [i for i, _ in got] == [0, 1, 2], \
+        f"a stop a few metres from its neighbour lost its arrival: {got}"
+
+
+def test_a_stop_the_bus_only_nears_from_the_previous_one_is_not_an_arrival():
+    # The floor's own edge case, and it has to be tested with the floor already
+    # moved — at the start of a track the old rule and the new one agree, so a
+    # fixture that never advances the floor certifies either.
+    #
+    # S02 sits 105 m beyond S01. The bus is seen at S00, then at S01, then gone.
+    # Its closest approach to S02 is the moment it was standing at S01, which is
+    # evidence about S01 and nothing at all about S02. Accepting it would time
+    # two stops from one sighting and report a bus at a stop it never reached.
+    stops = {"S00": {"lat": 50.83, "lon": -0.3000, "name": "Stop 0"},
+             "S01": {"lat": 50.83, "lon": -0.2950, "name": "Stop 1"},
+             "S02": {"lat": 50.83, "lon": -0.2935, "name": "Stop 2"}}
+    calls = [(36_000, "S00"), (36_120, "S01"), (36_240, "S02")]
+    samples = _track([(50.83, -0.3000), (50.83, -0.3000),      # standing at S00
+                      (50.83, -0.2950), (50.83, -0.2950),      # standing at S01
+                      (50.83, -0.2800), (50.83, -0.2800)])     # away, past S02
+    got = [i for i, _sc, _a, _s, _m in ps.arrivals_along(samples, calls, stops)]
+    assert got[:2] == [0, 1], f"the two stops it did reach were lost: {got}"
+    assert 2 not in got, \
+        "a stop was timed from the sample that timed the stop before it"

@@ -298,6 +298,70 @@ def snapshot_files(directory):
     return sorted(found)
 
 
+def arrivals_along(samples, calls, stops):
+    """Where along one bus's track it called at each of its journey's stops.
+
+    Yields `(stop_index, scheduled_secs, atco, sample_index, metres)` for every
+    stop the bus can be said to have reached, in route order. `samples` are
+    `(secs, lat, lon, ref)` sorted by time; `calls` are `(secs, atco)` in route
+    order; `stops` is the timetable's stop table.
+
+    **A journey's arrivals advance along the road.** Each stop is timed from
+    the samples at or after the one that timed the stop before it, which is
+    the whole reason this is a function rather than a loop over independent
+    minimums.
+
+    Without that constraint each stop took its nearest approach over the bus's
+    entire track, and a journey that comes back near one of its own early stops
+    — which on a real network means little more than the other side of the road
+    — timed that stop from the later pass. Measured over 16–18 September: **475
+    pairs of adjacent stops ran backwards in time, across 293 of 2,880
+    journeys**, the worst by 59 minutes. A 3X "reached" Moulsecoomb Way at 18:45
+    and Brighton University, its very next stop, at 17:46. Subtracted by the
+    journey-time tool, that is a bus arriving an hour before it set off, and 69
+    such durations were published.
+    """
+    floor = 0
+    for stop_index, (scheduled_secs, atco) in enumerate(calls):
+        stop = stops.get(atco) or {}
+        if stop.get("lat") is None:
+            continue
+        dists = [trip_match.km(s[1], s[2], stop["lat"], stop["lon"]) for s in samples]
+        # Equality with the floor is allowed: stops a few metres apart share
+        # their nearest sample, and forcing each strictly later would push one
+        # of every closely-spaced pair off its own arrival.
+        nearest = min(range(floor, len(dists)), key=dists.__getitem__)
+        metres = round(dists[nearest] * 1000)
+        if metres > ARRIVAL_RADIUS_M:
+            continue
+        # When the bus *left*, not when it first got there. The timetable time
+        # this is judged against is a departure time — the builder reads
+        # departure_time — and at a terminus a bus stands for minutes. Taking
+        # its nearest approach timed the middle of the layover and reported the
+        # bus as leaving early: measured on 17 September, 56% of arrivals at Old
+        # Steine and 51% at Marine Parade came out early, against 13% across
+        # the route.
+        #
+        # Only the run of samples containing the nearest approach counts, so a
+        # route passing the same stop twice does not have its two visits merged
+        # into one long dwell.
+        i = nearest
+        while i + 1 < len(dists) and dists[i + 1] * 1000 <= ARRIVAL_RADIUS_M:
+            i += 1
+        # The visit must be bounded: the bus seen coming *and* going. At the
+        # edge of what may be looked at, the real nearest approach can lie
+        # outside it, which reads as a bus arriving early at a stop it had not
+        # reached — measured on live data, a stop due at 15:31 was recorded as
+        # reached at 15:28 because that was simply the last snapshot taken.
+        # The lower edge is the floor rather than the start of the track: a
+        # stop whose closest sample is the moment the bus left the previous
+        # stop cannot be placed, unless the two are near enough to be one place.
+        if (nearest == floor or i == len(samples) - 1) and metres > AT_THE_STOP_M:
+            continue
+        floor = nearest
+        yield stop_index, scheduled_secs, atco, i, metres
+
+
 def observe_day(tt, day, snapshots, atcos=None):
     """Arrival observations for one day.
 
@@ -402,38 +466,10 @@ def observe_day(tt, day, snapshots, atcos=None):
         refs = [s[3] for s in samples if s[3]]
         vehicle = max(set(refs), key=refs.count) if refs else ""
         seen_here = []          # (stop index, scheduled, observed) for this journey
-        for stop_index, (scheduled_secs, atco) in enumerate(calls):
+        for stop_index, scheduled_secs, atco, sample_i, metres in arrivals_along(
+                samples, calls, tt.stops):
             stop = tt.stops.get(atco) or {}
-            if stop.get("lat") is None:
-                continue
-            dists = [trip_match.km(s[1], s[2], stop["lat"], stop["lon"]) for s in samples]
-            nearest = min(range(len(dists)), key=dists.__getitem__)
-            metres = round(dists[nearest] * 1000)
-            if metres > ARRIVAL_RADIUS_M:
-                continue
-            # When the bus *left*, not when it first got there. The timetable
-            # time this is judged against is a departure time — the builder
-            # reads departure_time — and at a terminus a bus stands for
-            # minutes. Taking its nearest approach timed the middle of the
-            # layover and reported the bus as leaving early: measured on 17
-            # September, 56% of arrivals at Old Steine and 51% at Marine
-            # Parade came out early, against 13% across the route.
-            #
-            # Only the run of samples containing the nearest approach counts,
-            # so a route that passes the same stop twice does not have its two
-            # visits merged into one long dwell.
-            i = nearest
-            while i + 1 < len(dists) and dists[i + 1] * 1000 <= ARRIVAL_RADIUS_M:
-                i += 1
-            # The visit must be bounded by the recording: the bus seen coming
-            # *and* going. At the first or last sample the real nearest
-            # approach may lie outside the recording, which reads as a bus
-            # arriving early at a stop it had not reached — measured on live
-            # data, a stop due at 15:31 was recorded as reached at 15:28
-            # because that was simply the last snapshot taken.
-            if (nearest == 0 or i == len(samples) - 1) and metres > AT_THE_STOP_M:
-                continue
-            best = samples[i]
+            best = samples[sample_i]
             seen_here.append((stop_index, scheduled_secs, best[0]))
             observations.append({
                 "day": service_day.isoformat(),
@@ -467,8 +503,16 @@ def observe_day(tt, day, snapshots, atcos=None):
                 "journey_start_secs": journey_start,
             })
         observed_by_journey[key] = seen_here
+        # A dict a stop, not a tuple: this grew a field once already and the
+        # positional version let a caller unpack three values from four
+        # without complaining.
         calls_by_journey[key] = {
-            i: (secs, atco, (tt.stops.get(atco) or {}).get("name", ""))
+            i: {"scheduled_secs": secs, "atco": atco,
+                "stop_name": (tt.stops.get(atco) or {}).get("name", ""),
+                # This stop's own flag. Interpolated observations used to
+                # inherit it from whichever stop happened to be the template,
+                # which labelled GTFS's own guesses as operator promises.
+                "timepoint": timepoints.get(atco)}
             for i, (secs, atco) in enumerate(calls)
             if (tt.stops.get(atco) or {}).get("lat") is not None}
 
@@ -648,13 +692,13 @@ def _fill_gaps(observations, observed_by_journey, calls_by_journey):
                 call = calls_by_journey.get(key, {}).get(index)
                 if call is None:
                     continue
-                scheduled_secs, atco, name = call
+                scheduled_secs = call["scheduled_secs"]
                 share = (scheduled_secs - sched_before) / span
                 observed_secs = round(obs_before + share * (obs_after - obs_before))
                 filled.append({
                     **template,
-                    "atco": atco,
-                    "stop_name": name,
+                    "atco": call["atco"],
+                    "stop_name": call["stop_name"],
                     "scheduled": trip_match.clock(scheduled_secs),
                     "scheduled_secs": scheduled_secs,
                     "observed": trip_match.clock(observed_secs),
@@ -662,6 +706,11 @@ def _fill_gaps(observations, observed_by_journey, calls_by_journey):
                     "lateness_secs": observed_secs - scheduled_secs,
                     "nearest_m": None,
                     "stop_index": index,
+                    "timepoint": call["timepoint"],
+                    # This stop's own flag, never the template's. The template
+                    # is whichever observation of the journey came first, so
+                    # inheriting it labelled roughly a fifth of interpolated
+                    # stops as times the operator had committed to.
                     "estimated": True,
                 })
     return filled

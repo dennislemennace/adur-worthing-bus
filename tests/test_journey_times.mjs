@@ -83,6 +83,57 @@ test("journeys come back in departure order", () => {
   assert.equal(departs.length, 3);
 });
 
+test("a journey recorded arriving before it left is not published", () => {
+  // The scheduled order is right and the observed order is not, so the
+  // direction test above passes it and the subtraction produces a negative
+  // duration. Sixty-nine of these reached readers, the worst -12 minutes,
+  // because a stop was timed from a later pass of the same bus.
+  const doc = { journeys: [
+    journey("2026-09-17", "08:15", [[0, 30600, 30600, 0], [3, 29700, 33480, 0]]),
+    trip("2026-09-17", 9 * 60, 52, 48),
+  ] };
+  const times = between(doc, 0, 3);
+  assert.equal(times.length, 1, "a negative journey time was published");
+  assert.equal(times[0].observedSecs, 52 * MIN);
+  assert.ok(times.every(t => t.observedSecs > 0));
+});
+
+test("the journeys refused as contradictory are counted, not hidden", () => {
+  // "14 journeys, 3 excluded" says something about the evidence. "14
+  // journeys" alone quietly overstates it.
+  const doc = { journeys: [
+    journey("2026-09-17", "08:15", [[0, 30600, 30600, 0], [3, 29700, 33480, 0]]),
+    journey("2026-09-17", "08:45", [[0, 32400, 32400, 0], [3, 32400, 35280, 0]]),
+    trip("2026-09-17", 9 * 60, 52, 48),
+    // The other direction is not a fault and must not be counted as one.
+    journey("2026-09-17", "09:30", [[3, 34200, 34200, 0], [0, 36000, 36000, 0]],
+            "eastbound"),
+  ] };
+  assert.equal(vm.runInContext("journeyTimesContradictions", app)(doc, 0, 3), 2);
+  assert.equal(between(doc, 0, 3).length, 1);
+});
+
+test("a journey that calls at a stop twice is not subtracted from itself", () => {
+  // A circular service calls at a stop on the way out and again on the way
+  // back. Taking the first match for both ends pairs the outward visit with
+  // the return one and reports a loop of the town as the time between two
+  // adjacent stops — a figure that looks entirely plausible on a chart.
+  //
+  // No route in the recorded area does this today, so this guards a timetable
+  // change rather than fixing something observed.
+  const doc = { journeys: [
+    journey("2026-09-17", "08:15", [
+      [0, 30600, 30600, 0],       // out
+      [3, 31800, 31800, 0],
+      [0, 34200, 34200, 0],       // and back past stop 0
+    ]),
+    trip("2026-09-17", 9 * 60, 52, 48),
+  ] };
+  const times = between(doc, 0, 3);
+  assert.equal(times.length, 1, "an ambiguous pair of calls was subtracted");
+  assert.equal(times[0].observedSecs, 52 * MIN);
+});
+
 // ── What the chart must admit ───────────────────────────────
 
 test("an interpolated observation is marked as an estimate", () => {

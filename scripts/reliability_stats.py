@@ -25,6 +25,14 @@ form a bus-priority ask has to take.
 **Lateness at an interpolated stop is partly the interpolation.** GTFS marks
 the operator's own timing points; everything between them is its estimate.
 Figures default to timing points only.
+
+**An interpolated *observation* is not an observation.** Where the bus was not
+seen at a stop, its time here is the lateness either side divided by the
+timetable, and counting that measures this file rather than the service. Every
+figure excludes estimates unless `include_estimates=True` is passed, and each
+cell carries `measured_only` so a number cannot be quoted without the answer.
+Reporting gaps are likelier in heavy traffic, so including them would have
+flattered the worst hours specifically.
 """
 
 import statistics
@@ -70,13 +78,35 @@ def timing_points(rows):
     return [r for r in rows if r.get("timepoint") == 1]
 
 
-def stats(rows, mean=False):
+def measured(rows):
+    """Only arrivals that were actually seen.
+
+    An interpolated observation has no punctuality of its own: its time is the
+    lateness of the stops either side, divided in the timetable's proportion.
+    Counting it measures our own arithmetic and, because a reporting gap is
+    likelier in traffic, it does so in the flattering direction.
+
+    The daily summary has always dropped these. The query tool and the rollups
+    did not, so the same day could be summarised two ways — which is worse than
+    either answer, because both were published as "the" figure.
+    """
+    return [r for r in rows if not r.get("estimated")]
+
+
+def stats(rows, mean=False, include_estimates=False):
     """One cell of a table: counts, medians, and what is not trustworthy in it.
 
     Returns None for no rows. `per_journey_median_secs` is the median of each
     journey's own median, so a single badly delayed journey counts once rather
     than once per stop.
+
+    Estimates are excluded unless asked for. `include_estimates=True` exists
+    for exploring the data, never for publishing from it, and the cell says
+    which it was so a figure cannot be quoted without the answer.
     """
+    given = len(rows)
+    if not include_estimates:
+        rows = measured(rows)
     if not rows:
         return None
     late = sorted(r["lateness_secs"] for r in rows)
@@ -103,6 +133,10 @@ def stats(rows, mean=False):
             1 for v in late
             if v <= CENSORED_EARLY_SECS + AT_BOUND_SECS
             or v >= CENSORED_LATE_SECS - AT_BOUND_SECS),
+        # Stated rather than implied. A cell resting on 40 arrivals of which 30
+        # were interpolated is a different claim from one resting on 40 seen.
+        "measured_only": not include_estimates,
+        "estimates_excluded": given - len(rows),
     }
     if mean:
         # Asked for explicitly, and never without this note attached.
@@ -114,12 +148,12 @@ def stats(rows, mean=False):
     return cell
 
 
-def group_stats(rows, key, mean=False):
+def group_stats(rows, key, mean=False, include_estimates=False):
     """`{group: stats}` for a key function over the rows."""
     grouped = {}
     for row in rows:
         grouped.setdefault(key(row), []).append(row)
-    return {k: stats(v, mean=mean)
+    return {k: stats(v, mean=mean, include_estimates=include_estimates)
             for k, v in sorted(grouped.items(), key=lambda kv: str(kv[0]))}
 
 
@@ -142,7 +176,7 @@ def observed_hour(row):
     return f'{row["observed_secs"] // 3600 % 24:02d}'
 
 
-def segment_stats(rows, hour=False):
+def segment_stats(rows, hour=False, include_estimates=False):
     """Where time is lost: lateness gained between consecutive timing points.
 
     Keyed by `(from_stop, to_stop, direction)` — a segment is directional, and
@@ -153,6 +187,12 @@ def segment_stats(rows, hour=False):
     need not be adjacent stops: barely a fifth of stops are timing points, so
     `median_stops_apart` records how much road a segment covers.
     """
+    # Timing points *and* measured. A stop can be both a genuine timing point
+    # and interpolated — the operator commits to a time there, and our bus was
+    # not seen at it — and "lateness gained" between two guesses is arithmetic
+    # about arithmetic.
+    if not include_estimates:
+        rows = measured(rows)
     by_journey = {}
     for row in timing_points(rows):
         by_journey.setdefault(journey_key(row), []).append(row)
@@ -199,6 +239,7 @@ def segment_stats(rows, hour=False):
             "over_scheduled_share": median_gain / scheduled,
             "median_stops_apart": statistics.median(leg["stops_apart"] for leg in legs),
             "services": sorted({leg["service"] for leg in legs if leg["service"]}),
+            "measured_only": not include_estimates,
         }
     return out
 

@@ -1664,16 +1664,43 @@ const JT_ESTIMATED = 1;
 const JT_NO_PROMISE = 2;
 
 /** Every journey that called at both stops, in order, as timings. */
+/** The journey's single call at a stop, or null if it is not exactly one.
+ *
+ *  A circular service calls at a stop twice, and `find` would silently take
+ *  the first — pairing the outward visit with the return one and reporting a
+ *  loop of the town as the journey time between two adjacent stops. No route
+ *  in the recorded area does this today (0 of 2,880 journeys over 16-18
+ *  September), so this is a guard against a timetable change rather than a
+ *  fix for something observed. It is here because the failure would look
+ *  entirely plausible on the chart. */
+function singleCallAt(journey, index) {
+  let found = null;
+  for (const call of journey.calls) {
+    if (call[0] !== index) continue;
+    if (found) return null;
+    found = call;
+  }
+  return found;
+}
+
 function journeyTimesBetween(doc, fromIndex, toIndex) {
   const out = [];
   for (const journey of doc.journeys || []) {
-    const from = journey.calls.find(c => c[0] === fromIndex);
-    const to   = journey.calls.find(c => c[0] === toIndex);
+    const from = singleCallAt(journey, fromIndex);
+    const to   = singleCallAt(journey, toIndex);
     if (!from || !to) continue;
     // Direction matters: the same pair of names exists on both sides of a
     // road, and a journey that calls at "to" before "from" is going the
     // other way, not travelling backwards in time.
     if (to[2] <= from[2]) continue;
+    // And the same test on the times actually *observed*, which is a
+    // different claim. A journey scheduled in the right order can still be
+    // recorded in the wrong one, and the subtraction below then publishes a
+    // bus arriving before it set off: 69 such durations reached readers, the
+    // worst -12 minutes. The processor no longer produces them, but this is
+    // the line that decides what a reader sees, so it refuses them here too
+    // rather than trusting every file it is ever handed.
+    if (to[1] <= from[1]) continue;
     out.push({
       day: journey.day,
       start: journey.start,
@@ -1689,6 +1716,24 @@ function journeyTimesBetween(doc, fromIndex, toIndex) {
     });
   }
   return out.sort((a, b) => a.departSecs - b.departSecs);
+}
+
+/** How many journeys the pair above refused as contradictory.
+ *
+ *  Reported rather than silently dropped. "14 journeys, 3 excluded" says
+ *  something about the evidence; "14 journeys" alone quietly overstates it,
+ *  and a reader who later finds the raw file is entitled to ask where the
+ *  other three went. */
+function journeyTimesContradictions(doc, fromIndex, toIndex) {
+  let n = 0;
+  for (const journey of doc.journeys || []) {
+    const from = singleCallAt(journey, fromIndex);
+    const to   = singleCallAt(journey, toIndex);
+    if (!from || !to) continue;
+    if (to[2] <= from[2]) continue;      // the other direction, not a fault
+    if (to[1] <= from[1]) n += 1;
+  }
+  return n;
 }
 
 /** Weekday/weekend filtering, on the service day rather than the clock. */
