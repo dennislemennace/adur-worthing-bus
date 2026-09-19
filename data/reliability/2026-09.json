@@ -1,5 +1,5 @@
 {
- "as_of": "2026-09-19T22:14:26+00:00",
+ "as_of": "2026-09-19T22:51:30+00:00",
  "by_hour": {
   "00": {
    "at_censoring_bound": 3,
@@ -363,25 +363,43 @@
   }
  },
  "by_service": {
-  "1": {
+  "1 (BHBC)": {
    "at_censoring_bound": 3,
    "bands": {
-    "early": 317,
-    "late": 245,
-    "on_time": 4347,
-    "very_late": 21
+    "early": 308,
+    "late": 206,
+    "on_time": 4192,
+    "very_late": 14
    },
-   "estimates_excluded": 500,
-   "journeys": 656,
+   "estimates_excluded": 477,
+   "journeys": 586,
    "measured_only": true,
-   "median_secs": 51.5,
-   "not_on_time_share": 0.11825557809330633,
-   "observations": 4930,
-   "on_time_share": 0.8817444219066937,
-   "p90_secs": 281,
+   "median_secs": 51.0,
+   "not_on_time_share": 0.11186440677966103,
+   "observations": 4720,
+   "on_time_share": 0.888135593220339,
+   "p90_secs": 260,
    "per_journey_median_secs": 48.0
   },
-  "10": {
+  "1 (SCSO)": {
+   "at_censoring_bound": 0,
+   "bands": {
+    "early": 9,
+    "late": 39,
+    "on_time": 155,
+    "very_late": 7
+   },
+   "estimates_excluded": 23,
+   "journeys": 70,
+   "measured_only": true,
+   "median_secs": 66.5,
+   "not_on_time_share": 0.26190476190476186,
+   "observations": 210,
+   "on_time_share": 0.7380952380952381,
+   "p90_secs": 708,
+   "per_journey_median_secs": 64.75
+  },
+  "10 (SCSO)": {
    "at_censoring_bound": 0,
    "bands": {
     "early": 5,
@@ -399,7 +417,7 @@
    "p90_secs": 456,
    "per_journey_median_secs": 70.25
   },
-  "11": {
+  "11 (SCSO)": {
    "at_censoring_bound": 0,
    "bands": {
     "early": 20,
@@ -417,7 +435,7 @@
    "p90_secs": 530,
    "per_journey_median_secs": 50
   },
-  "13X": {
+  "13X (BHBC)": {
    "at_censoring_bound": 0,
    "bands": {
     "early": 3,
@@ -435,7 +453,7 @@
    "p90_secs": 512,
    "per_journey_median_secs": 94.5
   },
-  "16": {
+  "16 (COMT)": {
    "at_censoring_bound": 0,
    "bands": {
     "early": 4,
@@ -453,7 +471,7 @@
    "p90_secs": 1291,
    "per_journey_median_secs": 711.25
   },
-  "19": {
+  "19 (COMT)": {
    "at_censoring_bound": 0,
    "bands": {
     "early": 4,
@@ -471,7 +489,7 @@
    "p90_secs": 529,
    "per_journey_median_secs": 142.25
   },
-  "1X": {
+  "1X (BHBC)": {
    "at_censoring_bound": 1,
    "bands": {
     "early": 69,
@@ -489,7 +507,7 @@
    "p90_secs": 414,
    "per_journey_median_secs": 112.0
   },
-  "2": {
+  "2 (BHBC)": {
    "at_censoring_bound": 6,
    "bands": {
     "early": 69,
@@ -507,7 +525,7 @@
    "p90_secs": 413,
    "per_journey_median_secs": 68.5
   },
-  "21": {
+  "21 (BHBC)": {
    "at_censoring_bound": 15,
    "bands": {
     "early": 42,
@@ -525,7 +543,7 @@
    "p90_secs": 584,
    "per_journey_median_secs": 120.5
   },
-  "23": {
+  "23 (METR)": {
    "at_censoring_bound": 1,
    "bands": {
     "early": 8,
@@ -543,7 +561,7 @@
    "p90_secs": 591,
    "per_journey_median_secs": 178
   },
-  "23X": {
+  "23X (METR)": {
    "at_censoring_bound": 0,
    "bands": {
     "early": 0,
@@ -561,7 +579,7 @@
    "p90_secs": 610,
    "per_journey_median_secs": 52.5
   },
-  "37": {
+  "37 (COMT)": {
    "at_censoring_bound": 2,
    "bands": {
     "early": 78,
@@ -579,7 +597,7 @@
    "p90_secs": 507,
    "per_journey_median_secs": 64.5
   },
-  "37B": {
+  "37B (COMT)": {
    "at_censoring_bound": 27,
    "bands": {
     "early": 13,
@@ -597,7 +615,7 @@
    "p90_secs": 882,
    "per_journey_median_secs": 348.0
   },
-  "3X": {
+  "3X (BHBC)": {
    "at_censoring_bound": 7,
    "bands": {
     "early": 22,
@@ -615,7 +633,7 @@
    "p90_secs": 532,
    "per_journey_median_secs": 222
   },
-  "46": {
+  "46 (BHBC)": {
    "at_censoring_bound": 25,
    "bands": {
     "early": 89,
@@ -633,7 +651,7 @@
    "p90_secs": 545,
    "per_journey_median_secs": 107.0
   },
-  "47": {
+  "47 (COMT)": {
    "at_censoring_bound": 34,
    "bands": {
     "early": 52,
@@ -651,7 +669,7 @@
    "p90_secs": 960,
    "per_journey_median_secs": 311
   },
-  "49": {
+  "49 (BHBC)": {
    "at_censoring_bound": 2,
    "bands": {
     "early": 76,
@@ -669,25 +687,43 @@
    "p90_secs": 404,
    "per_journey_median_secs": 109
   },
-  "5": {
-   "at_censoring_bound": 9,
+  "5 (BHBC)": {
+   "at_censoring_bound": 5,
    "bands": {
-    "early": 86,
-    "late": 333,
-    "on_time": 2108,
-    "very_late": 66
+    "early": 59,
+    "late": 154,
+    "on_time": 1685,
+    "very_late": 20
    },
-   "estimates_excluded": 218,
-   "journeys": 439,
+   "estimates_excluded": 104,
+   "journeys": 231,
    "measured_only": true,
-   "median_secs": 90,
-   "not_on_time_share": 0.18704203625144622,
-   "observations": 2593,
-   "on_time_share": 0.8129579637485538,
-   "p90_secs": 478,
-   "per_journey_median_secs": 102
+   "median_secs": 65.0,
+   "not_on_time_share": 0.12148070907194997,
+   "observations": 1918,
+   "on_time_share": 0.87851929092805,
+   "p90_secs": 345,
+   "per_journey_median_secs": 65.5
   },
-  "5B": {
+  "5 (SCSO)": {
+   "at_censoring_bound": 4,
+   "bands": {
+    "early": 27,
+    "late": 179,
+    "on_time": 423,
+    "very_late": 46
+   },
+   "estimates_excluded": 114,
+   "journeys": 208,
+   "measured_only": true,
+   "median_secs": 174,
+   "not_on_time_share": 0.3733333333333333,
+   "observations": 675,
+   "on_time_share": 0.6266666666666667,
+   "p90_secs": 829,
+   "per_journey_median_secs": 155.75
+  },
+  "5B (BHBC)": {
    "at_censoring_bound": 5,
    "bands": {
     "early": 136,
@@ -705,7 +741,7 @@
    "p90_secs": 393,
    "per_journey_median_secs": 63.0
   },
-  "6": {
+  "6 (BHBC)": {
    "at_censoring_bound": 1,
    "bands": {
     "early": 66,
@@ -723,25 +759,43 @@
    "p90_secs": 406,
    "per_journey_median_secs": 104.0
   },
-  "7": {
-   "at_censoring_bound": 4,
+  "7 (BHBC)": {
+   "at_censoring_bound": 3,
    "bands": {
-    "early": 215,
-    "late": 289,
-    "on_time": 3923,
-    "very_late": 22
+    "early": 210,
+    "late": 244,
+    "on_time": 3768,
+    "very_late": 21
    },
-   "estimates_excluded": 514,
-   "journeys": 679,
+   "estimates_excluded": 288,
+   "journeys": 646,
    "measured_only": true,
-   "median_secs": 59,
-   "not_on_time_share": 0.1182288154641492,
-   "observations": 4449,
-   "on_time_share": 0.8817711845358508,
-   "p90_secs": 296,
-   "per_journey_median_secs": 59
+   "median_secs": 56,
+   "not_on_time_share": 0.11194909262314401,
+   "observations": 4243,
+   "on_time_share": 0.888050907376856,
+   "p90_secs": 288,
+   "per_journey_median_secs": 56.0
   },
-  "700": {
+  "7 (SCSO)": {
+   "at_censoring_bound": 1,
+   "bands": {
+    "early": 5,
+    "late": 45,
+    "on_time": 155,
+    "very_late": 1
+   },
+   "estimates_excluded": 226,
+   "journeys": 33,
+   "measured_only": true,
+   "median_secs": 177.0,
+   "not_on_time_share": 0.24757281553398058,
+   "observations": 206,
+   "on_time_share": 0.7524271844660194,
+   "p90_secs": 487,
+   "per_journey_median_secs": 164
+  },
+  "700 (SCSO)": {
    "at_censoring_bound": 6,
    "bands": {
     "early": 84,
@@ -759,7 +813,7 @@
    "p90_secs": 353,
    "per_journey_median_secs": 55
   },
-  "701": {
+  "701 (SCSO)": {
    "at_censoring_bound": 0,
    "bands": {
     "early": 36,
@@ -777,7 +831,7 @@
    "p90_secs": 460,
    "per_journey_median_secs": 61.75
   },
-  "8": {
+  "8 (COMT)": {
    "at_censoring_bound": 0,
    "bands": {
     "early": 1,
@@ -795,7 +849,7 @@
    "p90_secs": 122,
    "per_journey_median_secs": 25.75
   },
-  "8A": {
+  "8A (COMT)": {
    "at_censoring_bound": 0,
    "bands": {
     "early": 1,
@@ -813,7 +867,7 @@
    "p90_secs": 192,
    "per_journey_median_secs": 56.5
   },
-  "9": {
+  "9 (SCSO)": {
    "at_censoring_bound": 30,
    "bands": {
     "early": 11,
