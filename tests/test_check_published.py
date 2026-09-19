@@ -85,7 +85,7 @@ def test_a_call_naming_a_stop_that_is_not_in_the_list_is_caught():
 def summary(**over):
     base = {"day": "2026-09-17", "method": "M", "caveats": ["c"],
             "as_of": "2026-09-18T02:00:00+00:00", "data_version": "v1",
-            "measured_only": True, "observations": 10,
+            "method_version": 3, "measured_only": True, "observations": 10,
             "bands": {"early": 2, "on_time": 6, "late": 1, "very_late": 1},
             "coverage": {"snapshots_by_hour": {"10": 60}}}
     base.update(over)
@@ -123,9 +123,19 @@ def test_a_rollup_may_name_several_data_versions():
 
 
 def test_a_summary_with_no_provenance_at_all_is_caught():
-    bare = summary(method=None, as_of=None, data_version=None)
+    bare = summary(method=None, as_of=None, data_version=None, method_version=None)
     found = failures(cp.check_summary, bare, "day")
-    assert found.count("summary is missing its provenance") == 3
+    assert found.count("summary is missing its provenance") == 4
+
+
+def test_a_figure_must_say_which_method_produced_it():
+    # data_version says what a figure was measured against; method_version says
+    # how. Without it a figure from before the arrival picker was made monotonic
+    # is indistinguishable from one after, and on the journeys that were wrong
+    # those answers differ by up to an hour.
+    assert "summary is missing its provenance" in failures(
+        cp.check_summary, summary(method_version=None), "day")
+    assert failures(cp.check_summary, summary(method_version=3), "day") == []
 
 
 # ── Cells published as fact ─────────────────────────────────

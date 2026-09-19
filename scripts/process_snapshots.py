@@ -107,6 +107,23 @@ VEHICLE_STALE_SECS = 10 * 60
 BEFORE_FIRST_SECS = 15 * 60
 AFTER_LAST_SECS = 30 * 60
 
+# How the figures were produced, as a number that changes when the answer would.
+#
+# `data_version` already names the timetable build, which says what a figure was
+# measured *against*. It says nothing about how it was measured, so a figure
+# from before the arrival picker was made monotonic is indistinguishable from
+# one after it — and those two answers differ by up to an hour on the journeys
+# that were wrong. A reader comparing two months of published data has no way to
+# know which side of the fix each came from.
+#
+# Raise this whenever a change would move a published number:
+#   1  the original method
+#   2  arrivals timed by departure rather than nearest approach
+#   3  arrivals must advance along the route; interpolated stops carry their own
+#      timing-point flag; declared journeys matched outside the active window;
+#      estimates excluded from every statistic
+METHOD_VERSION = 3
+
 METHOD = (
     "Bus positions recorded from the Bus Open Data Service (SIRI-VM) once a "
     "minute are matched to scheduled journeys by position, service number and "
@@ -858,6 +875,7 @@ def main(argv=None):
     payload = {
         "day": args.day,
         "method": METHOD,
+        "method_version": METHOD_VERSION,
         "caveats": CAVEATS,
         "as_of": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "data_version": version,
@@ -868,6 +886,7 @@ def main(argv=None):
         summary = {
             "day": args.day,
             "method": METHOD,
+            "method_version": METHOD_VERSION,
             "caveats": CAVEATS,
             "as_of": payload["as_of"],
             "data_version": version,

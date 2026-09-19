@@ -228,3 +228,41 @@ jobs:
             "s3://adur-worthing-published/journey-times/index.json" \
             --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
             --no-progress
+
+      # The monthly aggregate the site reads. Nothing rebuilt it, so it stated
+      # whichever days happened to be processed when someone last ran the
+      # script by hand — and it carries an `as_of` and a list of days, so a
+      # reader could see it was stale and had no way to know why.
+      - name: Rebuild the monthly rollup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DAY="${{ steps.day.outputs.day }}"
+          MONTH=$(echo "$DAY" | cut -c1-7)
+          mkdir -p month
+          # Every day of the month published so far, from the release each was
+          # uploaded to. A day that failed to process is simply absent, and the
+          # rollup names the days it actually used.
+          gh release download "reliability-$MONTH" -p 'observations-*.json.gz' \
+            -D month --clobber 2>/dev/null || true
+          COUNT=$(find month -name '*.json.gz' | wc -l)
+          echo "rollup window: $COUNT day(s) of $MONTH"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::warning::no observations for $MONTH — rollup not rebuilt"
+            exit 0
+          fi
+          python -u scripts/query_reliability.py \
+            --observations month --rollup "data/reliability/$MONTH.json"
+          python -u scripts/check_published.py \
+            --summaries "data/reliability/$MONTH.json"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "data/reliability/$MONTH.json"
+          if git diff --cached --quiet -- "data/reliability/$MONTH.json"; then
+            echo "Rollup unchanged — nothing to commit."
+            exit 0
+          fi
+          git commit -m "Reliability rollup for $MONTH"
+          # The summary step already pushed, so rebase onto whatever landed.
+          git pull --rebase --autostash
+          git push

@@ -45,7 +45,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import reliability_stats as rs                                   # noqa: E402
-from process_snapshots import CAVEATS, METHOD                    # noqa: E402
+from process_snapshots import CAVEATS, METHOD, METHOD_VERSION    # noqa: E402
 
 
 def load_observations(patterns):
@@ -249,6 +249,7 @@ def write_rollup(rows, meta, args):
         "data_versions": meta["data_versions"],
         "days": meta["days"],
         "method": METHOD,
+        "method_version": METHOD_VERSION,
         "caveats": CAVEATS,
         "series": "all_stops" if args.all_stops else "timing_point",
         "hour_basis": "scheduled departure hour",

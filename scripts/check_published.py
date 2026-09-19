@@ -150,6 +150,13 @@ def check_summary(summary, name, fails):
     # A daily summary names one timetable build; a rollup names each it spans.
     if not (summary.get("data_version") or summary.get("data_versions")):
         fails.add("summary is missing its provenance", f"{name}: no data version")
+    # What the figure was measured *with*, not only what it was measured
+    # against. Without it a figure from before the arrival picker was made
+    # monotonic cannot be told from one after, and on the journeys that were
+    # wrong those two answers differ by up to an hour.
+    if not isinstance(summary.get("method_version"), int):
+        fails.add("summary is missing its provenance",
+                  f'{name}: no method_version')
     if not (summary.get("day") or summary.get("month")):
         fails.add("summary is missing its provenance", f"{name}: no day or month")
 

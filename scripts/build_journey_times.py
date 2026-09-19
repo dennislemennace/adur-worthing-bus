@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from process_snapshots import CAVEATS, METHOD                    # noqa: E402
+from process_snapshots import CAVEATS, METHOD, METHOD_VERSION    # noqa: E402
 from query_reliability import load_observations                  # noqa: E402
 
 # A journey with fewer calls than this says nothing about running time between
@@ -103,6 +103,7 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY):
         "days": meta["days"],
         "data_versions": meta["data_versions"],
         "method": METHOD,
+        "method_version": METHOD_VERSION,
         "caveats": CAVEATS,
         # Calls are [stop, observed, scheduled, estimated] — seconds from
         # midnight, and estimated meaning the time was interpolated between two
