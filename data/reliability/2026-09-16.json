@@ -1,9 +1,9 @@
 {
- "as_of": "2026-09-19T12:29:08+00:00",
+ "as_of": "2026-09-19T12:36:48+00:00",
  "bands": {
-  "early": 1954,
+  "early": 1953,
   "late": 2734,
-  "on_time": 22231,
+  "on_time": 22230,
   "very_late": 669
  },
  "by_hour": {
@@ -40,7 +40,7 @@
   "19": {
    "early": 213,
    "late": 254,
-   "on_time": 3146,
+   "on_time": 3145,
    "very_late": 43
   },
   "20": {
@@ -56,7 +56,7 @@
    "very_late": 1
   },
   "22": {
-   "early": 125,
+   "early": 124,
    "late": 69,
    "on_time": 2188,
    "very_late": 2
@@ -91,7 +91,7 @@
   "13X": {
    "early": 0,
    "late": 9,
-   "on_time": 8,
+   "on_time": 7,
    "very_late": 4
   },
   "16": {
@@ -161,7 +161,7 @@
    "very_late": 48
   },
   "47": {
-   "early": 21,
+   "early": 20,
    "late": 188,
    "on_time": 341,
    "very_late": 72
@@ -241,9 +241,9 @@
    "very_late": 499
   },
   "timing_point": {
-   "early": 241,
+   "early": 240,
    "late": 629,
-   "on_time": 5553,
+   "on_time": 5552,
    "very_late": 170
   }
  },
@@ -280,7 +280,7 @@
   "hours_partial": [
    "15"
   ],
-  "observations": 36979,
+  "observations": 36978,
   "recorded_from": "15:21",
   "recorded_to": "23:59",
   "scheduled_journeys": 1136,
@@ -319,6 +319,6 @@
  "measured_only": true,
  "method": "Bus positions recorded from the Bus Open Data Service (SIRI-VM) once a minute are matched to scheduled journeys by position, service number and time (at most 5 minutes early or 25 minutes late, within 400 m of the route, heading-checked where published), each position judged at the time the operator recorded it rather than when it was read. A journey's arrival at a stop is the recorded position nearest that stop, where it came within 150 m, so times are accurate to about 30 seconds either way. Journeys with no tracked bus produce no observation and are counted as missing coverage, never as lateness. Lateness outside 5 minutes early to 25 minutes late cannot be observed at all: such a bus is matched to a neighbouring journey, so both tails of the distribution are censored and the share on time is optimistic. Coaches are excluded.",
  "method_version": 3,
- "observations": 27588,
+ "observations": 27586,
  "on_time_definition": "DfT BUS09: no more than 1 minute early and no more than 5 minutes 59 seconds late, per observed arrival. Judge a service by its timing_point figures: at interpolated stops the scheduled time is GTFS's estimate, not the operator's promise."
 }
