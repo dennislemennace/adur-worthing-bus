@@ -20,7 +20,8 @@ function env(over = {}) {
   return {
     PUBLISHED: {
       async get(key) {
-        return key === "journey-times/700.json"
+        return ["journey-times/700.json", "journey-times/index.json",
+                "journey-times/1-BHBC.json"].includes(key)
           ? { body: BODY, key }
           : null;
       },
@@ -95,4 +96,43 @@ test("the submission endpoint is untouched by any of this", async () => {
 test("an unconfigured bucket says so rather than pretending", async () => {
   const res = await get("/journey-times/700.json", "GET", env({ PUBLISHED: undefined }));
   assert.equal(res.status, 503);
+});
+
+
+// ── What is cached, and for how long ────────────────────────
+
+test("the index is not cached as long as the files it names", async () => {
+  // Everything here was served with an hour's cache, the index included. The
+  // night the documents were split by operator, 1.json became 1-BHBC.json and
+  // 1-SCSO.json and the old name was deleted from the bucket — so every reader
+  // holding an hour-old index was asking for a file that no longer existed.
+  //
+  // A cross-origin fetch is not reliably re-fetched by a hard reload either,
+  // which is why "I have pressed Ctrl+Shift+R several times" did not clear it.
+  const index = await get("/journey-times/index.json");
+  const doc = await get("/journey-times/700.json");
+  const indexAge = Number(/max-age=(\d+)/.exec(
+    index.headers.get("cache-control"))?.[1]);
+  const docAge = Number(/max-age=(\d+)/.exec(
+    doc.headers.get("cache-control"))?.[1]);
+
+  assert.ok(indexAge <= 300,
+    `the index is cached ${indexAge}s, long enough to name a deleted file`);
+  assert.ok(docAge > indexAge,
+    "a document should outlast the index, not the other way round");
+});
+
+test("a document may still be cached for an hour", async () => {
+  // A stale chart is yesterday's data, which is honest. A stale index is a
+  // broken view, which is not. Only the second is worth a request a minute.
+  const doc = await get("/journey-times/700.json");
+  assert.match(doc.headers.get("cache-control"), /max-age=3600/);
+});
+
+test("the split filenames are servable at all", async () => {
+  // The path is matched by a regex, and the new names carry a hyphen and are
+  // longer than the old ones. A name the builder writes and the server refuses
+  // is a 404 that only appears in production.
+  const res = await get("/journey-times/1-BHBC.json");
+  assert.equal(res.status, 200, "an operator-split filename was rejected");
 });

@@ -79,12 +79,27 @@ function servePublished(url, request, env) {
   if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "OPTIONS") {
     return new Response("Method not allowed", { status: 405 });
   }
+  // The index is not cached like the documents it names.
+  //
+  // Everything here was served with an hour's cache, index included — and the
+  // index is the one file that says which documents exist. The night the
+  // documents were split by operator, `1.json` became `1-BHBC.json` and
+  // `1-SCSO.json` and the old name was deleted from the bucket, so every
+  // reader holding an hour-old index was asking for a file that no longer
+  // existed. A cross-origin fetch is not reliably re-fetched by a hard reload
+  // either, so "I have pressed Ctrl+Shift+R several times" does not clear it.
+  //
+  // A minute on the index costs one small request a minute per reader and
+  // buys the guarantee that the list of files is never far out of date. The
+  // documents themselves keep the hour: a stale chart is yesterday's data,
+  // which is honest, where a stale index is a broken view.
+  const isIndex = match[1] === "index.json";
   const headers = {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, HEAD, OPTIONS",
-    // An hour: these are rebuilt nightly, and a reader refreshing a chart
-    // should not wait on R2 every time.
-    "cache-control": "public, max-age=3600",
+    "cache-control": isIndex
+      ? "public, max-age=60, stale-while-revalidate=300"
+      : "public, max-age=3600",
     "content-type": "application/json; charset=utf-8",
   };
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
