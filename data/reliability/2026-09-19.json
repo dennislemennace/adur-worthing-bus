@@ -1,0 +1,76 @@
+{
+ "as_of": "2026-09-20T08:38:41+00:00",
+ "bands": {
+  "early": 0,
+  "late": 0,
+  "on_time": 0,
+  "very_late": 0
+ },
+ "by_hour": {},
+ "by_hour_basis": "scheduled departure hour, not the hour observed",
+ "by_service": {},
+ "by_timepoint": {},
+ "caveats": [
+  "A journey that ran without reporting its position is indistinguishable from one that did not run. Neither produces an observation, so coverage is published beside every figure and absence is never counted as lateness.",
+  "Observed times are the nearest recorded position to a stop, sampled once a minute, so each is accurate to about 30 seconds either way.",
+  "Journeys are matched to the timetable by position and time, not by a journey identifier: the feed's journey reference matches no timetable trip here. A mismatch would move a journey's lateness, not invent it.",
+  "Every journey calling at a stop inside the recorded area is measured (Adur, Worthing and the Brighton coast). Journeys that only touch the area outside it are not, and a journey is measured only where it is inside the box.",
+  "Lateness at a stop GTFS interpolated between two timing points is partly a measure of that interpolation, not of the service. Arrivals are therefore reported separately for the operator's own timing points, for interpolated stops, and for feeds that do not say which is which.",
+  "A bus more than half a headway late cannot be told apart from the next journey running early, because the feed publishes no journey identifier that matches the timetable. Such a journey is recorded as the later one, so measured lateness is a floor and the real figure is this or worse.",
+  "A stop is timed by the last report within 150 m of it \u2014 when the bus left \u2014 because the scheduled time it is compared against is a departure time. For a bus that does not stop, that report can be up to 150 m past the stop, so such arrivals read up to about 20 seconds late. The earlier rule, nearest approach, leaned the other way and much harder: it timed the middle of a layover and reported 23% of timing-point arrivals as early, against 4% once corrected.",
+  "Lateness is censored at the matching window: a bus more than 5 minutes early or 25 minutes late for a journey is attributed to a neighbouring one instead, so no observation can fall outside that range. In a measured day of 5,079 observations, none did. Both tails are therefore cut off, every count of early or very late running is a floor, and the share on time is correspondingly optimistic."
+ ],
+ "coverage": {
+  "declared_share": 0,
+  "hours_absent": [
+   "01",
+   "02",
+   "03",
+   "04"
+  ],
+  "hours_note": "minutes of feed captured per clock hour, London time. An absent hour may be outside the recording window; a partial one means recording was interrupted.",
+  "hours_partial": [
+   "00"
+  ],
+  "observations": 0,
+  "recorded_from": "00:00",
+  "recorded_to": "23:59",
+  "scheduled_journeys": 0,
+  "scheduled_journeys_all_day": 0,
+  "snapshots": 1170,
+  "snapshots_by_hour": {
+   "00": 30,
+   "01": 0,
+   "02": 0,
+   "03": 0,
+   "04": 0,
+   "05": 60,
+   "06": 60,
+   "07": 60,
+   "08": 60,
+   "09": 60,
+   "10": 60,
+   "11": 60,
+   "12": 60,
+   "13": 60,
+   "14": 60,
+   "15": 60,
+   "16": 60,
+   "17": 60,
+   "18": 60,
+   "19": 60,
+   "20": 60,
+   "21": 60,
+   "22": 60,
+   "23": 60
+  },
+  "tracked_journeys": 0
+ },
+ "data_version": "timetable.sqlite sha256:d68d7b12f954a871",
+ "day": "2026-09-19",
+ "measured_only": true,
+ "method": "Bus positions recorded from the Bus Open Data Service (SIRI-VM) once a minute are matched to scheduled journeys by position, service number and time (at most 5 minutes early or 25 minutes late, within 400 m of the route, heading-checked where published), each position judged at the time the operator recorded it rather than when it was read. A journey's arrival at a stop is the recorded position nearest that stop, where it came within 150 m, so times are accurate to about 30 seconds either way. Journeys with no tracked bus produce no observation and are counted as missing coverage, never as lateness. Lateness outside 5 minutes early to 25 minutes late cannot be observed at all: such a bus is matched to a neighbouring journey, so both tails of the distribution are censored and the share on time is optimistic. Coaches are excluded.",
+ "method_version": 3,
+ "observations": 0,
+ "on_time_definition": "DfT BUS09: no more than 1 minute early and no more than 5 minutes 59 seconds late, per observed arrival. Judge a service by its timing_point figures: at interpolated stops the scheduled time is GTFS's estimate, not the operator's promise."
+}
