@@ -1,5 +1,5 @@
 {
- "as_of": "2026-09-19T22:51:30+00:00",
+ "as_of": "2026-09-20T08:38:57+00:00",
  "by_hour": {
   "00": {
    "at_censoring_bound": 3,
@@ -897,12 +897,14 @@
   "Lateness is censored at the matching window: a bus more than 5 minutes early or 25 minutes late for a journey is attributed to a neighbouring one instead, so no observation can fall outside that range. In a measured day of 5,079 observations, none did. Both tails are therefore cut off, every count of early or very late running is a floor, and the share on time is correspondingly optimistic."
  ],
  "data_versions": [
+  "timetable.sqlite sha256:d68d7b12f954a871",
   "timetable.sqlite sha256:f1daaae3ed886a18"
  ],
  "days": [
   "2026-09-16",
   "2026-09-17",
-  "2026-09-18"
+  "2026-09-18",
+  "2026-09-19"
  ],
  "floor": {
   "journeys": 5,
