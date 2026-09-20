@@ -137,3 +137,108 @@ def test_the_index_names_the_operator_and_the_file(tmp_path):
         # The browser fetches this name rather than deriving one from the
         # service number, which only worked while a number meant one route.
         assert entry["file"] == f"{key[0]}-{key[1]}.json"
+
+
+# ── Which town a destination is in ──────────────────────────
+#
+# Directions are named by place, not by stop, so five destinations on service 2
+# become three places. Getting that wrong is not cosmetic: it puts a town on a
+# label that the service never goes near.
+
+
+class FakeTimetable:
+    """Just the stop table, which is all Places reads."""
+
+    def __init__(self, stops):
+        self.stops = {atco: {"name": name, "locality": place}
+                      for atco, name, place in stops}
+
+
+SUSSEX = FakeTimetable([
+    ("4400AD0185", "The Red Lion", "Shoreham-by-Sea"),
+    ("4400ST0010", "Shooting Field", "Steyning"),
+    ("1490BRI0001", "Old Steine", "Brighton"),
+    ("1490MOU0001", "Birdham Road South End", "Moulsecoomb"),
+    # The same name in two towns: it can settle nothing on its own.
+    ("4400WO0001", "Station Road", "Worthing"),
+    ("4400AD0002", "Station Road", "Lancing"),
+])
+
+
+def test_a_destination_beyond_the_recorded_area_still_names_its_town():
+    # Shooting Field is in Steyning, which is outside the box, so no bus is
+    # ever observed reaching it. The headsign naming one of our own stops is
+    # the only way to know — and it is why the lookup exists at all.
+    assert bjt.Places(SUSSEX).of("Shooting Field", "4400AD0185") == "Steyning"
+
+
+def test_a_headsign_that_names_no_stop_falls_back_to_where_it_was_last_seen():
+    assert bjt.Places(SUSSEX).of("Shoreham High Street",
+                                 "4400AD0185") == "Shoreham-by-Sea"
+
+
+def test_red_lion_is_shoreham_not_handcross():
+    # The trap that shaped the rule. "Red Lion" is a unique stop in NaPTAN —
+    # in Handcross, twenty miles away — while service 2's Red Lion journeys end
+    # at "The Red Lion" in Shoreham. Searching every stop in Sussex by name
+    # found the unique wrong answer, so the lookup is restricted to stops our
+    # own timetable holds, where "Red Lion" matches nothing and the terminus
+    # settles it.
+    assert bjt.Places(SUSSEX).of("Red Lion", "4400AD0185") == "Shoreham-by-Sea"
+
+
+def test_a_name_shared_by_two_towns_settles_nothing():
+    # "Station Road" is in both Worthing and Lancing. Picking either would be a
+    # coin toss presented as a fact; the terminus is evidence.
+    places = bjt.Places(SUSSEX)
+    assert "station road" not in places.by_name
+    assert places.of("Station Road", "4400WO0001") == "Worthing"
+    assert places.of("Station Road", "4400AD0002") == "Lancing"
+
+
+def test_a_headsign_qualifier_does_not_prevent_a_match():
+    # Real headsigns carry one: "George Street (stop J)".
+    assert bjt.Places(SUSSEX).of("Old Steine (stop S3)", None) == "Brighton"
+
+
+def test_with_no_localities_the_destination_text_is_used_unchanged():
+    # NaPTAN was unreachable, or the timetable predates the column. Labels are
+    # worse, nothing is wrong, and the build does not fail.
+    assert bjt.Places().of("Shooting Field", "4400AD0185") == "Shooting Field"
+    assert bjt.Places(FakeTimetable([])).of("Old Steine", None) == "Old Steine"
+
+
+def test_the_published_journeys_carry_their_place():
+    rows = journey("T1", "2", "BHBC", ["4400AD0185", "4400ST0010", "1490BRI0001"])
+    doc = bjt.build(rows, META, places=bjt.Places(SUSSEX))[("2", "BHBC")]
+    assert doc["journeys"][0]["place"] == "Brighton", \
+        "a journey was published without the town it was heading for"
+    localities = {s["atco"]: s["locality"] for s in doc["stops"]}
+    assert localities["4400ST0010"] == "Steyning"
+
+
+def test_a_destination_is_placed_by_where_most_of_it_ends_not_each_journey():
+    # Journeys are often observed only part of the way — the bus stops
+    # reporting, or the recording window closes — so an individual journey's
+    # last call names wherever the evidence ran out rather than where it was
+    # going.
+    #
+    # Resolved per journey, the 700 came out "Towards South Lancing / West
+    # Worthing", because most of its runs were last seen short of Durrington.
+    # Resolved per destination, from the stop most of them reach, it reads
+    # "Towards Worthing / Durrington" as it should.
+    tt = FakeTimetable([
+        ("S0", "Brighton Old Steine", "Brighton"),
+        ("S1", "Lancing Parade", "South Lancing"),
+        ("S2", "Worthing Pier", "Worthing"),
+        ("S3", "Montreal Way", "Durrington"),
+    ])
+    rows = []
+    for n in range(3):                      # three full runs to Durrington
+        rows += journey(f"FULL{n}", "700", "SCSO", ["S0", "S1", "S2", "S3"])
+    # …and one cut short at Lancing, which must not rename the destination.
+    rows += journey("SHORT", "700", "SCSO", ["S0", "S1", "S2"])
+    doc = bjt.build(rows, META, places=bjt.Places(tt))[("700", "SCSO")]
+    places = {j["place"] for j in doc["journeys"]}
+    assert places == {"Durrington"}, \
+        f"a part-observed journey renamed the destination: {places}"

@@ -205,8 +205,13 @@ jobs:
               -p "observations-$PAST.json.gz" -D window --clobber 2>/dev/null || true
           done
           echo "window: $(find window -name '*.json.gz' | wc -l) day(s)"
+          # --timetable gives each stop the town it is in, so a direction can
+          # be called "towards Durrington" rather than "towards Montreal Way".
+          # Without it the build still works and names directions after the
+          # destination on the bus.
           python -u scripts/build_journey_times.py \
-            --observations window --out journey-times
+            --observations window --out journey-times \
+            --timetable data/timetable.sqlite
 
           # Read what was just built, before anyone else can. The suite was
           # green while 69 journey times in which a bus arrived before it set

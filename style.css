@@ -6358,6 +6358,24 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   r: 5.5;
 }
 
+/* The destinations a direction pools. Closed by default: the label answers the
+   common question, and this answers "what was the +1?". */
+.jt-destinations {
+  margin: 0 0 .7rem;
+  font-size: .88rem;
+  color: var(--color-text-muted);
+}
+.jt-destinations summary {
+  cursor: pointer;
+  padding: .15rem 0;
+}
+.jt-destinations ul {
+  margin: .3rem 0 0;
+  padding-left: 1.1rem;
+}
+.jt-destinations li { margin: .15rem 0; }
+.jt-signed { opacity: .85; }
+
 .jt-legend {
   display: flex;
   flex-wrap: wrap;

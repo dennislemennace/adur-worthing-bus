@@ -535,6 +535,7 @@ async function init() {
       }
       if (e.target.id === "journey-times-direction") {
         document.getElementById("journey-times-from").dataset.pair = "";
+        document.getElementById("journey-times-to").dataset.from = "";
       }
       renderJourneyTimes();
       track("journey-times-query");
@@ -1733,6 +1734,44 @@ function journeyTimesBetween(doc, fromIndex, toIndex) {
   return out.sort((a, b) => a.departSecs - b.departSecs);
 }
 
+/** The stops a bus can actually reach from `fromIndex`, with how many do.
+ *
+ *  A direction pools route variants, so its stop list is the union of them and
+ *  two plausible-looking stops can belong to different workings. Offering that
+ *  pair produces "no bus we tracked made that trip", which reads as a broken
+ *  tool rather than an impossible question — so the pair is never offered.
+ *
+ *  Reachability is per journey and in observed order: a stop counts only where
+ *  some journey called at `fromIndex` and then called there.
+ */
+function journeyTimesReachableFrom(doc, fromIndex) {
+  const counts = new Map();
+  for (const journey of doc.journeys || []) {
+    const calls = journey.calls || [];
+    const at = calls.findIndex(c => c[0] === fromIndex);
+    if (at < 0) continue;
+    // A journey calling twice at the stop cannot say which visit is meant, and
+    // journeyTimesBetween drops it for the same reason. The same applies to
+    // the far end, checked per candidate below.
+    if (calls.findIndex((c, i) => i > at && c[0] === fromIndex) >= 0) continue;
+    const seen = new Map();
+    for (const c of calls) seen.set(c[0], (seen.get(c[0]) || 0) + 1);
+    for (let i = at + 1; i < calls.length; i++) {
+      const to = calls[i][0];
+      if (to === fromIndex) continue;
+      // Exactly the test journeyTimesBetween applies, so the count promises
+      // only journeys the chart will actually draw. Counting every later call
+      // instead offered 95 pairs across the published services that produced
+      // an empty chart — two stops covered inside one report have the same
+      // observed second, and there is no duration to draw between them.
+      if (calls[i][2] <= calls[at][2] || calls[i][1] <= calls[at][1]) continue;
+      if (seen.get(to) > 1) continue;       // a loop: which visit is meant?
+      counts.set(to, (counts.get(to) || 0) + 1);
+    }
+  }
+  return counts;
+}
+
 /** How many journeys the pair above refused as contradictory.
  *
  *  Reported rather than silently dropped. "14 journeys, 3 excluded" says
@@ -1751,50 +1790,107 @@ function journeyTimesContradictions(doc, fromIndex, toIndex) {
   return n;
 }
 
-/** The directions this service actually runs, named as the bus names them.
+// A destination carrying less of a direction than this is not in its name.
+// Service 2 west runs 127 journeys to Shoreham and 2 to Hove; billing them
+// equally would be a label that is 98% wrong about where the bus goes.
+const JT_DEST_SHARE = 0.10;
+
+// Two headsigns belong to the same direction when their stops overlap by at
+// least this much of the smaller set. Measured over all 35 published services:
+// within a direction the overlap is 0.69 to 1.00, across it 0.00 to 0.10,
+// because each side of a road is a different ATCO pole. The threshold sits in
+// an empty gap, which is what makes it safe rather than tuned.
+const JT_SAME_DIRECTION = 0.5;
+
+/** The two directions this service runs, and what to call them.
  *
- *  The selects used to offer "towards Worthing" and "towards Brighton" for
- *  every service, derived from whether the route's longitude increases — which
- *  put a Worthing label on services that have never been near Worthing. The
- *  operator already writes the answer on the front of the bus, and the feed
- *  carries it: the 37 is *Meadowview* or *Beresford Road*, the 1X *Marina
- *  Cinema* or *Graham Avenue Shops*. Those are the words a passenger at the
- *  stop is reading.
+ *  The control used to list every distinct headsign, so the 700 offered three
+ *  directions, the 21 four and the 2 seven — and a reader wanting "towards
+ *  Brighton" had to know that *Old Steine* is Brighton. Before that it offered
+ *  compass labels derived from whether route longitude increases, which put
+ *  "towards Worthing" on services that have never been near Worthing.
  *
- *  Stops are ordered by where they fall in the journeys running that way, not
- *  by their position in the document — a service runs variants, and the
- *  document's order is a median across all of them.
+ *  Headsigns are grouped by the stops they serve, and named by the *town* each
+ *  is heading for, resolved when the document was published. Service 2 west is
+ *  five destinations but only three places — Shoreham High Street and Red Lion
+ *  are both Shoreham, Shooting Field and Steyning Clock Tower both Steyning.
  */
 function journeyTimesDirections(doc) {
-  const groups = new Map();
+  const byHead = new Map();
   for (const journey of doc.journeys || []) {
     const name = (journey.headsign || "").trim() || journey.direction || "unknown";
-    let group = groups.get(name);
-    if (!group) groups.set(name, group = { headsign: name, journeys: 0, order: new Map() });
-    group.journeys += 1;
+    let head = byHead.get(name);
+    if (!head) {
+      byHead.set(name, head = {
+        headsign: name, journeys: 0, order: new Map(),
+        place: (journey.place || "").trim() || name, longest: 0,
+      });
+    }
+    head.journeys += 1;
+    const calls = journey.calls || [];
+    head.longest = Math.max(head.longest, calls.length);
     // Calls arrive in scheduled order, so a call's position in the list is its
     // position along the route for this journey.
-    const calls = journey.calls || [];
     for (let i = 0; i < calls.length; i++) {
-      const at = group.order.get(calls[i][0]);
+      const at = head.order.get(calls[i][0]);
       if (at) at.push(i);
-      else group.order.set(calls[i][0], [i]);
+      else head.order.set(calls[i][0], [i]);
     }
   }
 
-  const out = [];
-  for (const group of groups.values()) {
-    const stops = [...group.order.entries()]
-      .map(([index, positions]) => {
-        const sorted = positions.slice().sort((a, b) => a - b);
-        return { index, at: sorted[Math.floor(sorted.length / 2)], seen: positions.length };
-      })
-      .sort((a, b) => a.at - b.at || a.index - b.index);
-    out.push({ headsign: group.headsign, journeys: group.journeys, stops });
+  // Busiest headsign first, so a direction is seeded by its main working and a
+  // two-journey variant joins it rather than founding a direction of its own.
+  const heads = [...byHead.values()].sort((a, b) => b.journeys - a.journeys);
+  const groups = [];
+  for (const head of heads) {
+    const mine = new Set(head.order.keys());
+    let home = null;
+    for (const group of groups) {
+      const shared = [...mine].filter(i => group.stops.has(i)).length;
+      if (shared / Math.max(1, Math.min(mine.size, group.stops.size))
+          >= JT_SAME_DIRECTION) { home = group; break; }
+    }
+    if (!home) groups.push(home = { heads: [], stops: new Set(), journeys: 0 });
+    home.heads.push(head);
+    home.journeys += head.journeys;
+    for (const i of mine) home.stops.add(i);
   }
-  // Busiest first: the direction a reader is most likely to want, and a stable
-  // order for a select that must not reshuffle between renders.
-  return out.sort((a, b) => b.journeys - a.journeys
+
+  return groups.map(group => {
+    // Pooled by place, not by headsign, which is what turns five destinations
+    // into three and makes "+1 more" small enough to spell out.
+    const places = new Map();
+    for (const head of group.heads) {
+      const at = places.get(head.place)
+        || { place: head.place, journeys: 0, longest: 0, headsigns: [] };
+      at.journeys += head.journeys;
+      at.longest = Math.max(at.longest, head.longest);
+      at.headsigns.push(head.headsign);
+      places.set(head.place, at);
+    }
+    const ranked = [...places.values()].sort((a, b) => b.journeys - a.journeys);
+    // The two that carry the direction, chosen by how many journeys go there…
+    const named = ranked.filter((p, i) =>
+      i === 0 || (i === 1 && p.journeys / group.journeys >= JT_DEST_SHARE));
+    // …but written nearest-first, the order a passenger passes them: the 700
+    // reads "Worthing / Durrington", not "Durrington / Worthing".
+    named.sort((a, b) => a.longest - b.longest);
+    const rest = ranked.length - named.length;
+
+    const stops = [...new Map(group.heads.flatMap(h => [...h.order.entries()]))
+      .entries()].map(([index, positions]) => {
+        const sorted = positions.slice().sort((a, b) => a - b);
+        return { index, at: sorted[Math.floor(sorted.length / 2)] };
+      }).sort((a, b) => a.at - b.at || a.index - b.index);
+
+    return {
+      headsign: named.map(p => p.place).join(" / ")
+        + (rest > 0 ? `  (+${rest} more)` : ""),
+      journeys: group.journeys,
+      places: ranked,
+      stops,
+    };
+  }).sort((a, b) => b.journeys - a.journeys
     || a.headsign.localeCompare(b.headsign));
 }
 
@@ -1947,6 +2043,34 @@ function journeyTimesPickStop(atco) {
   renderJourneyTimes();
   track("journey-times-map-pick");
   return true;
+}
+
+/** Every destination in this direction, with what it is signed as.
+ *
+ *  The control names at most two towns and counts the rest as "(+n more)".
+ *  This is where that stops being a loose end: a reader who wants to know what
+ *  the other one was can read it here rather than wonder.
+ *
+ *  The destination on the bus is given beside the town because they can
+ *  differ, and where they do it is not a mistake: service 2 is signed
+ *  *Shooting Field*, which is in Steyning, but Steyning is outside the area we
+ *  record, so the furthest those journeys are ever measured is Shoreham.
+ */
+function journeyTimesDestinations(direction) {
+  const places = direction?.places || [];
+  if (places.length < 2) return "";
+  const parts = places.map(p =>
+    `<li><strong>${escapeHtml(prettifyName(p.place))}</strong> `
+    + `${p.journeys} journey${p.journeys === 1 ? "" : "s"}`
+    + (p.headsigns.length
+      ? ` <span class="jt-signed">signed ${p.headsigns
+          .map(h => escapeHtml(prettifyName(h))).join(", ")}</span>`
+      : "")
+    + `</li>`).join("");
+  return `<details class="jt-destinations">
+    <summary>Where these ${direction.journeys} journeys were going</summary>
+    <ul>${parts}</ul>
+  </details>`;
 }
 
 /** Weekday/weekend filtering, on the service day rather than the clock. */
@@ -2242,19 +2366,46 @@ async function renderJourneyTimes() {
     // Stops are those the chosen direction actually serves, in the order its
     // journeys call at them. Listing every stop of every variant offered pairs
     // no bus has ever run, which reads as a broken page.
+    const stopName = i => escapeHtml(prettifyName(
+      doc.stops[i]?.name || `Stop ${i}`));
     const pairKey = `${docKey}|${direction?.headsign || ""}`;
     if (direction && fromSel.dataset.pair !== pairKey) {
-      const options = direction.stops.map(s =>
-        `<option value="${s.index}">${escapeHtml(prettifyName(
-          doc.stops[s.index]?.name || `Stop ${s.index}`))}</option>`).join("");
-      fromSel.innerHTML = options;
-      toSel.innerHTML = options;
-      fromSel.dataset.pair = toSel.dataset.pair = pairKey;
+      fromSel.innerHTML = direction.stops.map(s =>
+        `<option value="${s.index}">${stopName(s.index)}</option>`).join("");
+      fromSel.dataset.pair = pairKey;
       const pair = journeyTimesDefaultPair(doc, direction);
-      if (pair) {
-        fromSel.value = String(pair.from);
-        toSel.value = String(pair.to);
+      if (pair) fromSel.value = String(pair.from);
+      toSel.dataset.from = "";           // force the To list to be rebuilt
+    }
+
+    // To offers only what a bus reaches from From, with how many make the
+    // trip. A direction pools route variants, so its stop list is the union of
+    // them and two plausible-looking stops can belong to different workings —
+    // offering that pair answers "no bus we tracked made that trip", which
+    // reads as a broken tool rather than an impossible question.
+    if (direction && toSel.dataset.from !== fromSel.value) {
+      const reach = journeyTimesReachableFrom(doc, Number(fromSel.value));
+      const onward = direction.stops.filter(s => reach.has(s.index));
+      toSel.innerHTML = onward.map(s =>
+        `<option value="${s.index}">${stopName(s.index)}`
+        + ` — ${reach.get(s.index)} journey${reach.get(s.index) === 1 ? "" : "s"}`
+        + `</option>`).join("");
+      toSel.dataset.from = fromSel.value;
+      // Keep the reader's choice where the new list still has it; otherwise
+      // open on the far end, which is the trip they most likely came for.
+      const wanted = journeyTimesDefaultPair(doc, direction)?.to;
+      const keep = [...toSel.options].some(o => o.value === toSel.value);
+      if (!keep && onward.length) {
+        toSel.value = String(onward.some(s => s.index === wanted)
+          ? wanted : onward[onward.length - 1].index);
       }
+    }
+    if (!toSel.options.length) {
+      host.innerHTML = `<p class="panel-empty">No journey we tracked goes on
+        from ${stopName(Number(fromSel.value))} on this service. Try another
+        starting stop, or the other direction.</p>`;
+      journeyTimesMarkPicks(doc, direction, Number(fromSel.value), -1);
+      return;
     }
 
     journeyTimesMarkPicks(doc, direction, Number(fromSel.value), Number(toSel.value));
@@ -2296,6 +2447,7 @@ async function renderJourneyTimes() {
               contradictory` : ""}
       </p>
       ${journeyTimesChart(timings, summary, modeSel?.value || "delay")}
+      ${journeyTimesDestinations(direction)}
       <ul class="jt-figures">
         ${summary.medianDelaySecs != null
           ? `<li>Median <strong>${summary.medianDelaySecs >= 0 ? "+" : "−"}${

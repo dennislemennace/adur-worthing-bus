@@ -455,10 +455,16 @@ class Timetable:
 
         stops: dict = {}
         sid_to_stop: dict = {}
-        for sid, stop_id, name, lat, lon in con.execute(
-            "SELECT sid, stop_id, name, lat, lon FROM stops"
-        ):
-            stops[stop_id] = {"name": name, "lat": lat, "lon": lon, "_sid": sid}
+        # `locality` arrived after the first databases were built, so it is
+        # read only where the column exists — an older release asset must not
+        # crash a newer API on a field it has never heard of.
+        has_locality = any(r[1] == "locality"
+                           for r in con.execute("PRAGMA table_info(stops)"))
+        columns = "sid, stop_id, name, lat, lon" + (", locality" if has_locality else "")
+        for row in con.execute(f"SELECT {columns} FROM stops"):
+            sid, stop_id, name, lat, lon = row[:5]
+            stops[stop_id] = {"name": name, "lat": lat, "lon": lon, "_sid": sid,
+                              "locality": row[5] if has_locality else ""}
             sid_to_stop[sid] = stop_id
 
         routes: dict = {}

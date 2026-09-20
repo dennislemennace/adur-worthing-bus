@@ -28,6 +28,7 @@ const summarise = vm.runInContext("journeyTimesSummary", app);
 const directions = vm.runInContext("journeyTimesDirections", app);
 const defaultPair = vm.runInContext("journeyTimesDefaultPair", app);
 const delays = vm.runInContext("journeyTimesDelays", app);
+const reachable = vm.runInContext("journeyTimesReachableFrom", app);
 
 const MIN = 60;
 
@@ -302,15 +303,20 @@ test("directions are named as the bus names them, not by compass", () => {
   // service, derived from whether the route's longitude increases — so
   // services that have never been near Worthing were labelled as going there.
   // The operator writes the answer on the front of the bus.
+  //
+  // The two directions call at *different* stops, because each side of a road
+  // is a different ATCO pole. An earlier version of this fixture reused one
+  // set of indices for both, which no real service does and which the
+  // clustering rightly reads as a single direction.
   const doc = { journeys: [
     headed("Meadowview", [[0, 100, 100, 0], [3, 900, 900, 0]]),
     headed("Meadowview", [[0, 200, 200, 0], [3, 1000, 1000, 0]]),
-    headed("Beresford Road", [[3, 300, 300, 0], [0, 1100, 1100, 0]]),
+    headed("Beresford Road", [[5, 300, 300, 0], [8, 1100, 1100, 0]]),
   ] };
   const got = directions(doc);
   assert.equal(JSON.stringify(got.map(d => d.headsign)),
     JSON.stringify(["Meadowview", "Beresford Road"]),
-    "directions were not named by headsign, busiest first");
+    "directions were not named by destination, busiest first");
   assert.equal(got[0].journeys, 2);
 });
 
@@ -318,16 +324,17 @@ test("stops are ordered by where they fall in that direction's journeys", () => 
   // Not by their position in the document, which is a median across every
   // variant the service runs — so the two directions would share one order and
   // one of them would read backwards.
+  // Again, two directions means two sets of poles: 0-1-2 out, 5-6-7 back.
   const doc = { journeys: [
     headed("Out", [[0, 100, 100, 0], [1, 200, 200, 0], [2, 300, 300, 0]]),
-    headed("Back", [[2, 400, 400, 0], [1, 500, 500, 0], [0, 600, 600, 0]]),
+    headed("Back", [[7, 400, 400, 0], [6, 500, 500, 0], [5, 600, 600, 0]]),
   ] };
   // Selected by name: with equal journey counts the order is alphabetical,
   // and a test that depends on which of two ties wins is testing the tiebreak.
   const byName = Object.fromEntries(directions(doc).map(d => [d.headsign, d]));
   const out = byName["Out"], back = byName["Back"];
   assert.equal(JSON.stringify(out.stops.map(s => s.index)), JSON.stringify([0, 1, 2]));
-  assert.equal(JSON.stringify(back.stops.map(s => s.index)), JSON.stringify([2, 1, 0]),
+  assert.equal(JSON.stringify(back.stops.map(s => s.index)), JSON.stringify([7, 6, 5]),
     "the return direction was listed in the outward order");
 });
 
@@ -430,4 +437,170 @@ test("with nothing promised there are no delay figures to state", () => {
   assert.equal(s.medianDelaySecs, null);
   assert.equal(s.worstDelaySecs, null);
   assert.equal(s.journeys, 1, "the observed time is still worth showing");
+});
+
+
+// ── Several destinations, one direction ─────────────────────
+
+/** A journey heading for `place`, calling at `stops` in order. */
+function toward(place, headsign, stops, day = "2026-09-17", start = "08:15") {
+  return { day, start, direction: "westbound", headsign, place,
+           calls: stops.map((i, n) => [i, 100 + n * 60, 100 + n * 60, 0]) };
+}
+
+test("a short working joins the direction it is a short working of", () => {
+  // The 700's Worthing journeys are the Durrington run stopping early, not a
+  // third direction. They share most of their stops, so they cluster.
+  const doc = { journeys: [
+    ...Array.from({ length: 8 }, () =>
+      toward("Durrington", "Durrington Tesco", [0, 1, 2, 3, 4, 5])),
+    ...Array.from({ length: 2 }, () =>
+      toward("Worthing", "Worthing Marine Parade", [0, 1, 2, 3])),
+    ...Array.from({ length: 6 }, () =>
+      toward("Brighton", "Old Steine", [10, 11, 12, 13, 14])),
+  ] };
+  const got = directions(doc);
+  assert.equal(got.length, 2, `${got.length} directions where the service has 2`);
+  assert.equal(got[0].journeys, 10, "the short working founded its own direction");
+});
+
+test("the two destinations are chosen by journeys and shown nearest first", () => {
+  // Chosen by how many journeys go there; ordered as a passenger passes them,
+  // so the 700 reads "Worthing / Durrington" and not the other way about.
+  const doc = { journeys: [
+    ...Array.from({ length: 8 }, () =>
+      toward("Durrington", "Durrington Tesco", [0, 1, 2, 3, 4, 5])),
+    ...Array.from({ length: 2 }, () =>
+      toward("Worthing", "Worthing Marine Parade", [0, 1, 2, 3])),
+  ] };
+  assert.equal(directions(doc)[0].headsign, "Worthing / Durrington");
+});
+
+test("several destinations in one town are one destination", () => {
+  // Service 2 runs west to five stops that are only three places: Shoreham
+  // High Street and Red Lion are both Shoreham, Shooting Field and Steyning
+  // Clock Tower both Steyning. Pooled by stop it reads "(+3 more)"; pooled by
+  // place the whole direction fits in its own label.
+  const doc = { journeys: [
+    ...Array.from({ length: 5 }, () =>
+      toward("Shoreham-by-Sea", "Shoreham High Street", [0, 1, 2, 3])),
+    ...Array.from({ length: 2 }, () =>
+      toward("Shoreham-by-Sea", "Red Lion", [0, 1, 2])),
+    ...Array.from({ length: 3 }, () =>
+      toward("Steyning", "Shooting Field", [0, 1, 2, 3, 4, 5])),
+    toward("Steyning", "Steyning Clock Tower", [0, 1, 2, 3, 4]),
+  ] };
+  const [west] = directions(doc);
+  assert.equal(west.headsign, "Shoreham-by-Sea / Steyning",
+    "destinations were counted by stop rather than by town");
+  assert.equal(west.places.length, 2, "four destinations are two places");
+  assert.equal(west.places[0].headsigns.length, 2,
+    "the town does not list the destinations it pools");
+});
+
+test("a destination almost nobody goes to is not half the label", () => {
+  // Service 2 west runs 127 journeys to Shoreham and 2 to Hove. Billing them
+  // equally would be a label 98% wrong about where the bus goes.
+  const doc = { journeys: [
+    ...Array.from({ length: 30 }, () =>
+      toward("Shoreham-by-Sea", "Shoreham High Street", [0, 1, 2, 3])),
+    toward("Hove", "Palmeira Square", [0, 1]),
+  ] };
+  const [west] = directions(doc);
+  assert.equal(west.headsign, "Shoreham-by-Sea  (+1 more)");
+  assert.equal(west.places.length, 2, "the rare destination was dropped, not counted");
+  assert.equal(west.places[1].journeys, 1);
+});
+
+test("with no place published the destination text is used", () => {
+  // An older document, or a build where NaPTAN was unreachable.
+  const doc = { journeys: [
+    { day: "2026-09-17", start: "08:15", direction: "westbound",
+      headsign: "Meadowview", calls: [[0, 100, 100, 0], [1, 200, 200, 0]] },
+  ] };
+  assert.equal(directions(doc)[0].headsign, "Meadowview");
+});
+
+
+// ── Only pairs a bus actually runs ──────────────────────────
+
+test("a stop no journey reaches from here is not offered", () => {
+  // The direction pools variants, so its stop list is the union of them. Stop
+  // 9 belongs to the other working; offering it answers "no bus we tracked
+  // made that trip", which reads as a broken tool.
+  const doc = { journeys: [
+    toward("Durrington", "Durrington Tesco", [0, 1, 2, 3]),
+    toward("Worthing", "Worthing Marine Parade", [0, 1, 9]),
+  ] };
+  const from0 = reachable(doc, 0);
+  assert.equal(from0.get(3), 1, "a stop one working reaches was not offered");
+  assert.equal(from0.get(9), 1);
+  const from2 = reachable(doc, 2);
+  assert.equal(from2.get(9), undefined,
+    "a stop on the other working was offered from a stop it never follows");
+  assert.equal(from2.get(3), 1);
+});
+
+test("a stop behind you is not somewhere you can get to", () => {
+  const doc = { journeys: [toward("X", "X", [0, 1, 2, 3])] };
+  const from2 = reachable(doc, 2);
+  assert.equal(from2.get(1), undefined, "the tool offered travelling backwards");
+  assert.equal(from2.get(3), 1);
+});
+
+test("the count says how many journeys make each trip", () => {
+  // "Durrington High School — 191 journeys" is the difference between a pair
+  // a reader can trust and one served twice a week.
+  const doc = { journeys: [
+    ...Array.from({ length: 5 }, () => toward("A", "A", [0, 1, 2])),
+    toward("B", "B", [0, 1, 2, 7]),
+  ] };
+  const from0 = reachable(doc, 0);
+  assert.equal(from0.get(2), 6);
+  assert.equal(from0.get(7), 1, "a rarely served stop lost its true count");
+});
+
+test("a journey calling twice at the chosen stop is left out", () => {
+  // It cannot say which visit is meant, and journeyTimesBetween drops it for
+  // that reason — the two must agree or the count promises journeys the chart
+  // will not draw.
+  const doc = { journeys: [
+    { day: "2026-09-17", start: "08:15", direction: "westbound", headsign: "Loop",
+      place: "Town", calls: [[0, 100, 100, 0], [1, 200, 200, 0], [0, 300, 300, 0]] },
+    toward("X", "X", [0, 1]),
+  ] };
+  assert.equal(reachable(doc, 0).get(1), 1,
+    "a looping journey was counted as reaching a stop from an ambiguous start");
+});
+
+test("a stop nothing departs from reaches nowhere", () => {
+  assert.equal(reachable({ journeys: [toward("X", "X", [0, 1])] }, 5).size, 0);
+  assert.equal(reachable({}, 0).size, 0);
+});
+
+
+test("every stop offered has a journey the chart can draw", () => {
+  // The property that matters, stated directly: what the To list promises and
+  // what the chart draws must be the same set. They were not — reachability
+  // counted every later call, while the chart needs the observed times to
+  // advance and the stops to be called at once. Across the 35 published
+  // services that offered 95 pairs answering with an empty chart.
+  // Stops 5 and 3 are each reached by one journey only, and by a journey the
+  // chart must refuse — so nothing else can supply the pair and mask the bug.
+  const doc = { journeys: [
+    // Stop 5 shares stop 0's observed second: no duration to draw.
+    { day: "2026-09-17", start: "08:00", direction: "westbound", headsign: "A",
+      place: "Town", calls: [[0, 100, 100, 0], [5, 100, 160, 0], [2, 400, 400, 0]] },
+    // Stop 3 sits on a loop, which cannot say which visit is meant.
+    { day: "2026-09-17", start: "09:00", direction: "westbound", headsign: "A",
+      place: "Town", calls: [[0, 100, 100, 0], [3, 200, 200, 0], [0, 300, 300, 0]] },
+    toward("Town", "A", [0, 1, 2]),
+  ] };
+  for (const from of [0, 1, 2, 3, 5]) {
+    for (const [to, count] of reachable(doc, from)) {
+      const drawn = between(doc, from, to).length;
+      assert.ok(drawn > 0,
+        `${from}→${to} was offered with ${count} journeys and drew nothing`);
+    }
+  }
 });

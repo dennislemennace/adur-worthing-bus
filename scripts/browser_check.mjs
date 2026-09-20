@@ -2322,6 +2322,54 @@ async function checkJourneyTimes(page) {
   check("the delay chart marks the timetable", d.zero > 0,
     "'above the line is slower than promised' needs the line");
 
+  // Directions name places, and there are two of them. Before this the control
+  // listed every destination — three for the 700, seven for the 2 — and named
+  // them after stops, so a reader wanting "towards Brighton" had to know that
+  // Old Steine is Brighton.
+  const dirs = await page.evaluate(`
+    (() => {
+      const sel = document.getElementById("journey-times-direction");
+      const opts = [...sel.options].map(o => o.text);
+      return JSON.stringify({ count: opts.length, labels: opts });
+    })()`);
+  const dd = JSON.parse(dirs);
+  check("a service offers two directions, not one per destination",
+    dd.count === 2, `${dd.count}: ${dd.labels.join(" | ")}`);
+  check("a direction is named after somewhere, not after a stop",
+    dd.labels.every(t => /^[A-Za-z]/.test(t) && !/towards (Worthing|Brighton)$/i.test(t)),
+    dd.labels.join(" | "));
+
+  // The To list offers only what a bus reaches from From. A direction pools
+  // route variants, so a union stop list can otherwise offer a pair no single
+  // bus runs — which answers "no bus we tracked made that trip".
+  const narrowing = await page.evaluate(`
+    (() => {
+      const from = document.getElementById("journey-times-from");
+      const to = document.getElementById("journey-times-to");
+      const before = to.options.length;
+      // Move From to the far end of the line: almost nothing follows it.
+      from.value = from.options[from.options.length - 1].value;
+      from.dispatchEvent(new Event("change", { bubbles: true }));
+      return JSON.stringify({ before, fromCount: from.options.length });
+    })()`);
+  const nn = JSON.parse(narrowing);
+  await sleep(1800);
+  const onward = await page.evaluate(`
+    (() => {
+      const to = document.getElementById("journey-times-to");
+      return JSON.stringify({
+        after: to.options.length,
+        counted: [...to.options].every(o => / \\d+ journeys?$/.test(o.text)),
+      });
+    })()`);
+  const aa = JSON.parse(onward);
+  check("the far end of the line offers fewer onward stops",
+    aa.after < nn.before,
+    `${nn.before} stops from the first, ${aa.after} from the last of ${nn.fromCount}`);
+  check("each onward stop says how many journeys make the trip",
+    aa.after === 0 || aa.counted,
+    "a pair served twice a week looks like one served every ten minutes");
+
   // A service number is not a route. The 1, the 5 and the 7 are each run by
   // two operators over roads sharing not one stop, so the picker has to say
   // whose bus it is — otherwise two different services answer to one entry and

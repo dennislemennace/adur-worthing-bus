@@ -47,6 +47,16 @@ except ImportError:
 # BODS publishes regional GTFS bundles; South East covers West Sussex
 GTFS_URL = "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/south_east/"
 
+# NaPTAN gives each stop the town or village it is in, which GTFS does not.
+#
+# Without it a direction can only be named by a stop: "towards Shooting Field"
+# rather than "towards Steyning", "towards Montreal Way" rather than "towards
+# Durrington". Filtered to our two ATCO areas it is about 2 MB and a second,
+# against 60 MB for the national file, and it covered 5,379 of our 5,380 stops
+# when this was written. Open Government Licence, like the BODS feeds.
+NAPTAN_URL = ("https://naptan.api.dft.gov.uk/v1/access-nodes"
+              "?dataFormat=csv&atcoAreaCodes=149,440")
+
 # Keep stops whose ATCO code begins with this prefix (West Sussex = 4400).
 # NaPTAN admin area 440 = West Sussex, giving stop IDs like "4400AD0316"
 # for Adur, "4400WO..." for Worthing, etc.
@@ -95,6 +105,7 @@ def main():
     try:
         download_gtfs(GTFS_URL, tmp_path)
         timetable = parse_gtfs(tmp_path)
+        add_localities(timetable)
     finally:
         try:
             os.unlink(tmp_path)
@@ -156,6 +167,51 @@ def download_gtfs(url: str, dest_path: str) -> None:
 
 
 # ── GTFS parser ──────────────────────────────────────────────
+def fetch_localities(url: str = NAPTAN_URL) -> dict:
+    """`{ATCO code: town or village}` from NaPTAN, or `{}` if it cannot be had.
+
+    Never raises. A timetable without localities is a timetable whose direction
+    labels fall back to the destination on the bus — worse, but not wrong, and
+    far better than a weekly build that fails because someone else's API is
+    down. The caller logs the difference.
+    """
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "adur-worthing-bus build"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            raw = resp.read().decode("utf-8-sig", errors="replace")
+    except Exception as err:                       # noqa: BLE001 - see docstring
+        log.warning("NaPTAN unavailable (%s); stops will have no locality", err)
+        return {}
+
+    places = {}
+    for row in csv.DictReader(io.StringIO(raw)):
+        atco = (row.get("ATCOCode") or "").strip()
+        # LocalityName is the village or suburb — Durrington rather than
+        # Worthing — which is what a passenger calls the place. Town is the
+        # fallback for stops NaPTAN files without one.
+        place = ((row.get("LocalityName") or "").strip()
+                 or (row.get("Town") or "").strip())
+        if atco and place:
+            places[atco] = place
+    return places
+
+
+def add_localities(timetable: dict, url: str = NAPTAN_URL) -> int:
+    """Put a `locality` on every stop we can, and say how many we could not."""
+    places = fetch_localities(url)
+    named = 0
+    for atco, stop in timetable["stops"].items():
+        stop["locality"] = places.get(atco, "")
+        if stop["locality"]:
+            named += 1
+    total = len(timetable["stops"])
+    if total:
+        log.info("  localities: %d of %d stops (%.1f%%)",
+                 named, total, named / total * 100)
+    return named
+
+
 def parse_gtfs(zip_path: str) -> dict:
     """
     Extract West Sussex timetable data from a GTFS zip.
@@ -210,6 +266,8 @@ def parse_gtfs(zip_path: str) -> dict:
                     "name": row.get("stop_name") or "Bus Stop",
                     "lat":  slat,
                     "lon":  slon,
+                    # Filled by add_localities; GTFS carries no such field.
+                    "locality": "",
                 }
         all_stop_ids = ws_stop_ids | bbox_stop_ids
         log.info("  %d stops (%d West Sussex + %d bbox-only)",

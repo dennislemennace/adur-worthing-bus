@@ -48,8 +48,62 @@ MIN_CALLS = 3
 TIMING_POINTS_ONLY = False
 
 
+class Places:
+    """Turns a destination into the town or village a passenger would name.
+
+    Two steps, in this order, and the order is the whole design:
+
+    1. **The headsign names one of our own stops** — then use that stop's
+       locality. This is the only thing that reaches a destination outside the
+       recorded area: *Shooting Field* is in **Steyning**, which no bus is ever
+       observed reaching because Steyning is beyond the box.
+    2. **Otherwise the terminus we actually saw.** Always available, and never
+       wrong about what was measured.
+
+    Two rules were tried and rejected, each with a false positive found in real
+    data:
+
+    * *Searching all of NaPTAN by name.* "Red Lion" is a unique NaPTAN stop — in
+      **Handcross**, twenty miles away — while service 2's Red Lion journeys end
+      at "The Red Lion" in Shoreham. Being unique is no evidence of being right.
+      Restricted to our own timetable the name misses, and step 2 answers
+      correctly.
+    * *Reading a place name off the front of the headsign.* That makes "Birdham
+      Road South End" **Birdham**, a village near Chichester, when service 49 is
+      a Brighton local ending at Moulsecoomb. Guarding against street words then
+      broke *Rottingdean White Horses*, so the idea went entirely.
+    """
+
+    def __init__(self, timetable=None):
+        self.by_atco = {}
+        self.by_name = {}
+        if timetable is None:
+            return
+        names = {}
+        for atco, stop in timetable.stops.items():
+            place = (stop.get("locality") or "").strip()
+            if not place:
+                continue
+            self.by_atco[atco] = place
+            names.setdefault((stop.get("name") or "").strip().lower(),
+                             set()).add(place)
+        # Only names that mean one place. A name shared by two towns tells us
+        # nothing, and guessing between them is how "Red Lion" became Handcross.
+        self.by_name = {n: next(iter(p)) for n, p in names.items() if len(p) == 1}
+
+    def of(self, headsign, terminus_atco):
+        """The place a journey is heading for, or the headsign if unknown."""
+        name = (headsign or "").strip()
+        # Headsigns carry a stop qualifier: "George Street (stop J)".
+        base = name.split(" (")[0].strip().lower()
+        found = self.by_name.get(base) or self.by_name.get(name.lower())
+        if found:
+            return found
+        return self.by_atco.get(terminus_atco or "") or name
+
+
 def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
-                   operator=""):
+                   operator="", places=None):
     """One service: its stops, and every journey observed along them."""
     if timing_points_only:
         rows = [r for r in rows if r.get("timepoint") == 1]
@@ -58,7 +112,11 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
         atco = row["atco"]
         if atco not in stops:
             stops[atco] = {"atco": atco, "name": row.get("stop_name", ""),
-                           "direction": row.get("direction", "unknown")}
+                           "direction": row.get("direction", "unknown"),
+                           # The town or village, so the browser can group
+                           # destinations by place rather than by stop.
+                           "locality": (places.by_atco.get(atco, "")
+                                        if places else "")}
         # A stop's place in the route differs between journeys; the median
         # position is good enough to order a picker, and the browser reads the
         # real order from each journey's own calls.
@@ -97,6 +155,27 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
         if len(journey["calls"]) >= MIN_CALLS:
             kept.append(journey)
     kept.sort(key=lambda j: (j["day"], j["start"]))
+
+    # Where each destination is, as a town rather than a stop, so the browser
+    # can pool several destinations into one direction: service 2 runs to five
+    # stops that are only three places.
+    #
+    # Resolved once per destination, from the stop *most* of its journeys were
+    # last seen at — not per journey from its own last call. Journeys are
+    # frequently observed only part way, so their individual last calls name
+    # wherever the recording ran out: done that way the 700 came out as
+    # "South Lancing / West Worthing" instead of "Worthing / Durrington".
+    by_index = {i: st["atco"] for i, st in enumerate(listed)}
+    termini = {}
+    for journey in kept:
+        termini.setdefault(journey["headsign"], []).append(journey["calls"][-1][0])
+    place_of = {}
+    for headsign, ends in termini.items():
+        common = max(set(ends), key=ends.count)
+        place_of[headsign] = (places.of(headsign, by_index.get(common, ""))
+                              if places else headsign)
+    for journey in kept:
+        journey["place"] = place_of.get(journey["headsign"], journey["headsign"])
 
     return {
         "service": service,
@@ -138,14 +217,14 @@ def document_name(service, operator):
     return f"{safe}-{noc}"
 
 
-def build(rows, meta, timing_points_only=TIMING_POINTS_ONLY):
+def build(rows, meta, timing_points_only=TIMING_POINTS_ONLY, places=None):
     """`{(service, operator): document}` for everything with something to show."""
     grouped = {}
     for row in rows:
         key = (row.get("service", "?"), (row.get("operator") or "").strip())
         grouped.setdefault(key, []).append(row)
     return {key: route_document(key[0], rows_here, meta, timing_points_only,
-                                operator=key[1])
+                                operator=key[1], places=places)
             for key, rows_here in grouped.items()}
 
 
@@ -156,9 +235,24 @@ def main(argv=None):
     ap.add_argument("--out", default=str(ROOT / "data" / "journey-times"))
     ap.add_argument("--timing-points-only", action="store_true",
                     help="publish only stops the operator commits to a time for")
+    ap.add_argument("--timetable",
+                    help="timetable.sqlite, for the town each stop is in. "
+                         "Without it directions are named by destination stop.")
     ap.add_argument("--min-journeys", type=int, default=3,
                     help="services with fewer observed journeys are not written")
     args = ap.parse_args(argv)
+
+    places = Places()
+    if args.timetable:
+        try:
+            from api.timetable_db import Timetable
+            places = Places(Timetable(Path(args.timetable), allow_fetch=False))
+            print(f"  localities for {len(places.by_atco)} stops, "
+                  f"{len(places.by_name)} unambiguous stop names")
+        except Exception as err:                   # noqa: BLE001
+            # A missing or old timetable costs better labels, not the build.
+            print(f"no localities ({err}); directions named by destination stop",
+                  file=sys.stderr)
 
     rows, meta = load_observations(args.observations)
     if not rows:
@@ -169,7 +263,7 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     written, skipped, index = [], [], []
     for (service, operator), doc in sorted(
-            build(rows, meta, args.timing_points_only).items()):
+            build(rows, meta, args.timing_points_only, places).items()):
         label = f"{service} ({operator})" if operator else service
         if len(doc["journeys"]) < args.min_journeys:
             skipped.append(label)
