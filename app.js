@@ -1823,7 +1823,10 @@ function journeyTimesDirections(doc) {
     if (!head) {
       byHead.set(name, head = {
         headsign: name, journeys: 0, order: new Map(),
-        place: (journey.place || "").trim() || name, longest: 0,
+        // NaPTAN's casing is authoritative — Shoreham-by-Sea, which
+        // prettifyName would render Shoreham-by-sea — so a published place is
+        // used as it stands. Only the fallback, a raw headsign, is tidied.
+        place: (journey.place || "").trim() || prettifyName(name), longest: 0,
       });
     }
     head.journeys += 1;
@@ -2356,7 +2359,10 @@ async function renderJourneyTimes() {
     const docKey = serviceSel.value || doc.service;
     if (dirSel && dirSel.dataset.docKey !== docKey) {
       dirSel.innerHTML = dirs.map((d, i) =>
-        `<option value="${i}">${escapeHtml(prettifyName(d.headsign))}`
+        // Not prettified: the places come from NaPTAN already cased as they
+        // are written — Shoreham-by-Sea, not Shoreham-By-Sea — and title-casing
+        // the composed label turned "(+1 more)" into "(+1 More)".
+        `<option value="${i}">${escapeHtml(d.headsign)}`
         + ` (${d.journeys} journeys)</option>`).join("");
       dirSel.dataset.docKey = docKey;
       dirSel.value = "0";

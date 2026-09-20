@@ -346,7 +346,10 @@ test("a service that states no headsign still gets a direction", () => {
     { day: "2026-09-17", start: "08:15", direction: "eastbound",
       calls: [[0, 100, 100, 0], [1, 200, 200, 0]] },
   ] };
-  assert.equal(directions(doc)[0].headsign, "eastbound");
+  // Capitalised, because it is shown to a reader: the last-resort label is
+  // still a label. NaPTAN place names are left exactly as they come, since
+  // prettifyName would render Shoreham-by-Sea as Shoreham-by-sea.
+  assert.equal(directions(doc)[0].headsign, "Eastbound");
 });
 
 // ── What the view opens on ──────────────────────────────────
