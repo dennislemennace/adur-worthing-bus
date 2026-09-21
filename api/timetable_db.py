@@ -1106,6 +1106,48 @@ class Timetable:
         return service_runs_on(self.calendar, self.calendar_dates,
                                service_id, day)
 
+    def service_window(self) -> tuple:
+        """The first and last dates this build describes any service on.
+
+        A BODS bundle looks forward: the one fetched on 20 September 2026 ran
+        from `20260920` to `20270621` and said nothing whatever about the 18th.
+        Measuring a day outside this window is not a thin measurement, it is no
+        measurement — every service is inactive, nothing is scheduled, nothing
+        can be matched, and the day publishes zeroes that every downstream check
+        then finds internally consistent. That is exactly how 18 and 19
+        September 2026 came to be published empty.
+
+        Returned as GTFS-style compact `YYYYMMDD` strings, or `(None, None)`
+        where a build carries no dated calendar at all, so a caller can tell
+        "outside the window" from "no window to be outside of" and decline to
+        guess. `calendar_dates` is included because GTFS permits a service
+        defined only by exception dates, with no `calendar` row to bound it.
+        """
+        dates = set()
+        for cal in self.calendar.values():
+            for key in ("start_date", "end_date"):
+                value = (cal.get(key) or "").strip()
+                if value:
+                    dates.add(value)
+        for exceptions in self.calendar_dates.values():
+            dates.update(d for d in exceptions if d)
+        if not dates:
+            return (None, None)
+        return (min(dates), max(dates))
+
+    def covers_day(self, day) -> bool:
+        """Whether `day` falls inside this build's service window.
+
+        A build with no dated calendar covers nothing knowable, so this answers
+        False rather than True: refusing to measure is recoverable, publishing a
+        silent zero is not.
+        """
+        first, last = self.service_window()
+        if not first or not last:
+            return False
+        stamp = day.strftime("%Y%m%d") if hasattr(day, "strftime") else str(day)
+        return first <= stamp <= last
+
     def sample_week(self, from_day=None) -> dict:
         """A concrete week to measure, as {day name: date}.
 
@@ -1128,6 +1170,24 @@ class Timetable:
     # in scoring so the corner beats the road when both connect.
     INTERCHANGE_WALK_KM = 0.4
     WALK_METRES_PER_SEC = 1.35
+
+    # What a second operator costs, in the only currency this search counts.
+    #
+    # Changing between two companies means buying a second ticket, because no
+    # single operator's day ticket is valid on the other's bus. This site exists
+    # partly to say so, and it was saying the opposite by accident: Shoreham
+    # High Street to Park Road is a journey both ends of which sit inside
+    # citySAVER, answerable with a 2 and a 25 on one Brighton & Hove ticket, and
+    # the search offered a 700 then a 5B because that pairing happened to be a
+    # few minutes quicker. A reader sees a Stagecoach bus beside a Brighton &
+    # Hove bus and concludes, reasonably, that they need two tickets.
+    #
+    # Fifteen minutes is the trade this encodes: a one-operator itinerary wins
+    # unless it is more than a quarter of an hour slower, at which point the
+    # second fare is arguably the better bargain and the reader can see both
+    # facts anyway. It is a preference, not a filter — where no single operator
+    # runs the journey, as from Worthing to Hangleton, nothing changes.
+    TWO_OPERATOR_PENALTY_SECS = 15 * 60
 
     def interchange_legs(self, from_stop: str, to_stop: str, day,
                          anchor_secs: int = 43200) -> Optional[dict]:
@@ -1235,6 +1295,19 @@ class Timetable:
                     for sid in grid.get((cy + dy, cx + dx), ()):
                         yield sid
 
+        noc_cache: dict = {}
+
+        def noc_of(tid):
+            """Which company runs this trip. Memoised: the loop below asks the
+            same question thousands of times, and it is three dict hops."""
+            if tid not in noc_cache:
+                trip = self.trips.get(self._tid_to_trip.get(tid)) or {}
+                route = self.routes.get(trip.get("route_id", "")) or {}
+                # Per route, never by short name: noc_for_short_name is
+                # last-row-wins, and two operators share numbers here.
+                noc_cache[tid] = route.get("noc") or ""
+            return noc_cache[tid]
+
         best = None
         for tid, calls in paths_from(b_sids):
             arrive = next((c for c in reversed(calls)
@@ -1266,8 +1339,12 @@ class Timetable:
                         # Walking to another stop is worth more than the clock
                         # says: it is the part of a change people get wrong, in
                         # rain, with a pushchair. A stop-for-stop change wins
-                        # unless the walk genuinely saves time.
-                        score = total + walk_secs * 3
+                        # unless the walk genuinely saves time. A second
+                        # operator costs more still — it costs a second ticket.
+                        one_noc, two_noc = noc_of(one["tid"]), noc_of(tid)
+                        fare_penalty = (0 if one_noc and one_noc == two_noc
+                                        else self.TWO_OPERATOR_PENALTY_SECS)
+                        score = total + walk_secs * 3 + fare_penalty
                         if best is None or score < best["score"]:
                             best = {"score": score, "total_secs": total, "one": one,
                                     "from_sid": sid, "to_sid": c[1],
@@ -1317,6 +1394,13 @@ class Timetable:
         atco = self._sid_to_stop.get(sid)
         stop = self.stops.get(atco) or {}
         return {"atco": atco, "name": stop.get("name", ""),
+                # Which town, so "change at Waitrose" says which Waitrose.
+                # There are two within this dataset — one on Western Road in
+                # Brighton with twelve services, one in Hove Park with three,
+                # two kilometres apart and identically named. A change stop
+                # given by name alone is an instruction a passenger can follow
+                # to the wrong place.
+                "locality": stop.get("locality", ""),
                 "lat": stop.get("lat"), "lon": stop.get("lon")}
 
     def interchange_legs_two(self, from_stop: str, to_stop: str, day,

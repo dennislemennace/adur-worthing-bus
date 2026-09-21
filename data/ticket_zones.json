@@ -6,7 +6,7 @@
       "name": "citySAVER",
       "category": "current",
       "price": "Day ticket, buy on bus or app",
-      "coverage": "Brighton & Hove urban area, from Old Shoreham/Red Lion (W) along the coast to Saltdean/Bannings Vale (E), bounded north by the A27/Downs through Tongdean Lane, Patcham (Black Lion), Old Boat Corner and Falmer.",
+      "coverage": "Brighton & Hove urban area, from Old Shoreham/Red Lion and Shoreham Beach as far west as The Longshore (W) along the coast to Saltdean/Bannings Vale (E), bounded north by the A27/Downs through Tongdean Lane, Patcham (Black Lion), Old Boat Corner and Falmer.",
       "restrictions": "Not valid on night (N) buses.",
       "color": "#e30613",
       "official_map_url": "https://www.buses.co.uk/fare-zones",
@@ -1144,104 +1144,48 @@
           -0.242817
         ],
         [
-          50.830947,
-          -0.245179
+          50.83095,
+          -0.24518
         ],
         [
-          50.830926,
-          -0.245732
+          50.829,
+          -0.2445
         ],
         [
-          50.830999,
-          -0.247931
+          50.826,
+          -0.245
         ],
         [
-          50.831007,
-          -0.248328
+          50.8253,
+          -0.253
         ],
         [
-          50.831071,
-          -0.249819
+          50.825,
+          -0.264
         ],
         [
-          50.831421,
-          -0.251481
+          50.8254,
+          -0.274
         ],
         [
-          50.831737,
-          -0.252855
+          50.826,
+          -0.284
         ],
         [
-          50.831969,
-          -0.254323
+          50.8266,
+          -0.2925
         ],
         [
-          50.832189,
-          -0.257237
-        ],
-        [
-          50.832207,
-          -0.257439
-        ],
-        [
-          50.832319,
-          -0.258846
-        ],
-        [
-          50.832512,
-          -0.260294
-        ],
-        [
-          50.832758,
-          -0.262286
-        ],
-        [
-          50.832935,
-          -0.264141
-        ],
-        [
-          50.832946,
-          -0.265997
-        ],
-        [
-          50.832854,
-          -0.267558
-        ],
-        [
-          50.832752,
-          -0.269156
-        ],
-        [
-          50.832519,
-          -0.270546
-        ],
-        [
-          50.832225,
-          -0.272154
-        ],
-        [
-          50.831887,
-          -0.273644
-        ],
-        [
-          50.831656,
-          -0.275211
-        ],
-        [
-          50.831672,
-          -0.27541
-        ],
-        [
-          50.83203,
-          -0.276805
-        ],
-        [
-          50.8323,
-          -0.2776
+          50.832,
+          -0.2925
         ],
         [
           50.836,
           -0.282
+        ],
+        [
+          50.8378,
+          -0.286
         ]
       ],
       "coverage_rule": "polygon",
@@ -1259,7 +1203,9 @@
       },
       "valid_on_operators": [
         "BHBC"
-      ]
+      ],
+      "boundary_checked_on": "2026-09-21",
+      "boundary_source": "Traced from the operator's published fare-zone map at official_map_url. The page's prose says only \"Shoreham-by-Sea to the west\" and names neither Shoreham Beach nor The Longshore, so the western edge rests on the map image rather than on text that can be quoted. The edge is drawn behind the stops on both sides of every road it follows: run down the middle of a road instead, it put the two poles of one stop in different zones and made the fare depend on which way you were travelling."
     },
     {
       "id": "bh-networksaver",

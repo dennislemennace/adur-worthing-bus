@@ -196,6 +196,114 @@ def test_ticket_zones_schema():
     _assert_unique_ids(zones, "ticket_zones.json")
 
 
+def _point_in_polygon(poly, lat, lon):
+    """Even-odd ray cast, the same rule app.js draws these zones with."""
+    inside = False
+    for i in range(len(poly)):
+        y1, x1 = poly[i]
+        y2, x2 = poly[(i + 1) % len(poly)]
+        if (y1 > lat) != (y2 > lat):
+            if lon < (x2 - x1) * (lat - y1) / (y2 - y1) + x1:
+                inside = not inside
+    return inside
+
+
+def _zone_polygons(zone, by_id):
+    if zone.get("polygon"):
+        return [zone["polygon"]]
+    if zone.get("polygons"):
+        return zone["polygons"]
+    return [p for src in zone.get("polygons_from") or []
+            for p in _zone_polygons(by_id[src], by_id)]
+
+
+def _in_any(polys, stop):
+    return any(_point_in_polygon(p, stop["latitude"], stop["longitude"])
+               for p in polys)
+
+
+# Edges still drawn through a stop rather than behind it, by zone.
+#
+# citySAVER is absent because it was fixed: its edge used to run down the
+# middle of the A259 and split seven names through Shoreham plus North End on
+# the Old Shoreham edge. It was redrawn from the operator's published zone map,
+# which is the only reason it could be redrawn at all.
+#
+# These three have no such source to hand. Guessing where a Stagecoach or
+# Metrobus edge really runs would put an invented boundary behind a claim about
+# somebody's money, which is worse than recording a known defect: The Longshore
+# is the *stated* seam between the two Stagecoach DayRider zones, so which of
+# its four poles belongs to which is a question for Stagecoach's own map, not
+# for us. Each needs checking against that map before it is moved.
+#
+# The assertion is equality, so this list can neither grow nor quietly shrink.
+KNOWN_SPLIT_EDGES = {
+    "sc-worthing-dayrider": {"The Longshore"},
+    "sc-brighton-dayrider": {"Bellingham Crescent", "Kingston Broadway",
+                             "Old Shoreham Road", "Old Steine",
+                             "Southern Cross", "Springfield Road",
+                             "The Longshore"},
+    "mb-metrovoyager": {"Marine Parade", "Railway Station"},
+}
+
+
+def test_no_zone_boundary_splits_the_two_poles_of_one_stop():
+    """A fare must not depend on which side of the road you are standing on.
+
+    The citySAVER edge used to run down the middle of the A259 through
+    Shoreham, so seven stop names had one pole inside the zone and the other
+    outside — Lighthouse, Kingston Wharf, Footbridge, High Street, Duke of
+    Wellington, Eastern Avenue, Amenity Tip — and North End did the same on the
+    Old Shoreham edge. Brighton DayRider had seven of its own, Metrovoyager two
+    and Worthing DayRider one.
+
+    Nothing about that is visible on a map: the zone looks right, and the
+    checker quietly answers differently for the eastbound stop than for the
+    westbound one thirty metres away. The rule is that an edge follows the back
+    of the stops on both sides of a road, never the road itself.
+
+    Only poles of the same name that are genuinely close are compared. "High
+    Street" is a stop in Shoreham and another in Worthing twelve kilometres
+    away, and those two falling in different zones is the point of having zones.
+    """
+    zones = _load("ticket_zones.json")["zones"]
+    by_id = {z["id"]: z for z in zones}
+    stops = _load("stops.json")["stops"]
+
+    grouped = {}
+    for stop in stops:
+        grouped.setdefault(stop["name"], []).append(stop)
+
+    found = {}
+    for zone in zones:
+        polys = _zone_polygons(zone, by_id)
+        if not polys:
+            continue
+        for name, poles in grouped.items():
+            if len(poles) < 2:
+                continue
+            # ~450 m and ~350 m: two poles of one road, not two towns.
+            if not all(abs(a["latitude"] - b["latitude"]) < 0.004
+                       and abs(a["longitude"] - b["longitude"]) < 0.005
+                       for a in poles for b in poles):
+                continue
+            if len({_in_any(polys, s) for s in poles}) > 1:
+                found.setdefault(zone["id"], set()).add(name)
+
+    for zid, names in sorted(found.items()):
+        known = KNOWN_SPLIT_EDGES.get(zid, set())
+        assert names == known, (
+            f"ticket_zones.json: {zid!r} splits {sorted(names)} across its "
+            f"edge; this file records {sorted(known)}. A new name here is an "
+            "edge drawn down the middle of a road — move it behind the stops "
+            "on both sides. A name that has gone is a fix: delete it from "
+            "KNOWN_SPLIT_EDGES so it cannot come back.")
+    for zid in KNOWN_SPLIT_EDGES:
+        assert zid in found, (
+            f"ticket_zones.json: {zid!r} no longer splits any stop — remove "
+            "it from KNOWN_SPLIT_EDGES.")
+
+
 COVERAGE_RULES = {"polygon", "operator_network", "reach_points"}
 FARE_KINDS = ("adult_day", "adult_day_cash", "adult_weekly")
 

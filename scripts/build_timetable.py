@@ -70,6 +70,21 @@ EXTRA_ROUTES = {
     "1", "1A", "1B", "2", "2A", "2B", "5", "5B", "7", "7A",
     "1X", "3X", "6", "13X", "21", "23X", "25X", "29X",
     "37", "37B", "46", "47", "49",
+    # The 25 runs Brighton to the universities, and it is here because leaving
+    # it out was an omission rather than a decision: 25X and N25 were both on
+    # this list, so its absence looked deliberate and was not. Without it the
+    # Shoreham-to-universities journey could only be answered with a 700 and a
+    # 5B — Stagecoach then Brighton & Hove, two tickets — when the journey
+    # people actually make is a 2 and a 25, both Brighton & Hove, both inside
+    # citySAVER.
+    #
+    # It changes no published statistic. The boundary comparison counts stops
+    # in a band from longitude -0.273 to -0.159 (`method.band` in
+    # data/boundary_evidence.json); the 25 runs from Old Steine at -0.137 east
+    # to Falmer and never reaches -0.159, so it contributes no stop to either
+    # side of the line. Its eastern end is outside the ingest bbox anyway, so
+    # the route is kept only as far as Coldean.
+    "25",
     # Brighton & Hove night routes — N12/N14/N29/N48 head out of
     # Brighton westward/northward and otherwise wouldn't survive the
     # 4400-or-EXTRA_ROUTES filter since their stops are all 1490 prefix.
