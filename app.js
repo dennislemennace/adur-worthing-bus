@@ -8976,15 +8976,62 @@ function costRoute(route, ctx) {
  *  and the thirty-two minutes are the point even when the fare is unchanged.
  *  Time is why this is not gated on price alone.
  */
-function journeyAnswer(costed) {
-  const priced = costed.filter(c => c && c.total !== null);
+function localTicketOperators(zones) {
+  const out = new Set();
+  for (const z of zones || []) {
+    for (const op of z.valid_on_operators || []) out.add(op);
+  }
+  return out;
+}
+
+/** How much quicker a coach has to be before it is worth mentioning.
+ *
+ *  Five minutes is not a time saving on a service that runs a handful of times
+ *  a day and wants booking in advance; a quarter of an hour is. Worthing to
+ *  Brighton is 55 minutes on the National Express 025 against 60 on the bus,
+ *  and telling somebody to plan a coach around five minutes would be advice
+ *  nobody should follow. */
+const COACH_WORTH_MENTIONING_MINS = 10;
+
+function journeyAnswer(costed, localOperators) {
+  const allPriced = costed.filter(c => c && c.total !== null);
+
+  // Coaches are not the answer to a local journey, even when they are quickest.
+  //
+  // The criterion is the data's own, not a list of company names: an operator
+  // no ticket in ticket_zones.json is valid on. Every zone here is valid on
+  // some combination of BHBC, METR, SCSO, COMT and CMPA, so National Express
+  // and Flixbus fall outside all of them — which is the point. None of the
+  // tickets this page prices can be used on them, they are exempt from the
+  // open-data duty so we hold no positions and can never say whether they run
+  // on time, and they are booked rather than turned up for. Offering one as
+  // "quickest" recommends a journey a reader cannot make on any ticket we
+  // quoted, and it self-corrects if a zone ever starts accepting one.
+  const isLocal = (c) => {
+    if (!localOperators || !localOperators.size) return true;
+    const ops = c.route.operators || [];
+    return ops.every(op => !op || localOperators.has(op));
+  };
+  const priced = allPriced.filter(isLocal);
+  const coaches = allPriced.filter(c => !isLocal(c)
+                                   && typeof c.minutes === "number");
   const timed = priced.filter(c => typeof c.minutes === "number");
   if (!priced.length) {
-    return { cheapest: null, quickest: null, priced, moneySaved: 0, timeSaved: 0 };
+    return { cheapest: null, quickest: null, priced, moneySaved: 0,
+             timeSaved: 0, coach: null, coachSaving: 0 };
   }
   const cheapest = priced.reduce((a, b) => (b.total < a.total ? b : a));
   const fastest = timed.length
     ? timed.reduce((a, b) => (b.minutes < a.minutes ? b : a)) : null;
+
+  // A coach worth a sentence: quicker than anything on a bus ticket, by enough
+  // to be worth planning around.
+  const bestCoach = coaches.length
+    ? coaches.reduce((a, b) => (b.minutes < a.minutes ? b : a)) : null;
+  const against = fastest ? fastest.minutes : (cheapest.minutes ?? null);
+  const coachSaving = (bestCoach && typeof against === "number")
+    ? against - bestCoach.minutes : 0;
+  const coach = coachSaving >= COACH_WORTH_MENTIONING_MINS ? bestCoach : null;
 
   // "Different" means a different journey, not a different object: two routes
   // that cost the same and take the same time are one answer to a passenger.
@@ -9004,7 +9051,36 @@ function journeyAnswer(costed) {
     // longer to pay less. One of these is always zero unless both differ.
     moneySaved,
     timeSaved,
+    // A coach that beats every bus by enough to be worth planning around. Kept
+    // out of the rows above and mentioned separately, because it is a different
+    // kind of journey: booked rather than turned up for, on no ticket this page
+    // prices, and unmeasurable because coaches are exempt from the duty that
+    // makes the rest of this site possible.
+    coach,
+    coachSaving,
   };
+}
+
+/** The coach sentence: worth knowing, not worth recommending.
+ *
+ *  Said as a note rather than a row because every caveat on it is the kind a
+ *  row cannot carry. It runs a handful of times a day, it wants booking, no
+ *  ticket priced above is valid on it, and coaches are exempt from the
+ *  open-data duty — so unlike every bus on this page, we have no positions for
+ *  it and cannot tell you whether it turns up.
+ */
+function journeyCoachNoteHtml(answer) {
+  const { coach, coachSaving } = answer;
+  if (!coach || coachSaving <= 0) return "";
+  const services = coach.route.services.filter(Boolean).map(escapeHtml);
+  const named = services.length ? services.join(" then ") : "a coach";
+  return `<p class="journey-basis journey-coach">
+    <strong>A coach can be quicker if you can plan around it.</strong>
+    ${named} does this in ${coach.route.minutes} minutes,
+    ${coachSaving} minutes faster than anything above. It runs a few times a day and
+    wants booking, none of the tickets priced here are valid on it, and coaches
+    are exempt from the open-data rules, so we cannot tell you whether it runs
+    on time.</p>`;
 }
 
 /** Which ticket a costed route rests on, named the way it is sold. */
@@ -9234,7 +9310,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
     allStandardZones: allZones.filter(isStandardFareZone),
     endpointOperators, operatorsKnown, usable, byId, meta,
   }));
-  const answer = journeyAnswer(costed);
+  const answer = journeyAnswer(costed, localTicketOperators(allZones));
 
   // ── No zonal ticket spans the journey, but a network one does ──
   // This is a boundary penalty in its own right: the zone tickets stop short,
@@ -9423,6 +9499,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
       ${rows ? `<p class="journey-basis journey-rows-basis">What one return trip
         costs today, and how long it takes.</p>
         <ul class="journey-rows">${rows}</ul>` : ""}
+      ${journeyCoachNoteHtml(answer)}
       ${routes.length ? money : ""}
     </div>`
     + zoneListHtml(coverPerStop, byId, droppedForOperator, shared,

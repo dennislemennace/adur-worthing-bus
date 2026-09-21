@@ -457,6 +457,88 @@ test("merging zones is measured against Discovery when Discovery is cheapest", (
   assert.ok(/£4\.00 cheaper/.test(html), `got: ${html}`);
 });
 
+// ── A coach is not the answer to a local journey ─────────────
+//
+// Worthing to Brighton came back recommending a National Express 025 as the
+// quickest route. It is quickest, and it is the wrong answer: none of the
+// tickets this page prices are valid on it, it runs a handful of times a day
+// and wants booking, and coaches are exempt from the open-data duty, so unlike
+// every bus here we hold no positions and can never say whether it turns up.
+//
+// The test is the data's own, not a list of company names — an operator no
+// ticket in ticket_zones.json is valid on — so it self-corrects if a zone ever
+// starts accepting one.
+
+const LOCAL_OPS = new Set(["BHBC", "METR", "SCSO", "COMT", "CMPA"]);
+
+const routeStub = (services, operators, minutes, total) => ({
+  total, minutes,
+  route: { services, operators, minutes },
+  cheapest: { kind: "zonal", total, tickets: 1, zone: null, supplement: null },
+  best: null,
+});
+
+test("every ticket zone names the operators it is valid on", () => {
+  // The premise of the rule below. If a zone stopped declaring this, every
+  // operator would look local and the coach filter would quietly switch off.
+  for (const z of plain(vm.runInContext("[]", app)).length ? [] : Object.values(byId)) {
+    assert.ok(Array.isArray(z.valid_on_operators) && z.valid_on_operators.length,
+      `${z.id} declares no valid_on_operators`);
+  }
+});
+
+test("a coach is never offered as the recommended route", () => {
+  const a = app.journeyAnswer([
+    routeStub(["700"], ["SCSO"], 60, 600),
+    routeStub(["025"], ["NATX"], 40, 600),
+  ], LOCAL_OPS);
+  assert.deepEqual(a.cheapest.route.services, ["700"]);
+  assert.equal(a.quickest, null,
+    "the coach was offered as the quickest route on a bus ticket");
+});
+
+test("a coach that saves real time is mentioned in a note", () => {
+  const a = app.journeyAnswer([
+    routeStub(["700"], ["SCSO"], 60, 600),
+    routeStub(["025"], ["NATX"], 40, 600),
+  ], LOCAL_OPS);
+  // Whitespace-normalised: the template wraps its sentences across lines, and
+  // a phrase broken by a newline is the same phrase to a reader.
+  const html = app.journeyCoachNoteHtml(a).replace(/\s+/g, " ");
+  assert.ok(/025/.test(html), `the note should name the service: ${html}`);
+  assert.ok(/20 minutes faster/.test(html), `got: ${html}`);
+  // Every caveat a row could not carry.
+  assert.ok(/booking/i.test(html), `no booking caveat: ${html}`);
+  assert.ok(/valid on it/i.test(html), `no ticket caveat: ${html}`);
+  assert.ok(/whether it runs on time/i.test(html), `no punctuality caveat: ${html}`);
+});
+
+test("five minutes is not a reason to plan a coach", () => {
+  // Worthing to Brighton is 55 minutes on the 025 against 60 on the bus. A
+  // service that runs a few times a day and wants booking is not a time saving
+  // at five minutes, and saying so would be advice nobody should follow.
+  const a = app.journeyAnswer([
+    routeStub(["700"], ["SCSO"], 60, 600),
+    routeStub(["025", "700"], ["NATX", "SCSO"], 55, 600),
+  ], LOCAL_OPS);
+  assert.equal(app.journeyCoachNoteHtml(a), "");
+});
+
+test("with no ticket data every operator is treated as local", () => {
+  // The filter must fail open. Answering "no routes" because we could not load
+  // the zones would turn a data problem into a claim about the network.
+  const a = app.journeyAnswer([routeStub(["025"], ["NATX"], 40, 600)], new Set());
+  assert.ok(a.cheapest, "an empty operator set suppressed every route");
+});
+
+test("the operators a ticket is valid on are read from the zones", () => {
+  const ops = app.localTicketOperators(Object.values(byId));
+  assert.ok(ops.has("SCSO") && ops.has("BHBC"));
+  assert.ok(!ops.has("NATX"), "a ticket claims to be valid on National Express");
+  assert.ok(!ops.has("FLIX"), "a ticket claims to be valid on Flixbus");
+});
+
+
 // ── Evening-only tickets are out of the costing ─────────────
 
 test("evening-only tickets are excluded from the standard fare comparison", () => {
