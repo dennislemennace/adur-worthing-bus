@@ -77,6 +77,10 @@ class Places:
     def __init__(self, timetable=None):
         self.by_atco = {}
         self.by_name = {}
+        # What contains what: Bristol Estate is in Brighton, Shoreham Beach in
+        # Shoreham-by-Sea. Two direction labels where one contains the other do
+        # not tell a reader which is which.
+        self.parent = {}
         if timetable is None:
             return
         names = {}
@@ -85,6 +89,9 @@ class Places:
             if not place:
                 continue
             self.by_atco[atco] = place
+            parent = (stop.get("locality_parent") or "").strip()
+            if parent and parent != place:
+                self.parent[place] = parent
             names.setdefault((stop.get("name") or "").strip().lower(),
                              set()).add(place)
         # Only names that mean one place. A name shared by two towns tells us
@@ -185,6 +192,13 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
         # list that is the union of both, directions from both, and journey
         # times between two stops no single bus has ever run in sequence.
         "operator": operator,
+        # Which places contain which, for the places this document names. The
+        # browser needs it to see that "Bristol Estate" and "Brighton" do not
+        # distinguish two directions, and it is published rather than looked up
+        # so the document stays readable on its own.
+        "place_parents": {p: places.parent[p]
+                          for p in sorted({j.get("place", "") for j in kept})
+                          if places and p in places.parent},
         "as_of": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "days": meta["days"],
         "data_versions": meta["data_versions"],

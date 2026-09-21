@@ -31,7 +31,10 @@ CREATE TABLE stops (
     -- The town or village, from NaPTAN. GTFS has no such field, and without
     -- it a direction can only be named after a stop: "towards Shooting Field"
     -- rather than "towards Steyning". Empty when NaPTAN was unreachable.
-    locality TEXT NOT NULL DEFAULT ''
+    locality TEXT NOT NULL DEFAULT '',
+    -- And what contains it: Bristol Estate is in Brighton. Two direction
+    -- labels where one contains the other do not say which is which.
+    locality_parent TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE routes (
@@ -154,10 +157,10 @@ def convert(tt: dict, db_path: Path) -> None:
 
     # --- stops ---
     con.executemany(
-        "INSERT INTO stops VALUES (?,?,?,?,?,?)",
+        "INSERT INTO stops VALUES (?,?,?,?,?,?,?)",
         (
             (stop_sid[sid], sid, s["name"], s["lat"], s["lon"],
-             s.get("locality", ""))
+             s.get("locality", ""), s.get("locality_parent", ""))
             for sid, s in tt["stops"].items()
         ),
     )

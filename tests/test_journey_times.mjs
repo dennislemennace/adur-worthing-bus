@@ -607,3 +607,127 @@ test("every stop offered has a journey the chart can draw", () => {
     }
   }
 });
+
+
+// ── When a town cannot tell the two directions apart ────────
+
+/** A direction's worth of journeys heading for `place`. */
+function runs(n, place, headsign, stops) {
+  return Array.from({ length: n }, () => toward(place, headsign, stops));
+}
+
+test("a service inside one town is named by what the bus says", () => {
+  // Service 37 runs Meadowview to Bristol Estate entirely inside Brighton, so
+  // both directions read "Towards Brighton" and the control said nothing at
+  // all. The words on the front of the bus are more specific than the map is.
+  const doc = { journeys: [
+    ...runs(8, "Brighton", "Meadowview", [0, 1, 2, 3]),
+    ...runs(7, "Brighton", "Beresford Road", [10, 11, 12, 13]),
+  ] };
+  const got = directions(doc).map(d => d.headsign);
+  assert.equal(JSON.stringify(got), JSON.stringify(["Meadowview", "Beresford Road"]),
+    "both directions were named after the town they both sit in");
+});
+
+test("the town that contains the other end is the useless one", () => {
+  // Bristol Estate is inside Brighton. "Towards Brighton" against "Towards
+  // Bristol Estate" reads as a place and the place containing it, not as two
+  // ends of a route — so Brighton gives way to the destination on the bus
+  // while Bristol Estate, being the specific half, stays.
+  const doc = {
+    place_parents: { "Bristol Estate": "Brighton" },
+    journeys: [
+      ...runs(8, "Brighton", "Meadowview", [0, 1, 2, 3]),
+      ...runs(7, "Bristol Estate", "Beresford Road", [10, 11, 12, 13]),
+    ],
+  };
+  assert.equal(JSON.stringify(directions(doc).map(d => d.headsign)),
+    JSON.stringify(["Meadowview", "Bristol Estate"]),
+    "the containing town survived, or the contained one was thrown away");
+});
+
+test("a handful of journeys does not spoil the other direction's name", () => {
+  // Service 1 sends 3 journeys of 305 to Portslade Village and 284 the other
+  // way. Those 3 make the name useless for the first direction and say nothing
+  // about the second, which genuinely is the Portslade Village one — a single
+  // shared set let the 3 disqualify the 284.
+  const doc = { journeys: [
+    ...runs(30, "Whitehawk", "Swanborough Drive", [0, 1, 2, 3]),
+    ...runs(1, "Portslade Village", "Community Centre", [0, 1]),
+    ...runs(28, "Portslade Village", "Portslade Academy", [10, 11, 12, 13]),
+  ] };
+  const got = directions(doc).map(d => d.headsign);
+  assert.ok(got.includes("Portslade Village"),
+    `a 1% overlap cost the other direction its name: ${got.join(" | ")}`);
+});
+
+test("a direction is not named after somewhere almost nobody goes", () => {
+  // Service 21 has Whitehawk to itself, but 9 journeys of 143. Naming a
+  // direction after 6% of it is the same mistake as naming it after a town
+  // both directions share — so the destination on the bus is used instead.
+  const doc = { journeys: [
+    ...runs(30, "Brighton", "Marina Cinema", [0, 1, 2, 3]),
+    ...runs(2, "Whitehawk", "Whitehawk Bus Garage", [0, 1, 2, 3, 4]),
+    ...runs(28, "Brighton", "Imperial Arcade", [10, 11, 12, 13]),
+  ] };
+  const [first] = directions(doc);
+  assert.equal(first.headsign.split("  ")[0], "Marina Cinema",
+    `named after 6% of the direction: ${first.headsign}`);
+});
+
+test("two towns that tell the directions apart are left alone", () => {
+  // The common case must not be disturbed by any of the above.
+  const doc = { journeys: [
+    ...runs(8, "Durrington", "Durrington Tesco", [0, 1, 2, 3, 4, 5]),
+    ...runs(2, "Worthing", "Worthing Marine Parade", [0, 1, 2, 3]),
+    ...runs(6, "Brighton", "Old Steine", [10, 11, 12, 13, 14]),
+  ] };
+  assert.equal(JSON.stringify(directions(doc).map(d => d.headsign)),
+    JSON.stringify(["Worthing / Durrington", "Brighton"]));
+});
+
+// ── Opening on the two ends of the line ─────────────────────
+
+test("the view opens on the ends of the longest run", () => {
+  // It used to take the first and last of the direction's stop list, ordered
+  // by each stop's median position. On a route that doubles back those are not
+  // the ends of the line: service 23X opened on two stops 2.0 km apart when
+  // 6.1 km was available, which looks like the map has drawn the route wrongly.
+  const doc = { journeys: [
+    toward("Town", "A", [0, 1, 2, 3, 4, 5]),
+    toward("Town", "A", [2, 3]),
+  ] };
+  assert.equal(JSON.stringify(defaultPair(doc, directions(doc)[0])),
+    JSON.stringify({ from: 0, to: 5 }));
+});
+
+test("the view never opens on one stop twice", () => {
+  // A service passing a stop twice can have the same stop at both ends of a
+  // run, and "Church to Church" is not a journey time. Service 5 opened on
+  // exactly that.
+  const doc = { journeys: [
+    { day: "2026-09-17", start: "08:15", direction: "westbound", headsign: "A",
+      place: "Town",
+      calls: [[0, 100, 100, 0], [1, 200, 200, 0], [0, 300, 300, 0]] },
+    toward("Town", "A", [0, 1]),
+  ] };
+  const pair = defaultPair(doc, directions(doc)[0]);
+  assert.notEqual(pair.from, pair.to, "the view opened on a stop and itself");
+});
+
+test("the view never opens on a pair with no journeys", () => {
+  // The worst possible first impression. A pair taken from one journey can
+  // still be a pair that journey is not counted for — journeyTimesBetween
+  // drops a run calling twice at either end — and on the 5 no other journey
+  // served it, so the view opened on "no bus we tracked made that trip".
+  const doc = { journeys: [
+    { day: "2026-09-17", start: "08:15", direction: "westbound", headsign: "A",
+      place: "Town",
+      calls: [[9, 100, 100, 0], [1, 200, 200, 0], [2, 300, 300, 0],
+              [9, 400, 400, 0]] },
+    toward("Town", "A", [1, 2]),
+  ] };
+  const pair = defaultPair(doc, directions(doc)[0]);
+  assert.ok(between(doc, pair.from, pair.to).length > 0,
+    `opened on ${pair.from}→${pair.to}, which no journey makes`);
+});

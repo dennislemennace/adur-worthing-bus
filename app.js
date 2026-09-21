@@ -1859,7 +1859,7 @@ function journeyTimesDirections(doc) {
     for (const i of mine) home.stops.add(i);
   }
 
-  return groups.map(group => {
+  const described = groups.map(group => {
     // Pooled by place, not by headsign, which is what turns five destinations
     // into three and makes "+1 more" small enough to spell out.
     const places = new Map();
@@ -1886,41 +1886,183 @@ function journeyTimesDirections(doc) {
         return { index, at: sorted[Math.floor(sorted.length / 2)] };
       }).sort((a, b) => a.at - b.at || a.index - b.index);
 
+    return { group, ranked, named, rest, stops, journeys: group.journeys };
+  });
+
+  // A label exists to tell the two directions apart, and a town both ends sit
+  // in cannot do that. Service 37 runs Meadowview to Bristol Estate entirely
+  // inside Brighton, so both directions read "Brighton"; the 19 runs Holmbush
+  // to Shoreham Beach entirely inside Shoreham-by-Sea. The bus itself is more
+  // specific than the map is, so where a place is shared this falls back to
+  // what is written on the front.
+  // Shared means "cannot tell the two apart", which is wider than equal:
+  // Bristol Estate is inside Brighton, so "towards Bristol Estate" against
+  // "towards Brighton" reads as a place and the place containing it rather
+  // than as two ends of a route. The document publishes what contains what.
+  const parents = doc.place_parents || {};
+  const within = (a, b) => {
+    for (let at = a, hops = 0; at && hops < 4; at = parents[at], hops++) {
+      if (at === b) return true;
+    }
+    return false;
+  };
+  // Worked out per direction, not once for the whole service. A name is not
+  // spoiled in the abstract — it is spoiled *for this direction*, by the other
+  // one. Service 1 sends 3 journeys of 305 to Portslade Village and 284 the
+  // other way: those 3 make the name useless for the first direction and say
+  // nothing about the second, which genuinely is the Portslade Village one. A
+  // single shared set let the 3 disqualify the 284.
+  const sharedFor = new Map();
+  for (const a of described) {
+    const spoiled = new Set();
+    for (const b of described) {
+      if (a === b) continue;
+      // Only a destination the other direction really uses can spoil a name.
+      const spoils = b.ranked.filter(q => q.journeys / b.journeys >= JT_DEST_SHARE);
+      for (const p of a.ranked) {
+        // Disqualified for being the same place, or for *containing* the other
+        // direction's end — but not for being contained by it. "Brighton" is
+        // useless against "Bristol Estate" because it swallows it; "Bristol
+        // Estate" against "Brighton" is the specific half and does the work.
+        // That asymmetry lets the 37 read Meadowview / Bristol Estate rather
+        // than Meadowview / Beresford Road.
+        if (spoils.some(q => q.place === p.place || within(q.place, p.place))) {
+          spoiled.add(p.place);
+        }
+      }
+    }
+    sharedFor.set(a, spoiled);
+  }
+
+  return described.map(d => {
+    let named = d.named, rest = d.rest;
+    const shared = sharedFor.get(d) || new Set();
+    if (named.some(p => shared.has(p.place))) {
+      // Prefer a place only this direction goes to, provided enough journeys
+      // actually go there — service 21 has Whitehawk to itself, but 9 journeys
+      // of 143, and naming a direction after 6% of it is the same mistake as
+      // naming it after a town both directions share.
+      const mine = d.ranked.filter(p => !shared.has(p.place)
+        && p.journeys / d.journeys >= JT_DEST_SHARE);
+      const pool = mine.length ? mine : destinationsOf(d.ranked);
+      named = pool.slice(0, 1);
+      rest = d.ranked.length - 1;
+    }
     return {
       headsign: named.map(p => p.place).join(" / ")
         + (rest > 0 ? `  (+${rest} more)` : ""),
-      journeys: group.journeys,
-      places: ranked,
-      stops,
+      journeys: d.journeys,
+      places: d.ranked,
+      stops: d.stops,
     };
   }).sort((a, b) => b.journeys - a.journeys
     || a.headsign.localeCompare(b.headsign));
 }
 
-/** A pair of stops worth opening on: far apart, and both promised.
+/** The destinations behind a direction's places, busiest first.
  *
- *  The view opened on the ends of the longest journey, which is a pair that
- *  exists but says nothing about whether the timetable commits to a time at
- *  either end. Service 37 has 444 promised calls and showed no timetable line
- *  at all, because the default pair landed on two stops GTFS had interpolated.
- *  A reader sees "no comparison available" and concludes the tool is broken.
+ *  Used when no town distinguishes this direction from the other one: the
+ *  words on the front of the bus are more specific than the map is, and they
+ *  are what a passenger at the stop is reading anyway.
+ */
+function destinationsOf(ranked) {
+  const out = [];
+  for (const place of ranked) {
+    for (const headsign of place.headsigns) out.push({ place: headsign });
+  }
+  return out;
+}
+
+/** The pair to open on: the two ends of the longest run anyone made.
  *
- *  Returns `{from, to}` stop indices, or null if the direction has no pair.
+ *  This used to take the first and last stop of the direction's list, which is
+ *  ordered by each stop's median position along the route. On a route that
+ *  doubles back those extremes are not the ends of the line: service 23X opened
+ *  on two stops 2.0 km apart when 6.1 km was available, the 19 on 58% of its
+ *  span and the 37 on 63%, which looks like the map has drawn the route wrongly
+ *  rather than like a deliberate choice of stops.
+ *
+ *  The longest journey we actually watched is a better answer than any ordering
+ *  of stops, because it is a real bus going from one end to the other — and it
+ *  is what a reader means by "how long does this service take".
+ *
+ *  Its ends are preferred where the timetable promises a time at them, since a
+ *  comparison needs something to compare against. Service 37 has 444 promised
+ *  calls and showed no timetable line at all when the default landed on two
+ *  stops GTFS had merely interpolated.
  */
 function journeyTimesDefaultPair(doc, direction) {
   const stops = direction?.stops || [];
   if (stops.length < 2) return null;
-  const promised = new Set();
+  const inDirection = new Set(stops.map(s => s.index));
+
+  let best = null;
   for (const journey of doc.journeys || []) {
-    for (const call of journey.calls || []) {
-      if (!(call[3] & JT_NO_PROMISE)) promised.add(call[0]);
+    const calls = (journey.calls || []).filter(c => inDirection.has(c[0]));
+    if (calls.length < 2) continue;
+    // Ranked by how much of the route it covered, not by how long it took.
+    // Duration picks the outlier: a bus that sat between two adjacent stops
+    // for three hours beats a real end-to-end run, which put the default pair
+    // 0.0 km apart on the 46 and the 5.
+    const span = calls[calls.length - 1][1] - calls[0][1];
+    if (span <= 0) continue;
+    if (!best || calls.length > best.calls.length
+        || (calls.length === best.calls.length && span > best.span)) {
+      best = { calls, span };
     }
   }
-  const timed = stops.filter(s => promised.has(s.index));
-  // Both ends promised if the service has two such stops; otherwise the ends
-  // of the direction, which is still better than nothing to compare against.
-  const pick = timed.length >= 2 ? timed : stops;
-  return { from: pick[0].index, to: pick[pick.length - 1].index };
+  if (!best) {
+    const pick = stops;
+    return { from: pick[0].index, to: pick[pick.length - 1].index };
+  }
+
+  // Trim inwards to stops the timetable commits to, but never so far that the
+  // pair collapses: a promised pair covering a tenth of the run is worse than
+  // an unpromised one covering all of it.
+  const timed = best.calls.filter(c => !(c[3] & JT_NO_PROMISE));
+  const promisedEnds = outermostPair(doc, timed);
+  if (promisedEnds) {
+    const covered = promisedEnds.toSecs - promisedEnds.fromSecs;
+    // Half, not more: at 0.6 a promised pair covering half the run was
+    // rejected in favour of an unpromised pair covering all of it, and the
+    // chart then had no timetable line to compare against — which is the
+    // complaint that put a promised pair here in the first place.
+    if (covered >= best.span * 0.5) {
+      return { from: promisedEnds.from, to: promisedEnds.to };
+    }
+  }
+  const ends = outermostPair(doc, best.calls);
+  return ends ? { from: ends.from, to: ends.to }
+              : { from: stops[0].index, to: stops[stops.length - 1].index };
+}
+
+/** The widest pair of a run that the chart can actually draw.
+ *
+ *  Two things have to hold, and constructing the pair guarantees neither.
+ *
+ *  A service passing one stop twice can have the same stop at both ends of a
+ *  run, and "Church to Church" is not a journey time — service 5 opened on
+ *  exactly that, because the outermost stops its timetable promised a time at
+ *  were both called Church and were the same one.
+ *
+ *  And a pair taken from one journey can still be a pair *that journey* is not
+ *  counted for: journeyTimesBetween drops a journey calling twice at either
+ *  end, so if no other journey serves the pair the view opens on "no bus we
+ *  tracked made that trip". That is the worst possible first impression, and
+ *  it happened on the 5. So each candidate is tried against the chart, widest
+ *  first, and the first that draws is the answer.
+ */
+function outermostPair(doc, calls) {
+  if (!calls || calls.length < 2) return null;
+  for (let width = calls.length - 1; width >= 1; width--) {
+    for (let i = 0; i + width < calls.length; i++) {
+      const a = calls[i], b = calls[i + width];
+      if (a[0] === b[0] || b[1] <= a[1]) continue;
+      if (!journeyTimesBetween(doc, a[0], b[0]).length) continue;
+      return { from: a[0], to: b[0], fromSecs: a[1], toSecs: b[1] };
+    }
+  }
+  return null;
 }
 
 /** Each journey against *its own* scheduled duration.

@@ -458,13 +458,15 @@ class Timetable:
         # `locality` arrived after the first databases were built, so it is
         # read only where the column exists — an older release asset must not
         # crash a newer API on a field it has never heard of.
-        has_locality = any(r[1] == "locality"
-                           for r in con.execute("PRAGMA table_info(stops)"))
-        columns = "sid, stop_id, name, lat, lon" + (", locality" if has_locality else "")
+        present = {r[1] for r in con.execute("PRAGMA table_info(stops)")}
+        extra = [c for c in ("locality", "locality_parent") if c in present]
+        columns = ", ".join(["sid", "stop_id", "name", "lat", "lon"] + extra)
         for row in con.execute(f"SELECT {columns} FROM stops"):
             sid, stop_id, name, lat, lon = row[:5]
+            rest = dict(zip(extra, row[5:]))
             stops[stop_id] = {"name": name, "lat": lat, "lon": lon, "_sid": sid,
-                              "locality": row[5] if has_locality else ""}
+                              "locality": rest.get("locality", ""),
+                              "locality_parent": rest.get("locality_parent", "")}
             sid_to_stop[sid] = stop_id
 
         routes: dict = {}

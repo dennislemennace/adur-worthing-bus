@@ -192,8 +192,12 @@ def fetch_localities(url: str = NAPTAN_URL) -> dict:
         # fallback for stops NaPTAN files without one.
         place = ((row.get("LocalityName") or "").strip()
                  or (row.get("Town") or "").strip())
+        # And the place that contains it: Bristol Estate is in Brighton,
+        # Shoreham Beach in Shoreham-by-Sea. Two direction labels where one
+        # contains the other tell a reader nothing about which is which.
+        parent = (row.get("ParentLocalityName") or "").strip()
         if atco and place:
-            places[atco] = place
+            places[atco] = (place, parent)
     return places
 
 
@@ -202,8 +206,10 @@ def add_localities(timetable: dict, url: str = NAPTAN_URL) -> int:
     places = fetch_localities(url)
     named = 0
     for atco, stop in timetable["stops"].items():
-        stop["locality"] = places.get(atco, "")
-        if stop["locality"]:
+        place, parent = places.get(atco, ("", ""))
+        stop["locality"] = place
+        stop["locality_parent"] = parent
+        if place:
             named += 1
     total = len(timetable["stops"])
     if total:
@@ -268,6 +274,7 @@ def parse_gtfs(zip_path: str) -> dict:
                     "lon":  slon,
                     # Filled by add_localities; GTFS carries no such field.
                     "locality": "",
+                    "locality_parent": "",
                 }
         all_stop_ids = ws_stop_ids | bbox_stop_ids
         log.info("  %d stops (%d West Sussex + %d bbox-only)",
