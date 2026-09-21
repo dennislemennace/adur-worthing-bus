@@ -731,3 +731,31 @@ test("the view never opens on a pair with no journeys", () => {
   assert.ok(between(doc, pair.from, pair.to).length > 0,
     `opened on ${pair.from}→${pair.to}, which no journey makes`);
 });
+
+
+test("the opening pair is the one the default names, not the next stop along", () => {
+  // Not a unit of journeyTimesDefaultPair but of how the view applies it. The
+  // To list is rebuilt by replacing the select's innerHTML, which makes the
+  // browser select the first option — so asking afterwards whether the
+  // reader's choice survived always answered yes, and the view opened on the
+  // stop *after* the start rather than the end of the line. Two adjacent
+  // interpolated stops a minute apart, with no timetable to compare against.
+  //
+  // Stated here as the property the view must satisfy: whatever the default
+  // pair says, the chart must be drawn for that pair.
+  const doc = { journeys: [
+    ...Array.from({ length: 4 }, () =>
+      toward("Town", "A", [0, 1, 2, 3, 4, 5])),
+  ] };
+  const d = directions(doc)[0];
+  const pair = defaultPair(doc, d);
+  const reach = reachable(doc, pair.from);
+  assert.ok(reach.has(pair.to),
+    "the default To is not among the stops reachable from the default From, "
+    + "so the view cannot open on it");
+  assert.ok(between(doc, pair.from, pair.to).length > 0);
+  // And it is not merely the first stop along, which is what the bug produced.
+  const onward = d.stops.filter(s => reach.has(s.index));
+  assert.notEqual(pair.to, onward[0].index,
+    "the default opened on the very next stop rather than the far end");
+});

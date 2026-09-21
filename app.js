@@ -2532,6 +2532,13 @@ async function renderJourneyTimes() {
     // offering that pair answers "no bus we tracked made that trip", which
     // reads as a broken tool rather than an impossible question.
     if (direction && toSel.dataset.from !== fromSel.value) {
+      // Read before the options are replaced. Setting innerHTML makes the
+      // browser select the first option, so asking afterwards whether the
+      // reader's choice survived always answered yes — and the view opened on
+      // the stop after this one instead of the end of the line, which is two
+      // interpolated stops a minute apart and so had no timetable to compare
+      // against either.
+      const previous = toSel.value;
       const reach = journeyTimesReachableFrom(doc, Number(fromSel.value));
       const onward = direction.stops.filter(s => reach.has(s.index));
       toSel.innerHTML = onward.map(s =>
@@ -2542,10 +2549,11 @@ async function renderJourneyTimes() {
       // Keep the reader's choice where the new list still has it; otherwise
       // open on the far end, which is the trip they most likely came for.
       const wanted = journeyTimesDefaultPair(doc, direction)?.to;
-      const keep = [...toSel.options].some(o => o.value === toSel.value);
-      if (!keep && onward.length) {
-        toSel.value = String(onward.some(s => s.index === wanted)
-          ? wanted : onward[onward.length - 1].index);
+      const kept = onward.some(s => String(s.index) === previous);
+      if (onward.length) {
+        toSel.value = kept ? previous
+          : String(onward.some(s => s.index === wanted)
+            ? wanted : onward[onward.length - 1].index);
       }
     }
     if (!toSel.options.length) {
