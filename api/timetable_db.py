@@ -1270,9 +1270,53 @@ class Timetable:
                      "depart": board[2], "arrive": c[2]})
         if not first_leg:
             return None
+        noc_cache: dict = {}
+
+        def noc_of(tid):
+            """Which company runs this trip. Memoised: the loop below asks the
+            same question thousands of times, and it is three dict hops."""
+            if tid not in noc_cache:
+                trip = self.trips.get(self._tid_to_trip.get(tid)) or {}
+                # noc_for_route, not routes[...]["noc"]. The in-memory route
+                # table carries no noc at all — it is None for every route —
+                # so reading it directly returned "" for every trip, every
+                # itinerary looked like one operator changing to itself, and
+                # the fare penalty became a constant added to every candidate.
+                # A constant added to everything ranks nothing: the preference
+                # was inert at fifteen minutes and still inert at three hours,
+                # which is what gave it away. _describe_leg uses this accessor
+                # and has always reported the operator correctly, which is why
+                # the output looked right while the scoring was blind.
+                #
+                # By route, never by short name: noc_for_short_name is
+                # last-row-wins, and two operators share numbers here.
+                noc_cache[tid] = self.noc_for_route(trip.get("route_id", "")) or ""
+            return noc_cache[tid]
+
+        # Keep the earliest arrivals *per operator*, not simply the earliest.
+        #
+        # Pruning to the eight earliest outright threw the fare-aware choice
+        # away before it could be made. Shoreham to the universities is the
+        # case: the 700 is the express along the coast, so at every stop the 2
+        # and the 700 share, all eight survivors were 700s and the Brighton &
+        # Hove option had gone before scoring. The two-operator penalty then
+        # looked inert at any size — it was, because nothing was left to prefer.
+        #
+        # Capped overall so a stop served by a dozen companies cannot turn this
+        # back into the cross product it was written to avoid.
+        KEEP_TOTAL = 4 * KEEP_ARRIVALS
         for sid in first_leg:
             first_leg[sid].sort(key=lambda x: x["arrive"])
-            del first_leg[sid][KEEP_ARRIVALS:]
+            per_operator: dict = {}
+            kept: list = []
+            for leg in first_leg[sid]:
+                noc = noc_of(leg["tid"])
+                seen = per_operator.get(noc, 0)
+                if seen >= KEEP_ARRIVALS or len(kept) >= KEEP_TOTAL:
+                    continue
+                per_operator[noc] = seen + 1
+                kept.append(leg)
+            first_leg[sid] = kept
 
         # Where each of those stops is, bucketed into a coarse grid so a walking
         # transfer costs a handful of neighbour lookups rather than a full cross
@@ -1294,19 +1338,6 @@ class Timetable:
                 for dx in (-1, 0, 1):
                     for sid in grid.get((cy + dy, cx + dx), ()):
                         yield sid
-
-        noc_cache: dict = {}
-
-        def noc_of(tid):
-            """Which company runs this trip. Memoised: the loop below asks the
-            same question thousands of times, and it is three dict hops."""
-            if tid not in noc_cache:
-                trip = self.trips.get(self._tid_to_trip.get(tid)) or {}
-                route = self.routes.get(trip.get("route_id", "")) or {}
-                # Per route, never by short name: noc_for_short_name is
-                # last-row-wins, and two operators share numbers here.
-                noc_cache[tid] = route.get("noc") or ""
-            return noc_cache[tid]
 
         best = None
         for tid, calls in paths_from(b_sids):

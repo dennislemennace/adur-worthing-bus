@@ -28,9 +28,9 @@
       "note": "Universities",
       "from": "4400AD0204",
       "from_name": "Shoreham High Street",
-      "to": "149000006227",
-      "to_name": "Park Road",
-      "why": "Shoreham High Street to Park Road in Coldean — the closest stop this timetable has to the campuses. Deliberately labelled Universities rather than named for one of them: Park Road sits 1.4 km from the University of Sussex at Falmer and 1.6 km from the University of Brighton at Moulsecoomb, with halls, faculty buildings and student housing scattered along the whole corridor between them, so no single campus name describes the journey.\n\nFalmer itself is outside this dataset: the timetable ingest keeps stops west of longitude -0.10 and Falmer is at -0.087, so the last stop on the route we can price is this one. The fare picture across the Adur/Brighton & Hove boundary is the same either way — that boundary is crossed long before the campuses."
+      "to": "149000007062",
+      "to_name": "Brighton University",
+      "why": "Shoreham High Street to the Brighton University stop on Lewes Road, which is where the buses students actually take go: the 25 and the 3X both call here, and both are Brighton & Hove.\n\nIt used to point at Park Road in Coldean, which was wrong in a way the fare answer hid. Park Road is served by the 5B and the N25, not by the 25 or the 3X, so the only itinerary the checker could build ran a Stagecoach 700 and then a Brighton & Hove 5B — two operators, and a reader would reasonably conclude two tickets. The journey people make is a 2 into the centre and a 25 out along Lewes Road, both Brighton & Hove, both inside citySAVER, one ticket.\n\nThe change is a short walk across the Old Steine interchange rather than a stop-for-stop one: the 2 sets down at North Street or St James's Street and the 25 leaves from Royal Pavilion, about ninety metres away. That is what a passenger does, and it is why the two services can look unconnected to a search that matches only identical stops.\n\nLabelled Universities rather than named for one campus: this stop is the University of Brighton at Moulsecoomb, with the University of Sussex at Falmer further out and halls and faculty buildings scattered along the corridor between them. Falmer is outside this dataset — the ingest keeps stops west of longitude -0.10 and Falmer is at -0.087 — but the fare picture is the same either way, because the Adur/Brighton & Hove boundary is crossed long before any campus."
     },
     {
       "id": "southwick-to-hole-in-the-wall",
