@@ -104,6 +104,26 @@ EXTRA_ROUTES = {
     # Stagecoach Coastliner — runs all the way to Brighton Old Steine
     # (1490 prefix); without this the polyline truncates at Mill Road.
     "700", "N700",
+    # FlixBus into Brighton. Two of its thirty routes in this feed call in
+    # Sussex at all: UK066 (Brighton, Gatwick, Stratford, Cambridge) and UK998
+    # (Brighton, Gatwick, Heathrow, Luton, Nottingham). Both are here for the
+    # same reason as the Coastliner above — their Brighton calls are at stops
+    # this filter would otherwise drop. Brighton Railway Station
+    # (9000F22A3795) and Preston Park (9100PRSPBUS) are inside the bbox but
+    # coded 9000/9100 rather than 4400, so they survive only for a route named
+    # on this list. Without them the feed's 969 FlixBus trips reached our data
+    # with a single Gatwick call each and nothing at the Brighton end.
+    #
+    # Neither route stops anywhere in Adur or Worthing, so this adds a coach
+    # corridor out of Brighton, not a local travel option: no journey this site
+    # answers can be made on one. They move no published statistic either —
+    # both stops are east of the place comparison's longitude band.
+    #
+    # FlixBus numbers two of its own routes "700" and "N700", the same strings
+    # the Coastliner is matched by. Neither goes near Sussex in this feed, but
+    # this list matches on route_short_name alone, so one that did would be
+    # ingested as though it were the Coastliner.
+    "UK066", "UK998",
 }
 
 BBOX_MIN_LAT, BBOX_MAX_LAT =  50.78,  50.87

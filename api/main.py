@@ -2658,6 +2658,38 @@ def _service_day_start(day: date) -> datetime:
     return noon.astimezone(timezone.utc) - timedelta(hours=12)
 
 
+def _destination_of(headsign: str, stop_name: str,
+                    origin_name: str = "") -> str:
+    """The far end of the journey, not the end it started from.
+
+    Local operators write a headsign as a destination — "Portslade Academy",
+    "Worthing Pier". Coach operators write it as the whole journey: National
+    Express publishes "Belgravia, Victoria - Brighton" and FlixBus
+    "Brighton Railway Station - Stroudley Road - Parkside". On a board at the
+    coach's own origin the second form reads as though it were about to set off
+    for the stop it is already at, and at a stop further along it reads as
+    though it were heading back the way it came.
+
+    Measured over the feed, that form is entirely a coach convention: all 883
+    FlixBus and all 439 National Express trips use it, against none of the
+    27,452 Brighton & Hove, Stagecoach and Metrobus ones.
+
+    Only a name we can prove is the near end is removed — this stop's, or the
+    first stop on the trip — and only where the feed puts it first. A
+    destination that merely contains a hyphen is left alone: "A - B" by itself
+    does not say which half is which, and FlixBus stop names contain hyphens of
+    their own, so splitting on the separator would turn
+    "… - Brighton Railway Station - Stroudley Road" into "Stroudley Road".
+    """
+    if not headsign:
+        return "Unknown"
+    for near in (stop_name, origin_name):
+        prefix = f"{near} - "
+        if near and headsign.startswith(prefix):
+            return headsign[len(prefix):].strip() or headsign
+    return headsign
+
+
 def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
     now_local = datetime.now(UK_TZ)
     today     = now_local.date()
@@ -2719,14 +2751,38 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
             sid   = trip.get("service_id", "")
             if not tt.runs_on(sid, service_day):
                 continue
-            key = (trip_id, dep_secs, service_day)
+            # One row per departure a passenger could distinguish, not one per
+            # trip id. Operators publish the same journey under several trip
+            # ids — Compass writes the 15:20 route 33 to Hurstpierpoint twice
+            # under one service_id, and FlixBus publishes every journey six to
+            # eight times, so Brighton Station's 64 daily coach trips are nine
+            # real departures. Keyed on the trip id, a board capped at fifteen
+            # rows filled up with copies of one coach.
+            #
+            # Measured across a Tuesday, this collapses 1,294 of 227,109 rows,
+            # 94% of them FlixBus; the rest are the same artefact at a smaller
+            # scale. Nothing legitimate hides behind it: two buses on the same
+            # route to the same place in the same minute are one departure
+            # slot, which is the argument the headway median already makes.
+            headsign = trip.get("headsign", "")
+            key = (route.get("short_name", "?"), headsign,
+                   dep_secs, service_day)
             if key in seen:
                 continue
             seen.add(key)
             dep_dt = (day_start + timedelta(seconds=dep_secs)).astimezone(UK_TZ)
+            # Where the coach set off from, looked up only for the handful of
+            # rows written as a journey rather than a destination. A local
+            # board never reaches this, so it costs nothing on the busy stops.
+            origin_name = ""
+            if " - " in headsign:
+                calls = tt.trip_stops_for(trip_id)
+                if calls:
+                    origin_name = tt.stops.get(calls[0][1], {}).get("name", "")
             departures.append({
                 "service":            route.get("short_name", "?"),
-                "destination":        trip.get("headsign", "Unknown"),
+                "destination":        _destination_of(headsign, stop_name,
+                                                      origin_name),
                 "aimed_departure":    dep_dt.isoformat(),
                 "expected_departure": None,   # Phase 2: filled from GTFS-RT
                 "status":             "Scheduled",

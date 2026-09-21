@@ -1965,6 +1965,11 @@ class Timetable:
     # exactly (case-sensitive).
     _EXCLUDED_SERVICES = frozenset({
         "025", "B25", "VC3",  # National Express + odd one-offs
+        # FlixBus's Brighton services. "UK066" and "UK998" are internal line
+        # codes rather than anything a passenger sees on the front of the
+        # coach, and neither calls in Adur or Worthing, so they have no place
+        # in a filter for local service improvement.
+        "UK066", "UK998",
         "59", "59A", "100",   # not relevant to Adur & Worthing
     })
 
