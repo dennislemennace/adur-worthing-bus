@@ -200,7 +200,19 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
                           for p in sorted({j.get("place", "") for j in kept})
                           if places and p in places.parent},
         "as_of": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "days": meta["days"],
+        # The days this document is actually built from, not the days that were
+        # asked for. Those differ, and the difference is exactly what hid the
+        # empty-day failure: the live 700 document claimed 16, 17 and 18
+        # September and held journeys from two of them, because the 18th was
+        # measured against a timetable beginning on the 20th and contributed
+        # nothing. A figure that names a day it has no evidence from is a figure
+        # a reader cannot check.
+        "days": sorted({j["day"] for j in kept}),
+        # Kept beside it so the gap is visible rather than merely absent: a
+        # reader can see a day was in the window and produced no journeys, which
+        # is a fact either about the service that day or about our collection,
+        # and is theirs to know.
+        "window_days": list(meta["days"]),
         "data_versions": meta["data_versions"],
         "method": METHOD,
         "method_version": METHOD_VERSION,
@@ -276,6 +288,10 @@ def main(argv=None):
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     written, skipped, index = [], [], []
+    # The union across published documents, for the same reason each document
+    # names its own: an index that repeats the requested window tells a reader a
+    # day is represented when no published file contains one journey from it.
+    days_present: set = set()
     for (service, operator), doc in sorted(
             build(rows, meta, args.timing_points_only, places).items()):
         label = f"{service} ({operator})" if operator else service
@@ -288,13 +304,28 @@ def main(argv=None):
         path.write_text(json.dumps(doc, separators=(",", ":"), sort_keys=True) + "\n",
                         encoding="utf-8")
         written.append((label, len(doc["journeys"]), path.stat().st_size))
+        days_present.update(doc["days"])
         index.append({"service": service, "operator": operator, "file": path.name,
-                      "journeys": len(doc["journeys"]), "stops": len(doc["stops"])})
+                      "journeys": len(doc["journeys"]), "stops": len(doc["stops"]),
+                      # Per service, because a day can be missing for one route
+                      # and present for another — a depot that stopped reporting
+                      # is not the same event as a day nobody measured.
+                      "days": doc["days"]})
 
     (out / "index.json").write_text(
         json.dumps({"as_of": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-                    "days": meta["days"], "services": index},
+                    "days": sorted(days_present),
+                    "window_days": list(meta["days"]),
+                    "services": index},
                    indent=1, sort_keys=True) + "\n", encoding="utf-8")
+
+    missing = [d for d in meta["days"] if d not in days_present]
+    if missing:
+        # Loud, because this is the shape of the failure that went unnoticed for
+        # two days: the window was right, the build succeeded, and the output
+        # simply had nothing from a day it named.
+        print(f"  WARNING: {len(missing)} day(s) in the window contributed no "
+              f"journeys to any service: {', '.join(missing)}", file=sys.stderr)
 
     total = sum(size for _s, _j, size in written)
     for label, journeys, size in written:

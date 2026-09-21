@@ -204,6 +204,42 @@ def check_summary(summary, name, fails):
         fails.add("band counts do not add up to the observations",
                   f"{name}: {sum(bands.values())} vs {total}")
 
+    # A day that measured nothing is a failure, not a figure.
+    #
+    # Every check above compares one published number with another, so a file in
+    # which *every* number is zero satisfies all of them: the bands sum to zero,
+    # which equals zero observations, and nothing else has anything to disagree
+    # with. That is not hypothetical. The summaries committed for 18 and 19
+    # September 2026 each recorded about 1,170 snapshots and published zero
+    # observations, zero scheduled journeys and an empty by_service, and this
+    # script passed them both — because the timetable they were measured against
+    # begins on the 20th, so no service was scheduled on either date and nothing
+    # could be matched. The site then stated a three-day evidence base built
+    # from two days.
+    #
+    # `scheduled_journeys` is the field that tells the two causes apart. Zero
+    # observations with journeys scheduled means the matcher found nothing, and
+    # is a bug in the matcher; zero of both means the day was measured against a
+    # timetable that does not cover it, and is a bug in which timetable was
+    # fetched. Both are fatal, and saying which saves the next reader the hour
+    # it took to find this one.
+    if summary.get("day"):
+        scheduled = coverage.get("scheduled_journeys")
+        if total == 0:
+            fails.add("a day published no observations at all",
+                      f"{name}: 0 observations from "
+                      f'{coverage.get("snapshots", "?")} snapshots, '
+                      f"{scheduled} scheduled journeys"
+                      + (" — the timetable does not cover this day"
+                         if scheduled == 0 else " — the matcher found nothing"))
+        elif scheduled == 0:
+            fails.add("a day published no scheduled journeys",
+                      f"{name}: {total} observations against nothing scheduled")
+    # True of a rollup as well as a day: a summary whose per-service table is
+    # empty has no figure in it to be right or wrong about.
+    if not (summary.get("by_service") or {}):
+        fails.add("summary has no per-service figures", name)
+
     # Against the floor the file itself declares, not the module's default.
     #
     # A file may reasonably choose a different floor — the monthly rollup uses

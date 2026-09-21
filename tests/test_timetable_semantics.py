@@ -214,6 +214,66 @@ def test_a_service_with_no_calendar_row_does_not_run_every_day():
         "a service with no calendar and no exceptions at all"
 
 
+# ── Which days a build can measure at all ───────────────────
+#
+# A BODS bundle looks forward. The build fetched on 20 September 2026 described
+# 20260920 to 20270621 and said nothing about the 18th, so processing the 18th
+# against it left every service inactive: nothing scheduled, nothing matched,
+# and a summary of zeroes that every downstream check found self-consistent.
+
+
+def _windowed(calendar, calendar_dates=None):
+    from api.timetable_db import Timetable
+    tt = Timetable.__new__(Timetable)
+    tt.calendar = calendar
+    tt.calendar_dates = calendar_dates or {}
+    return tt
+
+
+def test_the_service_window_spans_every_calendar():
+    # Several service_ids cover term time, holidays and seasonal variations, so
+    # the window is the union rather than any one row's.
+    tt = _windowed({"TERM": {"start_date": "20260920", "end_date": "20261218"},
+                    "HOLS": {"start_date": "20261219", "end_date": "20270621"}})
+    assert tt.service_window() == ("20260920", "20270621")
+
+
+def test_a_date_before_the_window_is_not_covered():
+    # The actual failure: this build cannot say anything about 18 September.
+    tt = _windowed({"S": {"start_date": "20260920", "end_date": "20270621"}})
+    assert tt.covers_day(date(2026, 9, 18)) is False
+    assert tt.covers_day(date(2026, 9, 19)) is False
+    assert tt.covers_day(date(2026, 9, 20)) is True, "the first day it describes"
+    assert tt.covers_day(date(2027, 6, 21)) is True, "the last day it describes"
+    assert tt.covers_day(date(2027, 6, 22)) is False
+
+
+def test_a_service_dated_only_by_exception_still_bounds_the_window():
+    # GTFS permits a service with no calendar row at all. Ignoring
+    # calendar_dates would report no window and refuse a day it can measure.
+    tt = _windowed({}, {"SVC_X": {"20260907": "1", "20260910": "1"}})
+    assert tt.service_window() == ("20260907", "20260910")
+    assert tt.covers_day(date(2026, 9, 8)) is True
+
+
+def test_a_build_with_no_dated_calendar_covers_nothing():
+    # Answering True here would be the dangerous default: it would wave through
+    # exactly the silent-zero publication this exists to stop. Refusing to
+    # measure is recoverable; publishing nothing while claiming a day is not.
+    tt = _windowed({})
+    assert tt.service_window() == (None, None)
+    assert tt.covers_day(date(2026, 9, 20)) is False
+
+
+def test_a_blank_date_is_not_mistaken_for_a_boundary():
+    # An empty string sorts before every real date, so a single blank would
+    # otherwise make the window start at "" and cover everything.
+    tt = _windowed({"S": {"start_date": "", "end_date": "20270621"},
+                    "T": {"start_date": "20260920", "end_date": "20270621"}})
+    assert tt.service_window() == ("20260920", "20270621")
+    assert tt.covers_day(date(2026, 9, 18)) is False
+
+
 # ── Departure boards span the service day, not the clock day ─
 
 class _FakeTimetable:

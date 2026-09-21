@@ -876,6 +876,29 @@ def main(argv=None):
 
     day = date.fromisoformat(args.day)
     tt = Timetable(Path(args.timetable), allow_fetch=False)
+
+    # Measure a day only against a timetable that describes it.
+    #
+    # BODS bundles look forward. The build fetched on 20 September 2026 ran from
+    # 20260920 to 20270621 and said nothing about the 18th, so processing the
+    # 18th against it left every service inactive: nothing scheduled, nothing
+    # matched, and a summary of zeroes that is perfectly self-consistent and
+    # therefore passed every downstream check. Two days were published that way
+    # before anyone noticed, and the site stated a three-day evidence base built
+    # from two.
+    #
+    # There is deliberately no flag to override this. A day the timetable does
+    # not cover cannot be measured against it at all — the answer is to fetch
+    # the build that was in force, not to proceed and publish nothing.
+    if not tt.covers_day(day):
+        first, last = tt.service_window()
+        where = f"{first}..{last}" if first else "no dated calendar at all"
+        print(f"{args.timetable} does not cover {args.day} (it describes "
+              f"{where}) — every service would be inactive and the day would "
+              f"measure nothing. Fetch the timetable build in force on "
+              f"{args.day}.", file=sys.stderr)
+        return 1
+
     # A derived figure that cannot say which data produced it cannot be checked,
     # and the timetable is rebuilt weekly. See the evidence-provenance skill.
     version = args.timetable_version or _timetable_version(Path(args.timetable))

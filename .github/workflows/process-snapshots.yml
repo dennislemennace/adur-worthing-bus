@@ -72,16 +72,60 @@ jobs:
 
       # Built weekly by update-timetable.yml and published as a release asset:
       # 59 MB, too large for the repo and far too slow to rebuild nightly.
-      - name: Fetch the timetable
+      # A day must be measured against a timetable that describes it.
+      #
+      # BODS bundles look forward, so `timetable-latest` does not necessarily
+      # cover yesterday: the build fetched on 20 September 2026 ran from
+      # 20260920 and said nothing about the 18th. Processing the 18th against it
+      # left every service inactive — nothing scheduled, nothing matched — and
+      # published a day of zeroes that every downstream check found
+      # self-consistent. 18 and 19 September both went out that way.
+      #
+      # Every weekly build is archived under a dated tag, so the recovery is to
+      # walk those newest-first and take the first one that was actually in
+      # force. Failing that, stop: process_snapshots.py would refuse the day
+      # anyway, and stopping is the point.
+      - name: Fetch a timetable that covers the day
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          DAY="${{ steps.day.outputs.day }}"
           mkdir -p data
-          gh release download timetable-latest \
-            --pattern 'timetable.sqlite*' --dir data --clobber
-          # The sidecar exists to be checked, not shipped and ignored.
-          cd data
-          sha256sum -c <(printf '%s  timetable.sqlite\n' "$(cat timetable.sqlite.sha256)")
+
+          fetch() {
+            gh release download "$1" --pattern 'timetable.sqlite*' \
+              --dir data --clobber
+            # The sidecar exists to be checked, not shipped and ignored.
+            ( cd data && sha256sum -c \
+                <(printf '%s  timetable.sqlite\n' "$(cat timetable.sqlite.sha256)") )
+          }
+
+          fetch timetable-latest
+          if python scripts/timetable_covers.py \
+               --timetable data/timetable.sqlite --day "$DAY"; then
+            echo "TIMETABLE_TAG=timetable-latest" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "::warning::timetable-latest does not cover $DAY — looking for the build that was in force"
+          TAGS=$(gh api 'repos/${{ github.repository }}/releases?per_page=100' \
+                   --jq '.[].tag_name' \
+                 | grep -E '^timetable-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}$' \
+                 | sort -r)
+          for TAG in $TAGS; do
+            echo "trying $TAG"
+            fetch "$TAG"
+            if python scripts/timetable_covers.py \
+                 --timetable data/timetable.sqlite --day "$DAY"; then
+              echo "::notice::measuring $DAY against $TAG"
+              echo "TIMETABLE_TAG=$TAG" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+
+          echo "::error::no archived timetable covers $DAY — not publishing an empty day"
+          exit 1
 
       - name: Fetch the day's snapshots from R2
         env:

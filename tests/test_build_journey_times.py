@@ -139,6 +139,65 @@ def test_the_index_names_the_operator_and_the_file(tmp_path):
         assert entry["file"] == f"{key[0]}-{key[1]}.json"
 
 
+# ── A document names the days it is built from ──────────────
+#
+# The live 700 document claimed 16, 17 and 18 September 2026 and contained
+# journeys from two of them. The 18th was measured against a timetable that
+# begins on the 20th, so nothing was scheduled, nothing matched, and the day
+# contributed no journeys at all — while still being named as evidence.
+
+
+WINDOW = {"days": ["2026-09-16", "2026-09-17", "2026-09-18"],
+          "data_versions": ["v1"]}
+
+
+def test_days_lists_only_the_days_that_contributed():
+    rows = [dict(r, day="2026-09-17") for r in
+            journey("T1", "700", "SCSO", ["A1", "A2", "A3"])]
+    doc = bjt.build(rows, WINDOW)[("700", "SCSO")]
+    assert doc["days"] == ["2026-09-17"], \
+        "a day with no journeys was named as evidence for this document"
+
+
+def test_the_requested_window_is_still_published_beside_it():
+    # Absence has to be visible, not merely absent: a reader should be able to
+    # see that a day was asked for and produced nothing.
+    rows = [dict(r, day="2026-09-17") for r in
+            journey("T1", "700", "SCSO", ["A1", "A2", "A3"])]
+    doc = bjt.build(rows, WINDOW)[("700", "SCSO")]
+    assert doc["window_days"] == ["2026-09-16", "2026-09-17", "2026-09-18"]
+    assert set(doc["days"]) < set(doc["window_days"]), \
+        "the gap between what was asked for and what arrived is not visible"
+
+
+def test_every_named_day_has_a_journey_behind_it():
+    # The general form, which is what a reader relies on.
+    rows = []
+    for day in ("2026-09-16", "2026-09-17"):
+        rows += [dict(r, day=day, trip_id=f"T{day}") for r in
+                 journey("T", "700", "SCSO", ["A1", "A2", "A3"])]
+    doc = bjt.build(rows, WINDOW)[("700", "SCSO")]
+    assert doc["days"] == ["2026-09-16", "2026-09-17"]
+    for day in doc["days"]:
+        assert any(j["day"] == day for j in doc["journeys"]), \
+            f"{day} is named but no journey comes from it"
+
+
+def test_the_index_names_the_days_it_really_has(tmp_path):
+    rows = []
+    for n in range(3):
+        rows += [dict(r, day="2026-09-17", trip_id=f"T{n}") for r in
+                 journey(f"T{n}", "700", "SCSO", ["A1", "A2", "A3"])]
+    obs = tmp_path / "obs.json"
+    obs.write_text(json.dumps({"day": "2026-09-17", "data_version": "v1",
+                               "observations": rows}), encoding="utf-8")
+    out = tmp_path / "out"
+    assert bjt.main(["--observations", str(obs), "--out", str(out)]) == 0
+    index = json.loads((out / "index.json").read_text(encoding="utf-8"))
+    assert index["days"] == ["2026-09-17"]
+    assert index["services"][0]["days"] == ["2026-09-17"]
+
+
 # ── Which town a destination is in ──────────────────────────
 #
 # Directions are named by place, not by stop, so five destinations on service 2

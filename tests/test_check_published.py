@@ -109,7 +109,16 @@ def summary(**over):
             "as_of": "2026-09-18T02:00:00+00:00", "data_version": "v1",
             "method_version": 3, "measured_only": True, "observations": 10,
             "bands": {"early": 2, "on_time": 6, "late": 1, "very_late": 1},
-            "coverage": {"snapshots_by_hour": {"10": 60}}}
+            # A real day has journeys scheduled and services measured. Both sit
+            # in the fixture because their absence is now a failure in its own
+            # right — see the empty-day tests at the end of this file.
+            # Plain band counts, which is the shape a daily summary really
+            # publishes. A cell carrying `observations` would be read as a
+            # statistics cell and held to the measured-only rule as well.
+            "by_service": {"700 (SCSO)": {"early": 2, "on_time": 6,
+                                          "late": 1, "very_late": 1}},
+            "coverage": {"snapshots_by_hour": {"10": 60},
+                         "snapshots": 1170, "scheduled_journeys": 12}}
     base.update(over)
     return base
 
@@ -207,6 +216,83 @@ def test_plain_band_counts_are_not_mistaken_for_statistics():
     # `measured_only` of them would fire on every correct file.
     counts = {"700": {"early": 2, "on_time": 6, "late": 1, "very_late": 0}}
     assert failures(cp.check_cells, counts, "by_service") == []
+
+
+# ── A day that measured nothing ─────────────────────────────
+#
+# The gap these close is the one that let two real days through. Every other
+# check in this file compares one published number against another, so a file in
+# which every number is zero satisfies all of them at once: the bands sum to
+# zero, which equals zero observations, and nothing disagrees with anything.
+#
+# 18 and 19 September 2026 were published exactly that way — about 1,170
+# snapshots each, zero observations, zero scheduled journeys, an empty
+# by_service — and `check_published` passed them both.
+
+
+def test_a_day_with_no_observations_is_a_failure():
+    caught = failures(cp.check_summary, summary(
+        observations=0, bands={"early": 0, "on_time": 0, "late": 0,
+                               "very_late": 0}), "2026-09-18")
+    assert "a day published no observations at all" in caught
+
+
+def test_the_failure_says_which_of_the_two_causes_it_was():
+    # Zero observations *with* journeys scheduled is a broken matcher. Zero of
+    # both is a day measured against a timetable that does not cover it. They
+    # are fixed in different files, so the message has to tell them apart —
+    # finding that out by hand took an hour.
+    fails = cp.Failures()
+    cp.check_summary(summary(observations=0,
+                             bands={"early": 0, "on_time": 0, "late": 0,
+                                    "very_late": 0},
+                             coverage={"snapshots_by_hour": {"10": 60},
+                                       "snapshots": 1170,
+                                       "scheduled_journeys": 0}),
+                     "2026-09-18", fails)
+    detail = " ".join(d for _c, d in fails.items)
+    assert "timetable does not cover this day" in detail
+
+    fails = cp.Failures()
+    cp.check_summary(summary(observations=0,
+                             bands={"early": 0, "on_time": 0, "late": 0,
+                                    "very_late": 0},
+                             coverage={"snapshots_by_hour": {"10": 60},
+                                       "snapshots": 1170,
+                                       "scheduled_journeys": 2698}),
+                     "2026-09-18", fails)
+    detail = " ".join(d for _c, d in fails.items)
+    assert "matcher found nothing" in detail
+
+
+def test_observations_against_nothing_scheduled_is_a_failure():
+    # The other way round, and just as wrong: arrivals measured on a day the
+    # timetable says has no service means the two were never comparable.
+    assert "a day published no scheduled journeys" in failures(
+        cp.check_summary, summary(coverage={"snapshots_by_hour": {"10": 60},
+                                            "scheduled_journeys": 0}),
+        "2026-09-18")
+
+
+def test_a_summary_with_no_per_service_figures_is_a_failure():
+    assert "summary has no per-service figures" in failures(
+        cp.check_summary, summary(by_service={}), "2026-09-18")
+
+
+def test_a_rollup_is_held_to_the_per_service_rule_too():
+    # A rollup carries no top-level `observations`, so the day checks above do
+    # not apply to it and this is the only one that does.
+    rollup = {"month": "2026-09", "days": ["2026-09-16"], "method": "M",
+              "caveats": ["c"], "as_of": "2026-09-20T08:00:00+00:00",
+              "data_versions": ["v1"], "method_version": 3,
+              "measured_only": True, "by_service": {}}
+    assert "summary has no per-service figures" in failures(
+        cp.check_summary, rollup, "2026-09")
+
+
+def test_a_full_day_is_not_flagged():
+    # The guard must not fire on the days that worked, or it gets switched off.
+    assert failures(cp.check_summary, summary(), "2026-09-17") == []
 
 
 # ── The index and the files it names ────────────────────────
