@@ -78,12 +78,24 @@ EXTRA_ROUTES = {
     # people actually make is a 2 and a 25, both Brighton & Hove, both inside
     # citySAVER.
     #
-    # It changes no published statistic. The boundary comparison counts stops
-    # in a band from longitude -0.273 to -0.159 (`method.band` in
-    # data/boundary_evidence.json); the 25 runs from Old Steine at -0.137 east
-    # to Falmer and never reaches -0.159, so it contributes no stop to either
-    # side of the line. Its eastern end is outside the ingest bbox anyway, so
-    # the route is kept only as far as Coldean.
+    # It does change a published statistic, and the first version of this
+    # comment said it could not. That was wrong, from assuming the 25 was a
+    # Brighton-centre-to-universities route. It is not: its western terminus is
+    # Boundary Road in Portslade, and seven of its stops fall inside South
+    # Portslade, which is the eastern half of the place comparison. Adding it
+    # took that ward from 5,024 Monday departures to 5,030, from ten routes to
+    # eleven, and from 116.8 departures per stop to 117.0.
+    #
+    # The measured gap therefore widens slightly — 3.57 times the service per
+    # stop against 3.56 — because this corrects an under-count on the
+    # *Brighton* side, which is the direction the standing caveat has always
+    # predicted: routes running purely inside Brighton & Hove are missing, so
+    # the east is under-counted and the real gap is wider than measured. A
+    # correction that happens to help the argument is worth saying out loud
+    # rather than leaving it to look accidental.
+    #
+    # Its eastern end is outside the ingest bbox, so the route is kept only as
+    # far as Coldean.
     "25",
     # Brighton & Hove night routes — N12/N14/N29/N48 head out of
     # Brighton westward/northward and otherwise wouldn't survive the
