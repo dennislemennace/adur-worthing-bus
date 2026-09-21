@@ -9,6 +9,15 @@ on:
     branches: [main]
   pull_request:
   workflow_call:        # the timetable build gates itself on this
+    inputs:
+      deselect:
+        description: >
+          One pytest node id to skip, for a caller that is about to regenerate
+          the very file a check compares against. Empty on push and pull
+          request, which stay strict.
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -23,7 +32,7 @@ jobs:
           python-version-file: ".python-version"
           cache: pip
       - run: pip install -r requirements-dev.txt
-      - run: python -m pytest -q
+      - run: python -m pytest -q ${{ inputs.deselect && format('--deselect {0}', inputs.deselect) || '' }}
 
   javascript:
     runs-on: ubuntu-latest
