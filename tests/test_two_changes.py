@@ -148,6 +148,65 @@ def test_a_one_change_itinerary_lists_its_change_too(tt):
     assert got["changes"][0]["change_at"] == got["change_at"]
 
 
+# ── Several routes, so a page can compare them ──────────────
+#
+# The ticket view could only ever price the one itinerary it was handed, so it
+# could not say that a journey is 54 minutes on two operators' tickets or 86 on
+# one. These keep the search honest about returning *different* journeys rather
+# than the same one several times over.
+
+
+def test_the_best_option_is_the_one_the_old_call_returns(tt):
+    """Existing callers must not notice. `interchange_legs` is now a thin
+    wrapper, and if the two ever disagreed the map and the fares would be
+    describing different journeys."""
+    one = tt.interchange_legs("4400X001", "4400B001", DAY, NOON)
+    many = tt.interchange_options("4400X001", "4400B001", DAY, NOON)
+    assert many, "the multi-route search found nothing where the single one did"
+    assert many[0] == one
+
+
+def test_no_two_options_are_the_same_journey(tt):
+    """Deduplicated on the services ridden.
+
+    Keyed any more finely — by the change stop, say — the search returns the
+    same two buses several times over, once per stop they happen to meet at,
+    which is one journey to anybody making it and crowds out the routes that
+    differ in the way that matters: which company you are paying.
+    """
+    many = tt.interchange_options("4400X001", "4400B001", DAY, NOON, limit=10)
+    shapes = [tuple(leg["service"] for leg in o["legs"]) for o in many]
+    assert len(shapes) == len(set(shapes)), shapes
+
+
+def test_it_returns_no_more_than_asked_for(tt):
+    assert len(tt.interchange_options("4400X001", "4400B001", DAY, NOON,
+                                      limit=1)) <= 1
+
+
+def test_a_pair_with_no_one_change_journey_gives_an_empty_list(tt):
+    """Empty, not None. A caller iterating the result should not have to ask
+    which kind of nothing it got."""
+    assert tt.interchange_options("4400A001", "4400B001", DAY, NOON) == []
+
+
+def test_asking_twice_costs_nothing(tt):
+    """Memoised per timetable build. Every reader who opens the ticket view
+    presses a preset, and on a shared tenth of a CPU the second press should not
+    pay for the search again."""
+    first = tt.interchange_options("4400X001", "4400B001", DAY, NOON)
+    again = tt.interchange_options("4400X001", "4400B001", DAY, NOON)
+    assert first is again, "the second call searched again instead of recalling"
+
+
+def test_a_different_day_is_a_different_answer(tt):
+    """The memo must not serve Monday's buses for a Sunday. It is keyed on the
+    day as well as the pair — a cache that ignores the day is worse than none."""
+    other = date(2026, 9, 13)      # the Sunday before DAY
+    assert (tt.interchange_options("4400X001", "4400B001", other, NOON)
+            is not tt.interchange_options("4400X001", "4400B001", DAY, NOON))
+
+
 def test_the_second_change_needs_time_too(tt):
     """T3_TOO_SOON would reach the end twenty minutes sooner, one minute after
     the 700 arrives. The first change's minimum is tested above; this is the

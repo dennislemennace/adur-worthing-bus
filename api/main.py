@@ -1630,6 +1630,44 @@ async def get_journey(
     interchange    = None if options else best_itinerary(today)
     interchange_on = ""
 
+    # Several routes, so the caller can say "cheapest" and "quickest" and mean
+    # two different journeys.
+    #
+    # The fare side lives in the browser and has only ever been handed one
+    # itinerary, so it could only ever price one — and the cheapest way across
+    # a boundary is routinely a slower bus on a single operator's ticket while
+    # the quickest is two operators and two fares. Shoreham to the universities
+    # is 54 minutes on a 700 and a 3X, two tickets, or 86 minutes on a 2 and a
+    # 25, one citySAVER. Sending one of those and calling it the answer hides
+    # the thirty-two minutes, which is the whole subject of this site.
+    #
+    # Searched only when it could change the answer. Where every operator
+    # serving both ends already runs the direct bus, no change can be cheaper,
+    # and the search costs 116-143 ms on a shared tenth of a CPU (LIMITS.md).
+    # `operators_at_stop` settles that without searching.
+    itineraries = [interchange] if interchange else []
+    alternatives_note = ""
+    if options:
+        direct_nocs = {o["operator"] for o in options if o.get("operator")}
+        both_ends = set(tt.operators_at_stop(a)) & set(tt.operators_at_stop(b))
+        if both_ends - direct_nocs:
+            itineraries = tt.interchange_options(a, b, today, anchor, limit=4)
+        else:
+            alternatives_note = (
+                "Every operator serving both ends also runs the direct bus, so "
+                "no change could make this journey cheaper.")
+    elif interchange:
+        # No direct bus at all, so the alternatives *are* the answer and there
+        # is nothing to skip the search for. This is where the comparison
+        # matters most and where the first version of this skipped it: Shoreham
+        # to the universities has no through bus and five distinct routes, and
+        # gating the search on `options` meant it only ever saw one of them.
+        #
+        # Empty means the one-change search found nothing and `interchange` is
+        # a three-bus itinerary, which has no alternatives to offer.
+        itineraries = (tt.interchange_options(a, b, today, anchor, limit=4)
+                       or itineraries)
+
     # When nothing works today, the reader's actual question is whether it works
     # at all. Shoreham to the universities is the 700 and then the 5B Monday to
     # Friday; a preset that went blank at weekends read as a broken tool.
@@ -1678,6 +1716,15 @@ async def get_journey(
         # buses, changing where, taking how long — which is the half a passenger
         # cares about and the half that makes an hour-long two-bus trip legible.
         "interchange": interchange,
+        # Every distinct route worth costing, best first — the same shape as
+        # `interchange`, which is always the first entry when there is one.
+        # Deduplicated on the services ridden rather than the trip, because the
+        # 700 and the 49 meeting at four different stops is one journey to
+        # anybody making it.
+        "itineraries": itineraries,
+        # Why there are no alternatives, when the reason is the network rather
+        # than a search that gave up.
+        "alternatives_note": alternatives_note,
         # The day that itinerary belongs to, when it is not today. Empty for a
         # journey that runs today, which is the ordinary case.
         "interchange_on": interchange_on,

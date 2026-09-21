@@ -1191,7 +1191,51 @@ class Timetable:
 
     def interchange_legs(self, from_stop: str, to_stop: str, day,
                          anchor_secs: int = 43200) -> Optional[dict]:
-        """The best one-change itinerary, when no bus runs the whole way.
+        """The best one-change itinerary, when no bus runs the whole way."""
+        found = self._interchange_search(from_stop, to_stop, day, anchor_secs, 1)
+        return found[0] if found else None
+
+    def interchange_options(self, from_stop: str, to_stop: str, day,
+                            anchor_secs: int = 43200, limit: int = 4) -> list:
+        """Several genuinely different one-change itineraries, best first.
+
+        The ticket view cannot say "cheapest" and "quickest" while it is handed
+        one route: the cheapest way across a boundary is often a slower bus on
+        one operator's ticket, and the quickest is two operators and two fares.
+        Showing one of those and calling it the answer hides the trade that this
+        whole site is about.
+
+        This costs almost nothing. The search below already enumerates every
+        pairing of first and second leg and then throws all but one away; this
+        keeps the best few instead. What it must not do is return the same
+        journey several times over — the raw enumeration yields dozens of
+        near-identical pairings differing by a few minutes — so results are
+        deduplicated by which services are ridden and where the change happens,
+        keeping the best-scoring of each.
+
+        Memoised on the instance, which is the timetable build: a new build
+        makes a new Timetable and the answers go with the old one, so there is
+        no version to invalidate against. The six presets are the reason —
+        every reader who opens the ticket view presses one, and on Render's
+        shared tenth of a CPU the second press should not pay again. Bounded
+        and cleared wholesale rather than evicted one at a time; the process is
+        killed nightly anyway, so a cold start stays honest about its cost.
+        """
+        memo = getattr(self, "_itinerary_memo", None)
+        if memo is None:
+            memo = self._itinerary_memo = {}
+        stamp = day.strftime("%Y%m%d") if hasattr(day, "strftime") else str(day)
+        key = (from_stop, to_stop, stamp, anchor_secs, limit)
+        if key not in memo:
+            if len(memo) >= 256:
+                memo.clear()
+            memo[key] = self._interchange_search(from_stop, to_stop, day,
+                                                 anchor_secs, max(1, limit))
+        return memo[key]
+
+    def _interchange_search(self, from_stop: str, to_stop: str, day,
+                            anchor_secs: int = 43200, limit: int = 1) -> list:
+        """The shared body. Returns a list, best score first.
 
         The fare side of this site can say a journey needs two tickets. It could
         never say what the journey actually *is* — which bus, changing where,
@@ -1219,7 +1263,7 @@ class Timetable:
         on (tid, seq) — so walking every candidate trip end to end is cheap.
         """
         if self._con is None:
-            return None
+            return []
         MIN_CHANGE_SECS = 4 * 60
         MAX_WAIT_SECS = 60 * 60          # a longer wait is not a connection
         KEEP_ARRIVALS = 8                # per stop, earliest after the anchor
@@ -1229,7 +1273,7 @@ class Timetable:
         b_sids = {self.stops[s]["_sid"] for s in self.sibling_stops(to_stop)
                   if s in self.stops}
         if not a_sids or not b_sids or (a_sids & b_sids):
-            return None
+            return []
 
         runs: dict = {}
 
@@ -1269,7 +1313,7 @@ class Timetable:
                     {"tid": tid, "board_seq": board[0], "alight_seq": c[0],
                      "depart": board[2], "arrive": c[2]})
         if not first_leg:
-            return None
+            return []
         noc_cache: dict = {}
 
         def noc_of(tid):
@@ -1339,7 +1383,22 @@ class Timetable:
                     for sid in grid.get((cy + dy, cx + dx), ()):
                         yield sid
 
-        best = None
+        route_cache: dict = {}
+
+        def route_of(tid):
+            """Which published route a trip belongs to — the dedup key.
+
+            Twenty pairings of the same two services four minutes apart are one
+            journey to a passenger, so results are collapsed on the route ridden
+            rather than the trip, and the best-scoring of each survives.
+            """
+            if tid not in route_cache:
+                trip = self.trips.get(self._tid_to_trip.get(tid)) or {}
+                route_cache[tid] = trip.get("route_id", "")
+            return route_cache[tid]
+
+        # Best candidate per distinct journey, rather than one best overall.
+        candidates: dict = {}
         for tid, calls in paths_from(b_sids):
             arrive = next((c for c in reversed(calls)
                            if c[1] in b_sids and c[2] is not None), None)
@@ -1376,34 +1435,52 @@ class Timetable:
                         fare_penalty = (0 if one_noc and one_noc == two_noc
                                         else self.TWO_OPERATOR_PENALTY_SECS)
                         score = total + walk_secs * 3 + fare_penalty
-                        if best is None or score < best["score"]:
-                            best = {"score": score, "total_secs": total, "one": one,
-                                    "from_sid": sid, "to_sid": c[1],
-                                    "walk_m": round(walk_km * 1000),
-                                    "two": {"tid": tid, "board_seq": c[0],
-                                            "alight_seq": arrive[0],
-                                            "depart": c[2], "arrive": arrive[2]},
-                                    "wait_secs": wait}
-        if best is None:
-            return None
+                        # The services ridden, and nothing else. Including the
+                        # change stop looked more precise and was worse: it
+                        # returned the 700 then the 49 four times over, once
+                        # per stop they happen to meet at, which is one journey
+                        # to anybody making it — and it crowded out the routes
+                        # that differ in the way that matters, which is which
+                        # company you are paying.
+                        key = (route_of(one["tid"]), route_of(tid))
+                        held = candidates.get(key)
+                        if held is None or score < held["score"]:
+                            candidates[key] = {
+                                "score": score, "total_secs": total, "one": one,
+                                "from_sid": sid, "to_sid": c[1],
+                                "walk_m": round(walk_km * 1000),
+                                "two": {"tid": tid, "board_seq": c[0],
+                                        "alight_seq": arrive[0],
+                                        "depart": c[2], "arrive": arrive[2]},
+                                "wait_secs": wait}
+        if not candidates:
+            return []
 
-        change = {
-            "change_at": self._stop_place(best["from_sid"]),
-            # Where the second bus is actually caught, when it is not the same
-            # stop. Named separately because "walk 120 m to Southern Cross" is
-            # part of the journey, not a detail.
-            "board_at": self._stop_place(best["to_sid"]),
-            "walk_metres": best["walk_m"],
-            "wait_minutes": best["wait_secs"] // 60,
-        }
-        return {
-            "legs": [self._describe_leg(best["one"]), self._describe_leg(best["two"])],
-            **change,
-            # The same change again as a list, so a caller can draw any number
-            # of changes from one field; see interchange_legs_two.
-            "changes": [change],
-            "total_minutes": best["total_secs"] // 60,
-        }
+        def describe(best):
+            change = {
+                "change_at": self._stop_place(best["from_sid"]),
+                # Where the second bus is actually caught, when it is not the
+                # same stop. Named separately because "walk 120 m to Southern
+                # Cross" is part of the journey, not a detail.
+                "board_at": self._stop_place(best["to_sid"]),
+                "walk_metres": best["walk_m"],
+                "wait_minutes": best["wait_secs"] // 60,
+            }
+            return {
+                "legs": [self._describe_leg(best["one"]),
+                         self._describe_leg(best["two"])],
+                **change,
+                # The same change again as a list, so a caller can draw any
+                # number of changes from one field; see interchange_legs_two.
+                "changes": [change],
+                "total_minutes": best["total_secs"] // 60,
+            }
+
+        # Described lazily: _describe_leg walks the whole stop path of a trip,
+        # so describing every candidate when the caller wanted one would make
+        # the common case pay for the uncommon one.
+        ranked = sorted(candidates.values(), key=lambda x: x["score"])
+        return [describe(entry) for entry in ranked[:limit]]
 
     def _describe_leg(self, leg) -> dict:
         trip_id = self._tid_to_trip.get(leg["tid"])
