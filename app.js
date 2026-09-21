@@ -2386,7 +2386,7 @@ function renderJourneyTimesIntro(opts = {}) {
       ${nameOf(jtEntry.a)} and ${nameOf(jtEntry.b)}.</strong></p>
       <p>${opts.noneFound
         ? `${opts.noneFound} service${opts.noneFound === 1 ? "" : "s"} call at
-           both, but no journey we recorded went from one to the other — they
+           both, but no journey we recorded went from one to the other. They
            run opposite ways, or only part of the route.`
         : `They share no service at all. Getting between them means changing
            buses.`}</p>
@@ -8533,10 +8533,15 @@ function journeyLegServices(journey) {
  * interchange costs what it does, and why quoting only day tickets overstates
  * what a careful passenger pays.
  */
-function singlesBaseline(meta, legs, returnTrip = true) {
+function singlesBaseline(meta, legs, returnTrip = true, shortHop = false) {
   const sf = meta && meta.single_fare;
   if (!sf || typeof sf.price_pence !== "number" || !legs) return null;
-  const each = sf.price_pence;
+  // The cap has a lower rung for a single-stop hop, and nothing read it — the
+  // field has sat in the data unused, so two stops down the road was quoted at
+  // the full £3. Over-charging in a figure meant to show what travel costs is
+  // the wrong direction to be wrong in.
+  const each = (shortHop && typeof sf.short_hop_pence === "number")
+    ? sf.short_hop_pence : sf.price_pence;
   const total = each * legs * (returnTrip ? 2 : 1);
   return {
     kind: "singles",
@@ -8544,6 +8549,7 @@ function singlesBaseline(meta, legs, returnTrip = true) {
     legs,
     each,
     returnTrip,
+    shortHop: each !== sf.price_pence,
     source_url: sf.source_url || "",
     label: sf.label || "Single fare",
   };
@@ -8558,12 +8564,6 @@ function coveringZoneIds(coverPerStop) {
   return out;
 }
 
-/** The cheaper of two priced options; either may be null. */
-function cheaperOf(a, b) {
-  if (!a) return b || null;
-  if (!b) return a;
-  return b.total < a.total ? b : a;
-}
 
 /**
  * The time of day a journey is costed at.
@@ -8829,6 +8829,285 @@ function itineraryHtml(interchange, onDay) {
     </div>`;
 }
 
+/** Every route worth costing, as one shape whatever the API called it.
+ *
+ *  A direct bus and a two-bus itinerary arrive in different fields and were
+ *  handled by different code, which is half the reason the answer had six
+ *  layouts. Here they are the same thing: some services, some operators, a
+ *  duration, and the object the map already knows how to draw.
+ *
+ *  `minutes` is derived for a direct option, because only the interchange
+ *  carries `total_minutes`. Over midnight the arrival is the smaller number, so
+ *  a day is added rather than reporting a journey that takes minus eleven hours.
+ */
+function journeyRoutes(journey) {
+  const out = [];
+  for (const option of journey.options || []) {
+    const from = hhmmToMinutes(option.depart);
+    const to = hhmmToMinutes(option.arrive);
+    out.push({
+      kind: "direct",
+      option,
+      itinerary: null,
+      services: [option.service],
+      operators: [option.operator].filter(Boolean),
+      depart: option.depart,
+      legs: 1,
+      stopCount: option.stop_count || 0,
+      minutes: (from === null || to === null) ? null
+        : (to >= from ? to - from : to + 24 * 60 - from),
+    });
+  }
+  // `itineraries` is the several-route field; `interchange` is what the older
+  // response carried, and is the first entry of it when both are present.
+  const many = (journey.itineraries && journey.itineraries.length)
+    ? journey.itineraries
+    : (journey.interchange ? [journey.interchange] : []);
+  for (const itinerary of many) {
+    const legs = itinerary.legs || [];
+    out.push({
+      kind: "interchange",
+      option: null,
+      itinerary,
+      services: legs.map(l => l.service),
+      operators: legs.map(l => l.operator).filter(Boolean),
+      depart: legs.length ? legs[0].depart : "",
+      legs: legs.length || 2,
+      stopCount: legs.reduce((n, l) => n + ((l.stops || []).length || 0), 0),
+      minutes: typeof itinerary.total_minutes === "number"
+        ? itinerary.total_minutes : null,
+    });
+  }
+  return out;
+}
+
+/** What one route costs, and on what.
+ *
+ *  This is the old per-journey costing block with the journey taken out of it.
+ *  It had to be, because the page now prices several routes and compares them:
+ *  the cheapest way across a boundary is routinely a slower bus on one
+ *  operator's ticket while the quickest is two operators and two fares, and a
+ *  page holding one route cannot say so.
+ *
+ *  Two things are fixed in the move, both of which would otherwise make two
+ *  rows differ for a reason the reader cannot see:
+ *
+ *  * **The night supplement follows the bus, not the shape of the answer.** It
+ *    was read from `option.service`, which is empty on every journey with a
+ *    change, so an N700 second leg carried no supplement at all.
+ *  * **The all-operator ticket is checked against every leg.** It is not valid
+ *    on the N700 or the N1, and asking only about the first bus let it through
+ *    on a journey whose second bus it does not cover.
+ */
+function costRoute(route, ctx) {
+  const { allStandardZones, endpointOperators, operatorsKnown, usable,
+          byId, meta } = ctx;
+  const legOperators = route.operators.length ? route.operators : null;
+
+  // Evening-only products are left out entirely: a £4 Nightrider is cheap
+  // because it is restricted, and letting it set a headline would understate
+  // what an ordinary passenger pays.
+  const standard = allStandardZones.filter(
+    z => ticketValidAtTime(z, route.depart || ""));
+  const zones = (operatorsKnown || legOperators)
+    ? ticketsUsableEndToEnd(standard, endpointOperators, legOperators)
+    : standard;
+  const droppedForOperator = standard.filter(z => !zones.includes(z));
+
+  // A ticket valid on some legs but not all is the case the campaign is about:
+  // the fastest way to Brighton is the 700, and a Brighton & Hove ticket covers
+  // everything after it but not the 700 itself.
+  const partiallyValid = legOperators
+    ? droppedForOperator
+        .map(z => ({
+          zone: z,
+          on:  route.services.filter((_, i) => ticketValidOn(z, legOperators[i])),
+          off: route.services.filter((_, i) => !ticketValidOn(z, legOperators[i])),
+        }))
+        .filter(v => v.on.length && v.off.length)
+    : [];
+
+  const coverPerStop = usable.map((s, i) =>
+    zonesForStop(s, zones, byId, endpointOperators[i] ?? route.operators[0]));
+  const uncovered = coverPerStop.filter(c => c.length === 0).length;
+  const { zonal, network } = splitZonesByRule(zones);
+  const best = cheapestCover(coverPerStop, zonal);
+  const networkOption = bestNetworkTicket(coverPerStop, network);
+
+  // Counted once per journey however many legs carry one, which is what
+  // `supplement_basis` says.
+  const supplement = route.services
+    .map((s, i) => serviceSupplement(meta, s, route.operators[i]))
+    .find(Boolean) || null;
+  // Valid only if it is valid on every bus you take.
+  const unifiedOption = route.services.every(s => unifiedTicketOption(meta, s))
+    ? unifiedTicketOption(meta, route.services[0] || "") : null;
+  const singlesOption = singlesBaseline(meta, route.legs, true,
+                                        route.stopCount === 2);
+  const cheapest = cheapestRealOption(best, networkOption, supplement,
+                                      unifiedOption, singlesOption);
+  // Singles excluded: the reforms asked for replace a day ticket, so this is
+  // the like-for-like baseline for "what would change".
+  const dayBaseline = cheapestRealOption(best, networkOption, supplement,
+                                         unifiedOption, null);
+
+  return { route, zones, droppedForOperator, partiallyValid, coverPerStop,
+           uncovered, best, networkOption, supplement, unifiedOption,
+           singlesOption, cheapest, dayBaseline,
+           total: cheapest ? cheapest.total : null,
+           minutes: route.minutes };
+}
+
+/** The three things the page has to say, from the routes it costed.
+ *
+ *  **Cheapest** is strictly the lowest total, and its journey time is reported
+ *  beside it rather than folded into the choice. A route that saves thirty
+ *  pence and costs twenty-five minutes is a trade for the reader to make, and
+ *  quietly making it for them is how a tool starts lying by omission.
+ *
+ *  **Quickest** is returned only when it is a different journey from the
+ *  cheapest. On a direct single-operator bus there is no trade-off to show, and
+ *  printing the same route twice under two headings reads as padding.
+ *
+ *  **What a reform would buy** is the gap between them. Where one ticket were
+ *  valid across operators and zones you could take the quickest route on the
+ *  cheapest ticket, so the benefit is the money saved, the time saved, or both
+ *  — Shoreham to the universities is 54 minutes on two tickets or 86 on one,
+ *  and the thirty-two minutes are the point even when the fare is unchanged.
+ *  Time is why this is not gated on price alone.
+ */
+function journeyAnswer(costed) {
+  const priced = costed.filter(c => c && c.total !== null);
+  const timed = priced.filter(c => typeof c.minutes === "number");
+  if (!priced.length) {
+    return { cheapest: null, quickest: null, priced, moneySaved: 0, timeSaved: 0 };
+  }
+  const cheapest = priced.reduce((a, b) => (b.total < a.total ? b : a));
+  const fastest = timed.length
+    ? timed.reduce((a, b) => (b.minutes < a.minutes ? b : a)) : null;
+
+  // "Different" means a different journey, not a different object: two routes
+  // that cost the same and take the same time are one answer to a passenger.
+  const differs = fastest && fastest !== cheapest
+    && (fastest.total !== cheapest.total || fastest.minutes !== cheapest.minutes);
+
+  const moneySaved = (differs && typeof fastest.total === "number")
+    ? Math.max(0, fastest.total - cheapest.total) : 0;
+  const timeSaved = (differs && typeof cheapest.minutes === "number")
+    ? Math.max(0, cheapest.minutes - fastest.minutes) : 0;
+
+  return {
+    cheapest,
+    quickest: differs ? fastest : null,
+    priced,
+    // What the boundary costs, in each currency: pay more to go fast, or spend
+    // longer to pay less. One of these is always zero unless both differ.
+    moneySaved,
+    timeSaved,
+  };
+}
+
+/** Which ticket a costed route rests on, named the way it is sold. */
+function journeyTicketName(costed, byId) {
+  const c = costed && costed.cheapest;
+  if (!c) return "";
+  if (c.kind === "singles") {
+    return `${c.legs} single${c.legs === 1 ? "" : "s"} each way`;
+  }
+  if (c.zone && c.zone.name) return escapeHtml(c.zone.name);
+  const ids = (costed.best && costed.best.zones) || [];
+  if (ids.length === 1 && byId && byId[ids[0]]) {
+    return escapeHtml(byId[ids[0]].name);
+  }
+  return ids.length > 1 ? `${ids.length} zone tickets` : "";
+}
+
+/** One line of the answer: what it costs, what you ride, how long it takes.
+ *
+ *  Every row carries its journey time, including the cheapest. A route that
+ *  saves thirty pence and costs twenty-five minutes is a trade for the reader
+ *  to make; quietly making it for them is how a tool starts lying by omission.
+ */
+function journeyRowHtml(kind, label, costed, byId) {
+  if (!costed || costed.total === null) return "";
+  const services = costed.route.services.filter(Boolean);
+  const ride = services.length
+    ? services.map(s => escapeHtml(s)).join(" then ")
+    : "the buses below";
+  const mins = typeof costed.route.minutes === "number"
+    ? `${costed.route.minutes} min` : "time not published";
+  const ticket = journeyTicketName(costed, byId);
+  return `<li class="journey-row journey-row--${kind}">
+    <span class="journey-row-label">${escapeHtml(label)}</span>
+    <span class="journey-row-price">${formatGbp(costed.total)}</span>
+    <span class="journey-row-detail">${ride} &middot; ${escapeHtml(mins)}${
+      ticket ? ` &middot; ${ticket}` : ""}</span>
+  </li>`;
+}
+
+/** The third row: what one ticket across operators and zones would buy.
+ *
+ *  Claimed when it saves **money or time**. Time is the addition, and it is the
+ *  half the old rule could not see: where a ticket were valid on every operator
+ *  you could take the quickest route on the cheapest ticket, so a journey whose
+ *  fare would not move can still be thirty-two minutes shorter. Shoreham to the
+ *  universities is exactly that.
+ *
+ *  Where neither is saved the row still appears and says so. A format that
+ *  silently drops a row when the news is good leaves a reader unsure whether
+ *  the page checked; saying "no change, one ticket already covers this" is both
+ *  consistent and true. What it never does is claim a saving that is not there,
+ *  which is the rule the two tests here were written to hold.
+ */
+function journeyTradeOffHtml(answer, zoneIds, byId, meta) {
+  const { cheapest, quickest, moneySaved, timeSaved } = answer;
+  if (!cheapest) return "";
+  // Asked about the route the reform would unlock — the quickest — because
+  // that is the journey it buys you. Asking about the cheapest describes the
+  // compromise the reader already has to make.
+  // Both routes' operators, because the two asks are about different journeys:
+  // merging zones is about the one you already take, and cross-operator
+  // acceptance is about the faster one it would let you take. Asking with only
+  // one of them silently drops whichever ask belongs to the other.
+  const unlocks = [...new Set([
+    ...(cheapest.route.operators || []),
+    ...((quickest && quickest.route.operators) || []),
+  ])];
+  const reforms = reformsForJourney(zoneIds, byId, meta, unlocks) || [];
+  const best = reforms.reduce(
+    (a, r) => (a === null || r.price_pence < a.price_pence ? r : a), null);
+
+  const fareGain = best ? cheapest.total - best.price_pence : 0;
+  if (!best || (fareGain <= 0 && !timeSaved && !moneySaved)) {
+    return `<li class="journey-row journey-row--reform journey-row--nochange">
+      <span class="journey-row-label">If tickets worked everywhere</span>
+      <span class="journey-row-price">No change</span>
+      <span class="journey-row-detail">One ticket already covers this journey
+        at the price above.</span>
+    </li>`;
+  }
+
+  // The quickest route on the cheapest ticket, which is what the reform buys.
+  const price = fareGain > 0 ? best.price_pence : cheapest.total;
+  const ride = quickest
+    ? quickest.route.services.filter(Boolean).map(escapeHtml).join(" then ")
+    : cheapest.route.services.filter(Boolean).map(escapeHtml).join(" then ");
+  const mins = quickest && typeof quickest.route.minutes === "number"
+    ? `${quickest.route.minutes} min`
+    : (typeof cheapest.route.minutes === "number"
+       ? `${cheapest.route.minutes} min` : "");
+  const gains = [];
+  if (fareGain > 0) gains.push(`${formatGbp(fareGain)} cheaper`);
+  if (timeSaved > 0) gains.push(`${timeSaved} min quicker`);
+
+  return `<li class="journey-row journey-row--reform">
+    <span class="journey-row-label">${escapeHtml(best.headline || "If tickets worked everywhere")}</span>
+    <span class="journey-row-price">${formatGbp(price)}</span>
+    <span class="journey-row-detail">${ride}${mins ? ` &middot; ${escapeHtml(mins)}` : ""}${
+      gains.length ? ` &middot; <strong>${escapeHtml(gains.join(", "))}</strong>` : ""}</span>
+  </li>`;
+}
+
 function renderJourneyResult(journey, fromAtco, toAtco) {
   const host = dom.jcResult;
   if (!host) return;
@@ -8935,9 +9214,6 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // the reform asks replace a day ticket, so this is the like-for-like
   // baseline for "what would change". The null is written out rather than
   // dropped — an argument quietly omitted is what produced the £12.50 claim.
-  const dayBaseline = cheapestRealOption(best, networkOption, supplement,
-                                         unifiedOption, null);
-
   const routeLine = option
     ? `<p class="journey-note">Following the ${escapeHtml(option.service)}: ${option.stop_count} stops, ${escapeHtml(option.depart)} to ${escapeHtml(option.arrive)}.</p>`
     : `<p class="journey-note">${escapeHtml(journey.note || "No direct bus found.")}</p>${itinerary}`;
@@ -8948,24 +9224,43 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
       <strong>${escapeHtml(journey.to.name || toAtco)}</strong>
     </p>${routeLine}`;
 
+  // Every route the API offered, each costed on its own, so the page can say
+  // "cheapest" and "quickest" and mean two different journeys. The variables
+  // above stay as they were and still describe the representative journey —
+  // they feed the zone list, the provenance and the caveat — while these
+  // answer the comparison.
+  const routes = journeyRoutes(journey);
+  const costed = routes.map(r => costRoute(r, {
+    allStandardZones: allZones.filter(isStandardFareZone),
+    endpointOperators, operatorsKnown, usable, byId, meta,
+  }));
+  const answer = journeyAnswer(costed);
+
   // ── No zonal ticket spans the journey, but a network one does ──
   // This is a boundary penalty in its own right: the zone tickets stop short,
   // so the passenger is pushed onto the operator's pricier network ticket.
-  if (!best && networkOption && uncovered === 0) {
-    const only = cheapestRealOption(null, networkOption, supplement,
-                                    unifiedOption, singlesOption);
-    host.innerHTML = header + `
-      <div class="journey-alert journey-alert--penalty">
-        <p><strong>No zone day ticket covers this whole journey</strong>. The
-        zones stop short of it.</p>
-        ${only ? penaltyMoneyHtml(only, meta, service)
-               : `<p class="journey-basis">The only ticket that covers it is
-                  ${escapeHtml(networkOption.zone.name)}, but we don't have a
-                  current price for it.</p>`}
-        ${weeklyOptionHtml(allZones, legOperators || (option ? shared : null) || [], meta, singlesOption)}
-        ${reformComparisonHtml(only, dayBaseline, coveringZoneIds(coverPerStop), byId, meta)}
-      </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices);
-    return;
+  // What kind of answer this is. These used to be six separate layouts, each
+  // with its own sections in its own order, so a reader comparing two journeys
+  // was comparing two formats. They are now one sentence apiece, attached to a
+  // single template.
+  let caveat = "";
+  let extra = "";
+  let alertKind = "ok";
+
+  if (!routes.length) {
+    // The case the old code priced anyway, by assuming two legs. On the custom
+    // picker it is the common one — 87.8% of stop pairs here share no service —
+    // and a confident fare for a journey nobody can make is the worst thing
+    // this page could print.
+    alertKind = "unknown";
+    caveat = `<strong>No bus we can find makes this journey.</strong>
+      ${escapeHtml(journey.note || "")}`;
+  } else if (!best && networkOption && uncovered === 0) {
+    alertKind = "penalty";
+    caveat = `<strong>No zone day ticket covers this whole journey.</strong>
+      The zones stop short of it.`;
+    extra = weeklyOptionHtml(allZones,
+      legOperators || (option ? shared : null) || [], meta, singlesOption);
   }
 
   // ── The two ends share no operator ────────────────────────
@@ -8980,34 +9275,23 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // An empty operator intersection means no company's own day ticket spans
   // the journey. It does not mean no ticket does. The two questions get
   // separate answers now.
-  if (operatorsKnown && shared && shared.length === 0) {
-    const singles = singlesOption
-      ? Object.assign({}, singlesOption, { noSpanningTicket: !unifiedOption })
-      : null;
-    const crossing = cheapestRealOption(null, null, supplement, unifiedOption, singles);
+  else if (operatorsKnown && shared && shared.length === 0) {
     const opPhrase = `${escapeHtml(operatorPhrase(endpointOperators[0]))}
         at one end, ${escapeHtml(operatorPhrase(endpointOperators[endpointOperators.length - 1]))}
         at the other`;
-
-    const verdict = unifiedOption
-      ? `<p><strong>No operator's own ticket covers this journey.</strong> No bus
-         company runs a service at both ends of it &mdash; ${opPhrase} &mdash; so
-         whichever operator's day ticket you buy stops working when you change.</p>`
-      : `<p><strong>No single ticket can cover this journey.</strong> No bus company
-         runs a service at both ends of it &mdash; ${opPhrase} &mdash; so whichever
-         ticket you buy stops working when you change.</p>`;
-
-    host.innerHTML = header + `
-      <div class="journey-alert journey-alert--penalty">
-        ${verdict}
-        ${crossing ? penaltyMoneyHtml(crossing, meta, service)
-                   : `<p class="journey-basis">We don't have a current price for
-                      any ticket that would cross this boundary, so we're not
-                      showing a total.</p>`}
-      </div>
-      ${reformComparisonHtml(crossing, dayBaseline, coveringZoneIds(coverPerStop), byId, meta)}`
-      + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices);
-    return;
+    alertKind = "penalty";
+    // An empty operator intersection means no company's *own* day ticket spans
+    // the journey. It does not mean no ticket does — this same file prices and
+    // recommends the all-operator Discovery ticket — so the two questions keep
+    // separate answers.
+    caveat = unifiedOption
+      ? `<strong>No operator's own ticket covers this journey.</strong> No bus
+         company runs a service at both ends of it &mdash; ${opPhrase} &mdash;
+         so whichever operator's day ticket you buy stops working when you
+         change.`
+      : `<strong>No single ticket can cover this journey.</strong> No bus
+         company runs a service at both ends of it &mdash; ${opPhrase} &mdash;
+         so whichever ticket you buy stops working when you change.`;
   }
 
   // ── Every ticket was ruled out, and that is an answer ─────
@@ -9026,11 +9310,11 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   //   weekly Rover, and the all-operator Discovery covers it; neither is a
   //   day ticket, so the zone comparison rightly finds nothing and wrongly
   //   said the stops were uncharted.
-  if (allStandardZones.length && !zones.length) {
-    const crossing = cheapestRealOption(
-      null, null, supplement, unifiedOption,
-      singlesOption ? Object.assign({}, singlesOption,
-                                    { noSpanningTicket: !unifiedOption }) : null);
+  else if (allStandardZones.length && !zones.length) {
+    // Not the same as having no data. Every ticket was dropped because it is
+    // not valid on some bus this journey is actually on, and reporting that as
+    // missing coverage read as a gap in *our* data about the stops — a
+    // statement about us, when the true statement is about the network.
     const why = legOperators
       ? `This journey is ${escapeHtml(legPhrase(legServices))}, run by
          ${escapeHtml(operatorPhrase(legOperators))}, and no day ticket is
@@ -9038,24 +9322,17 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
       : `${escapeHtml(operatorPhrase(shared && shared.length ? shared : endpointOperators[0]))}
          is the only operator serving both ends, and we hold no day ticket
          valid on it.`;
-    host.innerHTML = header + `
-      <div class="journey-alert journey-alert--penalty">
-        <p><strong>No day ticket covers this whole journey.</strong> ${why}</p>
-        ${crossing ? penaltyMoneyHtml(crossing, meta, service) : ""}
-        ${weeklyOptionHtml(allZones, legOperators || (option ? shared : null) || [], meta, singlesOption)}
-      </div>`
-      + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices);
-    return;
+    alertKind = "penalty";
+    caveat = `<strong>No day ticket covers this whole journey.</strong> ${why}`;
+    extra = weeklyOptionHtml(allZones,
+      legOperators || (option ? shared : null) || [], meta, singlesOption);
   }
 
   // ── No zone data covers part of the path ──────────────────
-  if (!best || uncovered > 0) {
-    host.innerHTML = header + `
-      <div class="journey-alert journey-alert--unknown">
-        <p>We don't have ticket-zone coverage for every stop on this journey, so
-        we can't say for certain how many tickets it needs.</p>
-      </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices);
-    return;
+  else if (!best || uncovered > 0) {
+    alertKind = "unknown";
+    caveat = `We don't have ticket-zone coverage for every stop on this
+      journey, so we can't say for certain how many tickets it needs.`;
   }
 
   // ── One ticket covers it ──────────────────────────────────
@@ -9066,43 +9343,22 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // was cheerful about exactly the fare gap the site exists to point at. One
   // ticket covering a journey is worth saying, with its price, and with what
   // a reform would change.
-  if (best.zones.length === 1) {
+  else if (best.zones.length === 1) {
     const z = byId[best.zones[0]];
     const fare = zoneDayFare(z);
-    const singles = singlesOption;
-    const dayTotal = fare === null ? null : fare + (supplement ? supplement.price_pence : 0);
-
-    // Compare against what you'd really pay, not just against this ticket.
-    const cheapest = cheaperOf(
-      dayTotal === null ? null : { kind: "zonal", total: dayTotal },
-      singles,
-    );
-
-    const priceLine = fare === null
-      ? `<p>One ticket covers this journey: <strong>${escapeHtml(z.name)}</strong>
-         (${escapeHtml(z.operator)}), but we don't have a current price for it.</p>`
-      : `<p>One ticket covers this journey:
-         <strong>${escapeHtml(z.name)}</strong> (${escapeHtml(z.operator)})
-         at <strong>${formatGbp(fare)}</strong>.</p>`;
-
-    const singlesLine = (singles && cheapest && cheapest.kind === "singles")
-      ? `<p class="journey-basis">Singles are cheaper here:
-         ${legs} bus${legs === 1 ? "" : "es"} each way at
-         ${formatGbp(singles.each)} is ${formatGbp(singles.total)} for a return.</p>`
-      : "";
-
-    host.innerHTML = header + `
-      <div class="journey-alert journey-alert--ok">
-        ${priceLine}
-        ${operatorsKnown ? "" : `<p class="journey-basis">We couldn't confirm which
-          operators serve these stops, so this assumes the ticket is usable at both
-          ends.</p>`}
-        ${singlesLine}
-      </div>`
-      + reformComparisonHtml(cheapest, dayBaseline, coveringZoneIds(coverPerStop), byId, meta)
-      + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices)
-      + faresProvenanceHtml(best.zones, byId);
-    return;
+    // Not cheerful about it. This used to read as good news for a £9.20
+    // Metrovoyager on a journey a passenger could make for £12 in singles, or
+    // £7.30 if one ticket were accepted across operators — so it congratulated
+    // exactly the fare gap the site exists to point at.
+    caveat = fare === null
+      ? `One ticket covers this journey: <strong>${escapeHtml(z.name)}</strong>
+         (${escapeHtml(z.operator)}), but we don't have a current price for it.`
+      : `One ticket covers this journey:
+         <strong>${escapeHtml(z.name)}</strong> (${escapeHtml(z.operator)}).`;
+    if (!operatorsKnown) {
+      extra = `<p class="journey-basis">We couldn't confirm which operators
+        serve these stops, so this assumes the ticket is usable at both ends.</p>`;
+    }
   }
 
   // ── Multiple zone tickets needed ──────────────────────────
@@ -9112,8 +9368,48 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // combination. On a Worthing-to-Brighton Stagecoach run the two zone tickets
   // come to £12, but a Gold DayRider covers the same journey for £8.50, so
   // claiming £12 would be plainly wrong and would discredit the point.
-  const cheapest = cheapestRealOption(best, networkOption, supplement,
-                                      unifiedOption, singlesOption);
+  else {
+    alertKind = "penalty";
+    caveat = `<strong>No single zone ticket covers this journey.</strong>
+      It crosses ${best.zones.length} ticket zones:`;
+    extra = zoneCostHtml(best, byId);
+  }
+
+  // ── One shape, every journey ──────────────────────────────
+  //
+  // The same rows in the same order whatever kind of answer this is, so a
+  // reader comparing two journeys is comparing two journeys rather than two
+  // layouts. Quickest appears only when it is a different journey from the
+  // cheapest: on a direct single-operator bus there is no trade-off to show,
+  // and printing one route twice under two headings reads as padding.
+  const cheapest = answer.cheapest
+    || cheapestRealOption(best, networkOption, supplement, unifiedOption,
+                          singlesOption);
+  // The zones behind the price actually shown. The representative route's
+  // zones are not those: on Shoreham to the universities the cheapest answer
+  // is a citySAVER on the 2 and the 49, while the representative route is a
+  // 700 and a 49 that no ticket spans — so sourcing the former from the latter
+  // printed a price with no provenance at all, on three of the six presets.
+  const cheapestZones = answer.cheapest && answer.cheapest.best
+    && answer.cheapest.best.zones;
+  const zoneIds = cheapestZones
+    || (best && best.zones)
+    || coveringZoneIds(answer.cheapest ? answer.cheapest.coverPerStop
+                                       : coverPerStop);
+  // Which zones the journey passes through, whatever ticket happens to be
+  // valid on it. The reform question cannot be asked of the zones the *usable*
+  // tickets cover, because on a cross-operator journey no ticket is usable and
+  // that list is empty — so "if your ticket were valid on every operator"
+  // answered "no change" on precisely the journeys it exists for. Worthing to
+  // Hangleton and Sompting to the Marina both did.
+  const reformZoneIds = coveringZoneIds(
+    usable.map(s => zonesForStop(s, allStandardZones, byId, null)));
+  const rows = answer.cheapest
+    ? journeyRowHtml("cheapest", "Cheapest", answer.cheapest, byId)
+      + journeyRowHtml("quickest", "Quickest", answer.quickest, byId)
+      + journeyTradeOffHtml(answer, reformZoneIds, byId, meta)
+    : "";
+
   const money = cheapest
     ? penaltyMoneyHtml(cheapest, meta, service)
     : `<p class="journey-basis">We don't have current prices for all of these
@@ -9121,13 +9417,18 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
        the figure isn't published here.</p>`;
 
   host.innerHTML = header + `
-    <div class="journey-alert journey-alert--penalty">
-      <p><strong>No single zone ticket covers this journey.</strong>
-      It crosses ${best.zones.length} ticket zones:</p>
-      ${zoneCostHtml(best, byId)}
-      ${money}
-      ${reformComparisonHtml(cheapest, dayBaseline, best.zones, byId, meta)}
-    </div>` + zoneListHtml(coverPerStop, byId, droppedForOperator, shared, partiallyValid, legServices) + faresProvenanceHtml(best.zones, byId);
+    <div class="journey-alert journey-alert--${alertKind}">
+      ${caveat ? `<p>${caveat}</p>` : ""}
+      ${extra}
+      ${rows ? `<p class="journey-basis journey-rows-basis">What one return trip
+        costs today, and how long it takes.</p>
+        <ul class="journey-rows">${rows}</ul>` : ""}
+      ${routes.length ? money : ""}
+    </div>`
+    + zoneListHtml(coverPerStop, byId, droppedForOperator, shared,
+                   partiallyValid, legServices)
+    + faresProvenanceHtml(zoneIds, byId, meta,
+                          answer.cheapest ? answer.cheapest.cheapest : cheapest);
 }
 
 /** The zones this journey crosses, itemised with what each ticket costs. */
@@ -9316,7 +9617,7 @@ function zoneDayFare(zone) {
  *    already covering part of the route, because that's what one accepted
  *    ticket would cost.
  */
-function reformsForJourney(zoneIds, byId, meta) {
+function reformsForJourney(zoneIds, byId, meta, rideOperators) {
   const reforms = (meta && meta.reforms) || [];
   // No blanket two-zone gate. A journey that one expensive ticket happens to
   // cover still crosses the zones a reform would merge, and refusing to look
@@ -9325,7 +9626,17 @@ function reformsForJourney(zoneIds, byId, meta) {
   // cheaper than what you'd pay today.
   if (!zoneIds || !zoneIds.length) return [];
 
-  const operators = new Set(zoneIds.map(id => (byId[id] || {}).operator).filter(Boolean));
+  // Which companies this journey actually puts you on, where the caller knows.
+  //
+  // Derived from the zones it crosses otherwise, which is the older behaviour
+  // and is wrong in one case that matters: Shoreham to the universities is a
+  // Stagecoach 700 and a Brighton & Hove 3X, but both its ends sit inside
+  // citySAVER, so the zones say one operator and the cross-operator ask never
+  // fired on the journey it was written for. The reform is about which buses
+  // you board, so when the buses are known they decide.
+  const operators = (rideOperators && rideOperators.length)
+    ? new Set(rideOperators.filter(Boolean))
+    : new Set(zoneIds.map(id => (byId[id] || {}).operator).filter(Boolean));
   const fares = zoneIds.map(id => zoneDayFare(byId[id])).filter(p => p !== null);
   const cheapestSingle = fares.length ? Math.min(...fares) : null;
 
@@ -9333,11 +9644,32 @@ function reformsForJourney(zoneIds, byId, meta) {
   // polygon and no boundary — counting the Gold DayRider as a second "zone"
   // is how "if the Worthing and Brighton zones were merged" came to be
   // offered on a journey that never entered the Brighton zone.
-  const zonal = zoneIds.filter(id => ((byId[id] || {}).coverage_rule || "polygon") === "polygon");
+  //
+  // …and only zones belonging to a company you actually ride. Without that
+  // filter, Southwick to Mile Oak — a 46 and a 1X, both Brighton & Hove — was
+  // offered "if the Worthing and Brighton DayRider zones were merged", because
+  // two Stagecoach zones happen to cover its endpoints. It never boards a
+  // Stagecoach bus. That is the same false positive the note above describes,
+  // arriving through a different door.
+  const zonal = zoneIds.filter(id => {
+    const z = byId[id] || {};
+    if ((z.coverage_rule || "polygon") !== "polygon") return false;
+    if (rideOperators && rideOperators.length
+        && !rideOperators.some(op => ticketValidOn(z, op))) return false;
+    return true;
+  });
 
   const out = [];
   for (const r of reforms) {
     let price = null;
+    // An ask that names particular zones is only about journeys that cross
+    // them. "If the Worthing and Brighton DayRider zones were merged" was
+    // being offered on Southwick to Mile Oak — a 46 and a 1X, both Brighton &
+    // Hove, which goes nowhere near either — because the generic rule below
+    // counted Metrovoyager as a second zone beside citySAVER and asked no
+    // further questions.
+    if (Array.isArray(r.zone_ids)
+        && !r.zone_ids.every(id => zoneIds.includes(id))) continue;
     if (r.applies === "same_operator_multi_zone") {
       if (operators.size !== 1 || zonal.length < 2) continue;
       price = typeof r.price_pence === "number" ? r.price_pence : cheapestSingle;
@@ -9353,58 +9685,6 @@ function reformsForJourney(zoneIds, byId, meta) {
   return out;
 }
 
-/**
- * What this journey would cost under the changes the site campaigns for.
- *
- * This is what turns the boundary from an assertion into something a reader can
- * test on their own commute. Each ask is only shown when it would actually make
- * this journey cheaper.
- */
-function reformComparisonHtml(cheapest, dayBaseline, zoneIds, byId, meta) {
-  if (!cheapest) return "";
-  const days = meta && meta.commute_days_per_week;
-
-  // A saving is only a saving against what the reader would otherwise pay.
-  // Measuring it against a selected expensive product instead — a £8.50 Gold
-  // DayRider on a return trip two £3 capped singles cover for £6 — produced a
-  // "£12.50 a week" that no passenger could ever have saved.
-  //
-  // The ask still stands when it beats no price: these reforms replace an
-  // unlimited day ticket, and a day ticket is what someone travelling more
-  // than twice buys. That case is shown without a weekly headline figure,
-  // because the number would not describe the journey on screen.
-  const rows = reformsForJourney(zoneIds, byId, meta).map(r => {
-    const saving = cheapest.total - r.price_pence;
-    const dayOnly = dayBaseline ? dayBaseline.total - r.price_pence : 0;
-    if (saving <= 0 && dayOnly <= 0) return "";
-
-    const perWeek = (saving > 0 && typeof days === "number") ? saving * days : null;
-    const headline = saving > 0
-      ? `this journey would cost <strong>${formatGbp(r.price_pence)}</strong>${
-          perWeek !== null ? `, saving ${formatGbp(perWeek)} a week` : ""}.`
-      : `a day's travel here would cost <strong>${formatGbp(r.price_pence)}</strong>
-         instead of ${formatGbp(dayBaseline.total)}.`;
-    const caveat = saving > 0 ? "" : `
-        <span class="journey-basis">This particular return is already
-        ${formatGbp(cheapest.total)} in capped single fares, so the change would
-        tell on days you travel more than twice.</span>`;
-    return `
-      <li>
-        <span class="journey-reform-head">${escapeHtml(r.headline)}, ${headline}</span>
-        <span class="journey-basis">${escapeHtml(r.detail || "")}</span>${caveat}
-      </li>`;
-  }).filter(Boolean).join("");
-  if (!rows) return "";
-
-  return `
-    <div class="journey-reform">
-      <p class="journey-zones-title">What we're asking for</p>
-      <ul class="journey-reform-list">${rows}</ul>
-      <button type="button" class="btn-text journey-reform-link" data-goto-objectives>
-        See what we're asking for →
-      </button>
-    </div>`;
-}
 
 /**
  * Which zones the journey passed through, for transparency — and which were set
@@ -9518,9 +9798,46 @@ function operatorPhrase(ops) {
 }
 
 /** Every price shown must carry its source and the date it was checked. */
-function faresProvenanceHtml(zoneIds, byId) {
+function faresProvenanceHtml(zoneIds, byId, meta, cheapest) {
   const rows = [];
   const today = new Date().toISOString().slice(0, 10);
+
+  // Whatever the answer actually rests on, not only the zone tickets.
+  //
+  // Three of the six presets are priced on the national single-fare cap or the
+  // all-operator Discovery ticket, because no zone ticket spans them — and
+  // those were the three that showed no sources at all, since this only ever
+  // walked zone fares. A price with no provenance is the one a councillor's
+  // office checks first, and the cap is the least stable number on the page:
+  // it is funded to March 2027 and a £2 cap is announced for January.
+  const extras = [];
+  if (cheapest && cheapest.kind === "singles" && meta && meta.single_fare) {
+    extras.push(Object.assign({ name: meta.single_fare.label || "Single fare" },
+                              meta.single_fare));
+  }
+  if (cheapest && cheapest.kind === "unified" && meta && meta.unified_ticket) {
+    extras.push(Object.assign(
+      { name: meta.unified_ticket.name || "All-operator ticket" },
+      meta.unified_ticket));
+  }
+  // An operator-wide ticket — a Gold DayRider, a networkSAVER — has no zone
+  // polygon, so it never appeared in `zoneIds` and its source went unshown on
+  // exactly the journeys it is the answer to.
+  if (cheapest && cheapest.kind === "network" && cheapest.zone
+      && cheapest.zone.fares && !zoneIds.includes(cheapest.zone.id)) {
+    extras.push(Object.assign({ name: cheapest.zone.name || "Operator ticket" },
+                              cheapest.zone.fares));
+  }
+  for (const f of extras) {
+    if (!f.source_url) continue;
+    const stale = (f.review_by && f.review_by < today)
+      ? ` <strong class="journey-stale">due for re-checking</strong>` : "";
+    rows.push(
+      `<li>${escapeHtml(f.name)}: <a href="${escapeAttr(safeUrl(f.source_url))}" `
+      + `target="_blank" rel="noopener noreferrer">published fare</a>, `
+      + `checked ${escapeHtml(f.checked_on || "—")}${stale}</li>`);
+  }
+
   for (const id of zoneIds) {
     const f = byId[id] && byId[id].fares;
     if (!f || !f.source_url) continue;

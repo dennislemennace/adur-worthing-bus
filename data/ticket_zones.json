@@ -4092,7 +4092,9 @@
         "applies": "same_operator_multi_zone",
         "headline": "If the Worthing and Brighton DayRider zones were merged",
         "detail": "One DayRider covering both zones, at the £6 each already costs.",
-        "price_pence": 600
+        "price_pence": 600,
+        "zone_ids": ["sc-worthing-dayrider", "sc-brighton-dayrider"],
+        "zone_ids_note": "The ask names two specific zones, so it is only offered on a journey that crosses both. Without this it fired on Southwick to Mile Oak — a 46 and a 1X, both Brighton & Hove, nowhere near either DayRider zone — because the generic 'two zones, one operator' rule counted Metrovoyager as a second zone alongside citySAVER."
       },
       {
         "id": "cross-operator-acceptance",

@@ -4541,6 +4541,55 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 .journey-alert p:last-child { margin-bottom: 0; }
 
 /* One ticket covers it — the good outcome. */
+/* The three rows: cheapest, quickest, and what a reform would buy. Every
+   journey gets the same shape, so a reader comparing two journeys is comparing
+   two journeys rather than two layouts.
+
+   A grid rather than a table: at 390px the label, price and detail stack, and
+   a table would either scroll sideways or squeeze the route name to nothing. */
+.journey-rows {
+  list-style: none;
+  margin: var(--space-xs) 0 var(--space-sm);
+  padding: 0;
+  display: grid;
+  gap: var(--space-xs);
+}
+.journey-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 var(--space-sm);
+  align-items: baseline;
+  padding: var(--space-xs) 0;
+  border-top: 1px solid var(--color-border);
+}
+.journey-row:first-child { border-top: 0; }
+.journey-row-label {
+  grid-column: 1 / -1;
+  font-size: .85rem;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: var(--color-text-muted);
+}
+.journey-row-price {
+  font-size: 1.15rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.journey-row-detail { min-width: 0; }
+/* The row that says nothing changed is still a row — the format is the same
+   for every journey — but it must not look like a price. */
+.journey-row--nochange .journey-row-price {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.journey-rows-basis { margin-top: var(--space-sm); }
+
+@media (min-width: 40rem) {
+  .journey-row { grid-template-columns: 11rem auto 1fr; }
+  .journey-row-label { grid-column: auto; }
+}
+
 .journey-alert--ok { border-left-color: var(--color-on-time); }
 /* Multiple tickets needed — the campaigning case. */
 .journey-alert--penalty { border-left-color: var(--color-late); }

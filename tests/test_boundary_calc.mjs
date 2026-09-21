@@ -321,21 +321,73 @@ test("no reform is offered when one ticket already covers the journey", () => {
   assert.deepEqual(plain(app.reformsForJourney([], byId, META)), []);
 });
 
-test("the merge saving is quoted against the Gold DayRider, per week", () => {
-  const gold = { kind: "network", total: 900, tickets: 1,
-                 zone: { name: "Gold Dayrider" }, supplement: null };
-  const html = app.reformComparisonHtml(
-    gold, gold, ["sc-worthing-dayrider", "sc-brighton-dayrider"], byId, META);
-  assert.ok(/would cost <strong>£6\.00<\/strong>/.test(html), `got: ${html}`);
-  // (£9.00 - £6.00) x 5 days = £15.00
-  assert.ok(/saving £15\.00 a week/.test(html), `got: ${html}`);
+// ── The trade-off row: money or time ────────────────────────
+//
+// The rule used to be "claim a reform only when it is cheaper", which is
+// honest and half-blind. Where a ticket were valid across operators you could
+// take the *quickest* route on the *cheapest* ticket, so a journey whose fare
+// would not move can still be half an hour shorter — Shoreham to the
+// universities is 54 minutes on two tickets or 86 on one. The rule is now
+// money **or** time, and the thing it must still never do is claim a saving
+// that is not there.
+
+const ZONES_TWO_OPERATORS = ["sc-worthing-dayrider", "sc-brighton-dayrider"];
+
+// `operators` is what the reform rules key on — merging zones is about the
+// company you already ride, cross-operator acceptance about the two you would
+// otherwise have to pay. A stub without it asks a question they cannot answer.
+const costedStub = (total, minutes, services = ["700"],
+                    operators = ["SCSO"]) => ({
+  total,
+  route: { services, minutes, operators },
+  cheapest: { kind: "network", total, tickets: 1,
+              zone: { name: "Gold Dayrider" }, supplement: null },
+  best: null,
 });
 
-test("no reform is claimed when it wouldn't be cheaper", () => {
-  const at_cost = { kind: "network", total: 600, tickets: 1, zone: {}, supplement: null };
-  const html = app.reformComparisonHtml(
-    at_cost, at_cost, ["sc-worthing-dayrider", "sc-brighton-dayrider"], byId, META);
-  assert.equal(html, "", "must not claim a saving at or below break-even");
+test("a cheaper reform is quoted at the price it would be", () => {
+  const answer = { cheapest: costedStub(900, 60), quickest: null,
+                   moneySaved: 0, timeSaved: 0 };
+  const html = app.journeyTradeOffHtml(answer, ZONES_TWO_OPERATORS, byId, META);
+  assert.ok(/£6\.00/.test(html), `the reformed price is missing: ${html}`);
+  assert.ok(/£3\.00 cheaper/.test(html), `the saving is missing: ${html}`);
+});
+
+test("a reform that saves only time is still worth saying", () => {
+  // The fare is already what the reform would charge, so the old rule showed
+  // nothing at all — while the reader could have been twenty-six minutes
+  // earlier for the same money.
+  const answer = { cheapest: costedStub(600, 86, ["2", "25"]),
+                   quickest: costedStub(600, 60, ["700", "3X"]),
+                   moneySaved: 0, timeSaved: 26 };
+  const html = app.journeyTradeOffHtml(answer, ZONES_TWO_OPERATORS, byId, META);
+  assert.ok(/26 min quicker/.test(html), `the time saving is missing: ${html}`);
+  assert.ok(/700 then 3X/.test(html),
+    `the row should name the quickest route, which is what it buys: ${html}`);
+});
+
+test("no saving is claimed where there is none", () => {
+  // One ticket already covers it and there is no faster route to unlock, so
+  // the row appears — the format is the same for every journey — and says so
+  // plainly rather than inventing a benefit.
+  const answer = { cheapest: costedStub(600, 60), quickest: null,
+                   moneySaved: 0, timeSaved: 0 };
+  const html = app.journeyTradeOffHtml(answer, ["sc-worthing-dayrider"],
+                                       byId, META);
+  assert.ok(/No change/.test(html), `got: ${html}`);
+  assert.ok(!/cheaper|quicker|saving/.test(html),
+    `claimed a benefit where there is none: ${html}`);
+});
+
+test("the trade-off row is there for every journey that has a price", () => {
+  // The whole point of the restructure: a reader comparing two journeys should
+  // be comparing two journeys, not two layouts.
+  for (const zones of [ZONES_TWO_OPERATORS, ["sc-worthing-dayrider"], []]) {
+    const answer = { cheapest: costedStub(600, 60), quickest: null,
+                     moneySaved: 0, timeSaved: 0 };
+    assert.ok(app.journeyTradeOffHtml(answer, zones, byId, META).trim(),
+      `no row for zones ${JSON.stringify(zones)}`);
+  }
 });
 
 // ── The all-operator ticket as a real option ────────────────
@@ -386,12 +438,23 @@ test("the Discovery headline names and links the ticket", () => {
 });
 
 test("merging zones is measured against Discovery when Discovery is cheapest", () => {
-  // £10 today vs £6 merged = £4/day x 5 = £20 a week.
-  const discovery = { kind: "unified", total: 1000, tickets: 1, zone: {}, supplement: null };
-  const html = app.reformComparisonHtml(
-    discovery, discovery, ["sc-worthing-dayrider", "sc-brighton-dayrider"], byId, META);
-  assert.ok(/would cost <strong>£6\.00<\/strong>/.test(html), `got: ${html}`);
-  assert.ok(/saving £20\.00 a week/.test(html), `got: ${html}`);
+  // £10.00 is what this journey really costs today, because the all-operator
+  // Discovery undercuts the two zone tickets. The saving has to be measured
+  // against that and not against the dearer combination it replaces, or the
+  // ask is quoted at a number nobody would have paid anyway.
+  const answer = {
+    cheapest: { total: 1000,
+                route: { services: ["700"], minutes: 60, operators: ["SCSO"] },
+                cheapest: { kind: "unified", total: 1000, tickets: 1,
+                            zone: { name: "South Downs Discovery Ticket" },
+                            supplement: null },
+                best: null },
+    quickest: null, moneySaved: 0, timeSaved: 0,
+  };
+  const html = app.journeyTradeOffHtml(
+    answer, ["sc-worthing-dayrider", "sc-brighton-dayrider"], byId, META);
+  assert.ok(/£6\.00/.test(html), `the merged price is missing: ${html}`);
+  assert.ok(/£4\.00 cheaper/.test(html), `got: ${html}`);
 });
 
 // ── Evening-only tickets are out of the costing ─────────────

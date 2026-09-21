@@ -2271,6 +2271,108 @@ async function checkJourneyPresets(page) {
     "the preset is a worked example — it should answer, not just fill the form");
   check("the answer to a preset is on screen", visible,
     "the result rendered below the fold, so the click looks like it did nothing");
+
+  // The same shape for every journey. The answer used to be six mutually
+  // exclusive layouts — provenance on two of them, the reform row on four, no
+  // money at all on two — so a reader comparing two journeys was comparing two
+  // formats. This sweeps every preset rather than sampling one, because the
+  // layouts that differed were the uncommon ones.
+  const ids = JSON.parse(await page.evaluate(`
+    JSON.stringify([...document.querySelectorAll("#jc-presets [data-preset]")]
+      .map(b => b.dataset.preset))`));
+  const seen = [];
+  for (const id of ids) {
+    await page.evaluate(
+      `(document.querySelector('[data-preset="${id}"]').click(), 1)`);
+    await sleep(4500);
+    seen.push(JSON.parse(await page.evaluate(`
+      (() => {
+        const host = document.getElementById("jc-result");
+        const rows = [...host.querySelectorAll(".journey-row")];
+        const box = document.getElementById("tab-content-tickets");
+        const list = host.querySelector(".journey-rows");
+        const r = list && list.getBoundingClientRect();
+        const b = box.getBoundingClientRect();
+        return JSON.stringify({
+          id: "${id}",
+          rows: rows.length,
+          labels: rows.map(x => ((x.querySelector(".journey-row-label") || {}).textContent || "").trim().toLowerCase()),
+          priced: rows.every(x => ((x.querySelector(".journey-row-price") || {}).textContent || "").trim().length > 0),
+          basis: /one return trip/i.test(host.textContent),
+          sourced: /checked/i.test(host.textContent),
+          tail: (host.querySelector(".journey-rows") || host).textContent.replace(/\\s+/g, " ").trim().slice(0, 200),
+          clipped: !!r && (r.right > b.right + 2 || r.left < b.left - 2),
+        });
+      })()`)));
+  }
+
+  const withRows = seen.filter(s => s.rows > 0);
+  check("every preset answers in the same row format",
+    withRows.length === seen.length,
+    seen.map(s => `${s.id}:${s.rows}`).join(" "));
+  check("every row in every preset carries a price",
+    seen.every(s => s.priced),
+    seen.filter(s => !s.priced).map(s => s.id).join(", "));
+  check("every priced answer states the basis it is priced on",
+    withRows.every(s => s.basis),
+    "a fare with no basis cannot be compared with another fare — "
+    + withRows.filter(s => !s.basis).map(s => s.id).join(", "));
+  check("every priced answer says where its fares came from",
+    withRows.every(s => s.sourced),
+    "provenance used to render on two of six layouts — "
+    + withRows.filter(s => !s.sourced).map(s => `${s.id} [${s.tail}]`).join(" | "));
+  check("the rows do not overflow the ticket panel",
+    seen.every(s => !s.clipped),
+    seen.filter(s => s.clipped).map(s => s.id).join(", "));
+  // Quickest is shown only when it is a different journey from the cheapest.
+  // A direct single-operator bus has no trade-off to show, and printing one
+  // route twice under two headings reads as padding.
+  check("no answer repeats one route as both cheapest and quickest",
+    seen.every(s => s.labels.filter(l => l === "quickest").length <= 1),
+    "a quickest row appeared more than once");
+
+  // A pair typed into the boxes, not chosen from the worked examples. The
+  // presets are all journeys the campaign has something to say about; the
+  // custom path is where a reader brings their own, and it is where the old
+  // code was loosest — a stop pair with no bus between them was priced anyway,
+  // on an assumption of two legs.
+  for (const [from, to, label] of [
+    ["4400AD0204", "149000007830", "a custom pair with a bus"],
+    // Kingston Bay Road on Shoreham Beach is on the map and in the zones, and
+    // no service calls at it at all. It has to be a stop the picker can
+    // actually resolve: the first attempt used one outside the map's bounding
+    // box, which failed to resolve and so passed this check without ever
+    // reaching the costing it was written to test.
+    ["4400AD0157", "149000006480", "a custom pair with no bus between them"],
+  ]) {
+    await page.evaluate(`
+      (() => {
+        const f = document.getElementById("jc-from");
+        const t = document.getElementById("jc-to");
+        f.value = "${from}"; t.value = "${to}";
+        document.getElementById("jc-check").click();
+        return "1";
+      })()`);
+    await sleep(6000);
+    const custom = JSON.parse(await page.evaluate(`
+      (() => {
+        const host = document.getElementById("jc-result");
+        const rows = [...host.querySelectorAll(".journey-row")];
+        return JSON.stringify({
+          rows: rows.length,
+          priced: rows.every(x => ((x.querySelector(".journey-row-price") || {}).textContent || "").trim().length > 0),
+          basis: /one return trip/i.test(host.textContent),
+          money: /£/.test(host.textContent),
+          says: host.textContent.replace(/\\s+/g, " ").trim().slice(0, 80),
+        });
+      })()`));
+    // Either it answers in the same format as every preset, or it says there
+    // is no journey — and in that case it must not print a price at all.
+    check(`${label} answers in the standard format or not at all`,
+      custom.rows > 0 ? (custom.priced && custom.basis) : !custom.money,
+      `rows=${custom.rows} priced=${custom.priced} basis=${custom.basis} `
+      + `money=${custom.money} :: ${custom.says}`);
+  }
 }
 
 /**
