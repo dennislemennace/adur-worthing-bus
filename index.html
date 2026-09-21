@@ -930,12 +930,23 @@
               </select>
             </label>
             <label class="field">
+              <!-- Filled from the days the chosen service really holds, so a
+                   weekday we never recorded is never offered. An option that
+                   returns nothing reads as a broken tool rather than as an
+                   honest gap in the evidence. -->
               <span class="field-label">Days</span>
-              <select id="journey-times-days" class="field-input">
-                <option value="all">All days</option>
-                <option value="weekday">Weekdays</option>
-                <option value="weekend">Weekends</option>
-              </select>
+              <select id="journey-times-days" class="field-input"></select>
+            </label>
+          </div>
+
+          <div class="jt-range" id="journey-times-range" hidden>
+            <label class="field">
+              <span class="field-label">From date</span>
+              <input type="date" id="journey-times-from-date" class="field-input">
+            </label>
+            <label class="field">
+              <span class="field-label">To date</span>
+              <input type="date" id="journey-times-to-date" class="field-input">
             </label>
           </div>
 

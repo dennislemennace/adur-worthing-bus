@@ -2286,6 +2286,114 @@ async function checkJourneyTimes(page) {
   await page.evaluate(`setViewMode('journeytimes')`);
   await sleep(4000);
 
+  // The opening state. The view used to arrive as six selects and a chart of
+  // whichever service sorted first, which answers a question nobody asked.
+  const intro = await page.evaluate(`
+    (() => {
+      const host = document.getElementById("journey-times-result");
+      const controls = document.querySelector(".journey-times-controls");
+      const browse = host && host.querySelector('[data-act="browse"]');
+      const r = browse && browse.getBoundingClientRect();
+      return JSON.stringify({
+        verdict: !!host.querySelector(".jt-verdict"),
+        says: host.textContent.replace(/\\s+/g, " ").trim().slice(0, 90),
+        controlsHidden: !controls || controls.hidden,
+        chart: !!document.querySelector(".jt-chart"),
+        browse: !!browse,
+        tap: r ? Math.round(Math.min(r.width, r.height)) : 0,
+        pickable: document.querySelectorAll("path.jt-stop, circle.jt-stop").length,
+      });
+    })()`);
+  const at = JSON.parse(intro);
+  check("the journey-time view opens on an instruction, not on the tool",
+    at.verdict && at.controlsHidden && !at.chart,
+    `opened with controlsHidden=${at.controlsHidden} chart=${at.chart}`);
+  check("the instruction says to pick two stops",
+    /pick any two stops/i.test(at.says), at.says);
+  check("the opening state offers a way to browse everything", at.browse,
+    "a reader who does not want to hunt on the map has no way through");
+  check("the browse button meets the tap-target minimum", at.tap >= 44,
+    `${at.tap}px against the 44px house rule`);
+  check("the opening state draws stops on the map to click", at.pickable > 50,
+    `${at.pickable} clickable stops — the flow the view invites needs them`);
+
+  // Two clicks on the map should reveal the tool for the services that really
+  // run between them, and nothing else.
+  await page.evaluate(`
+    (() => {
+      // Two stops a long way apart on one corridor: Lancing seafront and Old
+      // Steine, which the Coastliner runs end to end.
+      journeyTimesEntryPick("4400AD0064");
+      journeyTimesEntryPick("149000007830");
+      return "1";
+    })()`);
+  await sleep(6000);
+  const afterPick = await page.evaluate(`
+    (() => {
+      const svc = document.getElementById("journey-times-service");
+      const controls = document.querySelector(".journey-times-controls");
+      return JSON.stringify({
+        mode: jtEntry.mode,
+        options: svc ? svc.options.length : -1,
+        labels: svc ? [...svc.options].map(o => o.textContent.trim()) : [],
+        controlsShown: !!controls && !controls.hidden,
+        dots: document.querySelectorAll(".jt-dot").length,
+      });
+    })()`);
+  const two = JSON.parse(afterPick);
+  check("picking two stops reveals the tool", two.controlsShown && two.dots > 0,
+    `mode=${two.mode} controlsShown=${two.controlsShown} dots=${two.dots}`);
+  check("picking two stops narrows the service list to what runs between them",
+    two.options > 0 && two.options < 10,
+    `${two.options} services offered: ${two.labels.join(" | ")}`);
+
+  // And back to the whole dataset, which must restore the full list — the
+  // "browse everything" way in, which is the other half of the opening state.
+  await page.evaluate(`
+    (() => { clearJourneyTimesEntry(); renderJourneyTimes(); return "1"; })()`);
+  await sleep(3500);
+  // Defensively: if the opening state has gone, say which check to look at
+  // rather than throwing a stack trace out of the harness. A regression here
+  // took down the whole run instead of reporting one red line.
+  const browsed = await page.evaluate(`
+    (() => {
+      const b = document.querySelector('[data-act="browse"]');
+      if (b) b.click();
+      return b ? "1" : "0";
+    })()`);
+  check("the way out of the opening state is still there", browsed === "1",
+    "no [data-act=browse] button — the opening state did not render, so every "
+    + "check below is about whatever the view did instead");
+  await sleep(6000);
+
+  // Browsing everything must land on a whole, marked pair. Reported in full
+  // because when this goes wrong the next check reads "1 ends marked" and says
+  // nothing whatever about which control disagreed with which.
+  const restored = await page.evaluate(`
+    (() => {
+      const svc = document.getElementById("journey-times-service");
+      const dir = document.getElementById("journey-times-direction");
+      const from = document.getElementById("journey-times-from");
+      const to = document.getElementById("journey-times-to");
+      return JSON.stringify({
+        mode: jtEntry.mode,
+        services: svc.options.length,
+        service: svc.value,
+        dir: dir.value,
+        from: from.value,
+        to: to.value,
+        ends: document.querySelectorAll(".jt-stop--from, .jt-stop--to").length,
+        stops: document.querySelectorAll(".jt-stop").length,
+      });
+    })()`);
+  const back = JSON.parse(restored);
+  check("browsing every service restores the whole list",
+    back.services > 10, `${back.services} services offered`);
+  check("browsing every service opens on a pair marked at both ends",
+    back.ends === 2,
+    `service=${back.service} dir=${back.dir} from=${back.from} to=${back.to} `
+    + `ends=${back.ends} of ${back.stops} drawn`);
+
   const drawn = await page.evaluate(`
     (() => {
       const svg = document.querySelector(".jt-chart");
@@ -2421,12 +2529,24 @@ async function checkJourneyTimes(page) {
       const marker = document.querySelector(
         ".jt-stop:not(.jt-stop--from):not(.jt-stop--to)");
       const offered = document.querySelectorAll(".jt-stop").length;
-      if (!marker) return JSON.stringify({ offered });
+      const wasEnds = document.querySelectorAll(
+        ".jt-stop--from, .jt-stop--to").length;
+      const mode = jtEntry.mode;
+      const to = document.getElementById("journey-times-to").options.length;
+      // How many of the chosen ends the map is able to show. Montreal Way is
+      // the 700's own Durrington terminus and sits twenty metres outside the
+      // bounding box this map draws, so a pair ending there can only ever mark
+      // one end — and the panel has to say so.
+      const offmap = (jtPick.unplaceable || []).length;
+      if (!marker) return JSON.stringify({ offered, wasEnds, mode, to, offmap });
       // dispatchEvent, not .click(): these are SVG circles and .click() throws.
       marker.dispatchEvent(new MouseEvent("click",
         { bubbles: true, cancelable: true, view: window }));
       return JSON.stringify({
-        offered,
+        offered, wasEnds, mode, to,
+        offmap: (jtPick.unplaceable || []).length,
+        placeable: jtPick.placeable,
+        said: !!document.querySelector(".jt-offmap"),
         ends: document.querySelectorAll(".jt-stop--from, .jt-stop--to").length,
         before,
       });
@@ -2436,8 +2556,20 @@ async function checkJourneyTimes(page) {
     "the markers already exist and join by ATCO; leaving them inert makes the "
     + "select the only way to name a stop");
   if (!m.offered) return;
-  check("the chosen pair is marked on the map", m.ends === 2,
-    `${m.ends} ends marked`);
+  // Every chosen end the map *can* show must be marked. Asserting a flat two
+  // was the wrong invariant and hid a real gap: Montreal Way, the 700's own
+  // Durrington terminus, is in the published document and twenty metres outside
+  // the bounding box the map draws, so a pair ending there can never mark both.
+  // The right requirement is that the map marks what it can and the panel says
+  // what it cannot.
+  check("every chosen end the map can show is marked on it",
+    m.ends === m.placeable,
+    `${m.ends} marked, ${m.placeable} placeable, ${m.offmap} off-map `
+    + `(before the click: ${m.wasEnds} `
+    + `of ${m.offered} markers, mode=${m.mode}, To offered ${m.to})`);
+  check("a chosen stop the map cannot show is admitted in the panel",
+    !m.offmap || m.said,
+    "one end silently vanished from the map with nothing to explain it");
 
   await sleep(1500);
   const after = await page.evaluate(

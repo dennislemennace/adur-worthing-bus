@@ -524,7 +524,8 @@ async function init() {
   // cheap and needs no spinner.
   for (const id of ["journey-times-service", "journey-times-direction",
                     "journey-times-from", "journey-times-to",
-                    "journey-times-mode", "journey-times-days"]) {
+                    "journey-times-mode", "journey-times-days",
+                    "journey-times-from-date", "journey-times-to-date"]) {
     document.getElementById(id)?.addEventListener("change", (e) => {
       // A new service means new directions, and a new direction means new
       // stops. Both lists are keyed by what they were built for, so clearing
@@ -2108,6 +2109,21 @@ function journeyTimesMarkPicks(doc, direction, fromIndex, toIndex) {
   jtPick.atcoToIndex = new Map();
   jtPick.from = fromIndex;
   jtPick.to = toIndex;
+  // Which chosen ends we could not put on the map, so the panel can say so
+  // rather than showing one end and leaving the reader to wonder.
+  //
+  // This is not hypothetical: Montreal Way is the 700's own Durrington
+  // terminus, it is in the published document, and both its poles sit at
+  // longitude -0.4203 against a map bounding box that stops at -0.42. Twenty
+  // metres. The chart is right and the map simply cannot show the end of it.
+  const chosen = [fromIndex, toIndex].filter(i => i >= 0 && doc.stops[i]);
+  jtPick.unplaceable = chosen
+    .filter(i => !state.stopData[doc.stops[i].atco])
+    .map(i => doc.stops[i].name);
+  // How many ends the map should end up showing. Counted from the stop
+  // positions rather than from the markers, so a check comparing the two is
+  // comparing two different sources and not the drawing code with itself.
+  jtPick.placeable = chosen.length - jtPick.unplaceable.length;
   clearJourneyTimesPicks({ keepIndex: true });
 
   const layer = L.layerGroup();
@@ -2218,14 +2234,395 @@ function journeyTimesDestinations(direction) {
   </details>`;
 }
 
-/** Weekday/weekend filtering, on the service day rather than the clock. */
-function journeyTimesForDays(timings, which) {
-  if (which === "all") return timings;
-  return timings.filter(t => {
-    const day = new Date(`${t.day}T12:00:00Z`).getUTCDay();
-    const weekend = day === 0 || day === 6;
-    return which === "weekend" ? weekend : !weekend;
+/** How the reader got into this view, and what they have picked so far.
+ *
+ *  `mode` is "start" until they have either picked two stops or asked to browse
+ *  everything. The view used to open on six selects and a chart of whichever
+ *  service sorted first, which answers a question nobody asked. What a reader
+ *  standing at a bus stop wants is that stop, and the thing they reach for is
+ *  the map.
+ */
+const jtEntry = { mode: "start", a: null, b: null, layer: null, only: null,
+                  note: "", wanted: null,
+                  // Bumped by anything that changes what the view is showing.
+                  // The opening state draws its map layer after an await, so
+                  // without this a draw begun in the opening state can land
+                  // after the reader has already left it — putting 1,278
+                  // clickable dots back over a chart they were done with, and
+                  // silently taking the chosen pair's highlights with them.
+                  epoch: 0 };
+
+/** Every stop a published service calls at, drawn to be clicked.
+ *
+ *  Its own layer, not a restyling of the shared stop markers: those are added
+ *  and removed as the zoom changes, so at this view's opening zoom their
+ *  elements are null and styling them does nothing at all. That failed
+ *  silently once already.
+ */
+function journeyTimesEntryLayer(index) {
+  if (!state.map) return;
+  clearJourneyTimesEntryLayer();
+  const published = new Set((index?.services || []).map(e => String(e.service)));
+  const layer = L.layerGroup();
+  let drawn = 0;
+  for (const [atco, at] of Object.entries(state.stopData || {})) {
+    if (!at || !Array.isArray(at.services)) continue;
+    if (!at.services.some(s => published.has(String(s)))) continue;
+    const picked = atco === jtEntry.a ? "a" : atco === jtEntry.b ? "b" : null;
+    L.circleMarker([at.lat, at.lon], {
+      radius: picked ? 8 : 5,
+      className: `jt-stop${picked ? " jt-stop--from" : ""}`,
+      color: "#fff", weight: picked ? 3 : 1.5, fillOpacity: 1, keyboard: true,
+    })
+      .bindTooltip(prettifyName(at.name || ""), { direction: "top" })
+      .on("click", () => journeyTimesEntryPick(atco))
+      .addTo(layer);
+    drawn++;
+  }
+  layer.addTo(state.map);
+  jtEntry.layer = layer;
+  return drawn;
+}
+
+function clearJourneyTimesEntryLayer() {
+  // Bumping the epoch here as well as on a draw is what makes a pending draw
+  // harmless: it cannot restore what this just removed.
+  jtEntry.epoch++;
+  if (jtEntry.layer && state.map?.hasLayer(jtEntry.layer)) {
+    state.map.removeLayer(jtEntry.layer);
+  }
+  jtEntry.layer = null;
+}
+
+/** Give up every claim this view has on the map and its own state. */
+function clearJourneyTimesEntry() {
+  clearJourneyTimesEntryLayer();
+  jtEntry.mode = "start";
+  jtEntry.a = jtEntry.b = null;
+  jtEntry.only = null;
+  jtEntry.note = "";
+}
+
+/** One click on the map in the opening state. */
+function journeyTimesEntryPick(atco) {
+  if (jtEntry.a === atco) { jtEntry.a = jtEntry.b; jtEntry.b = null; }
+  else if (jtEntry.b === atco) { jtEntry.b = null; }
+  else if (!jtEntry.a) { jtEntry.a = atco; }
+  else { jtEntry.b = atco; }
+  track("journey-times-entry-pick");
+  if (jtEntry.a && jtEntry.b) journeyTimesResolvePair();
+  else renderJourneyTimesIntro();
+}
+
+/** Two stops are chosen: find the services that really run between them.
+ *
+ *  The prefilter names candidates from the stop lists; each candidate document
+ *  is then asked whether any bus we tracked actually made the trip, because a
+ *  service calling at both stops need not run from one to the other — the
+ *  other direction, a short working, or a route that loops will all call at
+ *  both and connect neither.
+ */
+async function journeyTimesResolvePair() {
+  const host = document.getElementById("journey-times-result");
+  if (host) {
+    host.innerHTML = `<p class="panel-empty">Looking for buses between
+      ${escapeHtml(prettifyName(state.stopData[jtEntry.a]?.name || ""))} and
+      ${escapeHtml(prettifyName(state.stopData[jtEntry.b]?.name || ""))}…</p>`;
+  }
+  const index = await loadJourneyTimesIndex();
+  const candidates = journeyTimesCandidateServices(
+    index, journeyTimesServicesAt(jtEntry.a),
+    journeyTimesServicesAt(jtEntry.b));
+
+  const runs = [];
+  for (const entry of candidates) {
+    const doc = await loadJourneyTimes(entry.file);
+    const pair = doc && journeyTimesPairInDoc(
+      doc, jtEntry.a, jtEntry.b,
+      state.stopData[jtEntry.a]?.name, state.stopData[jtEntry.b]?.name);
+    if (pair) runs.push({ entry, pair });
+  }
+  if (!runs.length) {
+    jtEntry.only = null;
+    renderJourneyTimesIntro({ noneFound: candidates.length });
+    return;
+  }
+  // The service with the most journeys between the two, so the view opens on
+  // the strongest evidence rather than the lowest service number.
+  runs.sort((x, y) => y.pair.journeys - x.pair.journeys);
+  jtEntry.only = runs.map(r => r.entry);
+  jtEntry.mode = "picked";
+  jtEntry.note = runs[0].pair.reversed
+    ? "Showing the direction buses actually run between these two."
+    : "";
+  const serviceSel = document.getElementById("journey-times-service");
+  if (serviceSel) {
+    serviceSel.dataset.only = "";                 // force a rebuild
+    serviceSel.value = runs[0].entry.file;
+  }
+  jtEntry.wanted = runs[0].pair;
+  clearJourneyTimesEntryLayer();
+  renderJourneyTimes();
+}
+
+/** The opening state: what to do, and the way past it. */
+function renderJourneyTimesIntro(opts = {}) {
+  const host = document.getElementById("journey-times-result");
+  const controls = document.querySelector(".journey-times-controls");
+  const range = document.getElementById("journey-times-range");
+  if (!host) return;
+  if (controls) controls.hidden = true;
+  if (range) range.hidden = true;
+  clearJourneyTimesPicks();
+
+  const nameOf = (atco) => escapeHtml(prettifyName(
+    state.stopData[atco]?.name || ""));
+  let lead;
+  if (opts.noneFound !== undefined) {
+    // The common answer, and on a site about missing links it is the
+    // interesting one rather than a failure. 87.8% of stop pairs in this area
+    // share no service at all.
+    lead = `<p class="jt-verdict"><strong>No bus we tracked runs between
+      ${nameOf(jtEntry.a)} and ${nameOf(jtEntry.b)}.</strong></p>
+      <p>${opts.noneFound
+        ? `${opts.noneFound} service${opts.noneFound === 1 ? "" : "s"} call at
+           both, but no journey we recorded went from one to the other — they
+           run opposite ways, or only part of the route.`
+        : `They share no service at all. Getting between them means changing
+           buses.`}</p>
+      <p>The <button type="button" class="jt-link" data-go="tickets">ticket
+        checker</button> will price that journey and say which buses it needs.</p>`;
+  } else if (jtEntry.a) {
+    lead = `<p class="jt-verdict">Now pick the stop you want to travel
+      <strong>to</strong>.</p>
+      <p class="jt-provenance">From ${nameOf(jtEntry.a)}. Click it again to
+        change it.</p>`;
+  } else {
+    lead = `<p class="jt-verdict"><strong>Pick any two stops on the map</strong>
+      to see how long that journey really takes.</p>
+      <p>Every journey we tracked between them, against the time the timetable
+        promised. Measured from the operators' own vehicle feed.</p>`;
+  }
+
+  host.innerHTML = `${lead}
+    <p class="jt-entry-actions">
+      ${jtEntry.a ? `<button type="button" class="jt-reset-days"
+         data-act="clear">Start again</button>` : ""}
+      <button type="button" class="jt-reset-days" data-act="browse">Browse
+        every service</button>
+    </p>`;
+
+  host.querySelector('[data-act="browse"]')?.addEventListener("click", () => {
+    jtEntry.mode = "browse";
+    jtEntry.only = null;
+    jtEntry.a = jtEntry.b = null;
+    jtEntry.wanted = null;
+    clearJourneyTimesEntryLayer();
+    // A fresh start, not a continuation. Every list here is keyed by what it
+    // was built for, and clearing the keys is what rebuilds them — otherwise
+    // "browse every service" inherits the direction and the pair left behind by
+    // a pick, which is not what the reader just asked for.
+    for (const [id, key] of [["journey-times-direction", "docKey"],
+                             ["journey-times-from", "pair"],
+                             ["journey-times-to", "from"],
+                             ["journey-times-days", "docKey"]]) {
+      const el = document.getElementById(id);
+      if (el) el.dataset[key] = "";
+    }
+    track("journey-times-browse-all");
+    renderJourneyTimes();
   });
+  host.querySelector('[data-act="clear"]')?.addEventListener("click", () => {
+    jtEntry.a = jtEntry.b = null;
+    renderJourneyTimesIntro();
+  });
+  host.querySelector('[data-go="tickets"]')?.addEventListener("click", () => {
+    setViewMode("tickets");
+  });
+
+  const drawnFor = ++jtEntry.epoch;
+  loadJourneyTimesIndex().then(index => {
+    if (jtEntry.mode === "start" && jtEntry.epoch === drawnFor) {
+      journeyTimesEntryLayer(index);
+    }
+  }).catch(() => {});
+}
+
+/** Every service at a stop, counting both sides of the road as one place.
+ *
+ *  A reader clicks a place, not a pole, and the two poles of one road do not
+ *  carry the same services. Old Steine is the case that proved it: the pole a
+ *  reader is most likely to click lists nineteen Brighton & Hove services and
+ *  **not** the 700, which stops at the pole next to it. Matching on the exact
+ *  ATCO code therefore answered "no bus runs between Lancing and Old Steine",
+ *  which is false and reads as a broken tool.
+ *
+ *  Same name, within about 350 m — the same rule the fare-zone check uses to
+ *  tell two poles of one road from two towns that happen to share a stop name.
+ *  `journeyTimesPairInDoc` already resolves poles by name inside a document, so
+ *  this makes the prefilter agree with the arbiter instead of quietly
+ *  discarding candidates before it can be asked.
+ */
+function journeyTimesServicesAt(atco) {
+  const here = state.stopData?.[atco];
+  if (!here) return [];
+  const out = new Set(here.services || []);
+  for (const [other, at] of Object.entries(state.stopData || {})) {
+    if (other === atco || !at || at.name !== here.name) continue;
+    if (Math.abs(at.lat - here.lat) > 0.004) continue;
+    if (Math.abs(at.lon - here.lon) > 0.005) continue;
+    for (const s of at.services || []) out.add(s);
+  }
+  return [...out];
+}
+
+/** Which published services could possibly run between two stops.
+ *
+ *  A cheap prefilter, and cheap matters: the published documents are 300 KB
+ *  each and there are 34 of them, so pooling the lot to answer "is there a bus
+ *  between these two stops" would be a 10 MB download on a phone. `stops.json`
+ *  is already in memory for the map and names the services at every stop, so
+ *  intersecting two stops' lists narrows it to the one or two documents worth
+ *  fetching.
+ *
+ *  Measured over 4,000 random stop pairs: 87.8% share no service at all, 9.7%
+ *  share one, 2.1% two. So this almost always answers "none" or "one", without
+ *  a single request.
+ *
+ *  A service number is not a route — the 1, the 5 and the 7 are each run by two
+ *  operators over entirely different roads — so this returns index entries,
+ *  which are per operator, and lets the document itself settle whether a bus
+ *  really makes the trip.
+ */
+function journeyTimesCandidateServices(index, servicesA, servicesB) {
+  const atB = new Set((servicesB || []).map(String));
+  const shared = new Set((servicesA || []).map(String).filter(s => atB.has(s)));
+  return (index?.services || []).filter(e => shared.has(String(e.service)));
+}
+
+/** Where two stops sit in one service's document, and which way round.
+ *
+ *  The reader clicked two places, not a direction and not a pole. Both have to
+ *  be resolved here:
+ *
+ *  * **Which pole.** Each side of a road is its own ATCO code and its own entry
+ *    in the document, so clicking the eastbound stop at one end and the
+ *    westbound at the other names a pair no bus has ever run in sequence. Every
+ *    pole sharing the stop's name is tried.
+ *  * **Which way.** Clicking Worthing then Brighton and clicking Brighton then
+ *    Worthing are the same question about the same corridor. The order clicked
+ *    is preferred, and the reverse is only used if nothing runs that way.
+ *
+ *  `journeyTimesBetween` stays the arbiter throughout: a pair it returns no
+ *  journeys for is a pair no bus we tracked made, whatever the stop lists say.
+ */
+function journeyTimesPairInDoc(doc, atcoA, atcoB, nameA, nameB) {
+  const poles = (atco, fallbackName) => {
+    // The document may not list this pole at all while still serving the place.
+    // Old Steine again: the 700 calls at 149000007828 and the reader is far
+    // more likely to click 149000007830, seven metres away, which is the
+    // Brighton & Hove pole and appears nowhere in the 700's document. Looking
+    // the ATCO up and giving up on a miss answered "no bus makes that trip"
+    // for the Coastliner running its own terminus.
+    const named = doc.stops.find(s => s.atco === atco);
+    const name = named ? named.name : fallbackName;
+    if (!name) return [];
+    const out = [];
+    doc.stops.forEach((s, i) => { if (s.name === name) out.push(i); });
+    return out;
+  };
+  const a = poles(atcoA, nameA);
+  const b = poles(atcoB, nameB);
+  if (!a.length || !b.length) return null;
+
+  const bestOf = (froms, tos, reversed) => {
+    let best = null;
+    for (const from of froms) {
+      for (const to of tos) {
+        if (from === to) continue;
+        const journeys = journeyTimesBetween(doc, from, to).length;
+        if (journeys && (!best || journeys > best.journeys)) {
+          best = { fromIndex: from, toIndex: to, journeys, reversed };
+        }
+      }
+    }
+    return best;
+  };
+  return bestOf(a, b, false) || bestOf(b, a, true);
+}
+
+const JT_DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday",
+                      "Friday", "Saturday"];
+
+/** The weekday a service day fell on, 0 = Sunday.
+ *
+ *  Midday UTC, so neither British Summer Time nor the reader's own timezone
+ *  can move a date across midnight and file a Friday under Thursday. */
+function jtWeekday(day) {
+  return new Date(`${day}T12:00:00Z`).getUTCDay();
+}
+
+/** Filtering by service day: all, weekdays, weekends, one named weekday, or a
+ *  date range.
+ *
+ *  `range` is `{from, to}` as YYYY-MM-DD, either end optional — a reader who
+ *  fills in only a start means "from then on", and answering nothing would be
+ *  a worse reading of that than answering the obvious thing. Compared as
+ *  strings, which is exactly right for ISO dates and avoids inventing a
+ *  timezone for a bound the reader typed. */
+function journeyTimesForDays(timings, which, range) {
+  if (which === "range") {
+    const from = (range && range.from) || "";
+    const to = (range && range.to) || "";
+    return timings.filter(t => (!from || t.day >= from) && (!to || t.day <= to));
+  }
+  if (which && which.startsWith("dow-")) {
+    const want = Number(which.slice(4));
+    return timings.filter(t => jtWeekday(t.day) === want);
+  }
+  if (which === "weekday" || which === "weekend") {
+    return timings.filter(t => {
+      const weekend = jtWeekday(t.day) === 0 || jtWeekday(t.day) === 6;
+      return which === "weekend" ? weekend : !weekend;
+    });
+  }
+  return timings;
+}
+
+/** What the Days control may offer, given the days this document really holds.
+ *
+ *  Built from the data rather than hard-coded, because an option that returns
+ *  nothing is not a filter, it is a dead end that reads as a broken tool. With
+ *  two days recorded there is no Tuesday to choose and no weekend to compare,
+ *  and offering them anyway invites a reader to conclude we measured a Tuesday
+ *  and found no buses running.
+ *
+ *  A single weekday is only worth offering once there is more than one of them
+ *  to average: "Wednesdays" over one Wednesday is the same figure as "all days"
+ *  wearing a more confident label. */
+function journeyTimesDayOptions(days) {
+  const present = [...new Set(days || [])].sort();
+  const counts = new Map();
+  for (const day of present) {
+    const dow = jtWeekday(day);
+    counts.set(dow, (counts.get(dow) || 0) + 1);
+  }
+  const weekdays = present.filter(d => jtWeekday(d) > 0 && jtWeekday(d) < 6);
+  const weekends = present.filter(d => jtWeekday(d) === 0 || jtWeekday(d) === 6);
+
+  const options = [{ value: "all", label: `All days (${present.length})` }];
+  if (weekdays.length && weekends.length) {
+    options.push({ value: "weekday", label: `Weekdays (${weekdays.length})` });
+    options.push({ value: "weekend", label: `Weekends (${weekends.length})` });
+  }
+  for (const dow of [1, 2, 3, 4, 5, 6, 0]) {
+    const n = counts.get(dow) || 0;
+    if (n > 1) {
+      options.push({ value: `dow-${dow}`, label: `${JT_DAY_NAMES[dow]}s (${n})` });
+    }
+  }
+  if (present.length > 1) options.push({ value: "range", label: "A date range…" });
+  return options;
 }
 
 /** The numbers under the chart: how long it takes, and how often it is worse
@@ -2468,23 +2865,42 @@ async function renderJourneyTimes() {
   const modeSel = document.getElementById("journey-times-mode");
   if (!host || !serviceSel) return;
 
+  // The opening state owns the panel: instructions and the map, no controls.
+  if (jtEntry.mode === "start") { renderJourneyTimesIntro(); return; }
+  const controls = document.querySelector(".journey-times-controls");
+  if (controls) controls.hidden = false;
+
   const mine = claimRender("journeytimes");
   try {
     const index = await loadJourneyTimesIndex();
     if (!mine()) return;
-    if (!serviceSel.options.length) {
+    // After two stops are picked the Service list holds only the services that
+    // really run between them — usually one. Keyed by what it was built for,
+    // like every other list here, so going back to browsing rebuilds it.
+    const onlyKey = jtEntry.only
+      ? jtEntry.only.map(e => e.file).join(",") : "all";
+    if (serviceSel.dataset.only !== onlyKey) {
       // Ordered by number as a reader reads it — 1, 2, 5, 7, 700 — with a
       // shared number's two operators adjacent, so the pair is obvious rather
       // than scattered through an alphabetical list.
-      const services = [...index.services].sort((a, b) =>
+      const wanted = jtEntry.only || index.services;
+      const services = [...wanted].sort((a, b) =>
         String(a.service).localeCompare(String(b.service), undefined,
           { numeric: true, sensitivity: "base" })
         || String(a.operator || "").localeCompare(String(b.operator || "")));
+      // Read before the rebuild: setting innerHTML makes the browser select
+      // the first option, so asking afterwards whether a choice survived always
+      // answers yes.
+      const previous = serviceSel.value;
       serviceSel.innerHTML = services.map(s =>
         `<option value="${escapeAttr(s.file)}">`
         + `${escapeHtml(journeyTimesServiceLabel(s))} (${s.journeys} journeys)`
         + `</option>`).join("");
-      if (services.length) serviceSel.value = services[0].file;
+      if (services.length) {
+        serviceSel.value = services.some(s => s.file === previous)
+          ? previous : services[0].file;
+      }
+      serviceSel.dataset.only = onlyKey;
     }
     const doc = await loadJourneyTimes(
       serviceSel.value || index.services[0].file);
@@ -2499,6 +2915,38 @@ async function renderJourneyTimes() {
     // Hove's route showing after switching to Stagecoach's — which shares not
     // one stop with it.
     const docKey = serviceSel.value || doc.service;
+
+    // The Days control, built from the days this document actually holds.
+    // Keyed like the direction list, so switching service rebuilds it: two
+    // services can have been recorded on different days, and an option carried
+    // over from the last one would filter to nothing here.
+    const rangeBox = document.getElementById("journey-times-range");
+    const fromDate = document.getElementById("journey-times-from-date");
+    const toDate = document.getElementById("journey-times-to-date");
+    if (daysSel && daysSel.dataset.docKey !== docKey) {
+      const wanted = daysSel.value;
+      const options = journeyTimesDayOptions(doc.days);
+      daysSel.innerHTML = options.map(o =>
+        `<option value="${escapeAttr(o.value)}">${escapeHtml(o.label)}</option>`
+      ).join("");
+      // Read before the rebuild, as with the To list: setting innerHTML makes
+      // the browser select the first option, so asking afterwards whether the
+      // reader's choice survived always answers yes.
+      daysSel.value = options.some(o => o.value === wanted) ? wanted : "all";
+      daysSel.dataset.docKey = docKey;
+      // Bound the pickers to what was recorded, so the calendar cannot offer a
+      // month we have no evidence from.
+      const first = doc.days[0] || "";
+      const last = doc.days[doc.days.length - 1] || "";
+      for (const input of [fromDate, toDate]) {
+        if (!input) continue;
+        input.min = first;
+        input.max = last;
+      }
+      if (fromDate && !fromDate.value) fromDate.value = first;
+      if (toDate && !toDate.value) toDate.value = last;
+    }
+    if (rangeBox) rangeBox.hidden = daysSel.value !== "range";
     if (dirSel && dirSel.dataset.docKey !== docKey) {
       dirSel.innerHTML = dirs.map((d, i) =>
         // Not prettified: the places come from NaPTAN already cased as they
@@ -2508,6 +2956,18 @@ async function renderJourneyTimes() {
         + ` (${d.journeys} journeys)</option>`).join("");
       dirSel.dataset.docKey = docKey;
       dirSel.value = "0";
+    }
+    // A pair chosen on the map decides the direction as well as the two stops:
+    // the reader has already said where they are going, and opening on the
+    // other direction would answer a question they did not ask.
+    if (jtEntry.wanted && dirSel) {
+      const want = jtEntry.wanted;
+      const i = dirs.findIndex(d => d.stops.some(s => s.index === want.fromIndex)
+                                 && d.stops.some(s => s.index === want.toIndex));
+      if (i >= 0 && dirSel.value !== String(i)) {
+        dirSel.value = String(i);
+        fromSel.dataset.pair = "";       // its stop list belongs to the old one
+      }
     }
     const direction = dirs[Number(dirSel?.value || 0)] || dirs[0];
 
@@ -2524,6 +2984,18 @@ async function renderJourneyTimes() {
       const pair = journeyTimesDefaultPair(doc, direction);
       if (pair) fromSel.value = String(pair.from);
       toSel.dataset.from = "";           // force the To list to be rebuilt
+    }
+
+    // A pair picked on the map overrides that default — and has to be applied
+    // *before* the To list is built, because To offers only what a bus reaches
+    // from From. Set afterwards, the list would still be the default From's and
+    // would not contain the stop the reader clicked.
+    if (jtEntry.wanted
+        && [...fromSel.options].some(o =>
+             Number(o.value) === jtEntry.wanted.fromIndex)
+        && fromSel.value !== String(jtEntry.wanted.fromIndex)) {
+      fromSel.value = String(jtEntry.wanted.fromIndex);
+      toSel.dataset.from = "";
     }
 
     // To offers only what a bus reaches from From, with how many make the
@@ -2556,25 +3028,57 @@ async function renderJourneyTimes() {
             ? wanted : onward[onward.length - 1].index);
       }
     }
+    // The other half of the pair, now the To list exists. Cleared afterwards so
+    // the reader can change either control without being dragged back to what
+    // they first clicked.
+    if (jtEntry.wanted) {
+      if ([...toSel.options].some(o =>
+            Number(o.value) === jtEntry.wanted.toIndex)) {
+        toSel.value = String(jtEntry.wanted.toIndex);
+      }
+      jtEntry.wanted = null;
+    }
     if (!toSel.options.length) {
+      journeyTimesMarkPicks(doc, direction, Number(fromSel.value), -1);
       host.innerHTML = `<p class="panel-empty">No journey we tracked goes on
         from ${stopName(Number(fromSel.value))} on this service. Try another
-        starting stop, or the other direction.</p>`;
-      journeyTimesMarkPicks(doc, direction, Number(fromSel.value), -1);
+        starting stop, or the other direction.</p>`
+        // The same admission as below. Without it this branch shows a stop
+        // highlighted nowhere on the map and offers no reason.
+        + ((jtPick.unplaceable || []).length
+          ? `<p class="jt-provenance jt-offmap">${escapeHtml(
+              jtPick.unplaceable.map(prettifyName).join(" and "))} is just
+              outside the area this map draws, so it is not marked on it.</p>`
+          : "");
       return;
     }
 
     journeyTimesMarkPicks(doc, direction, Number(fromSel.value), Number(toSel.value));
     const all = journeyTimesBetween(doc, Number(fromSel.value), Number(toSel.value));
-    const timings = journeyTimesForDays(all, daysSel.value);
+    const timings = journeyTimesForDays(all, daysSel.value,
+      { from: fromDate ? fromDate.value : "", to: toDate ? toDate.value : "" });
     const refused = journeyTimesContradictions(
       doc, Number(fromSel.value), Number(toSel.value));
     const summary = journeyTimesSummary(timings);
 
     if (!summary) {
-      host.innerHTML = `<p class="panel-empty">No bus we tracked made that trip
-        on the days recorded. Try two stops on the same side of the road, or
-        widen the days.</p>`;
+      // Which of the two it is matters. "No bus ran this" and "no bus ran this
+      // on the days you asked for" are different facts, and only one of them is
+      // about the service. Telling a reader to widen the days when the pair has
+      // no journeys at all sends them round a loop that cannot end.
+      const narrowed = daysSel.value !== "all" && all.length;
+      host.innerHTML = narrowed
+        ? `<p class="panel-empty">${all.length} journey${all.length === 1 ? "" : "s"}
+           we tracked made that trip, but none
+           ${daysSel.value === "range" ? "within those dates" : "on those days"}.
+           <button type="button" class="jt-reset-days">Show all days</button></p>`
+        : `<p class="panel-empty">No bus we tracked made that trip on the days
+           recorded. Try two stops on the same side of the road.</p>`;
+      host.querySelector(".jt-reset-days")?.addEventListener("click", () => {
+        daysSel.value = "all";
+        if (rangeBox) rangeBox.hidden = true;
+        renderJourneyTimes();
+      });
       return;
     }
 
@@ -2602,6 +3106,11 @@ async function renderJourneyTimes() {
           ? ` · ${refused} journey${refused === 1 ? "" : "s"} excluded as
               contradictory` : ""}
       </p>
+      ${(jtPick.unplaceable || []).length ? `<p class="jt-provenance jt-offmap">
+        ${escapeHtml(jtPick.unplaceable.map(prettifyName).join(" and "))}
+        ${jtPick.unplaceable.length === 1 ? "is" : "are"} just outside the area
+        this map draws, so ${jtPick.unplaceable.length === 1 ? "it is" : "they are"}
+        not marked on it. The figures above are unaffected.</p>` : ""}
       ${journeyTimesChart(timings, summary, modeSel?.value || "delay")}
       ${journeyTimesDestinations(direction)}
       <ul class="jt-figures">
@@ -5696,7 +6205,13 @@ async function applyViewMode() {
   // hard way is that a branch which forgets to tear something down does not
   // fail loudly — it leaves the next view quietly wrong, with highlights on a
   // Route-view map and nothing to explain them.
-  if (state.viewMode !== "journeytimes") clearJourneyTimesPicks();
+  if (state.viewMode !== "journeytimes") {
+    clearJourneyTimesPicks();
+    // And the opening state's own layer, which is a second claim on the map
+    // made by the same view. Leaving it behind puts a thousand clickable dots
+    // over Route view, each of which would jump the reader back here.
+    clearJourneyTimesEntry();
+  }
 
   const live = state.viewMode === "live";
   // The "show buses" toggle only does anything in Live view.

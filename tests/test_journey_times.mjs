@@ -172,6 +172,207 @@ test("days are split on the service day, not on the clock", () => {
   assert.equal(forDays(times, "all").length, 2);
 });
 
+// ── Clicking two stops ──────────────────────────────────────
+//
+// The view opens on the map, not on the tool. Two clicks have to answer "which
+// buses actually run between these?" without downloading 10 MB of documents to
+// find out, and without claiming a service runs a trip it merely touches both
+// ends of.
+
+const candidateServices = vm.runInContext("journeyTimesCandidateServices", app);
+const pairInDoc = vm.runInContext("journeyTimesPairInDoc", app);
+
+const INDEX = { services: [
+  { service: "1", operator: "BHBC", file: "1-BHBC.json" },
+  { service: "1", operator: "SCSO", file: "1-SCSO.json" },
+  { service: "700", operator: "SCSO", file: "700-SCSO.json" },
+] };
+
+test("only services calling at both stops are candidates", () => {
+  const got = candidateServices(INDEX, ["1", "700"], ["700", "49"]);
+  assert.deepEqual(got.map(e => e.file), ["700-SCSO.json"]);
+});
+
+test("a shared number offers both operators' routes as candidates", () => {
+  // A number is not a route. The 1 is run by two companies over roads sharing
+  // no stop, so both documents have to be asked and neither assumed.
+  const got = candidateServices(INDEX, ["1"], ["1"]);
+  assert.deepEqual(got.map(e => e.file).sort(), ["1-BHBC.json", "1-SCSO.json"]);
+});
+
+test("two stops with nothing in common are not a request at all", () => {
+  assert.equal(candidateServices(INDEX, ["1"], ["49"]).length, 0);
+  assert.equal(candidateServices(INDEX, null, ["1"]).length, 0);
+  assert.equal(candidateServices({}, ["1"], ["1"]).length, 0);
+});
+
+const PAIR_DOC = {
+  stops: [{ atco: "A1", name: "Pier" }, { atco: "A2", name: "Library" },
+          { atco: "A3", name: "Station" },
+          // The other side of the same three roads.
+          { atco: "B1", name: "Pier" }, { atco: "B2", name: "Library" },
+          { atco: "B3", name: "Station" }],
+  journeys: [
+    journey("2026-09-17", "08:00", [[0, 28800, 28800, 0], [1, 29400, 29400, 0],
+                                    [2, 30000, 30000, 0]]),
+    journey("2026-09-17", "09:00", [[5, 32400, 32400, 0], [4, 33000, 33000, 0],
+                                    [3, 33600, 33600, 0]], "eastbound"),
+  ],
+};
+
+test("a pair is found in the order the reader clicked", () => {
+  const got = pairInDoc(PAIR_DOC, "A1", "A3");
+  assert.equal(got.fromIndex, 0);
+  assert.equal(got.toIndex, 2);
+  assert.equal(got.reversed, false);
+});
+
+test("clicking the far end first finds the bus that runs that way", () => {
+  // Station to Pier is a real trip here — it is the eastbound working — so the
+  // answer is that journey, not the westbound one read backwards.
+  const got = pairInDoc(PAIR_DOC, "A3", "A1");
+  assert.ok(got, "no journey was found in either direction");
+  assert.equal(got.reversed, false);
+  assert.equal(got.fromIndex, 5, "the eastbound Station pole");
+  assert.equal(got.toIndex, 3, "the eastbound Pier pole");
+});
+
+test("a one-way pair is answered the way the buses run", () => {
+  // Where nothing runs the way the reader clicked, the corridor is still worth
+  // showing — they asked about these two places, and the honest answer is the
+  // direction that exists, flagged as such rather than silently swapped.
+  const oneWay = {
+    stops: [{ atco: "A1", name: "Pier" }, { atco: "A3", name: "Station" }],
+    journeys: [journey("2026-09-17", "08:00",
+                       [[0, 28800, 28800, 0], [1, 30000, 30000, 0]])],
+  };
+  const got = pairInDoc(oneWay, "A3", "A1");
+  assert.ok(got, "the only direction that runs was refused");
+  assert.equal(got.reversed, true);
+  assert.equal(got.fromIndex, 0);
+  assert.equal(got.toIndex, 1);
+});
+
+test("clicking the wrong pole of a stop still finds the journey", () => {
+  // Each side of a road is its own ATCO code. A reader clicks a place, not a
+  // pole, so picking the eastbound stop at one end and the westbound at the
+  // other must not answer "no bus makes that trip".
+  const got = pairInDoc(PAIR_DOC, "B1", "A3");
+  assert.ok(got, "the pair was refused because the poles did not match");
+  assert.equal(got.fromIndex, 0);
+  assert.equal(got.toIndex, 2);
+});
+
+test("a service that calls at both stops but connects neither is refused", () => {
+  // The case the prefilter cannot see: the stop lists say yes and no bus we
+  // tracked ever ran from one to the other.
+  const doc = {
+    stops: [{ atco: "A1", name: "Pier" }, { atco: "A2", name: "Library" }],
+    journeys: [journey("2026-09-17", "08:00", [[0, 28800, 28800, 0]]),
+               journey("2026-09-17", "08:30", [[1, 30600, 30600, 0]])],
+  };
+  assert.equal(pairInDoc(doc, "A1", "A2"), null);
+});
+
+test("a stop the document has never heard of is refused", () => {
+  assert.equal(pairInDoc(PAIR_DOC, "A1", "ZZ9"), null);
+});
+
+test("the same stop twice is not a journey", () => {
+  assert.equal(pairInDoc(PAIR_DOC, "A1", "A1"), null);
+});
+
+
+// ── Choosing days, and only days we have ────────────────────
+//
+// The control used to offer All / Weekdays / Weekends regardless of what had
+// been recorded. With two days of evidence "Weekends" returns nothing — which
+// does not read as "we have not recorded a weekend", it reads as "no buses ran
+// at the weekend", which is a claim we would be making by accident.
+
+const dayOptions = vm.runInContext("journeyTimesDayOptions", app);
+
+const onDays = (...days) => days.map(d => ({ day: d, observedSecs: 60 }));
+
+test("a single weekday can be chosen", () => {
+  // 2026-09-16 is a Wednesday, the 17th a Thursday, the 23rd a Wednesday.
+  const times = onDays("2026-09-16", "2026-09-17", "2026-09-23");
+  assert.deepEqual(forDays(times, "dow-3").map(t => t.day),
+                   ["2026-09-16", "2026-09-23"]);
+  assert.equal(forDays(times, "dow-4").length, 1, "Thursday");
+  assert.equal(forDays(times, "dow-1").length, 0, "no Monday was recorded");
+});
+
+test("a date range includes both of its ends", () => {
+  const times = onDays("2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19");
+  const got = forDays(times, "range", { from: "2026-09-17", to: "2026-09-18" });
+  assert.deepEqual(got.map(t => t.day), ["2026-09-17", "2026-09-18"]);
+});
+
+test("half a range is still a range", () => {
+  // A reader who fills in only a start means "from then on". Answering nothing
+  // would be a worse reading of that than answering the obvious thing.
+  const times = onDays("2026-09-16", "2026-09-17", "2026-09-18");
+  assert.equal(forDays(times, "range", { from: "2026-09-17" }).length, 2);
+  assert.equal(forDays(times, "range", { to: "2026-09-17" }).length, 2);
+  assert.equal(forDays(times, "range", {}).length, 3, "no bounds excludes nothing");
+});
+
+test("the weekday is read at midday, so British Summer Time cannot move it", () => {
+  // Midnight UTC on a BST date is the previous evening in London. Taken that
+  // way a Thursday files itself under Wednesday, which would put a journey in
+  // the wrong bucket on roughly half the days of the year.
+  assert.equal(forDays(onDays("2026-09-17"), "dow-4").length, 1);
+  assert.equal(forDays(onDays("2026-09-17"), "dow-3").length, 0);
+});
+
+test("a weekday with no data is never offered", () => {
+  const options = dayOptions(["2026-09-16", "2026-09-17"]).map(o => o.value);
+  assert.ok(options.includes("all"));
+  assert.ok(!options.includes("dow-1"), "Monday was offered without a Monday");
+  assert.ok(!options.includes("weekend"), "weekends were offered without one");
+});
+
+test("weekday and weekend are offered only when both exist to compare", () => {
+  const mixed = dayOptions(["2026-09-17", "2026-09-19"]).map(o => o.value);
+  assert.ok(mixed.includes("weekday") && mixed.includes("weekend"));
+});
+
+test("one Wednesday is not offered as Wednesdays", () => {
+  // It would be the same figure as "all days" wearing a more confident label.
+  const one = dayOptions(["2026-09-16", "2026-09-17"]).map(o => o.value);
+  assert.ok(!one.includes("dow-3"));
+  const two = dayOptions(["2026-09-16", "2026-09-23"]).map(o => o.value);
+  assert.ok(two.includes("dow-3"), "two Wednesdays are worth averaging");
+});
+
+test("every option offered returns at least one journey", () => {
+  // The property that matters, stated directly: a control that can produce an
+  // empty chart from a full dataset is a broken tool, whatever its labels say.
+  const days = ["2026-09-16", "2026-09-17", "2026-09-19", "2026-09-23"];
+  const times = onDays(...days);
+  for (const option of dayOptions(days)) {
+    if (option.value === "range") continue;   // the reader sets its own bounds
+    assert.ok(forDays(times, option.value).length > 0,
+      `"${option.label}" was offered and matches no recorded day`);
+  }
+});
+
+test("a date range is not offered for a single day", () => {
+  assert.ok(!dayOptions(["2026-09-17"]).map(o => o.value).includes("range"));
+});
+
+test("the counts in the labels are the days behind them", () => {
+  const labels = Object.fromEntries(
+    dayOptions(["2026-09-16", "2026-09-17", "2026-09-19", "2026-09-23"])
+      .map(o => [o.value, o.label]));
+  assert.match(labels.all, /\(4\)/);
+  assert.match(labels.weekday, /\(3\)/);
+  assert.match(labels.weekend, /\(1\)/);
+  assert.match(labels["dow-3"], /Wednesdays \(2\)/);
+});
+
+
 // ── The numbers under the chart ─────────────────────────────
 
 test("one stuck bus does not become the headline", () => {

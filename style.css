@@ -6316,6 +6316,91 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   outline-offset: 2px;
 }
 
+/* The two date pickers, revealed only when the Days control asks for a range.
+   Same field styling as the controls above, so the row that appears reads as
+   part of the same form rather than something bolted on underneath it. */
+.jt-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin: -.5rem 0 1rem;
+  padding: .75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.jt-range .field {
+  flex: 1 1 10rem;
+  min-width: 0;            /* lets the flex item shrink; see the note above */
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+.jt-range .field-label {
+  font-size: .85rem;
+  color: var(--color-text-muted);
+}
+.jt-range .field-input {
+  width: 100%;
+  max-width: 100%;
+  min-height: 44px;        /* WCAG 2.5.8, and the house minimum */
+  padding: .5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.jt-range .field-input:focus-visible {
+  outline: 3px solid var(--color-link);
+  outline-offset: 2px;
+}
+
+/* The way out of a filter that emptied the chart. --color-link, never
+   --color-primary: the primary measures about 3.5:1 as text on these surfaces
+   and fails AA. There is a comment on .proposal-link saying the same thing,
+   and it has been walked into twice. */
+.jt-reset-days {
+  display: inline-block;
+  margin-top: .5rem;
+  min-height: 44px;
+  padding: .5rem .9rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-link);
+  font: inherit;
+  cursor: pointer;
+}
+.jt-reset-days:focus-visible {
+  outline: 3px solid var(--color-link);
+  outline-offset: 2px;
+}
+
+/* The opening state: an instruction, then the answer once two stops are
+   picked. Sized like a headline because on this view it is one. */
+.jt-verdict { margin: .5rem 0 .75rem; line-height: 1.5; font-size: 1.05rem; }
+.jt-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-top: 1rem;
+}
+/* A button that reads as prose, for the sentence it sits inside. --color-link,
+   never --color-primary: see the note on .jt-reset-days. */
+.jt-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-link);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.jt-link:focus-visible {
+  outline: 3px solid var(--color-link);
+  outline-offset: 2px;
+}
+
 .jt-headline { margin: .5rem 0 .75rem; line-height: 1.5; }
 
 .jt-chart {
