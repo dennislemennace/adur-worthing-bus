@@ -921,6 +921,7 @@ def test_objective_prose_matches_the_evidence_it_cites():
     items = objectives if isinstance(objectives, list) else objectives["objectives"]
 
     checked = 0
+    drifted = []
     for obj in items:
         for claim in obj.get("evidence_claims", []):
             assert claim["source"] == "boundary_evidence.json", claim
@@ -928,14 +929,31 @@ def test_objective_prose_matches_the_evidence_it_cites():
             for part in claim["path"].split("."):
                 assert part in node, f"{obj['id']}: no {claim['path']} in the evidence"
                 node = node[part]
-            assert str(node) == claim["quoted"], (
-                f"{obj['id']}: prose quotes {claim['quoted']} for "
-                f"{claim['path']}, but the generated evidence now says {node}")
-            assert claim["quoted"] in obj["description"], (
-                f"{obj['id']}: claims {claim['quoted']} but the description "
-                f"no longer contains it")
+            # Every drifted figure, not merely the first.
+            #
+            # This runs inside the weekly timetable build and refuses to publish
+            # while it fails, so reporting one number at a time turned a routine
+            # data refresh into four separate fifteen-minute rebuilds to
+            # discover four numbers. The temptation at that point is to switch
+            # the check off, and then the prose drifts unwatched — which is the
+            # one thing it exists to prevent. check_published.py reaches the
+            # same conclusion in its own words: stopping at the first failure
+            # turns a data check into a guessing game about how many more there
+            # are, and the count is itself the finding.
+            if str(node) != claim["quoted"]:
+                drifted.append(f"{obj['id']}: {claim['path']} — prose quotes "
+                               f"{claim['quoted']}, evidence now says {node}")
+            elif claim["quoted"] not in obj["description"]:
+                drifted.append(f"{obj['id']}: claims {claim['quoted']} for "
+                               f"{claim['path']} but the description no longer "
+                               f"contains it")
             checked += 1
 
+    assert not drifted, (
+        f"{len(drifted)} of {checked} quoted figures have drifted from the "
+        "generated evidence. Update data/objectives.json — both the `quoted` "
+        "value and the sentence in `description` that repeats it:\n  "
+        + "\n  ".join(drifted))
     assert checked, "no objective binds a figure to the generated evidence"
 
 
