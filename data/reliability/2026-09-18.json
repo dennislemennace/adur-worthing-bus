@@ -1,5 +1,5 @@
 {
- "as_of": "2026-09-20T22:05:30+00:00",
+ "as_of": "2026-09-21T00:59:48+00:00",
  "bands": {
   "early": 0,
   "late": 0,
@@ -66,7 +66,7 @@
   },
   "tracked_journeys": 0
  },
- "data_version": "timetable.sqlite sha256:8f2b8875532315e8",
+ "data_version": "timetable.sqlite sha256:08577f86a5c1b431",
  "day": "2026-09-18",
  "measured_only": true,
  "method": "Bus positions recorded from the Bus Open Data Service (SIRI-VM) once a minute are matched to scheduled journeys by position, service number and time (at most 5 minutes early or 25 minutes late, within 400 m of the route, heading-checked where published), each position judged at the time the operator recorded it rather than when it was read. A journey's arrival at a stop is the recorded position nearest that stop, where it came within 150 m, so times are accurate to about 30 seconds either way. Journeys with no tracked bus produce no observation and are counted as missing coverage, never as lateness. Lateness outside 5 minutes early to 25 minutes late cannot be observed at all: such a bus is matched to a neighbouring journey, so both tails of the distribution are censored and the share on time is optimistic. Coaches are excluded.",
