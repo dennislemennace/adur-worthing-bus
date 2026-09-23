@@ -25,13 +25,26 @@ const CONFIG = {
   // (signed URLs, an hour's life, no CORS header).
   JOURNEY_TIMES_BASE: "https://adur-worthing-submissions.dennislemennace.workers.dev/journey-times",
 
-  // The journey-time view is built but not announced. Three days of data, two
-  // of them part-days, is not something to put in front of a reader who will
-  // take "median 79 minutes" as a fact about the route. Reachable meanwhile
-  // with ?preview=1, which is how it gets looked at before it is published.
-  // Enable after verified recording coverage, replayable publication and
-  // independent timing checks; a full calendar week alone is insufficient.
-  JOURNEY_TIMES_PUBLIC: false,
+  // The journey-time view, in its Simple form, for everyone.
+  //
+  // It was held back while there were three days of data, two of them
+  // part-days. The note it carried named the bar for publishing: verified
+  // recording coverage, replayable publication and independent timing checks.
+  // Replayable publication and recording-coverage counts landed on 23
+  // September; independent timing checks have not been done. Simple is public
+  // on the owner's decision, answers only from the shared default filters, and
+  // says what it rests on beside every answer. Detailed and the delay map stay
+  // behind their own switches below.
+  JOURNEY_TIMES_PUBLIC: true,
+
+  // The view has two halves with separate switches, because they make claims
+  // of different strength. Simple answers a passenger in plain words from the
+  // shared default filters. Detailed exposes every evidence control, and the
+  // delay map colours roads — a claim about a place, which the 22 September
+  // review asked to pilot rather than publish. Both are reachable with
+  // ?preview=1 while off.
+  JOURNEY_TIMES_DETAILED_PUBLIC: false,
+  DELAY_MAP_PUBLIC: false,
 
   // Geographic centre of Adur & Worthing
   MAP_CENTER:  [50.818, -0.372],   // [lat, lon] — Worthing town centre area
@@ -525,6 +538,15 @@ async function init() {
     document.querySelector('[data-mode="journeytimes"]')?.remove();
     document.querySelector('#section-nav-menu [data-mode="journeytimes"]')?.remove();
   }
+  document.getElementById("jt-view-toggle")?.addEventListener("click", () =>
+    setJtView(jtView() === "detailed" ? "simple" : "detailed"));
+  document.getElementById("jt-sections")?.addEventListener("click", event => {
+    const button = event.target.closest("[data-jt-section]");
+    if (!button || button.dataset.jtSection === (jtEntry.section || "journey")) return;
+    jtEntry.section = button.dataset.jtSection;
+    track(`journey-times-section-${jtEntry.section}`);
+    renderJourneyTimes();
+  });
   // Changing any picker redraws; the data is already in memory, so this is
   // cheap and needs no spinner.
   for (const id of ["journey-times-service", "journey-times-direction",
@@ -2382,7 +2404,12 @@ async function journeyTimesResolvePair() {
     const pair = doc && journeyTimesPairInDoc(
       doc, jtEntry.a, jtEntry.b,
       state.stopData[jtEntry.a]?.name, state.stopData[jtEntry.b]?.name);
-    if (pair) runs.push({ entry, pair });
+    if (!pair) continue;
+    // How long each bus usually takes, on the filters both views share, so
+    // the Simple view can say which one is quicker without a second fetch.
+    const usual = journeyTimesSummary(journeyTimesFilter(
+      journeyTimesBetween(doc, pair.fromIndex, pair.toIndex), JT_DEFAULT_FILTERS));
+    runs.push({ entry, pair, medianSecs: usual ? usual.medianSecs : null });
   }
   if (!runs.length) {
     jtEntry.only = null;
@@ -2392,17 +2419,22 @@ async function journeyTimesResolvePair() {
   // The service with the most journeys between the two, so the view opens on
   // the strongest evidence rather than the lowest service number.
   runs.sort((x, y) => y.pair.journeys - x.pair.journeys);
+  // A service the reader chose from the Simple view's chips opens instead of
+  // the best-evidenced one; the chips themselves keep this order.
+  const chosen = runs.find(r => r.entry.file === jtEntry.prefer) || runs[0];
+  jtEntry.prefer = null;
+  jtEntry.runs = runs;
   jtEntry.only = runs.map(r => r.entry);
   jtEntry.mode = "picked";
-  jtEntry.note = runs[0].pair.reversed
+  jtEntry.note = chosen.pair.reversed
     ? "Showing the direction buses actually run between these two."
     : "";
   const serviceSel = document.getElementById("journey-times-service");
   if (serviceSel) {
     serviceSel.dataset.only = "";                 // force a rebuild
-    serviceSel.value = runs[0].entry.file;
+    serviceSel.value = chosen.entry.file;
   }
-  jtEntry.wanted = runs[0].pair;
+  jtEntry.wanted = chosen.pair;
   clearJourneyTimesEntryLayer();
   renderJourneyTimes();
   } catch (err) {
@@ -2443,6 +2475,11 @@ function renderJourneyTimesIntro(opts = {}) {
       <strong>to</strong>.</p>
       <p class="jt-provenance">From ${nameOf(jtEntry.a)}. Click it again to
         change it.</p>`;
+  } else if (jtView() === "simple") {
+    lead = `<p class="jt-verdict"><strong>How long will my bus really take?</strong></p>
+      <p>Tap the stop you are starting from on the map, then the stop you are
+        going to. You will see how long buses really took between them, against
+        what the timetable says.</p>`;
   } else {
     lead = `<p class="jt-verdict"><strong>Pick any two stops on the map</strong>
       to see how long that journey really takes.</p>
@@ -2450,15 +2487,41 @@ function renderJourneyTimesIntro(opts = {}) {
         promised. Measured from the operators' own vehicle feed.</p>`;
   }
 
+  const simpleStart = jtView() === "simple" && !jtEntry.a && opts.noneFound === undefined;
   host.innerHTML = `${lead}
+    ${simpleStart ? `<div class="jt-popular" hidden></div>` : ""}
     <p class="jt-entry-actions">
       ${jtEntry.a ? `<button type="button" class="jt-reset-days"
          data-act="clear">Start again</button>` : ""}
-      <button type="button" class="jt-reset-days" data-act="browse">Browse
-        every service</button>
+      ${jtDetailedAvailable() ? `<button type="button" class="jt-reset-days" data-act="browse">Browse
+        every service</button>` : ""}
     </p>`;
 
+  if (simpleStart) {
+    Promise.all([loadJourneyTimesIndex(), loadJourneyPresets()]).then(([index, presets]) => {
+      const box = host.querySelector(".jt-popular");
+      const found = jtPopularJourneys(index, presets);
+      if (!box || !found.length || jtEntry.mode !== "start" || jtEntry.a) return;
+      box.innerHTML = `<p class="jc-presets-label">Or try a popular journey</p>
+        <div class="jt-chips">${found.map(p => `<button type="button" class="jt-chip"
+          data-from="${escapeAttr(p.from)}" data-to="${escapeAttr(p.to)}">${
+          escapeHtml(p.label || `${p.from_name} → ${p.to_name}`)}</button>`).join("")}</div>`;
+      box.hidden = false;
+      box.addEventListener("click", event => {
+        const chip = event.target.closest("[data-from]");
+        if (!chip) return;
+        jtEntry.a = chip.dataset.from;
+        jtEntry.b = chip.dataset.to;
+        track("journey-times-popular");
+        journeyTimesResolvePair();
+      });
+    }).catch(() => { /* examples are a convenience; the map still works */ });
+  }
+
   host.querySelector('[data-act="browse"]')?.addEventListener("click", () => {
+    // Browsing every service is the expert's way in: the service, direction
+    // and stop lists are Detailed's controls.
+    jtEntry.view = "detailed";
     jtEntry.mode = "browse";
     jtEntry.only = null;
     jtEntry.a = jtEntry.b = null;
@@ -2784,7 +2847,23 @@ function jtMinutes(secs) {
  *  line drawn at the median scheduled duration is up to twelve minutes wrong
  *  about any individual 700 journey, in both directions.
  */
-function journeyTimesChart(timings, summary, mode = "delay", width = 640) {
+/** A timetable series as a step line: each departure's promise held until
+ *  the next one. Broken across a gap of more than ninety minutes, so the
+ *  last bus of the night does not appear to promise something at 3 a.m. */
+function jtStepPath(points, x, y) {
+  const clock = s => ((s % 86400) + 86400) % 86400;
+  let d = "", last = null;
+  for (const pt of points) {
+    const t = clock(pt.departSecs);
+    const px = x(t).toFixed(1), py = y(pt.scheduledSecs).toFixed(1);
+    d += last == null || t - last > 90 * 60 ? `M${px} ${py}` : `H${px}V${py}`;
+    last = t;
+  }
+  return d;
+}
+
+function journeyTimesChart(timings, summary, mode = "delay", width = 640, opts = {}) {
+  const simple = opts.variant === "simple";
   const delayed = journeyTimesDelays(timings);
   // Delay needs promises to compare against. With none, the only honest chart
   // is the raw duration, and saying so beats an empty frame.
@@ -2804,7 +2883,9 @@ function journeyTimesChart(timings, summary, mode = "delay", width = 640) {
   } else {
     // Zero-based. A truncated axis turns a four-minute spread into a cliff,
     // which is the fastest way to lose an argument you were winning.
-    lo = 0; hi = Math.max(...values, summary.scheduledSecs || 0) * 1.1;
+    const promised = ((opts.schedule && opts.schedule.series) || [])
+      .flatMap(s => s.points.map(pt => pt.scheduledSecs));
+    lo = 0; hi = Math.max(...values, summary.scheduledSecs || 0, ...promised) * 1.1;
   }
   const x = secs => L + (secs / 86400) * (W - L - R);
   const y = secs => T + (1 - (secs - lo) / (hi - lo)) * (H - T - B);
@@ -2832,9 +2913,23 @@ function journeyTimesChart(timings, summary, mode = "delay", width = 640) {
       + `text-anchor="end">${showDelay && m > 0 ? "+" : ""}${m}</text>`);
   }
 
+  // The timetable across the day, where it is known: every departure's own
+  // promise rather than one median, which the comment above the Show control
+  // measures as up to twelve minutes wrong about a single 700 journey.
+  const timetable = !showDelay && opts.schedule && opts.schedule.series.length
+    ? opts.schedule.series.map(s =>
+        `<path class="jt-timetable jt-timetable--${s.dayType}" d="${jtStepPath(s.points, x, y)}"></path>`
+        + s.points.map(pt =>
+            `<circle class="jt-timetable-stop jt-timetable-stop--${s.dayType}" `
+            + `cx="${x(((pt.departSecs % 86400) + 86400) % 86400).toFixed(1)}" `
+            + `cy="${y(pt.scheduledSecs).toFixed(1)}" r="2.5"></circle>`).join("")).join("")
+    : "";
+
   const zeroLabel = showDelay
     ? `<text class="jt-axis jt-promise-label" x="${W - R}" `
       + `y="${(y(0) - 6).toFixed(1)}" text-anchor="end">${punctuality ? "on time at destination" : "no extra section time"}</text>`
+    : timetable
+      ? timetable
     : summary.scheduledSecs != null
       ? `<line class="jt-promise" x1="${L}" y1="${y(summary.scheduledSecs).toFixed(1)}" `
         + `x2="${W - R}" y2="${y(summary.scheduledSecs).toFixed(1)}"></line>`
@@ -2881,16 +2976,900 @@ function journeyTimesChart(timings, summary, mode = "delay", width = 640) {
     <text class="jt-axis jt-axis-title" x="${L}" y="${T - 7}">${axisTitle}</text>
   </svg>
   <ul class="jt-legend">
-    <li><span class="jt-key jt-key--measured"></span>observed</li>
-    <li><span class="jt-key jt-key--estimated"></span>part interpolated: the bus
+    <li><span class="jt-key jt-key--measured"></span>${simple
+      ? "each dot is a real journey we tracked" : "observed"}</li>
+    ${simple ? "" : `<li><span class="jt-key jt-key--estimated"></span>part interpolated: the bus
       was not seen at one end, so its time there is worked out from the stops
-      either side</li>
+      either side</li>`}
     ${showDelay
       ? `<li><span class="jt-key jt-key--zero"></span>${punctuality ? "above zero is late at the destination" : "above zero is time gained against this section’s schedule"}</li>`
+      : timetable
+        ? opts.schedule.series.map(s => `<li><span class="jt-key jt-key--timetable jt-key--timetable-${s.dayType}"></span>${
+            opts.schedule.source === "recorded"
+              ? `what the timetable promised, ${JT_DAY_TYPE_LABELS[s.dayType] || s.dayType}`
+              : `what the timetable promised on the journeys we tracked, ${
+                  JT_DAY_TYPE_LABELS[s.dayType] || s.dayType} (gaps where none were seen)`}</li>`).join("")
       : summary.scheduledSecs != null
         ? `<li><span class="jt-key jt-key--promise"></span>median scheduled time
            across these journeys</li>` : ""}
   </ul>`;
+}
+
+// ── Simple and Detailed: one tool, two ways in ───────────────────
+//
+// Simple answers a passenger's question — how long will it take, and how long
+// should I allow? — and Detailed keeps every evidence control for operators and
+// councils. They are two renderers over one selection: the selects stay the
+// single source of truth for service, direction and stops in both, so switching
+// never loses a choice, and both start from the same filters, so one trip can
+// never show two different headline numbers.
+
+/** The evidence filters both views start from. Detailed lets an expert change
+ *  them; Simple never does.
+ *
+ *  Flagged journeys are included. From 23 September every journey recorded
+ *  under the earlier matching method carries a flag saying so, and excluding
+ *  them would have left the passenger view with a single day of evidence.
+ *  Simple says how many of its journeys that covers instead of hiding them. */
+const JT_DEFAULT_FILTERS = Object.freeze({
+  start: "00:00", end: "23:59", evidence: "measured",
+  identity: "all", quality: "all", cohort: "all",
+});
+
+/** When a passenger travels. The hours are the delay map's own groups, so the
+ *  two views compare like with like. */
+const JT_PERIODS = Object.freeze([
+  { key: "any", label: "Any time", days: "all", start: "00:00", end: "23:59",
+    hint: "every day, all day" },
+  { key: "07-10", label: "Morning peak", days: "weekday", start: "07:00", end: "09:59",
+    hint: "07:00–10:00 on weekdays" },
+  { key: "10-16", label: "Daytime", days: "weekday", start: "10:00", end: "15:59",
+    hint: "10:00–16:00 on weekdays" },
+  { key: "16-19", label: "Evening peak", days: "weekday", start: "16:00", end: "18:59",
+    hint: "16:00–19:00 on weekdays" },
+  { key: "other", label: "Early & late", days: "weekday", start: "19:00", end: "06:59",
+    hint: "before 07:00 or after 19:00 on weekdays" },
+  { key: "weekend", label: "Weekend", days: "weekend", start: "00:00", end: "23:59",
+    hint: "Saturdays and Sundays" },
+]);
+
+function jtPeriod(key) { return JT_PERIODS.find(p => p.key === key) || JT_PERIODS[0]; }
+
+/** The filters a period means, on top of the shared defaults. */
+function journeyTimesPeriodFilters(key) {
+  const p = jtPeriod(key);
+  return { ...JT_DEFAULT_FILTERS, start: p.start, end: p.end };
+}
+
+/** The journeys in one period: its days, then its hours. */
+function journeyTimesInPeriod(all, key) {
+  return journeyTimesFilter(journeyTimesForDays(all, jtPeriod(key).days),
+    journeyTimesPeriodFilters(key));
+}
+
+function jtDayType(day) {
+  const dow = jtWeekday(day);
+  return dow === 6 ? "saturday" : dow === 0 ? "sunday" : "weekday";
+}
+
+const JT_DAY_TYPE_LABELS = Object.freeze({
+  weekday: "weekdays", saturday: "Saturdays", sunday: "Sundays",
+});
+
+/** When a trip is slowest and quickest, where the evidence can say.
+ *
+ *  A period is compared only with at least JT_PERCENTILE_FLOOR journeys: a
+ *  "slowest time of day" drawn from three buses is one bus that got stuck.
+ *  The spread is returned rather than judged, so the caller can say "much the
+ *  same all day" when it is small instead of inventing a rush hour. */
+function journeyTimesPeriodInsight(all) {
+  const rows = [];
+  for (const p of JT_PERIODS) {
+    if (p.key === "any") continue;
+    const s = journeyTimesSummary(journeyTimesInPeriod(all, p.key));
+    if (s && s.journeys >= JT_PERCENTILE_FLOOR) {
+      rows.push({ period: p, medianSecs: s.medianSecs, journeys: s.journeys });
+    }
+  }
+  if (rows.length < 2) return null;
+  rows.sort((a, b) => a.medianSecs - b.medianSecs);
+  const quickest = rows[0], slowest = rows[rows.length - 1];
+  return { quickest, slowest, spreadSecs: slowest.medianSecs - quickest.medianSecs,
+           compared: rows.length };
+}
+
+/** Points in the order a clock reads them, each departure once. */
+function jtScheduleSorted(points) {
+  const clock = s => ((s % 86400) + 86400) % 86400;
+  const seen = new Set();
+  return points
+    .filter(pt => {
+      const key = `${pt.departSecs}|${pt.scheduledSecs}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => clock(a.departSecs) - clock(b.departSecs) || a.scheduledSecs - b.scheduledSecs);
+}
+
+const JT_DAY_TYPE_ORDER = ["weekday", "saturday", "sunday"];
+
+/** Where two stops fall in a recorded timetable profile, in route order. */
+function jtScheduleCalls(calls, fromIndex, toIndex) {
+  const a = calls.findIndex(c => c[0] === fromIndex);
+  if (a < 0) return null;
+  const b = calls.findIndex((c, i) => i > a && c[0] === toIndex);
+  return b < 0 ? null : [calls[a], calls[b]];
+}
+
+/** What the timetable promised between two stops, across the day.
+ *
+ *  Drawn from the timetable recorded each night beside the observations, so it
+ *  covers every scheduled departure — not only the journeys a bus was seen
+ *  making — and survives the weekly rebuild that replaces the only other copy.
+ *  One series per day type in view, from that type's latest recorded day,
+ *  because weekday, Saturday and Sunday timetables differ and a single line
+ *  through all three would be a promise none of them made.
+ *
+ *  Documents built before the timetable was recorded fall back to the promises
+ *  the tracked journeys carry, and say so: that line has a gap wherever no bus
+ *  was seen, and is biased towards the journeys that were. */
+function journeyTimesScheduleLine(doc, fromIndex, toIndex, days, timings = []) {
+  const schedule = doc && doc.schedule;
+  const latest = new Map();
+  if (schedule && schedule.days && schedule.sets && schedule.profiles) {
+    for (const day of [...(days || [])].sort()) {
+      if (schedule.days[day] == null) continue;
+      latest.set(jtDayType(day), { day, set: schedule.days[day] });
+    }
+  }
+  const series = [];
+  if (latest.size) {
+    for (const [dayType, { day, set }] of latest) {
+      const points = [];
+      for (const [tripId, profile, start] of schedule.sets[set] || []) {
+        const pair = jtScheduleCalls(schedule.profiles[profile] || [], fromIndex, toIndex);
+        if (!pair) continue;
+        const [a, b] = pair;
+        points.push({ departSecs: start + a[1], scheduledSecs: b[1] - a[1],
+                      promised: a[2] === 1 && b[2] === 1, tripId });
+      }
+      if (points.length) series.push({ dayType, day, points: jtScheduleSorted(points) });
+    }
+    if (series.length) {
+      series.sort((a, b) => JT_DAY_TYPE_ORDER.indexOf(a.dayType) - JT_DAY_TYPE_ORDER.indexOf(b.dayType));
+      return { source: "recorded", series };
+    }
+  }
+  const byType = new Map();
+  for (const t of timings || []) {
+    if (!t.promised || t.scheduledDepartSecs == null) continue;
+    const type = jtDayType(t.day);
+    if (!byType.has(type)) byType.set(type, []);
+    byType.get(type).push({ departSecs: t.scheduledDepartSecs, scheduledSecs: t.scheduledSecs,
+                            promised: true });
+  }
+  for (const [dayType, points] of byType) series.push({ dayType, points: jtScheduleSorted(points) });
+  series.sort((a, b) => JT_DAY_TYPE_ORDER.indexOf(a.dayType) - JT_DAY_TYPE_ORDER.indexOf(b.dayType));
+  return { source: series.length ? "journeys" : null, series };
+}
+
+/** How many journeys the timetable scheduled between two stops, and how many
+ *  of those a bus was tracked making.
+ *
+ *  The denominator every other figure here quietly depends on: "usually 34
+ *  minutes" from 300 of 310 scheduled buses is a different claim from the same
+ *  figure drawn from 30 of them. Only days with a recorded timetable count,
+ *  and only departures inside the period being looked at. */
+function journeyTimesCoverage(doc, fromIndex, toIndex, days, all, periodKey = "any", hours = null) {
+  const schedule = doc && doc.schedule;
+  if (!schedule || !schedule.days || !schedule.sets) return null;
+  const p = jtPeriod(periodKey);
+  const lo = jtClockMinutes((hours && hours.start) || p.start);
+  const hi = jtClockMinutes((hours && hours.end) || p.end);
+  const inHours = secs => {
+    const m = Math.floor((((secs % 86400) + 86400) % 86400) / 60);
+    return lo <= hi ? m >= lo && m <= hi : m >= lo || m <= hi;
+  };
+  const inDays = day => p.days === "all"
+    || (p.days === "weekend") === (jtDayType(day) !== "weekday");
+  const tracked = new Set((all || []).map(t => `${t.day}|${t.tripId}`));
+  let scheduled = 0, seen = 0, counted = 0;
+  for (const day of days || []) {
+    if (!inDays(day) || schedule.days[day] == null) continue;
+    counted++;
+    for (const [tripId, profile, start] of schedule.sets[schedule.days[day]] || []) {
+      const pair = jtScheduleCalls(schedule.profiles[profile] || [], fromIndex, toIndex);
+      if (!pair || !inHours(start + pair[0][1])) continue;
+      scheduled++;
+      if (tracked.has(`${day}|${tripId}`)) seen++;
+    }
+  }
+  return counted ? { scheduled, tracked: seen, days: counted } : null;
+}
+
+/** The delay map's colours, in minutes a bus loses on one stretch.
+ *
+ *  Time *lost on the stretch*, never lateness: lateness carries downstream, so
+ *  a lateness map paints every road after a jam red and points at the wrong
+ *  one. Ten minutes late at both ends of a stretch is nothing lost on it.
+ *
+ *  A stretch below the evidence floor gets no colour at all — "none", drawn
+ *  grey and dashed — rather than green: a missing measurement must never read
+ *  as "no delay". The floor is checked here as well as at publication. */
+const DELAY_BANDS = Object.freeze([
+  { key: "green",  label: "Under 1 min",     upTo: 60 },
+  { key: "yellow", label: "1–2 min",         upTo: 120 },
+  { key: "amber",  label: "2–2½ min",        upTo: 150 },
+  { key: "red",    label: "2½ min or more",  upTo: Infinity },
+]);
+
+function delayBand(cell, floor) {
+  if (!cell || !cell.sample_sufficient || cell.median_gained_secs == null) return "none";
+  if (floor && ((cell.journeys || 0) < (floor.journeys || 0)
+                || (cell.distinct_days || 0) < (floor.distinct_days || 0))) return "none";
+  const band = DELAY_BANDS.find(b => cell.median_gained_secs < b.upTo);
+  return band ? band.key : "red";
+}
+
+/** Whether the Detailed view and the delay map may be offered. Each has its
+ *  own switch, so Simple can be public while they are still being judged. */
+function jtDetailedAvailable() { return Boolean(CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC) || previewEnabled(); }
+function jtDelayMapAvailable() { return Boolean(CONFIG.DELAY_MAP_PUBLIC) || previewEnabled(); }
+
+/** Simple or Detailed. A link wins over a remembered choice, so an officer's
+ *  shared link opens where it was made; a link from before the two views
+ *  existed was made in the only tool there was, which is Detailed. */
+function jtView() {
+  if (!jtDetailedAvailable()) return "simple";
+  if (jtEntry.view === "simple" || jtEntry.view === "detailed") return jtEntry.view;
+  let params = null;
+  try { params = new URLSearchParams(location.search); } catch { /* no URL */ }
+  const linked = params && params.get("jt-view");
+  if (linked === "simple" || linked === "detailed") return linked;
+  try {
+    const saved = localStorage.getItem("jt-view");
+    if (saved === "simple" || saved === "detailed") return saved;
+  } catch { /* storage blocked */ }
+  if (params && params.has("jt-service")) return "detailed";
+  return "simple";
+}
+
+/** Keep the view's switches in step with its state. Run on every render, so a
+ *  flag or a link can never leave a switch showing that leads nowhere. */
+function jtSyncChrome() {
+  const view = jtView();
+  const toggle = document.getElementById("jt-view-toggle");
+  if (toggle) {
+    toggle.hidden = !jtDetailedAvailable();
+    toggle.setAttribute("aria-pressed", view === "detailed" ? "true" : "false");
+  }
+  const sections = document.getElementById("jt-sections");
+  if (!jtDelayMapAvailable()) jtEntry.section = "journey";
+  if (sections) {
+    sections.hidden = !jtDelayMapAvailable();
+    for (const button of sections.querySelectorAll("[data-jt-section]")) {
+      button.setAttribute("aria-pressed",
+        (jtEntry.section || "journey") === button.dataset.jtSection ? "true" : "false");
+    }
+  }
+  // Simple writes its own introduction into the answer; the expert one would
+  // sit above it saying the same thing in different words.
+  const intro = document.getElementById("journey-times-intro");
+  if (intro) intro.hidden = view === "simple";
+  const panel = document.getElementById("tab-content-journey-times");
+  if (panel && panel.dataset) panel.dataset.jtView = view;
+}
+
+function setJtView(view) {
+  if (view === "detailed" && !jtDetailedAvailable()) return;
+  jtEntry.view = view;
+  try { localStorage.setItem("jt-view", view); } catch { /* storage blocked */ }
+  track(`journey-times-view-${view}`);
+  renderJourneyTimes();
+}
+
+/** "Tue 22 Sep", read at midday UTC so the clocks changing cannot move it. */
+function jtDayLabel(day, weekday = true) {
+  const at = new Date(`${day}T12:00:00Z`);
+  if (Number.isNaN(at.getTime())) return String(day || "");
+  return new Intl.DateTimeFormat("en-GB", {
+    ...(weekday ? { weekday: "short" } : {}), day: "numeric", month: "short", timeZone: "UTC",
+  }).format(at);
+}
+
+/** One journey, for a passenger: when it left and how long it took. */
+function jtSimplePointHtml(t) {
+  return `<strong>${escapeHtml(jtDayLabel(t.day))}, left at ${escapeHtml(t.start)}</strong>
+    <p>Took ${jtMinutes(t.observedSecs)}${t.promised
+      ? `; the timetable allowed ${jtMinutes(t.scheduledSecs)}` : ""}.</p>`;
+}
+
+function jtPeriodChipsHtml(current) {
+  return `<fieldset class="jt-chips jt-when">
+    <legend>When do you travel?</legend>
+    ${JT_PERIODS.map(p => `<button type="button" class="jt-chip" data-jt-period="${escapeAttr(p.key)}"
+      aria-pressed="${p.key === current ? "true" : "false"}"
+      title="${escapeAttr(p.hint)}">${escapeHtml(p.label)}</button>`).join("")}
+  </fieldset>`;
+}
+
+/** The buses that make this trip, when there is more than one, each with how
+ *  long it usually takes. Which is quicker is often the whole question. */
+function jtServiceChipsHtml(current) {
+  const runs = jtEntry.runs || [];
+  if (runs.length < 2) return "";
+  return `<div class="jt-chips jt-which" role="group" aria-label="Which bus">
+    ${runs.map(r => `<button type="button" class="jt-chip" data-jt-file="${escapeAttr(r.entry.file)}"
+      aria-pressed="${r.entry.file === current ? "true" : "false"}">
+      <span class="jt-chip-main">${escapeHtml(journeyTimesServiceLabel(r.entry))}</span>
+      ${r.medianSecs != null
+        ? `<span class="jt-chip-note">usually ${jtMinutes(r.medianSecs)}</span>` : ""}</button>`).join("")}
+  </div>`;
+}
+
+/** The passenger's answer.
+ *
+ *  How long it usually takes, how long to allow, when it is slowest, and every
+ *  journey against the timetable, in words before numbers. Built from the same
+ *  selection and the same default filters as Detailed, so the two can never
+ *  disagree about the trip; what Simple leaves out is controls, not evidence. */
+function renderJourneyTimesSimple(ctx) {
+  const { host, doc, fromIndex, toIndex, all, index, serviceFile } = ctx;
+  const period = jtPeriod(jtEntry.period || "any");
+  const timings = journeyTimesInPeriod(all, period.key);
+  const summary = journeyTimesSummary(timings);
+  const name = i => escapeHtml(prettifyName(doc.stops[i]?.name || ""));
+  const inView = day => period.days === "all"
+    || (period.days === "weekend") === (jtDayType(day) !== "weekday");
+  const days = (doc.days || []).filter(inView);
+
+  const route = `<div class="jt-simple-route">
+      <p class="jt-simple-stops"><span>${name(fromIndex)}</span>
+        <span class="jt-simple-arrow" aria-hidden="true">→</span>
+        <span class="visually-hidden">to</span> <span>${name(toIndex)}</span></p>
+      <button type="button" class="jt-link" data-act="change">Change stops</button>
+    </div>
+    ${jtEntry.note ? `<p class="jt-provenance">${escapeHtml(jtEntry.note)}</p>` : ""}
+    ${jtServiceChipsHtml(serviceFile)}`;
+
+  let answer;
+  if (!summary) {
+    answer = all.length
+      ? `<p class="jt-verdict">We have no journeys between these stops in the
+           ${escapeHtml(period.label.toLowerCase())} (${escapeHtml(period.hint)}).
+           Try another time.</p>`
+      : `<p class="jt-verdict">We have not tracked a bus making this trip yet.</p>
+         <p>That does not mean there isn't one: our recordings do not cover every
+           journey. The <button type="button" class="jt-link" data-go="tickets">journey
+           and ticket checker</button> shows the timetable.</p>`;
+  } else {
+    const insight = journeyTimesPeriodInsight(all);
+    const insightText = !insight ? ""
+      : insight.spreadSecs < 120
+        ? "Much the same whatever time of day you travel."
+        : `Slowest in the ${escapeHtml(insight.slowest.period.label.toLowerCase())},
+           usually ${jtMinutes(insight.slowest.medianSecs)}. Quickest in the
+           ${escapeHtml(insight.quickest.period.label.toLowerCase())},
+           usually ${jtMinutes(insight.quickest.medianSecs)}.`;
+    const schedule = journeyTimesScheduleLine(doc, fromIndex, toIndex, days, timings);
+    const coverage = journeyTimesCoverage(doc, fromIndex, toIndex, days, all, period.key);
+    const legacy = timings.filter(t => (t.qualityFlags || []).includes("legacy_matching_unverified")).length;
+    const first = summary.days[0], last = summary.days[summary.days.length - 1];
+    answer = `
+      <div class="jt-simple-answer">
+        <p class="jt-simple-usually">Usually takes <strong>${jtMinutes(summary.medianSecs)}</strong></p>
+        ${summary.scheduledSecs != null
+          ? `<p class="jt-simple-timetable">The timetable says ${jtMinutes(summary.scheduledSecs)}</p>` : ""}
+        ${summary.p90Secs != null
+          ? `<p class="jt-simple-allow">Allow <strong>${jtMinutes(summary.p90Secs)}</strong>
+               to be safe: 9 in 10 of these journeys were quicker.</p>`
+          : `<p class="jt-simple-allow jt-thin">Too few journeys yet to say how long to
+               allow (${summary.journeys} of the ${JT_PERCENTILE_FLOOR} needed).</p>`}
+      </div>
+      ${insightText ? `<p class="jt-simple-insight">${insightText}</p>` : ""}
+      <figure class="jt-simple-chart">
+        <figcaption>Every journey through the day</figcaption>
+        <div class="jt-chart-content">${journeyTimesChart(timings, summary, "duration",
+          host.clientWidth || 640, { schedule, variant: "simple" })}</div>
+      </figure>
+      <div class="jt-point-detail" aria-live="polite">Tap a dot to see that journey.</div>
+      <p class="jt-simple-trust">Based on ${summary.journeys} journeys timed at both
+        stops over ${summary.days.length} ${summary.days.length === 1 ? "day" : "days"}
+        (${escapeHtml(jtDayLabel(first, false))}${first === last ? ""
+          : ` to ${escapeHtml(jtDayLabel(last, false))}`}), from the buses' own
+        location reports.${coverage && coverage.scheduled
+          ? ` The timetable scheduled ${coverage.scheduled} between these stops on
+             those days, and we tracked ${coverage.tracked} of them.` : ""}${legacy
+          ? ` ${legacy} of these were recorded before 23 September, when our checks
+             on which bus was which were less strict.` : ""}</p>
+      <p class="jt-simple-links">
+        <a class="jt-link" href="about.html#journey-times">How we measure this</a>
+        ${jtDetailedAvailable()
+          ? `<button type="button" class="jt-link" data-act="detailed">See all the data</button>` : ""}
+      </p>`;
+  }
+
+  host.innerHTML = `<div class="jt-simple">${route}${jtPeriodChipsHtml(period.key)}${answer}</div>`;
+
+  const handle = event => {
+    if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
+    const target = event.target.closest("[data-jt-period], [data-jt-file], [data-act], [data-go], [data-jt-point]");
+    if (!target) return;
+    if (target.dataset.jtPoint != null) {
+      event.preventDefault();
+      const t = timings[Number(target.dataset.jtPoint)];
+      const detail = host.querySelector(".jt-point-detail");
+      if (t && detail) detail.innerHTML = jtSimplePointHtml(t);
+      return;
+    }
+    if (event.type === "keydown") return;       // buttons fire click themselves
+    if (target.dataset.jtPeriod) {
+      jtEntry.period = target.dataset.jtPeriod;
+      track(`journey-times-period-${jtEntry.period}`);
+      renderJourneyTimesSimple(ctx);
+    } else if (target.dataset.jtFile) {
+      if (target.dataset.jtFile === serviceFile) return;
+      jtEntry.prefer = target.dataset.jtFile;
+      journeyTimesResolvePair();
+    } else if (target.dataset.act === "change") {
+      jtEntry.mode = "start";
+      jtEntry.a = jtEntry.b = null;
+      jtEntry.only = jtEntry.wanted = jtEntry.runs = null;
+      jtEntry.note = "";
+      renderJourneyTimes();
+    } else if (target.dataset.act === "detailed") {
+      setJtView("detailed");
+    } else if (target.dataset.go === "tickets") {
+      setViewMode("tickets");
+    }
+  };
+  host.onclick = handle;
+  host.onkeydown = handle;
+}
+
+/** Up to four worked examples a passenger can open with one tap: the site's own
+ *  journey presets, offered only where both ends share a published service, so
+ *  a chip never leads straight to "no journeys found". */
+function jtPopularJourneys(index, presets) {
+  return (presets || []).filter(p => p && p.from && p.to).filter(p => journeyTimesCandidateServices(index,
+    journeyTimesServicesAt(p.from), journeyTimesServicesAt(p.to)).length).slice(0, 4);
+}
+
+// ── Where buses lose time: the delay map ─────────────────────────
+//
+// Coloured road stretches, not a blurred heatmap. A density heatmap glows
+// wherever there are many buses, so a busy town centre reads as a hotspot
+// whatever the buses are doing; it also merges the two directions of a road and
+// implies junction-level precision the evidence does not have, since one
+// stretch can span several stops. A line per stretch, coloured by the time
+// buses lose on it, reads the way sat-nav traffic does and is honest about how
+// finely the data can locate anything.
+
+/** What a passenger picks from: the delay map's own periods, weekdays, plus a
+ *  weekend daytime. Each is one group in the published cells, so a colour
+ *  always means one comparable set of journeys. */
+const DELAY_SIMPLE_SLOTS = Object.freeze([
+  { key: "07-10", label: "Morning peak", dayType: "weekday", period: "07-10",
+    hint: "07:00–10:00 on weekdays" },
+  { key: "10-16", label: "Daytime", dayType: "weekday", period: "10-16",
+    hint: "10:00–16:00 on weekdays" },
+  { key: "16-19", label: "Evening peak", dayType: "weekday", period: "16-19",
+    hint: "16:00–19:00 on weekdays" },
+  { key: "other", label: "Early & late", dayType: "weekday", period: "other",
+    hint: "before 07:00 or after 19:00 on weekdays" },
+  { key: "weekend", label: "Weekend daytime", dayType: "weekend", period: "10-16",
+    hint: "10:00–16:00 on Saturdays and Sundays" },
+]);
+
+const DELAY_PERIOD_LABELS = Object.freeze({
+  "07-10": "morning peak", "10-16": "daytime", "16-19": "evening peak", other: "early and late",
+});
+
+const jtDelay = {
+  service: null, direction: null, slot: "07-10",
+  // Detailed's own controls.
+  dayType: "weekday", time: "07-10", hour: 8, exploratory: false,
+  layer: null, legend: null, lines: new Map(), epoch: 0, selected: null, fittedFor: "",
+};
+
+/** The time slot being shown, whichever view chose it. */
+function delaySlot(view = jtView()) {
+  if (view === "simple") {
+    const s = DELAY_SIMPLE_SLOTS.find(x => x.key === jtDelay.slot) || DELAY_SIMPLE_SLOTS[0];
+    return { dayType: s.dayType, resolution: "period", period: s.period, label: s.label, hint: s.hint };
+  }
+  const days = jtDelay.dayType === "weekend" ? "weekends" : "weekdays";
+  if (jtDelay.time === "hour") {
+    const h = Math.max(0, Math.min(23, Number(jtDelay.hour) || 0));
+    const hh = n => String(n % 24).padStart(2, "0");
+    return { dayType: jtDelay.dayType, resolution: "hour", hour: h,
+             label: `${hh(h)}:00–${hh(h + 1)}:00`, hint: `${hh(h)}:00–${hh(h + 1)}:00 on ${days}` };
+  }
+  const label = DELAY_PERIOD_LABELS[jtDelay.time] || jtDelay.time;
+  return { dayType: jtDelay.dayType, resolution: "period", period: jtDelay.time,
+           label: `${label[0].toUpperCase()}${label.slice(1)}`, hint: `${label} on ${days}` };
+}
+
+/** The figure a stretch is coloured by, for one time slot.
+ *
+ *  Several route variants of one service can share a piece of road, and each
+ *  carries its own cell. The one that clears the floor speaks for the stretch,
+ *  then the one with the most journeys; the latest schedule era only, because a
+ *  stretch whose timetable changed is a different promise. */
+function delayCellFor(doc, stretchId, slot) {
+  const cells = ((doc && doc.cells) || []).filter(c => c.stretch === stretchId
+    && c.latest !== false && c.day_type === slot.dayType
+    && (slot.resolution === "hour"
+      ? c.resolution === "hour" && c.hour === slot.hour
+      : c.resolution === "period" && c.period === slot.period));
+  if (!cells.length) return null;
+  return cells.sort((a, b) => (Number(Boolean(b.sample_sufficient)) - Number(Boolean(a.sample_sufficient)))
+    || ((b.journeys || 0) - (a.journeys || 0)))[0];
+}
+
+/** "40 seconds", "1.5 min": finer than whole minutes, because the bands are. */
+function delayAmount(secs) {
+  const s = Math.abs(secs);
+  if (s < 60) return `${Math.max(10, Math.round(s / 10) * 10)} seconds`;
+  return `${(s / 60).toFixed(1).replace(/\.0$/, "")} min`;
+}
+
+/** How often a bus lost ten minutes or more, in words. */
+function delayOneIn(cell) {
+  if (!cell || !cell.traversals) return "";
+  if (!cell.at_least_600s) return "None of them lost 10 minutes or more here.";
+  const n = Math.max(1, Math.round(cell.traversals / cell.at_least_600s));
+  return n === 1 ? "Most of them lost 10 minutes or more here."
+    : `About 1 in ${n} lost 10 minutes or more here.`;
+}
+
+/** What a stretch says when it is picked: the same words on the map and in the
+ *  panel, so a reader without a mouse or without colour gets all of it. */
+function delayStretchHtml(stretch, cell, floor, slot, exploratory = false) {
+  const name = s => escapeHtml(prettifyName(s || ""));
+  const way = stretch.direction === "westbound" ? "Westbound"
+    : stretch.direction === "eastbound" ? "Eastbound" : "Both ways";
+  let body;
+  const enough = cell && delayBand(cell, floor) !== "none";
+  if (cell && (enough || exploratory)) {
+    const verb = cell.median_gained_secs < 0 ? "made up" : "lost";
+    body = `<p>${enough ? "" : "<strong>Early evidence only.</strong> "}Buses ${verb} a median
+        of <strong>${delayAmount(cell.median_gained_secs)}</strong> here, over
+        ${cell.journeys} journeys on ${cell.distinct_days}
+        ${cell.distinct_days === 1 ? "day" : "days"}.</p>
+      <p>${delayOneIn(cell)}</p>`;
+  } else if (cell) {
+    body = `<p>Not enough journeys yet: ${cell.journeys} of the ${floor.journeys} needed,
+      on ${cell.distinct_days} of the ${floor.distinct_days} days.</p>`;
+  } else {
+    body = `<p>No journeys tracked on this stretch at this time yet.</p>`;
+  }
+  return `<strong>${name(stretch.from_name)} to ${name(stretch.to_name)}</strong>
+    <p class="jt-provenance">${way}, ${escapeHtml(slot.hint)}.</p>
+    ${body}
+    ${stretch.approximate ? `<p class="jt-provenance">Drawn roughly between the stops: the
+      timetable gives no road shape for this stretch.</p>` : ""}
+    <button type="button" class="jt-link" data-delay-go="${escapeAttr(stretch.id)}">See journey
+      times for this stretch</button>`;
+}
+
+async function loadDelayMapIndex() {
+  const index = await loadJourneyTimesIndex();
+  const entry = index && index.artifacts && index.artifacts["hotspot-map-index.json"];
+  if (!entry) return { index, mapIndex: null };
+  return { index, mapIndex: await loadJourneyTimes(entry.file) };
+}
+
+function clearDelayMap() {
+  if (jtDelay.layer && state.map && state.map.hasLayer(jtDelay.layer)) state.map.removeLayer(jtDelay.layer);
+  if (jtDelay.legend && state.map) state.map.removeControl(jtDelay.legend);
+  jtDelay.layer = jtDelay.legend = null;
+  jtDelay.lines = new Map();
+  jtDelay.selected = null;
+  jtDelay.fittedFor = "";
+  delayMuteBasemap(false);
+}
+
+/** Grey the base map while the delay map shows, and only then. Runs on every
+ *  view change, so it must not assume a map, or a container, exists yet. */
+function delayMuteBasemap(on) {
+  const box = state.map && typeof state.map.getContainer === "function" ? state.map.getContainer() : null;
+  if (box && box.classList) box.classList.toggle("delay-map-on", on);
+}
+
+function hideDelayMapPanel() {
+  const panel = document.getElementById("jt-delay-panel");
+  const result = document.getElementById("journey-times-result");
+  if (panel) panel.hidden = true;
+  if (result) result.hidden = false;
+  clearDelayMap();
+}
+
+function delayLegendHtml() {
+  return `<p class="delay-legend-title">Time buses lose on each stretch</p>
+    <ul class="delay-legend">
+      ${DELAY_BANDS.map(b => `<li><span class="delay-swatch delay-swatch--${b.key}"></span>${escapeHtml(b.label)}</li>`).join("")}
+      <li><span class="delay-swatch delay-swatch--none"></span>Not enough journeys yet</li>
+    </ul>`;
+}
+
+const DELAY_WEIGHT = Object.freeze({ green: 4, yellow: 5, amber: 6, red: 7, none: 3 });
+
+/** Draw one service's stretches. Each line sits on a dark casing, and the base
+ *  map is softened while this is showing: OpenStreetMap already paints main
+ *  roads orange, yellow and red, and a delay colour laid straight on top of
+ *  them would disappear into the road it describes. */
+function drawDelayMap(drawn, onPick) {
+  if (!state.map) return;
+  if (jtDelay.layer && state.map.hasLayer(jtDelay.layer)) state.map.removeLayer(jtDelay.layer);
+  const layer = L.layerGroup();
+  jtDelay.lines = new Map();
+  for (const item of drawn) {
+    const latlngs = item.stretch.geometry;
+    const weight = DELAY_WEIGHT[item.band] || 3;
+    L.polyline(latlngs, { className: "delay-casing", weight: weight + 4, interactive: false }).addTo(layer);
+    const line = L.polyline(latlngs, {
+      className: `delay-line delay-line--${item.band}${item.exploratory ? " delay-line--exploratory" : ""}`,
+      weight, dashArray: item.band === "none" ? "6 6" : null,
+    });
+    line.on("click", () => onPick(item.stretch.id));
+    line.addTo(layer);
+    jtDelay.lines.set(item.stretch.id, line);
+  }
+  layer.addTo(state.map);
+  jtDelay.layer = layer;
+  delayMuteBasemap(true);
+  if (!jtDelay.legend) {
+    const legend = L.control({ position: "bottomleft" });
+    legend.onAdd = () => {
+      const div = L.DomUtil.create("div", "delay-legend-map");
+      div.innerHTML = delayLegendHtml();
+      return div;
+    };
+    legend.addTo(state.map);
+    jtDelay.legend = legend;
+  }
+}
+
+function delayCsv(drawn, doc, slot) {
+  const header = ["service", "operator", "direction", "from_atco", "from_name", "to_atco", "to_name",
+    "day_type", "time", "band", "median_gained_secs", "journeys", "distinct_days", "traversals",
+    "at_least_600s", "sample_sufficient", "schedule_era", "data_versions", "approximate_geometry"];
+  const q = v => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+  const rows = drawn.map(({ stretch, cell, band }) => [doc.service, doc.operator, stretch.direction,
+    stretch.from_atco, stretch.from_name, stretch.to_atco, stretch.to_name, slot.dayType,
+    slot.resolution === "hour" ? `hour ${slot.hour}` : slot.period, band,
+    cell?.median_gained_secs, cell?.journeys, cell?.distinct_days, cell?.traversals, cell?.at_least_600s,
+    cell?.sample_sufficient, cell?.schedule_era, (cell?.data_versions || []).join(" "),
+    stretch.approximate].map(q).join(","));
+  return [header.join(","), ...rows].join("\n") + "\n";
+}
+
+/** The "Where buses lose time" half of the view. */
+async function renderDelayMapPanel() {
+  const panel = document.getElementById("jt-delay-panel");
+  const result = document.getElementById("journey-times-result");
+  const controls = document.querySelector(".journey-times-controls");
+  const range = document.getElementById("journey-times-range");
+  if (!panel) return;
+  if (result) result.hidden = true;
+  if (controls) controls.hidden = true;
+  if (range) range.hidden = true;
+  panel.hidden = false;
+  // The stop-picking dots and any chosen pair belong to the other half.
+  clearJourneyTimesEntry();
+  clearJourneyTimesPicks();
+
+  const mine = claimRender("journeytimes");
+  const epoch = ++jtDelay.epoch;
+  const owns = () => mine() && epoch === jtDelay.epoch && jtEntry.section === "delays";
+  const view = jtView();
+  const intro = `<p class="jt-verdict"><strong>Where do buses lose time?</strong></p>
+    <p>Each stretch of road between two timing stops is coloured by how much time
+      buses typically lose on it compared with the timetable. Grey dashes mean we
+      have not tracked enough journeys there yet to say.</p>`;
+  if (!panel.querySelector(".delay-body")) panel.innerHTML = `${intro}<p class="panel-empty">Loading the delay map…</p>`;
+
+  let loaded;
+  try {
+    loaded = await loadDelayMapIndex();
+  } catch (err) {
+    if (!owns()) return;
+    clearDelayMap();
+    panel.innerHTML = `${intro}<p class="panel-empty">The delay map could not be loaded.
+      <button type="button" class="jt-reset-days" data-act="retry">Retry</button></p>`;
+    panel.querySelector('[data-act="retry"]')?.addEventListener("click", renderDelayMapPanel);
+    return;
+  }
+  if (!owns()) return;
+  const { index, mapIndex } = loaded;
+  if (!mapIndex || !(mapIndex.services || []).length) {
+    clearDelayMap();
+    panel.innerHTML = `${intro}<p class="delay-status">The delay map is still being prepared.
+      It appears once the nightly processing has run with it, and fills in as
+      evidence builds up over the following weeks.</p>`;
+    return;
+  }
+  const services = [...mapIndex.services].sort((a, b) =>
+    String(a.service).localeCompare(String(b.service), undefined, { numeric: true, sensitivity: "base" })
+    || String(a.operator || "").localeCompare(String(b.operator || "")));
+  if (!services.some(s => s.file === jtDelay.service)) {
+    // The 700 first: the corridor with the most evidence, and the one the
+    // review suggested as the first a passenger sees.
+    jtDelay.service = (services.find(s => s.service === "700" && s.operator === "SCSO")
+      || [...services].sort((a, b) => b.sufficient_cells - a.sufficient_cells)[0]).file;
+  }
+  const entry = index.artifacts[jtDelay.service];
+  let doc;
+  try {
+    doc = entry ? await loadJourneyTimes(entry.file) : null;
+  } catch { doc = null; }
+  if (!owns()) return;
+  if (!doc) {
+    clearDelayMap();
+    panel.innerHTML = `${intro}<p class="panel-empty">This service's delay map could not be loaded.</p>`;
+    return;
+  }
+
+  const directions = [...new Set(doc.stretches.map(s => s.direction))]
+    .sort((a, b) => ["westbound", "eastbound", "unknown"].indexOf(a) - ["westbound", "eastbound", "unknown"].indexOf(b));
+  if (!directions.includes(jtDelay.direction)) jtDelay.direction = directions[0];
+  const slot = delaySlot(view);
+  const floor = doc.floor || mapIndex.floor || { journeys: 30, distinct_days: 5 };
+  const exploratory = view === "detailed" && jtDelay.exploratory;
+  const rank = { red: 4, amber: 3, yellow: 2, green: 1, none: 0 };
+  const drawn = doc.stretches.filter(s => s.direction === jtDelay.direction).map(stretch => {
+    const cell = delayCellFor(doc, stretch.id, slot);
+    let band = delayBand(cell, floor);
+    let early = false;
+    if (band === "none" && exploratory && cell && cell.median_gained_secs != null) {
+      band = delayBand({ ...cell, sample_sufficient: true }, null);
+      early = true;
+    }
+    return { stretch, cell, band, exploratory: early };
+  });
+  const sufficient = drawn.filter(d => d.band !== "none" && !d.exploratory).length;
+  const collected = (doc.days_collected || []).length;
+  const status = sufficient
+    ? `${sufficient} of ${drawn.length} stretches have enough journeys to colour
+       (at least ${floor.journeys} journeys over ${floor.distinct_days} days).`
+    : `Collecting evidence: ${Math.min(collected, floor.distinct_days)} of the
+       ${floor.distinct_days} days needed so far. Stretches colour in as each
+       reaches ${floor.journeys} journeys.`;
+
+  const label = s => `${s.service}${services.filter(x => x.service === s.service).length > 1
+    ? ` (${s.operator})` : ""}`;
+  const wayLabel = d => d === "westbound" ? "Westbound" : d === "eastbound" ? "Eastbound" : "Both ways";
+  const timeControls = view === "simple"
+    ? `<fieldset class="jt-chips"><legend>When</legend>${DELAY_SIMPLE_SLOTS.map(s =>
+        `<button type="button" class="jt-chip" data-delay-slot="${escapeAttr(s.key)}"
+          aria-pressed="${s.key === jtDelay.slot ? "true" : "false"}" title="${escapeAttr(s.hint)}">${
+          escapeHtml(s.label)}</button>`).join("")}</fieldset>`
+    : `<div class="delay-detailed-controls">
+        <label class="field"><span class="field-label">Days</span>
+          <select class="field-input" data-delay-daytype>
+            <option value="weekday"${jtDelay.dayType === "weekday" ? " selected" : ""}>Weekdays</option>
+            <option value="weekend"${jtDelay.dayType === "weekend" ? " selected" : ""}>Weekends</option>
+          </select></label>
+        <label class="field"><span class="field-label">Time</span>
+          <select class="field-input" data-delay-time>
+            ${["07-10", "10-16", "16-19", "other"].map(k => `<option value="${k}"${jtDelay.time === k ? " selected" : ""}>${
+              escapeHtml(DELAY_PERIOD_LABELS[k][0].toUpperCase() + DELAY_PERIOD_LABELS[k].slice(1))}</option>`).join("")}
+            <option value="hour"${jtDelay.time === "hour" ? " selected" : ""}>By the hour</option>
+          </select></label>
+        ${jtDelay.time === "hour" ? `<label class="field delay-hour"><span class="field-label">Hour:
+            <output data-delay-hour-out>${escapeHtml(slot.label)}</output></span>
+          <input type="range" min="0" max="23" step="1" value="${Number(jtDelay.hour) || 0}"
+            data-delay-hour aria-valuetext="${escapeAttr(slot.label)}"></label>` : ""}
+        <label class="delay-exploratory"><input type="checkbox" data-delay-exploratory${
+          jtDelay.exploratory ? " checked" : ""}> Show stretches below the evidence floor
+          (exploratory, hatched)</label>
+      </div>`;
+  const list = [...drawn].sort((a, b) => (rank[b.band] - rank[a.band])
+    || ((b.cell?.median_gained_secs ?? -1e9) - (a.cell?.median_gained_secs ?? -1e9)));
+
+  panel.innerHTML = `${intro}
+    <div class="delay-body">
+      <div class="delay-pickers">
+        <label class="field"><span class="field-label">Bus</span>
+          <select class="field-input" data-delay-service>${services.map(s =>
+            `<option value="${escapeAttr(s.file)}"${s.file === jtDelay.service ? " selected" : ""}>${
+              escapeHtml(label(s))}</option>`).join("")}</select></label>
+        ${directions.length > 1 ? `<div class="jt-chips" role="group" aria-label="Direction">${directions.map(d =>
+          `<button type="button" class="jt-chip" data-delay-direction="${escapeAttr(d)}"
+            aria-pressed="${d === jtDelay.direction ? "true" : "false"}">${wayLabel(d)}</button>`).join("")}</div>` : ""}
+      </div>
+      ${timeControls}
+      <p class="delay-status" role="status">${status}</p>
+      <div class="delay-legend-panel">${delayLegendHtml()}</div>
+      <div class="delay-detail" aria-live="polite"></div>
+      <details class="delay-list-wrap"${view === "detailed" ? " open" : ""}>
+        <summary>Every stretch, most time lost first (${list.length})</summary>
+        <ol class="delay-list">${list.map(({ stretch, cell, band, exploratory: early }) =>
+          `<li><button type="button" class="jt-link" data-delay-stretch="${escapeAttr(stretch.id)}">${
+            escapeHtml(prettifyName(stretch.from_name))} to ${escapeHtml(prettifyName(stretch.to_name))}</button>
+            <span class="delay-list-value"><span class="delay-swatch delay-swatch--${band}"></span>${
+              band !== "none" ? `${early ? "early evidence, " : ""}${cell.median_gained_secs < 0 ? "makes up" : "loses"} ${
+                delayAmount(cell.median_gained_secs)}` : "not enough journeys yet"}</span></li>`).join("")}</ol>
+      </details>
+      ${view === "detailed" ? `<p class="jt-entry-actions">
+        <button type="button" class="btn-secondary" data-delay-csv>Download these stretches (CSV)</button></p>
+        <p class="jt-method">${escapeHtml(doc.method || "")} ${escapeHtml(doc.pooling || "")}</p>
+        <ul class="jt-method">${(doc.caveats || []).map(c => `<li>${escapeHtml(c)}</li>`).join("")}</ul>` : ""}
+    </div>`;
+
+  const pick = id => {
+    const item = drawn.find(d => d.stretch.id === id);
+    if (!item) return;
+    const html = delayStretchHtml(item.stretch, item.cell, floor, slot, exploratory);
+    const detail = panel.querySelector(".delay-detail");
+    if (detail) detail.innerHTML = html;
+    for (const [lineId, line] of jtDelay.lines) {
+      line.setStyle({ weight: (DELAY_WEIGHT[drawn.find(d => d.stretch.id === lineId)?.band] || 3)
+        + (lineId === id ? 3 : 0) });
+    }
+    jtDelay.selected = id;
+    const line = jtDelay.lines.get(id);
+    if (line && state.map) {
+      line.bindPopup(html, { maxWidth: 280 }).openPopup();
+      const popup = line.getPopup().getElement();
+      popup?.querySelector("[data-delay-go]")?.addEventListener("click", () => goToStretch(item.stretch));
+    }
+    track("delay-map-stretch");
+  };
+  const goToStretch = stretch => {
+    jtEntry.section = "journey";
+    jtEntry.a = stretch.from_atco;
+    jtEntry.b = stretch.to_atco;
+    hideDelayMapPanel();
+    jtSyncChrome();
+    track("delay-map-to-journey");
+    journeyTimesResolvePair();
+  };
+
+  drawDelayMap(drawn, pick);
+  const fitKey = `${jtDelay.service}|${jtDelay.direction}`;
+  if (jtDelay.fittedFor !== fitKey && drawn.length && state.map) {
+    const bounds = L.latLngBounds(drawn.flatMap(d => d.stretch.geometry));
+    if (bounds.isValid && bounds.isValid()) fitBoundsInVisibleMap(bounds, { padding: [30, 30], maxZoom: 14 });
+    jtDelay.fittedFor = fitKey;
+  }
+  if (jtDelay.selected && drawn.some(d => d.stretch.id === jtDelay.selected)) pick(jtDelay.selected);
+
+  panel.onchange = event => {
+    const t = event.target;
+    if (t.matches("[data-delay-service]")) { jtDelay.service = t.value; jtDelay.selected = null; }
+    else if (t.matches("[data-delay-daytype]")) jtDelay.dayType = t.value;
+    else if (t.matches("[data-delay-time]")) jtDelay.time = t.value;
+    else if (t.matches("[data-delay-exploratory]")) jtDelay.exploratory = t.checked;
+    else if (t.matches("[data-delay-hour]")) jtDelay.hour = Number(t.value);
+    else return;
+    renderDelayMapPanel();
+  };
+  panel.oninput = event => {
+    // The slider's label follows the thumb; the map redraws when it is let go.
+    if (!event.target.matches("[data-delay-hour]")) return;
+    const h = Number(event.target.value), hh = n => String(n % 24).padStart(2, "0");
+    const out = panel.querySelector("[data-delay-hour-out]");
+    if (out) out.textContent = `${hh(h)}:00–${hh(h + 1)}:00`;
+  };
+  panel.onclick = event => {
+    const t = event.target.closest("[data-delay-slot], [data-delay-direction], [data-delay-stretch], [data-delay-go], [data-delay-csv]");
+    if (!t) return;
+    if (t.dataset.delaySlot) { jtDelay.slot = t.dataset.delaySlot; renderDelayMapPanel(); }
+    else if (t.dataset.delayDirection) { jtDelay.direction = t.dataset.delayDirection; jtDelay.selected = null; renderDelayMapPanel(); }
+    else if (t.dataset.delayStretch) {
+      pick(t.dataset.delayStretch);
+      const line = jtDelay.lines.get(t.dataset.delayStretch);
+      if (line && state.map) fitBoundsInVisibleMap(line.getBounds(), { padding: [60, 60], maxZoom: 16 });
+    } else if (t.dataset.delayGo) {
+      const item = drawn.find(d => d.stretch.id === t.dataset.delayGo);
+      if (item) goToStretch(item.stretch);
+    } else if (t.matches("[data-delay-csv]")) {
+      jtDownload(`delay-map-${doc.service}-${doc.operator}.csv`, delayCsv(drawn, doc, slot), "text/csv");
+    }
+  };
 }
 
 /** Whether unfinished work is being looked at on purpose.
@@ -2944,6 +3923,8 @@ function journeyTimesShareUrl(index) {
     const value = document.getElementById(`journey-times-${key}`)?.value;
     if (value) url.searchParams.set(`jt-${key}`, value);
   }
+  url.searchParams.set("jt-view", jtView());
+  if (jtView() === "simple") url.searchParams.set("jt-period", jtEntry.period || "any");
   url.hash = "view=j";
   return url.href;
 }
@@ -3009,6 +3990,10 @@ async function renderJourneyTimes() {
   let shared = null;
   try { if (!jtEntry.sharedApplied && new URLSearchParams(location.search).has("jt-service")) shared = new URLSearchParams(location.search); } catch {}
   if (shared) jtEntry.mode = "browse";
+  if (shared && !jtEntry.sharedApplied && shared.get("jt-period")) jtEntry.period = shared.get("jt-period");
+  jtSyncChrome();
+  if (jtEntry.section === "delays") { renderDelayMapPanel(); return; }
+  hideDelayMapPanel();
   const restore = key => {
     const el = document.getElementById(`journey-times-${key}`), value = shared?.get(`jt-${key}`);
     if (el && value != null) el.value = value;
@@ -3016,7 +4001,8 @@ async function renderJourneyTimes() {
   // The opening state owns the panel: instructions and the map, no controls.
   if (jtEntry.mode === "start") { renderJourneyTimesIntro(); return; }
   const controls = document.querySelector(".journey-times-controls");
-  if (controls) controls.hidden = false;
+  // Simple keeps these as its state, and shows none of them.
+  if (controls) controls.hidden = jtView() === "simple";
 
   const mine = claimRender("journeytimes");
   try {
@@ -3102,7 +4088,7 @@ async function renderJourneyTimes() {
       if (toDate && !toDate.value) toDate.value = last;
     }
     for (const key of ["days", "from-date", "to-date", "mode", "time-from", "time-to", "evidence", "identity", "quality"]) restore(key);
-    if (rangeBox) rangeBox.hidden = daysSel.value !== "range";
+    if (rangeBox) rangeBox.hidden = jtView() === "simple" || daysSel.value !== "range";
     if (dirSel && dirSel.dataset.docKey !== docKey) {
       dirSel.innerHTML = dirs.map((d, i) =>
         // Not prettified: the places come from NaPTAN already cased as they
@@ -3214,6 +4200,13 @@ async function renderJourneyTimes() {
 
     journeyTimesMarkPicks(doc, direction, Number(fromSel.value), Number(toSel.value));
     const all = journeyTimesBetween(doc, Number(fromSel.value), Number(toSel.value));
+    // The two views part here, after everything that decides *which* trip.
+    if (jtView() === "simple") {
+      if (shared) jtEntry.sharedApplied = true;
+      renderJourneyTimesSimple({ host, index, doc, all, serviceFile: serviceSel.value,
+        fromIndex: Number(fromSel.value), toIndex: Number(toSel.value) });
+      return;
+    }
     const cohortSel = document.getElementById("journey-times-cohort");
     if (cohortSel) {
       const previous = cohortSel.value;
@@ -3261,6 +4254,10 @@ async function renderJourneyTimes() {
 
     const from = doc.stops[Number(fromSel.value)];
     const to = doc.stops[Number(toSel.value)];
+    const schedule = journeyTimesScheduleLine(doc, Number(fromSel.value), Number(toSel.value),
+      summary.days, timings);
+    const coverage = journeyTimesCoverage(doc, Number(fromSel.value), Number(toSel.value),
+      summary.days, all, "any", { start: filters.start, end: filters.end });
     const rows = timings.map((t, i) =>
       `<tr><td>${escapeHtml(t.day)}</td><td><button type="button" class="jt-link" data-jt-point="${i}">${escapeHtml(t.start)}</button></td>`
       + `<td>${jtMinutes(t.observedSecs)}${t.estimated ? " *" : ""}</td>`
@@ -3287,11 +4284,14 @@ async function renderJourneyTimes() {
         ${jtPick.unplaceable.length === 1 ? "is" : "are"} just outside the area
         this map draws, so ${jtPick.unplaceable.length === 1 ? "it is" : "they are"}
         not marked on it. The figures above are unaffected.</p>` : ""}
+      ${coverage && coverage.scheduled ? `<p class="jt-provenance">The timetable scheduled
+        ${coverage.scheduled} journeys between these stops on these days and hours; a bus
+        was tracked making ${coverage.tracked} of them.</p>` : ""}
       <p class="jt-provenance">${timings.length} of ${all.length} recorded journeys match these filters.
         ${new Set(timings.map(jtCohort)).size > 1 ? "Multiple route or timetable cohorts are combined; select one for a like-for-like comparison." : ""}</p>
       <div class="jt-chart-area">
         <button type="button" class="jt-link jt-expand">Expand chart</button>
-        <div class="jt-chart-content">${journeyTimesChart(timings, summary, modeSel?.value || "delay", host.clientWidth || 640)}</div>
+        <div class="jt-chart-content">${journeyTimesChart(timings, summary, modeSel?.value || "delay", host.clientWidth || 640, { schedule })}</div>
         <div class="jt-point-detail" aria-live="polite">Select a dot or a departure in the table for its evidence.</div>
       </div>
       <div class="jt-entry-actions">
@@ -3364,7 +4364,7 @@ async function renderJourneyTimes() {
       const area = host.querySelector(".jt-chart-area");
       const expanded = area.classList.toggle("jt-chart-area--expanded");
       area.querySelector(".jt-expand").textContent = expanded ? "Close expanded chart" : "Expand chart";
-      area.querySelector(".jt-chart-content").innerHTML = journeyTimesChart(timings, summary, modeSel?.value || "delay", area.clientWidth - 24);
+      area.querySelector(".jt-chart-content").innerHTML = journeyTimesChart(timings, summary, modeSel?.value || "delay", area.clientWidth - 24, { schedule });
     });
   } catch (err) {
     console.warn("Journey times unavailable:", err);
@@ -6424,6 +7424,8 @@ async function applyViewMode() {
   // fail loudly — it leaves the next view quietly wrong, with highlights on a
   // Route-view map and nothing to explain them.
   if (state.viewMode !== "journeytimes") {
+    // And the delay map, which is the same view's third claim on the map.
+    clearDelayMap();
     clearJourneyTimesPicks();
     // And the opening state's own layer, which is a second claim on the map
     // made by the same view. Leaving it behind puts a thousand clickable dots

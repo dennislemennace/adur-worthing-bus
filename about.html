@@ -146,6 +146,37 @@
     caveats are published with the figures.
   </p>
 
+  <h2 id="journey-times">How journey times are measured</h2>
+  <p>
+    Buses in this area report where they are every minute or so, through the
+    Department for Transport's open data service. We record those reports and
+    work out when each bus passed each stop. Then, for any two stops, we can
+    say how long each tracked journey took between them.
+  </p>
+  <dl>
+    <dt>Usually takes</dt>
+    <dd>The middle value of every journey we timed between the two stops: half
+      were quicker, half were slower. One bus stuck in traffic cannot move it.</dd>
+    <dt>Allow</dt>
+    <dd>Nine in ten of the journeys we timed were quicker than this. It is only
+      shown once we have timed at least ten.</dd>
+    <dt>The timetable line</dt>
+    <dd>What the timetable promised for each departure through the day. We
+      record the timetable every night alongside the buses, so the comparison
+      still holds after the timetable is replaced.</dd>
+    <dt>What is left out</dt>
+    <dd>Journeys where we did not see the bus at both stops, and any whose
+      recorded times run backwards. Coaches are not counted.</dd>
+  </dl>
+  <p class="note">
+    Not seeing a journey is not proof that no bus ran: our recordings miss some
+    journeys, and some operators report their buses less reliably than others.
+    Each answer says how many journeys it rests on, and how many the timetable
+    scheduled. Journeys recorded before 23 September 2026 used an earlier and
+    less strict way of telling which bus was which, and the answers say how many
+    of those they include.
+  </p>
+
   <h2>Licences and credits</h2>
   <p>
     The site's code is under the

@@ -84,6 +84,7 @@ class Failures:
 
 def check_journey_document(doc, name, fails):
     """One published service: its journeys have to be physically possible."""
+    check_document_schedule(doc, name, fails)
     stops = doc.get("stops") or []
     for journey in doc.get("journeys") or []:
         calls = journey.get("calls") or []
@@ -138,6 +139,76 @@ def check_journey_document(doc, name, fails):
                 # there is no duration to draw — but the observation is true
                 # and belongs in the file.
                 fails.note("stop pairs covered within one report (zero length)")
+
+
+def check_document_schedule(doc, name, fails):
+    """The recorded timetable a document carries, if it carries one.
+
+    Checked for the same reason the journeys are: the browser draws a line
+    from it that reads as the timetable's promise, so a profile naming a stop
+    the document does not list, or a trip pointing at a profile that is not
+    there, would draw a promise nobody made. Documents built before the
+    timetable was recorded carry none and are not failed for it.
+    """
+    schedule = doc.get("schedule")
+    if schedule is None:
+        return
+    stops = doc.get("stops") or []
+    profiles = schedule.get("profiles") or []
+    for i, calls in enumerate(profiles):
+        where = f"{name} schedule profile {i}"
+        if len(calls) < 2:
+            fails.add("schedule profile has fewer than two calls", where)
+        for call in calls:
+            if (len(call) != 3 or not isinstance(call[0], int)
+                    or not 0 <= call[0] < len(stops)):
+                fails.add("schedule names a stop not in the stops list", f"{where}: {call}")
+        offsets = [c[1] for c in calls if len(c) == 3]
+        if any(b < a for a, b in zip(offsets, offsets[1:])):
+            fails.add("scheduled times run backwards in route order", where)
+    sets = schedule.get("sets") or []
+    for s, trips in enumerate(sets):
+        for trip in trips:
+            if len(trip) != 4 or not isinstance(trip[1], int) or not 0 <= trip[1] < len(profiles):
+                fails.add("scheduled trip names a missing profile", f"{name} set {s}: {trip}")
+    window = set(doc.get("window_days") or [])
+    for day, s in (schedule.get("days") or {}).items():
+        if not isinstance(s, int) or not 0 <= s < len(sets):
+            fails.add("schedule day names a missing set", f"{name} {day}")
+        if window and day not in window:
+            fails.add("schedule describes a day outside the window", f"{name} {day}")
+
+
+# A phone downloads one of these per service it looks at.
+HOTSPOT_MAP_MAX_BYTES = 500_000
+
+
+def check_hotspot_map(doc, name, fails, size=None):
+    """One service's delay map: small, self-consistent, and never overclaiming.
+
+    The line colour a reader sees is a claim about a road, so a cell may only be
+    marked sufficient if it really clears the floor it states, and must point at
+    a stretch the file actually draws. The map is a derivative: the traversals
+    and their source reports belong in the evidence file, and finding them here
+    means the wrong thing was published to every phone.
+    """
+    if size is not None and size > HOTSPOT_MAP_MAX_BYTES:
+        fails.add("delay map file is too large for a phone", f"{name}: {size} bytes")
+    if "traversals" in doc or any("traversals" in s for s in doc.get("stretches") or []):
+        fails.add("delay map carries raw traversals", name)
+    floor = doc.get("floor") or {}
+    stretches = {s.get("id") for s in doc.get("stretches") or []}
+    for s in doc.get("stretches") or []:
+        if len(s.get("geometry") or []) < 2:
+            fails.add("delay map stretch has no line to draw", f"{name} {s.get('id')}")
+    for cell in doc.get("cells") or []:
+        where = f"{name} {cell.get('stretch')} {cell.get('period', cell.get('hour'))}"
+        if cell.get("stretch") not in stretches:
+            fails.add("delay map cell names a stretch it does not draw", where)
+        clears = ((cell.get("journeys") or 0) >= floor.get("journeys", 30)
+                  and (cell.get("distinct_days") or 0) >= floor.get("distinct_days", 5))
+        if cell.get("sample_sufficient") and not clears:
+            fails.add("delay map cell claims sufficiency below the floor", where)
 
 
 def is_stats_cell(cell):

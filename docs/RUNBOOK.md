@@ -117,6 +117,50 @@ the verification record and scoped commits.
   `docs/ASSET_RIGHTS.md`.
 - The project has no `LICENSE` file while describing itself as open source.
 
+## Journey times: Simple, Detailed and the delay map
+
+The journey-time view has three parts, each with its own switch in `CONFIG`
+at the top of `app.js`:
+
+| Switch | What it shows | Default |
+|---|---|---|
+| `JOURNEY_TIMES_PUBLIC` | The **Simple** view: pick two stops, see how long buses usually take, how long to allow, the slowest time of day, and every journey against the timetable. | `true` |
+| `JOURNEY_TIMES_DETAILED_PUBLIC` | The **Detailed** view: every evidence filter, cohorts, CSV/JSON exports, the evidence panel. | `false` |
+| `DELAY_MAP_PUBLIC` | **Where buses lose time**: road stretches coloured by the median time lost on each. | `false` |
+
+Everything is reachable with `?preview=1` while its switch is off. Both views
+share one selection and one set of default filters, so the same trip always
+shows the same headline number in both; a node test reads the Detailed
+controls' defaults out of `index.html` to hold that.
+
+**The timetable line.** Every observations file now carries the day's timetable
+(`schedule`), and service documents fold it in. Charts draw it as a step line
+across the day, one per day type. Documents built before 23 September have no
+recorded timetable, and their line is drawn from the journeys that were tracked
+instead, labelled as such.
+
+**The delay map** colours time *lost on a stretch*, never lateness. Colours:
+green under 1 min, yellow 1–2, amber 2–2.5, red 2.5 or more (`DELAY_BANDS`).
+A stretch below 30 journeys over 5 days is grey and dashed, never green.
+Method-4 data starts on 23 September, so expect "Collecting evidence" for about
+a week on the busiest corridors' peaks, several weeks for most services, and
+longer for hourly cells. Weekly timetable builds pool per stretch only where
+they agree on every shared departure's scheduled time.
+
+Before flipping `DELAY_MAP_PUBLIC`: check some coloured stretches against the
+journeys behind them (Detailed view, "See journey times for this stretch"), and
+confirm the independent validation the 22 September review asked for.
+
+To check a night's output:
+
+```sh
+# the day's timetable recorded beside the observations
+python3 -c "import gzip,json; d=json.load(gzip.open('observations-YYYY-MM-DD.json.gz','rt')); print(d['schedule']['counts'])"
+# the delay-map files, built exactly as the workflow does
+.venv/bin/python scripts/build_delay_hotspots.py --observations inputs/window \
+  --out hotspot-preview.json --map-out hotspot-map --timetable data/timetable.sqlite
+```
+
 ## Reliability publication and replay (23 September implementation)
 
 This workflow is implemented locally; deployment is not established by this

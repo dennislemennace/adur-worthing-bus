@@ -58,12 +58,18 @@ ANALYSIS_FIELDS = {"day", "trip_id", "service", "operator", "vehicle", "atco", "
     "estimated", "match", "quality_flags"}
 
 
-def load_observations(patterns, *, compact=False, row_filter=None):
+def load_observations(patterns, *, compact=False, row_filter=None, with_schedules=False):
     """Observations from files, directories or globs. Gzipped or not.
 
     Returns `(rows, meta)`, where meta records which days and which timetable
     builds produced them — a figure that cannot name its data cannot be
     checked, and a run may span two builds.
+
+    `with_schedules` also returns each day's recorded timetable as
+    `meta["schedules"]`, keyed by day. Opt-in, because only the journey-times
+    build draws a timetable line and every other caller would hold a few
+    megabytes it never reads. Days processed before the timetable was recorded
+    simply have no entry.
     """
     paths = []
     for pattern in patterns:
@@ -73,6 +79,7 @@ def load_observations(patterns, *, compact=False, row_filter=None):
         else:
             paths += [Path(p) for p in sorted(glob.glob(pattern))]
     rows, days, versions, methods, sources = [], set(), set(), set(), []
+    schedules = {}
     seen_hashes = set()
     for path in sorted(set(paths)):
         opener = gzip.open if path.suffix == ".gz" else open
@@ -87,15 +94,20 @@ def load_observations(patterns, *, compact=False, row_filter=None):
                 continue
             projected = {k: v for k, v in r.items() if k in ANALYSIS_FIELDS} if compact else r
             rows.append(canonical_row(projected, doc, source_hash))
+        if with_schedules and isinstance(doc.get("schedule"), dict) and doc.get("day"):
+            schedules[doc["day"]] = doc["schedule"]
         days.add(doc.get("day", "?"))
         versions.add(doc.get("data_version", "unknown"))
         methods.add(doc.get("method_version", "unknown"))
         sources.append({"file": path.name, "sha256": source_hash,
                         **{k: doc.get(k) for k in ("day", "data_version", "method_version",
                                                   "method", "caveats", "coverage", "as_of", "provenance")}})
-    return rows, {"files": len(sources), "days": sorted(days),
-                  "data_versions": sorted(versions), "method_versions": sorted(methods, key=str),
-                  "sources": sources}
+    meta = {"files": len(sources), "days": sorted(days),
+            "data_versions": sorted(versions), "method_versions": sorted(methods, key=str),
+            "sources": sources}
+    if with_schedules:
+        meta["schedules"] = schedules
+    return rows, meta
 
 
 def filtered(rows, args):

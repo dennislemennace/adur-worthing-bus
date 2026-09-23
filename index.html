@@ -894,6 +894,15 @@
       <div class="panel-mode" data-mode="journeytimes">
         <div class="panel-tab-content" id="tab-content-journey-times" role="tabpanel">
           <h2 class="panel-heading">How long it really takes</h2>
+          <!-- Two switches, each hidden until its half may be shown: the delay
+               map and the Detailed view have their own flags in CONFIG. -->
+          <div class="jt-topbar">
+            <div class="jt-sections" id="jt-sections" role="group" aria-label="What to show" hidden>
+              <button type="button" class="jt-section" data-jt-section="journey" aria-pressed="true">My journey</button>
+              <button type="button" class="jt-section" data-jt-section="delays" aria-pressed="false">Where buses lose time</button>
+            </div>
+            <button type="button" class="jt-view-toggle" id="jt-view-toggle" aria-pressed="false" hidden>Detailed view</button>
+          </div>
           <p class="panel-intro" id="journey-times-intro">
             Every journey we tracked between two stops, against the time the
             timetable promised. Measured from the operators' own vehicle feed.
@@ -962,6 +971,7 @@
           </div>
 
           <div id="journey-times-result" aria-live="polite"></div>
+          <div id="jt-delay-panel" class="jt-delay-panel" hidden></div>
         </div>
       </div><!-- /panel-mode[data-mode="journeytimes"] -->
 

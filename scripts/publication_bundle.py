@@ -35,6 +35,40 @@ def validate_observations(doc):
             raise ValueError("Measured call has no report evidence")
     if not doc.get("observations"):
         raise ValueError("An empty processing result cannot replace the public generation")
+    validate_schedule(doc)
+
+
+def validate_schedule(doc):
+    """The day's recorded timetable must be present and internally sound.
+
+    Required, not optional: the timetable is rebuilt weekly and this is the only
+    copy of what it promised on the day, so a night that failed to record it
+    would lose that permanently and nobody would notice until a chart needed it.
+    """
+    schedule = doc.get("schedule")
+    if not isinstance(schedule, dict):
+        raise ValueError("Observations carry no recorded timetable")
+    if schedule.get("day") != doc.get("day") or schedule.get("time_basis") != TIME_BASIS:
+        raise ValueError("Recorded timetable describes a different day or time basis")
+    patterns, profiles, trips = (schedule.get("patterns") or {}, schedule.get("profiles") or [],
+                                 schedule.get("trips") or [])
+    if not trips:
+        raise ValueError("Recorded timetable schedules no journeys")
+    counts = schedule.get("counts") or {}
+    if (counts.get("trips"), counts.get("patterns"), counts.get("profiles")) != (
+            len(trips), len(patterns), len(profiles)):
+        raise ValueError("Recorded timetable counts contradict its contents")
+    for profile in profiles:
+        offsets = profile.get("offsets") or []
+        if not offsets or offsets[0] != 0 or any(b < a for a, b in zip(offsets, offsets[1:])):
+            raise ValueError("Recorded timetable has a profile running backwards")
+        if len(profile.get("timepoints") or []) != len(offsets):
+            raise ValueError("Recorded timetable profile has mismatched timepoints")
+    for trip_id, pattern, profile, _start, _headsign in trips:
+        if pattern not in patterns or not 0 <= profile < len(profiles):
+            raise ValueError(f"Recorded trip {trip_id} names a missing pattern or profile")
+        if len(profiles[profile]["offsets"]) != len(patterns[pattern].get("atcos") or []):
+            raise ValueError(f"Recorded trip {trip_id} has a profile of the wrong length")
 
 
 def build_bundle(journey_dir, extras, out, sources, evidence, previous=None):
@@ -59,6 +93,8 @@ def build_bundle(journey_dir, extras, out, sources, evidence, previous=None):
             validate_observations(doc)
         elif name.startswith(("summary-", "rollup-")):
             checks.check_summary(doc, name, failures)
+        elif name.startswith("hotspot-map-") and name != "hotspot-map-index.json":
+            checks.check_hotspot_map(doc, name, failures, size=len(raw))
         binary[name] = raw
     if failures.items:
         raise ValueError(f"Candidate failed validation: {failures.items[:5]}")

@@ -57,7 +57,7 @@ jobs:
       # The matcher these figures rest on. If it is broken, publishing a
       # punctuality number is worse than publishing nothing at all.
       - name: Test the matcher and the processor
-        run: python -m pytest -q tests/test_trip_match.py tests/test_process_snapshots.py tests/test_review_accuracy.py tests/test_delay_hotspots.py tests/test_publication_bundle.py
+        run: python -m pytest -q tests/test_trip_match.py tests/test_process_snapshots.py tests/test_review_accuracy.py tests/test_delay_hotspots.py tests/test_publication_bundle.py tests/test_schedule_record.py
 
       - name: Choose the day
         id: day
@@ -226,7 +226,11 @@ jobs:
             --out journey-times --timetable data/timetable.sqlite
           python scripts/query_reliability.py --observations inputs/month \
             --rollup "rollup-$MONTH.json"
-          python scripts/build_delay_hotspots.py --observations inputs/window --out hotspot-preview.json
+          python scripts/build_delay_hotspots.py --observations inputs/window --out hotspot-preview.json \
+            --map-out hotspot-map --timetable data/timetable.sqlite --map-day "$DAY"
+          # One artifact per service map, validated with the rest of the candidate.
+          MAP_ARTIFACTS=()
+          for f in hotspot-map/*.json; do MAP_ARTIFACTS+=(--artifact "$(basename "$f")=$f"); done
           python scripts/check_published.py --journey-times journey-times \
             --summaries "data/reliability/$DAY.json" "rollup-$MONTH.json"
           python scripts/publication_bundle.py --journey-times journey-times \
@@ -234,6 +238,7 @@ jobs:
             --artifact "summary-$DAY.json=data/reliability/$DAY.json" \
             --artifact "rollup-$MONTH.json=rollup-$MONTH.json" \
             --artifact "hotspot-preview.json=hotspot-preview.json" \
+            "${MAP_ARTIFACTS[@]}" \
             --sources inputs/sources.json --evidence evidence.json \
             --previous-index previous-index.json --out candidate > build-id.txt
           # No empty or partly validated generation can reach the upload steps.

@@ -110,6 +110,67 @@ class Places:
         return self.by_atco.get(terminus_atco or "") or name
 
 
+def schedule_for_document(service, operator, index, meta):
+    """This service's recorded timetable, in this document's own stop indices.
+
+    The browser draws the timetable across the day from it: for any two stops,
+    every scheduled journey calling at both, in order, gives a departure time
+    and a promised duration. Without it the only line available was one flat
+    median, up to twelve minutes wrong about any single 700 journey because
+    scheduled running time changes through the day.
+
+    Only stops this document lists are kept — a reader can only pick those —
+    and each day points at a *set* of trips rather than repeating them. Every
+    weekday under one timetable schedules the same journeys, so a 35-day window
+    stores a handful of sets, not 35 copies.
+
+    Days in the window with no recorded timetable are named, not skipped: the
+    browser falls back to the scheduled times the observed journeys carry, and
+    says so.
+    """
+    schedules = meta.get("schedules") or {}
+    profiles, profile_index, sets, set_index, days = [], {}, [], {}, {}
+    for day in sorted(meta.get("days", [])):
+        schedule = schedules.get(day)
+        if not schedule:
+            continue
+        trips = []
+        for trip_id, pattern_id, profile_ref, start, headsign in schedule.get("trips", []):
+            pattern = schedule["patterns"].get(pattern_id) or {}
+            if pattern.get("service") != service or (pattern.get("operator") or "") != operator:
+                continue
+            source = schedule["profiles"][profile_ref]
+            calls = [[index[atco], source["offsets"][i], source["timepoints"][i]]
+                     for i, atco in enumerate(pattern.get("atcos", []))
+                     if atco in index]
+            if len(calls) < 2:
+                continue
+            key = json.dumps(calls, separators=(",", ":"))
+            if key not in profile_index:
+                profile_index[key] = len(profiles)
+                profiles.append(calls)
+            trips.append([trip_id, profile_index[key], start, headsign])
+        if not trips:
+            continue
+        trips.sort(key=lambda t: (t[2], t[0]))
+        key = json.dumps(trips, separators=(",", ":"))
+        if key not in set_index:
+            set_index[key] = len(sets)
+            sets.append(trips)
+        days[day] = set_index[key]
+    return {
+        "trip_format": ["trip_id", "profile", "start_secs", "headsign"],
+        "call_format": ["stop_index", "offset_secs", "timepoint"],
+        "profiles": profiles,
+        "sets": sets,
+        "days": days,
+        "unrecorded_days": [d for d in sorted(meta.get("days", [])) if d not in days],
+        "note": "start_secs + offset_secs is the scheduled time in seconds from the GTFS "
+                "service-day origin. A timepoint of 0 is GTFS's interpolation, not an "
+                "operator promise.",
+    }
+
+
 def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
                    operator="", places=None):
     """One service: its stops, and every journey observed along them."""
@@ -267,6 +328,9 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
         "series": "timing_point" if timing_points_only else "all_stops",
         "stops": listed,
         "journeys": kept,
+        # What the timetable promised, recorded the night each day was
+        # processed, so the comparison survives every later timetable rebuild.
+        "schedule": schedule_for_document(service, operator, index, meta),
     }
 
 
@@ -320,7 +384,7 @@ def main(argv=None):
             print(f"no localities ({err}); directions named by destination stop",
                   file=sys.stderr)
 
-    rows, meta = load_observations(args.observations, compact=True)
+    rows, meta = load_observations(args.observations, compact=True, with_schedules=True)
     if not rows:
         print(f"no observations found in {args.observations}", file=sys.stderr)
         return 1

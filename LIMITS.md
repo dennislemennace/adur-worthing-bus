@@ -401,3 +401,34 @@ of provider pricing. No paid tier or increased raw retention is introduced.
   known history. A missing archived day is an error, never silently omitted.
   Timetable archive searches paginate because daily evidence releases can
   push older timetable tags beyond the first page.
+
+## Recorded timetable and delay map — measured sizes
+
+Added 23 September 2026, measured on that day's timetable rather than estimated.
+
+- **The day's timetable now travels inside each observations file**
+  (`observations-DAY.json.gz`, key `schedule`), so it is archived wherever the
+  observations are: the immutable evidence release, the monthly release and the
+  publication bundle. No new upload path, no new request. On 23 September it held
+  2,824 scheduled trips over 197 route patterns and 1,135 run-time profiles:
+  **about 236 KB gzipped a day**, roughly 15–20% on top of the observation file
+  itself. (The plan estimated 30–50 KB; run times vary far more per trip than
+  assumed, so profiles barely deduplicate. Delta encoding would save about 20%
+  and was declined: plain offsets are easier to audit.) At that rate a year of
+  recorded timetables is under 90 MB of release storage. Publication refuses a
+  day without one.
+- **Service documents** fold the window's timetables in as `schedule`, with each
+  day pointing at a deduplicated set of trips. Every weekday under one timetable
+  is identical, so a 35-day window stores a handful of sets per service.
+- **Delay-map files** (`hotspot-map-*.json`, one per service, plus an index):
+  48 files and **675 KB in total** for 23 September's timetable, the largest
+  66 KB. `check_published.py` refuses any single file over 500 KB. They are
+  rebuilt into every publication generation, so they add about 0.7 MB to each
+  generation's share of the 4 GiB published budget.
+- Building the delay map with its geometry took 3.4 seconds and 430 MB peak RSS
+  on the review machine. Heavy, but in Actions, and nowhere near Render.
+- No new external calls. Stretch geometry comes from the timetable's own shapes;
+  where the feed has none (about half of trips), the line runs through the stops
+  and is labelled approximate. Filling those from OSRM would mean hundreds of
+  requests a night against a public demo server's fair-use terms, so it is not
+  done.

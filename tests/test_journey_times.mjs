@@ -469,13 +469,22 @@ test("nothing to show is not an empty chart pretending", () => {
 
 // ── Not offered until it is worth offering ──────────────────
 
-test("the view is not in the menu until the data justifies it", () => {
-  // Three days, two of them part-days, is not something to put in front of a
-  // reader who will read "median 79 minutes" as a fact about their route.
+test("only the Simple view is announced; the stronger claims stay behind their switches", () => {
+  // This gate once held the whole view back: three days, two of them
+  // part-days, was not something to put in front of a reader who would read
+  // "median 79 minutes" as a fact about their route. Simple went public on the
+  // owner's decision on 23 September 2026, answering from the shared default
+  // filters and saying what each answer rests on. The gate keeps its purpose
+  // for what remains unverified: Detailed exposes every evidence control, and
+  // the delay map colours roads, which is a claim about a place that the 22
+  // September review asked to pilot rather than publish.
   const fresh = loadApp();
   const CONFIG = vm.runInContext("CONFIG", fresh);
-  assert.equal(CONFIG.JOURNEY_TIMES_PUBLIC, false,
-    "the view was announced before a week of data existed");
+  assert.equal(CONFIG.JOURNEY_TIMES_PUBLIC, true);
+  assert.equal(CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC, false,
+    "the Detailed view was announced before its evidence was independently checked");
+  assert.equal(CONFIG.DELAY_MAP_PUBLIC, false,
+    "the delay map was published before any stretch was validated");
 });
 
 test("preview is a deliberate act, not a remembered one", () => {
@@ -959,4 +968,259 @@ test("the opening pair is the one the default names, not the next stop along", (
   const onward = d.stops.filter(s => reach.has(s.index));
   assert.notEqual(pair.to, onward[0].index,
     "the default opened on the very next stop rather than the far end");
+});
+
+
+// ── Simple and Detailed share one answer ─────────────────────
+//
+// Two views of one selection. The same trip must never show two different
+// headline numbers, the timetable line must be the timetable's promise and not
+// a guess, and a delay colour must never be painted on thin evidence.
+
+import { readFileSync } from "node:fs";
+import { ROOT } from "./load_app.mjs";
+import { join } from "node:path";
+
+const DEFAULTS = vm.runInContext("JT_DEFAULT_FILTERS", app);
+const inPeriod = vm.runInContext("journeyTimesInPeriod", app);
+const insight = vm.runInContext("journeyTimesPeriodInsight", app);
+const scheduleLine = vm.runInContext("journeyTimesScheduleLine", app);
+const coverage = vm.runInContext("journeyTimesCoverage", app);
+const band = vm.runInContext("delayBand", app);
+const stepPath = vm.runInContext("jtStepPath", app);
+const chart = vm.runInContext("journeyTimesChart", app);
+// Arrays made inside the vm have that realm's prototype; compare contents.
+const plain = v => JSON.parse(JSON.stringify(v));
+
+test("the Detailed controls open on exactly the filters Simple answers with", () => {
+  // If they drifted, one trip would read "usually 34 min" in Simple and
+  // "median 36 min" in Detailed — the site contradicting itself.
+  const html = readFileSync(join(ROOT, "index.html"), "utf8");
+  const selected = id => {
+    const block = html.match(new RegExp(`<select id="journey-times-${id}"[^>]*>([\\s\\S]*?)</select>`));
+    assert.ok(block, `no ${id} select`);
+    const options = [...block[1].matchAll(/<option value="([^"]*)"([^>]*)>/g)];
+    const chosen = options.find(o => /\bselected\b/.test(o[2])) || options[0];
+    return chosen[1];
+  };
+  const value = id => html.match(new RegExp(`value="([^"]*)" id="journey-times-${id}"`))?.[1];
+  assert.equal(selected("evidence"), DEFAULTS.evidence);
+  assert.equal(selected("identity"), DEFAULTS.identity);
+  assert.equal(selected("quality"), DEFAULTS.quality);
+  assert.equal(selected("cohort"), DEFAULTS.cohort);
+  assert.equal(value("time-from"), DEFAULTS.start);
+  assert.equal(value("time-to"), DEFAULTS.end);
+});
+
+/** A tracked journey from stop 0 to stop 1 on `day`, leaving at `h:m`. */
+function tracked(day, h, m, tookMins, promisedMins = 20, tripId = `T${h}${m}`) {
+  const dep = h * 3600 + m * 60;
+  return { day, start: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
+           trip_id: tripId, direction: "westbound",
+           calls: [[0, dep, dep, 0], [1, dep + tookMins * MIN, dep + promisedMins * MIN, 0]] };
+}
+
+test("the early-and-late period wraps midnight, and weekend means only weekends", () => {
+  const doc = { stops: [{}, {}], journeys: [
+    tracked("2026-09-22", 23, 0, 20), tracked("2026-09-22", 5, 0, 20),
+    tracked("2026-09-22", 12, 0, 20), tracked("2026-09-26", 12, 0, 20)] };
+  const all = between(doc, 0, 1);
+  assert.deepEqual(plain(inPeriod(all, "other").map(t => t.start).sort()), ["05:00", "23:00"]);
+  assert.deepEqual(plain(inPeriod(all, "weekend").map(t => t.day)), ["2026-09-26"]);
+  assert.equal(inPeriod(all, "any").length, 4);
+});
+
+test("the slowest time of day is only named from enough journeys", () => {
+  const journeys = [];
+  for (let i = 0; i < 12; i++) journeys.push(tracked("2026-09-22", 8, i, 30, 20, `M${i}`));
+  for (let i = 0; i < 12; i++) journeys.push(tracked("2026-09-22", 12, i, 22, 20, `D${i}`));
+  // Nine evening buses, one short of the floor: not enough to call it anything.
+  for (let i = 0; i < 9; i++) journeys.push(tracked("2026-09-22", 17, i, 60, 20, `E${i}`));
+  const found = insight(between({ stops: [{}, {}], journeys }, 0, 1));
+  assert.equal(found.slowest.period.key, "07-10");
+  assert.equal(found.quickest.period.key, "10-16");
+  assert.equal(found.compared, 2, "a period below the floor was compared");
+});
+
+function recorded(days) {
+  // Stops 0 → 1 → 2. Weekday trips leave at 07:00 and 08:00; the Saturday one
+  // takes longer. Profile 1 calls at 2 before 0, so it goes the other way.
+  return {
+    profiles: [[[0, 0, 1], [1, 300, 0], [2, 900, 1]],
+               [[0, 0, 1], [1, 300, 1], [2, 1200, 1]],
+               [[2, 0, 1], [0, 600, 1]]],
+    sets: [[["W1", 0, 25200, "x"], ["W2", 0, 28800, "x"], ["BACK", 2, 30000, "y"]],
+           [["S1", 1, 32400, "x"]]],
+    days,
+  };
+}
+
+test("the timetable line is every scheduled departure, by day type, in route order", () => {
+  const doc = { schedule: recorded({ "2026-09-22": 0, "2026-09-26": 1 }) };
+  const line = scheduleLine(doc, 0, 2, ["2026-09-22", "2026-09-26"]);
+  assert.equal(line.source, "recorded");
+  assert.deepEqual(plain(line.series.map(s => s.dayType)), ["weekday", "saturday"]);
+  assert.deepEqual(plain(line.series[0].points.map(p => [p.departSecs, p.scheduledSecs])),
+                   [[25200, 900], [28800, 900]]);
+  assert.deepEqual(plain(line.series[1].points.map(p => p.scheduledSecs)), [1200]);
+  // The trip calling at 2 before 0 is going the other way, not promising a
+  // negative journey.
+  assert.ok(!line.series.flatMap(s => s.points).some(p => p.tripId === "BACK"));
+  // A pair through an interpolated stop is drawn, but not as a promise.
+  const partial = scheduleLine(doc, 0, 1, ["2026-09-22"]);
+  assert.equal(partial.series[0].points[0].promised, false);
+});
+
+test("without a recorded timetable the line says it came from tracked journeys", () => {
+  const doc = { stops: [{}, {}], journeys: [tracked("2026-09-22", 9, 0, 25, 20)] };
+  const line = scheduleLine(doc, 0, 1, ["2026-09-22"], between(doc, 0, 1));
+  assert.equal(line.source, "journeys");
+  assert.deepEqual(plain(line.series[0].points.map(p => p.scheduledSecs)), [20 * MIN]);
+});
+
+test("coverage counts scheduled journeys in the period against the ones tracked", () => {
+  const doc = { stops: [{}, {}, {}], schedule: recorded({ "2026-09-22": 0 }),
+                journeys: [{ day: "2026-09-22", start: "07:00", trip_id: "W1", direction: "westbound",
+                             calls: [[0, 25200, 25200, 0], [2, 26200, 26100, 0]] }] };
+  const all = between(doc, 0, 2);
+  assert.deepEqual({ ...coverage(doc, 0, 2, ["2026-09-22"], all) },
+                   { scheduled: 2, tracked: 1, days: 1 });
+  // Only the 07:00 falls in the morning peak's hours... and both do; the
+  // daytime period holds neither.
+  assert.equal(coverage(doc, 0, 2, ["2026-09-22"], all, "07-10").scheduled, 2);
+  assert.equal(coverage(doc, 0, 2, ["2026-09-22"], all, "10-16").scheduled, 0);
+  assert.equal(coverage({ stops: [] }, 0, 2, ["2026-09-22"], all), null);
+});
+
+test("delay colours follow the agreed bands and never paint thin evidence", () => {
+  const floor = { journeys: 30, distinct_days: 5 };
+  const cell = secs => ({ sample_sufficient: true, median_gained_secs: secs,
+                          journeys: 40, distinct_days: 6 });
+  assert.equal(band(cell(-90), floor), "green", "making up time is not a delay");
+  assert.equal(band(cell(59), floor), "green");
+  assert.equal(band(cell(60), floor), "yellow");
+  assert.equal(band(cell(119), floor), "yellow");
+  assert.equal(band(cell(120), floor), "amber");
+  assert.equal(band(cell(149), floor), "amber");
+  assert.equal(band(cell(150), floor), "red");
+  assert.equal(band({ ...cell(600), sample_sufficient: false }, floor), "none");
+  // Marked sufficient but under the floor it states: trust the floor.
+  assert.equal(band({ ...cell(600), journeys: 12 }, floor), "none");
+  assert.equal(band(null, floor), "none");
+});
+
+test("the timetable step line breaks across the night instead of promising 3 a.m.", () => {
+  const x = s => s / 60, y = s => s;
+  const d = stepPath([{ departSecs: 23 * 3600, scheduledSecs: 600 },
+                      { departSecs: 23 * 3600 + 1800, scheduledSecs: 600 },
+                      { departSecs: 6 * 3600 + 86400 * 0, scheduledSecs: 700 }].sort(
+                        (a, b) => a.departSecs - b.departSecs), x, y);
+  assert.equal((d.match(/M/g) || []).length, 2, `expected two runs: ${d}`);
+});
+
+test("in journey-time mode the chart draws the timetable, not one flat median", () => {
+  const doc = { stops: [{}, {}, {}], schedule: recorded({ "2026-09-22": 0 }),
+                journeys: [tracked("2026-09-22", 7, 0, 16, 15)] };
+  const all = between({ ...doc, journeys: [{ day: "2026-09-22", start: "07:00", trip_id: "W1",
+    direction: "westbound", calls: [[0, 25200, 25200, 0], [2, 26200, 26100, 0]] }] }, 0, 2);
+  const summary = summarise(all);
+  const withLine = chart(all, summary, "duration", 640,
+                         { schedule: scheduleLine(doc, 0, 2, ["2026-09-22"]), variant: "simple" });
+  assert.match(withLine, /class="jt-timetable jt-timetable--weekday"/);
+  assert.doesNotMatch(withLine, /median timetable/);
+  assert.match(withLine, /what the timetable promised, weekdays/);
+  const withoutLine = chart(all, summary, "duration", 640);
+  assert.match(withoutLine, /median timetable/);
+});
+
+
+// ── The delay map says only what its evidence can ────────────
+
+const cellFor = vm.runInContext("delayCellFor", app);
+const stretchHtml = vm.runInContext("delayStretchHtml", app);
+const amount = vm.runInContext("delayAmount", app);
+const oneIn = vm.runInContext("delayOneIn", app);
+const slotOf = vm.runInContext("delaySlot", app);
+
+const FLOOR = { journeys: 30, distinct_days: 5 };
+const cellAt = over => ({ stretch: "s", latest: true, day_type: "weekday", resolution: "period",
+  period: "07-10", median_gained_secs: 150, journeys: 40, distinct_days: 6, traversals: 40,
+  at_least_600s: 10, sample_sufficient: true, ...over });
+
+test("a stretch is coloured by its own time slot, latest timetable, best evidence", () => {
+  const doc = { cells: [
+    // Busier but on too few days: thin evidence, however many buses it holds.
+    cellAt({ journeys: 60, distinct_days: 2, sample_sufficient: false, median_gained_secs: 900 }),
+    cellAt({ journeys: 35 }),
+    cellAt({ journeys: 99, latest: false }),                  // an older timetable's promise
+    cellAt({ journeys: 50, period: "16-19" }),                // another time of day
+    cellAt({ journeys: 50, day_type: "weekend" }),
+    cellAt({ journeys: 45, resolution: "hour", hour: 8, period: undefined }),
+  ] };
+  const period = { dayType: "weekday", resolution: "period", period: "07-10" };
+  assert.equal(cellFor(doc, "s", period).journeys, 35,
+    "the sufficient cell must speak for the stretch, not the busier stale or thin one");
+  assert.equal(cellFor(doc, "s", { dayType: "weekday", resolution: "hour", hour: 8 }).journeys, 45);
+  assert.equal(cellFor(doc, "s", { dayType: "weekday", resolution: "hour", hour: 9 }), null);
+  assert.equal(cellFor(doc, "other", period), null);
+});
+
+test("delay amounts are finer than whole minutes, because the bands are", () => {
+  assert.equal(amount(40), "40 seconds");
+  assert.equal(amount(-40), "40 seconds");
+  assert.equal(amount(60), "1 min");
+  assert.equal(amount(150), "2.5 min");
+  assert.equal(oneIn({ traversals: 40, at_least_600s: 0 }), "None of them lost 10 minutes or more here.");
+  assert.equal(oneIn({ traversals: 40, at_least_600s: 10 }), "About 1 in 4 lost 10 minutes or more here.");
+});
+
+test("a stretch's words match its evidence, and never colour thin evidence as a finding", () => {
+  const slot = { hint: "07:00–10:00 on weekdays" };
+  const stretch = { id: "s", from_name: "Shoreham High St", to_name: "Kingston Bay Rd",
+                    direction: "westbound", approximate: false };
+  assert.match(stretchHtml(stretch, cellAt({}), FLOOR, slot), /lost a median\s+of <strong>2\.5 min<\/strong>/);
+  assert.match(stretchHtml(stretch, cellAt({ median_gained_secs: -70 }), FLOOR, slot), /made up a median/);
+  const thin = stretchHtml(stretch, cellAt({ sample_sufficient: false, journeys: 12, distinct_days: 2 }), FLOOR, slot);
+  assert.match(thin, /Not enough journeys yet: 12 of the 30 needed/);
+  assert.doesNotMatch(thin, /lost a median/);
+  assert.match(stretchHtml(stretch, cellAt({ sample_sufficient: false, journeys: 12 }), FLOOR, slot, true),
+               /Early evidence only/);
+  assert.match(stretchHtml(stretch, null, FLOOR, slot), /No journeys tracked on this stretch/);
+  assert.match(stretchHtml({ ...stretch, approximate: true }, cellAt({}), FLOOR, slot), /Drawn roughly/);
+});
+
+test("stop names from the feed are escaped before they reach a popup", () => {
+  const html = stretchHtml({ id: "s", from_name: '<img src=x onerror="alert(1)">', to_name: "B",
+                             direction: "eastbound" }, null, FLOOR, { hint: "x" });
+  assert.doesNotMatch(html, /<img/);
+});
+
+test("the passenger's time buttons and the expert's hour slider name the same groups", () => {
+  const was = vm.runInContext("JSON.stringify({ slot: jtDelay.slot, time: jtDelay.time, hour: jtDelay.hour })", app);
+  vm.runInContext('jtDelay.slot = "weekend"', app);
+  assert.deepEqual(plain(slotOf("simple")), { dayType: "weekend", resolution: "period", period: "10-16",
+    label: "Weekend daytime", hint: "10:00–16:00 on Saturdays and Sundays" });
+  vm.runInContext('jtDelay.time = "hour"; jtDelay.hour = 8; jtDelay.dayType = "weekday"', app);
+  const hour = plain(slotOf("detailed"));
+  assert.equal(hour.resolution, "hour");
+  assert.equal(hour.hour, 8);
+  assert.equal(hour.label, "08:00–09:00");
+  vm.runInContext(`Object.assign(jtDelay, ${was})`, app);
+});
+
+test("the view follows a link over memory, and Detailed stays shut without preview", () => {
+  const view = () => vm.runInContext("jtView()", app);
+  const set = search => vm.runInContext(`location.search = ${JSON.stringify(search)}; jtEntry.view = undefined`, app);
+  try {
+    set("?jt-view=detailed");
+    assert.equal(view(), "simple", "Detailed opened without its switch or preview");
+    set("?preview=1&jt-view=detailed");
+    assert.equal(view(), "detailed");
+    set("?preview=1&jt-service=700-SCSO.json");
+    assert.equal(view(), "detailed", "a link from before the two views existed was made in Detailed");
+    set("?preview=1");
+    assert.equal(view(), "simple");
+  } finally {
+    set("");
+  }
 });

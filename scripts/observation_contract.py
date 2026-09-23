@@ -4,6 +4,7 @@ GTFS time is elapsed time from local noon minus twelve hours, including DST:
 https://gtfs.org/documentation/schedule/reference/#field-types
 """
 import hashlib
+import json
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
@@ -50,6 +51,18 @@ def canonical_row(row, doc, source_hash):
             if row.get(field + "_secs") is not None:
                 row.setdefault(field + "_epoch", origin + row[field + "_secs"])
     return row
+
+
+def route_pattern_id(route_id, atcos):
+    """One route's exact ordered calls, as a stable identity.
+
+    Shared by the observations and the recorded timetable so the two join: a
+    scheduled journey and a measured one belong to the same pattern only if
+    they hash identically, and two copies of this expression would be free to
+    drift apart without either complaining.
+    """
+    return hashlib.sha256(json.dumps(
+        [route_id, list(atcos)], separators=(",", ":")).encode()).hexdigest()
 
 
 def row_identity(row):

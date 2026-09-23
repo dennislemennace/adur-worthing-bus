@@ -6,7 +6,6 @@ missing data and uncertain matching must not become precise hotspot claims.
 """
 
 import argparse
-import hashlib
 from importlib import metadata
 import json
 import struct
@@ -27,7 +26,7 @@ from api import gtfs_rt                      # noqa: E402
 import reliability_stats                      # noqa: E402
 from api import trip_match                    # noqa: E402
 from api.timetable_db import Timetable        # noqa: E402
-from observation_contract import TIME_BASIS, digest_file, service_origin
+from observation_contract import TIME_BASIS, digest_file, route_pattern_id, service_origin
 from recorded_inputs import recorded_stream
 
 SIRI_NS = "http://www.siri.org.uk/siri"
@@ -364,6 +363,102 @@ def advancing_only(arrivals):
         yield arrival
 
 
+def journey_direction(tt, calls):
+    """Which way along the coast a journey runs, from its first and last stop.
+
+    Shared by the observations and the recorded timetable, so a scheduled
+    journey and a measured one cannot be filed under different directions.
+    """
+    first_stop = tt.stops.get(calls[0][1]) or {}
+    last_stop = tt.stops.get(calls[-1][1]) or {}
+    if first_stop.get("lon") is not None and last_stop.get("lon") is not None:
+        shift = last_stop["lon"] - first_stop["lon"]
+        if abs(shift) >= 0.002:          # ~140 m, more than one pole apart
+            return "westbound" if shift < 0 else "eastbound"
+    return "unknown"
+
+
+# What the recorded timetable is, stated in the file so it reads on its own.
+SCHEDULE_NOTE = (
+    "Every journey the timetable scheduled on this service day at stops in the "
+    "recording area, coaches excluded, whether or not a bus was ever seen. A "
+    "call's scheduled time is start_secs + offsets[i] seconds from the GTFS "
+    "service-day origin (noon minus twelve hours, London). timepoints[i] is 1 "
+    "where the operator commits to the time and 0 where GTFS interpolated it.")
+
+
+def record_schedule(tt, day, atcos=None):
+    """The day's timetable, kept beside what the buses actually did.
+
+    The comparison between a measured journey and its promise is only as
+    durable as the promise. Each observation row already carries its own
+    scheduled time, but only for journeys a bus was seen making: the timetable
+    itself was enumerated here every night and thrown away, keeping counts. So
+    no chart could draw the timetable across the day, a scheduled bus that was
+    never seen left no trace, and the weekly rebuild replaced the only copy.
+
+    Recorded per service day, not per processing window. The window reaches two
+    hours either side of the day to catch journeys crossing midnight, so it
+    also holds the neighbouring days' late and early trips; keeping only this
+    day's instances files every journey exactly once across the archive.
+
+    Deduplicated rather than listed: most journeys on a pattern share a
+    run-time profile, so each trip names its pattern and profile and carries
+    only its start time and headsign.
+    """
+    atcos = stops_in_box(tt) if atcos is None else list(atcos)
+    # Wider than the matching window, deliberately. Matching looks two hours
+    # past the day because that is when buses are on the road to be seen; a
+    # timetable can schedule a service day's journey as late as 47:59, and one
+    # that first calls at 28:40 falls outside the matching window on its own
+    # day and is filed under the neighbouring day's window, so a record taken
+    # from that window would lose it on both nights.
+    instances, _scheduled = trip_match.build_instances(tt, day, atcos, (-7200, 48 * 3600))
+    patterns, profiles, profile_index, trips = {}, [], {}, []
+    for (trip_id, service_day), inst in sorted(instances.items(),
+                                               key=lambda item: (item[0][0], item[0][1])):
+        if service_day != day:
+            continue
+        # The same calls, in the same order and with the same filter, that the
+        # observations are built from; anything else would hash differently.
+        calls = [(secs, atco) for secs, atco in tt.trip_stops_for(trip_id)
+                 if secs is not None]
+        if not calls:
+            continue
+        timepoints = dict(enumerate(tt.timepoints_by_call(trip_id)))
+        route_id = inst["trip"].get("route_id", "")
+        pattern = route_pattern_id(route_id, [atco for _secs, atco in calls])
+        if pattern not in patterns:
+            patterns[pattern] = {
+                "route_id": route_id,
+                "operator": tt.noc_for_route(route_id),
+                "service": inst["service"],
+                "direction": journey_direction(tt, calls),
+                "atcos": [atco for _secs, atco in calls],
+            }
+        start = calls[0][0]
+        profile = ([secs - start for secs, _atco in calls],
+                   [1 if timepoints.get(i) == 1 else 0 for i in range(len(calls))])
+        key = (tuple(profile[0]), tuple(profile[1]))
+        if key not in profile_index:
+            profile_index[key] = len(profiles)
+            profiles.append({"offsets": profile[0], "timepoints": profile[1]})
+        trips.append([trip_id, pattern, profile_index[key], start,
+                      (inst["trip"].get("headsign") or "").strip()])
+    trips.sort(key=lambda t: (t[3], t[1], t[0]))
+    return {
+        "schema_version": 1,
+        "day": day.isoformat(),
+        "time_basis": TIME_BASIS,
+        "note": SCHEDULE_NOTE,
+        "trip_format": ["trip_id", "route_pattern", "profile", "start_secs", "headsign"],
+        "patterns": patterns,
+        "profiles": profiles,
+        "trips": trips,
+        "counts": {"trips": len(trips), "patterns": len(patterns), "profiles": len(profiles)},
+    }
+
+
 def observe_day(tt, day, snapshots, atcos=None):
     """Arrival observations for one day.
 
@@ -487,17 +582,10 @@ def observe_day(tt, day, snapshots, atcos=None):
         # belong to one timetable build, and joining observations to whatever
         # database happens to be on disk would silently mix two builds.
         calls = inst["calls"]
-        first_stop = tt.stops.get(calls[0][1]) or {}
-        last_stop = tt.stops.get(calls[-1][1]) or {}
-        direction = "unknown"
-        if first_stop.get("lon") is not None and last_stop.get("lon") is not None:
-            shift = last_stop["lon"] - first_stop["lon"]
-            if abs(shift) >= 0.002:          # ~140 m, more than one pole apart
-                direction = "westbound" if shift < 0 else "eastbound"
+        direction = journey_direction(tt, calls)
         headsign = (inst["trip"].get("headsign") or "").strip()
         journey_start = calls[0][0]
-        route_pattern = hashlib.sha256(json.dumps(
-            [route_id, [atco for _secs, atco in calls]], separators=(",", ":")).encode()).hexdigest()
+        route_pattern = route_pattern_id(route_id, [atco for _secs, atco in calls])
         timing_indices = [i for i, (_secs, atco) in enumerate(calls) if timepoints.get(i) == 1]
 
         # One journey can be matched to more than one vehicle across a day if a
@@ -957,6 +1045,10 @@ def main(argv=None):
             hour = datetime.fromtimestamp(source["fetched_epoch"], LONDON).strftime("%H")
             health[feed]["hours"][hour]["measured_calls"] += 1
     coverage["feed_health_note"] = "Fetched means downloaded recorded objects, not confirmed upstream requests; failed fetch attempts cannot be reconstructed from missing objects. Hour counts use London fetch hour; both autumn 01:00 hours share one bucket with 120 expected RT minutes."
+    # The timetable, beside what the buses did — over the same stops the day
+    # was measured at, so the two describe the same network.
+    schedule = record_schedule(
+        tt, day, CORRIDOR_ATCOS if args.corridor_only else None)
     declared = sum(1 for o in observations if o.get("match") == "declared")
     coverage["declared_share"] = round(declared / len(observations), 3) if observations else 0
     payload = {
@@ -968,6 +1060,7 @@ def main(argv=None):
         "data_version": version,
         "coverage": coverage,
         "observations": observations,
+        "schedule": schedule,
         "time_basis": TIME_BASIS,
         "provenance": {
             "runtime": {"python": sys.version, "packages": {d.metadata["Name"]: d.version for d in metadata.distributions() if d.metadata["Name"]}},

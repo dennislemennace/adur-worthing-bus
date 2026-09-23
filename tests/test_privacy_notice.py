@@ -47,6 +47,7 @@ EVENT_FAMILIES = {
     "councillor": "a councillor letter",
     "submission": "a form sent",
     "gap-alert": "a gap alert shown",
+    "delay-map": "a stretch of road opened on the delay map",
     "api-waking": "live service being woken up",
     "a11y": "an accessibility setting changed",
 }

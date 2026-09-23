@@ -2400,6 +2400,8 @@ async function checkJourneyReview(page, viewport) {
       method:"Review fixture", as_of:day, caveats:["Synthetic browser fixture"], source_methods:[]};
     const index = {build_id:build, days:[day], services:[{file,service:"700",operator:"SCSO",journeys:3}]};
     journeyTimesCache.set("index.json", index); journeyTimesCache.set(file, doc);
+    // Detailed is behind its own switch; this fixture exercises it as preview would.
+    CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = true; jtEntry.view = "detailed"; jtEntry.section = "journey";
     jtEntry.mode="browse"; jtEntry.only=null; jtEntry.wanted=null;
     for (const key of ["service", "direction", "from", "to", "days"]) {
       const el=document.getElementById("journey-times-"+key); for(const attr of Object.keys(el.dataset)) delete el.dataset[attr];
@@ -2435,7 +2437,9 @@ async function checkJourneyReview(page, viewport) {
       && document.getElementById("journey-times-service").value===file;
     history.replaceState(null,"",oldUrl);
     host.querySelector(".jt-chart")?.scrollIntoView({block:"center"});
-    return {restored, font, initialDots, declaredDots, detail, expands, bodyWidth, width:innerWidth,
+    const detailedFlag = true;
+    CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false; jtEntry.view = undefined;
+    return {restored, font, initialDots, declaredDots, detail, expands, bodyWidth, width:innerWidth, detailedFlag,
       shared:link?.href, csv:!!host.querySelector(".jt-csv"), evidence:!!host.querySelector(".jt-evidence"),
       departure:host.querySelector(".jt-table tbody tr td:nth-child(2)")?.textContent};
   })()`);
@@ -2447,6 +2451,162 @@ async function checkJourneyReview(page, viewport) {
   check(`journey review ${viewport}: shared links restore the chosen cohort and metric`, result.restored);
   check(`journey review ${viewport}: view and build are shareable`, /jt-build=a{64}/.test(result.shared || "") && /jt-service=/.test(result.shared || ""));
   check(`journey review ${viewport}: exports and evidence are available without page overflow`, result.csv && result.evidence && result.bodyWidth <= result.width + 1, JSON.stringify(result));
+}
+
+/** Simple against a fixture with a recorded timetable: the line is the
+ *  timetable's, and the headline agrees with Detailed's for the same trip. */
+async function checkJourneySimple(page, viewport) {
+  const result = JSON.parse(await page.evaluate(`(async () => {
+    const build = "c".repeat(64), file = "builds/" + build + "/700-SCSO.json";
+    const day = "2026-09-21", origin = Date.parse(day + "T00:00:00+01:00") / 1000;
+    const stops = [{atco:"4400AD0064",name:"Lancing",lat:50.823,lon:-.321},
+                  {atco:"149000007830",name:"Brighton",lat:50.820,lon:-.136}];
+    const journeys = [], trips = [];
+    for (let i = 0; i < 12; i++) {
+      const dep = 25200 + i * 1800, took = 1500 + (i % 4) * 120, sched = 1320;
+      journeys.push({day, start: "", trip_id: "s-" + i, direction: "eastbound", headsign: "Brighton",
+        route_pattern: "p", data_version: "t", method_version: 4, match: "declared", source_files: ["h"], quality_flags: [],
+        calls: [[0, dep, dep, 0, 0, origin + dep, origin + dep, [origin + dep, origin + dep + 30], [], "declared"],
+                [1, dep + took, dep + sched, 0, 1, origin + dep + took, origin + dep + sched, [origin + dep + took, origin + dep + took + 30], [], "declared"]]});
+      trips.push(["s-" + i, 0, dep, "Brighton"]);
+    }
+    trips.push(["unseen", 0, 25200 + 12 * 1800, "Brighton"]);
+    const doc = {build_id: build, service: "700", operator: "SCSO", days: [day], window_days: [day], stops, journeys,
+      method: "Simple fixture", as_of: day, caveats: [], source_methods: [],
+      schedule: {profiles: [[[0, 0, 1], [1, 1320, 1]]], sets: [trips], days: {[day]: 0}, unrecorded_days: []}};
+    const index = {build_id: build, days: [day], services: [{file, service: "700", operator: "SCSO", journeys: 12}]};
+    journeyTimesCache.set("index.json", index); journeyTimesCache.set(file, doc);
+    CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false; jtEntry.view = undefined; jtEntry.section = "journey";
+    jtEntry.period = "any"; jtEntry.runs = null;
+    jtEntry.mode = "browse"; jtEntry.only = null; jtEntry.wanted = null;
+    for (const key of ["service", "direction", "from", "to", "days"]) {
+      const el = document.getElementById("journey-times-" + key); for (const attr of Object.keys(el.dataset)) delete el.dataset[attr];
+    }
+    setViewMode("journeytimes"); await renderJourneyTimes();
+    const host = document.getElementById("journey-times-result");
+    const simple = host.querySelector(".jt-simple");
+    const usually = simple?.querySelector(".jt-simple-usually strong")?.textContent.trim() || "";
+    const legend = simple?.querySelector(".jt-legend")?.textContent || "";
+    const line = simple ? simple.querySelectorAll("path.jt-timetable--weekday").length : 0;
+    const trust = simple?.querySelector(".jt-simple-trust")?.textContent.replace(/\\s+/g, " ") || "";
+    const small = [...(simple ? simple.querySelectorAll("button, a") : [])]
+      .map(el => el.getBoundingClientRect()).filter(r => r.width && Math.min(r.width, r.height) < 44).length;
+    simple?.querySelector(".jt-dot")?.closest("[data-jt-point]")?.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+    const tapped = host.querySelector(".jt-point-detail")?.textContent || "";
+    const chip = simple?.querySelector('[data-jt-period="10-16"]');
+    chip?.click();
+    const pressed = host.querySelector('[data-jt-period="10-16"]')?.getAttribute("aria-pressed");
+    host.querySelector('[data-jt-period="any"]')?.click();
+    const bodyWidth = document.documentElement.scrollWidth;
+    // The same trip in Detailed, which must say the same number.
+    CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = true; jtEntry.view = "detailed";
+    await renderJourneyTimes();
+    const detailed = host.querySelector(".jt-headline strong")?.textContent.trim() || "";
+    CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false; jtEntry.view = undefined;
+    await renderJourneyTimes();
+    return JSON.stringify({simple: !!simple, usually, detailed, legend, line, trust, small, tapped, pressed,
+      bodyWidth, width: innerWidth});
+  })()`));
+  check(`journey simple ${viewport}: the passenger answer renders`, result.simple && !!result.usually, JSON.stringify(result));
+  check(`journey simple ${viewport}: Simple and Detailed agree on the headline`, result.usually === result.detailed,
+    `Simple "${result.usually}" against Detailed "${result.detailed}"`);
+  check(`journey simple ${viewport}: the line is the recorded timetable`, result.line === 1
+    && /what the timetable promised, weekdays/.test(result.legend), result.legend.slice(0, 160));
+  check(`journey simple ${viewport}: it says how many scheduled buses were tracked`,
+    /timetable scheduled 13 between these stops/.test(result.trust) && /tracked 12 of them/.test(result.trust), result.trust);
+  check(`journey simple ${viewport}: tapping a journey describes it`, /left at/.test(result.tapped), result.tapped);
+  check(`journey simple ${viewport}: the time-of-day choice responds`, result.pressed === "true");
+  check(`journey simple ${viewport}: targets and width`, result.small === 0 && result.bodyWidth <= result.width + 1,
+    `${result.small} small targets; ${result.bodyWidth}px on ${result.width}px`);
+}
+
+/** The delay map against a fixture: two stretches, one with enough evidence. */
+async function checkDelayMap(page, viewport) {
+  const result = JSON.parse(await page.evaluate(`(async () => {
+    const build = "d".repeat(64), day = "2026-09-21";
+    const floor = {journeys: 30, distinct_days: 5};
+    const days = ["2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-21", "2026-09-22"];
+    const cell = (stretch, over) => ({stretch, latest: true, day_type: "weekday", resolution: "period",
+      period: "07-10", traversals: 40, at_least_600s: 8, journeys: 40, distinct_days: 6,
+      median_gained_secs: 200, sample_sufficient: true, schedule_era: "e", data_versions: ["t"], ...over});
+    const mapDoc = {build_id: build, schema_version: 1, service: "700", operator: "SCSO", floor, days_collected: days,
+      method: "Delay fixture", pooling: "", caveats: ["Fixture"],
+      stretches: [
+        {id: "s1", direction: "westbound", from_atco: "4400AD0064", to_atco: "4400AD0204",
+         from_name: "Lancing", to_name: "Shoreham", headsign: "Worthing",
+         geometry: [[50.823, -0.321], [50.828, -0.30], [50.832, -0.275]], approximate: false},
+        {id: "s2", direction: "westbound", from_atco: "4400AD0204", to_atco: "4400AD0259",
+         from_name: "Shoreham", to_name: "Southwick", headsign: "Worthing",
+         geometry: [[50.832, -0.275], [50.834, -0.24]], approximate: true}],
+      cells: [cell("s1"), cell("s2", {median_gained_secs: 30, journeys: 9, traversals: 9, distinct_days: 2,
+        at_least_600s: 0, sample_sufficient: false}),
+        cell("s1", {resolution: "hour", hour: 8, period: undefined, journeys: 31, traversals: 31, distinct_days: 5})]};
+    const mapIndex = {schema_version: 1, floor, days_collected: days,
+      services: [{service: "700", operator: "SCSO", file: "hotspot-map-700-SCSO.json", stretches: 2, sufficient_cells: 2, days_collected: 6}]};
+    const index = {build_id: build, days: [day], services: [], artifacts: {
+      "hotspot-map-index.json": {file: "builds/" + build + "/hotspot-map-index.json"},
+      "hotspot-map-700-SCSO.json": {file: "builds/" + build + "/hotspot-map-700-SCSO.json"}}};
+    journeyTimesCache.set("index.json", index);
+    journeyTimesCache.set("builds/" + build + "/hotspot-map-index.json", mapIndex);
+    journeyTimesCache.set("builds/" + build + "/hotspot-map-700-SCSO.json", mapDoc);
+    CONFIG.DELAY_MAP_PUBLIC = true; CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false; jtEntry.view = undefined;
+    Object.assign(jtDelay, {service: null, direction: null, slot: "07-10", time: "07-10", hour: 8,
+      dayType: "weekday", exploratory: false, selected: null, fittedFor: ""});
+    setViewMode("journeytimes");
+    document.querySelector('#jt-sections [data-jt-section="delays"]').click();
+    await new Promise(r => setTimeout(r, 400));
+    const panel = document.getElementById("jt-delay-panel");
+    const rect = panel.getBoundingClientRect();
+    const red = document.querySelector(".delay-line--red"), none = document.querySelector(".delay-line--none");
+    const stroke = el => el ? getComputedStyle(el).stroke : "";
+    const lightRed = stroke(red);
+    document.documentElement.classList.add("dark-mode");
+    const darkRed = stroke(red);
+    document.documentElement.classList.remove("dark-mode");
+    const mapLegend = document.querySelector(".delay-legend-map");
+    const mapLegendShown = !!mapLegend && getComputedStyle(mapLegend).display !== "none";
+    const listButtons = [...panel.querySelectorAll("[data-delay-stretch]")];
+    const small = listButtons.map(b => b.getBoundingClientRect()).filter(r => r.width && Math.min(r.width, r.height) < 44).length;
+    const status = panel.querySelector(".delay-status")?.textContent.replace(/\\s+/g, " ") || "";
+    panel.querySelector(".delay-list-wrap")?.setAttribute("open", "");
+    listButtons[0]?.click();
+    const detail = panel.querySelector(".delay-detail")?.textContent.replace(/\\s+/g, " ") || "";
+    const bodyWidth = document.documentElement.scrollWidth;
+    // Detailed: the hour slider, on the same stretches.
+    CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = true; jtEntry.view = "detailed"; jtDelay.time = "hour"; jtDelay.hour = 8;
+    await renderJourneyTimes(); await new Promise(r => setTimeout(r, 300));
+    const slider = !!panel.querySelector('input[type="range"][data-delay-hour]');
+    const hourRed = document.querySelectorAll(".delay-line--red").length;
+    // Leaving the view must take every line with it.
+    setViewMode("live"); await new Promise(r => setTimeout(r, 300));
+    const leftover = document.querySelectorAll(".delay-line, .delay-casing").length;
+    const muted = state.map.getContainer().classList.contains("delay-map-on");
+    CONFIG.DELAY_MAP_PUBLIC = false; CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false;
+    jtEntry.view = undefined; jtEntry.section = "journey"; jtDelay.time = "07-10";
+    return JSON.stringify({shown: !panel.hidden && rect.height > 0, red: !!red, none: !!none,
+      dashed: none?.getAttribute("stroke-dasharray") || "", lightRed, darkRed, mapLegendShown,
+      panelLegend: panel.querySelectorAll(".delay-legend-panel .delay-legend li").length,
+      small, status, detail, bodyWidth, width: innerWidth, slider, hourRed, leftover, muted});
+  })()`));
+  const blue = "rgb(51, 136, 255)";   // Leaflet's default: the CSS failed to apply
+  check(`delay map ${viewport}: the panel and both kinds of line are drawn`, result.shown && result.red && result.none,
+    JSON.stringify(result));
+  check(`delay map ${viewport}: thin evidence is grey and dashed, never green`, !!result.dashed, `dasharray "${result.dashed}"`);
+  check(`delay map ${viewport}: colours come from the theme in both themes`,
+    result.lightRed && result.darkRed && result.lightRed !== result.darkRed
+    && result.lightRed !== blue && result.darkRed !== blue, `${result.lightRed} / ${result.darkRed}`);
+  check(`delay map ${viewport}: the legend is in the panel, and on the map only where the sheet cannot hide it`,
+    result.panelLegend === 5 && result.mapLegendShown === (result.width > 900),
+    `panel ${result.panelLegend}, map legend shown ${result.mapLegendShown} at ${result.width}px`);
+  check(`delay map ${viewport}: it says how much of the map has enough evidence`,
+    /1 of 2 stretches have enough journeys/.test(result.status), result.status);
+  check(`delay map ${viewport}: every stretch is reachable from the list and says what it measured`,
+    result.small === 0 && /lost a median of 3\.3 min/.test(result.detail), `${result.small} small; ${result.detail.slice(0, 120)}`);
+  check(`delay map ${viewport}: Detailed adds an hourly slider over the same stretches`, result.slider && result.hourRed === 1,
+    `slider ${result.slider}, red at 08:00 ${result.hourRed}`);
+  check(`delay map ${viewport}: leaving the view takes every line and the muted map with it`,
+    result.leftover === 0 && !result.muted, `${result.leftover} lines left, muted ${result.muted}`);
+  check(`delay map ${viewport}: fits the screen`, result.bodyWidth <= result.width + 1, `${result.bodyWidth}px on ${result.width}px`);
 }
 
 async function checkSelectedFareRoute(page) {
@@ -2474,7 +2634,77 @@ async function checkSelectedFareRoute(page) {
   check("fare route selection meets the touch target minimum", result.height>=44, String(result.height));
 }
 
+/** The public flow: the Simple view, against the live published data. */
+async function checkJourneyTimesSimpleFlow(page) {
+  await page.evaluate(`(() => { CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false; jtEntry.view = undefined;
+    jtEntry.section = "journey"; clearJourneyTimesEntry(); jtEntry.mode = "start"; setViewMode('journeytimes'); return "1"; })()`);
+  await sleep(4000);
+  const opening = JSON.parse(await page.evaluate(`
+    (() => {
+      const host = document.getElementById("journey-times-result");
+      const controls = document.querySelector(".journey-times-controls");
+      const toggle = document.getElementById("jt-view-toggle");
+      return JSON.stringify({
+        says: host.textContent.replace(/\\s+/g, " ").trim().slice(0, 120),
+        controlsHidden: !controls || controls.hidden,
+        browse: !!host.querySelector('[data-act="browse"]'),
+        toggleHidden: !toggle || toggle.hidden,
+        pickable: document.querySelectorAll("path.jt-stop, circle.jt-stop").length,
+      });
+    })()`));
+  check("the public journey-time view asks a passenger's question",
+    /how long will my bus really take/i.test(opening.says), opening.says);
+  check("the public view shows no expert controls or ways into them",
+    opening.controlsHidden && !opening.browse && opening.toggleHidden, JSON.stringify(opening));
+  check("the public view still draws stops to tap", opening.pickable > 50, `${opening.pickable} stops`);
+
+  await page.evaluate(`(() => { journeyTimesEntryPick("4400AD0064"); journeyTimesEntryPick("149000007830"); return "1"; })()`);
+  await sleep(6000);
+  const answer = JSON.parse(await page.evaluate(`
+    (() => {
+      const simple = document.querySelector(".jt-simple");
+      const controls = document.querySelector(".journey-times-controls");
+      const small = [...(simple ? simple.querySelectorAll("button, a") : [])]
+        .map(el => el.getBoundingClientRect()).filter(r => r.width && Math.min(r.width, r.height) < 44).length;
+      return JSON.stringify({
+        simple: !!simple,
+        usually: simple ? /usually takes/i.test(simple.textContent) : false,
+        line: document.querySelectorAll(".jt-simple path.jt-timetable").length,
+        controlsHidden: !controls || controls.hidden,
+        small, bodyWidth: document.documentElement.scrollWidth, width: innerWidth,
+        text: simple ? simple.textContent.replace(/\\s+/g, " ").trim().slice(0, 160) : "",
+      });
+    })()`));
+  if (!answer.simple && !answer.text) {
+    check("the Simple view has live data to answer from", false,
+      "no answer rendered: if R2 is unreachable this is expected");
+    return;
+  }
+  check("picking two stops gives a passenger an answer in words", answer.simple && answer.usually, answer.text);
+  check("the Simple answer draws the timetable across the day", answer.line > 0, `${answer.line} timetable lines`);
+  check("the Simple answer keeps the expert controls out of sight", answer.controlsHidden);
+  check("every Simple target meets the tap-target minimum", answer.small === 0, `${answer.small} under 44px`);
+  check("the Simple answer fits the screen", answer.bodyWidth <= answer.width + 1,
+    `${answer.bodyWidth}px wide on a ${answer.width}px screen`);
+}
+
 async function checkJourneyTimes(page) {
+  await checkJourneyTimesSimpleFlow(page);
+  // Everything below exercises the Detailed tool, as ?preview=1 would.
+  // setViewMode is a no-op when the view is already open, so the reset has to
+  // redraw for itself: otherwise the Simple answer stays on screen and every
+  // Detailed check below reads it.
+  await page.evaluate(`(() => { CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = true; jtEntry.view = "detailed";
+    jtEntry.section = "journey"; clearJourneyTimesEntry(); jtEntry.wanted = null; jtEntry.runs = null;
+    renderJourneyTimes(); return "1"; })()`);
+  try {
+    await checkJourneyTimesDetailedFlow(page);
+  } finally {
+    await page.evaluate(`(() => { CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false; jtEntry.view = undefined; return "1"; })()`);
+  }
+}
+
+async function checkJourneyTimesDetailedFlow(page) {
   await page.evaluate(`setViewMode('journeytimes')`);
   await sleep(4000);
 
@@ -2904,9 +3134,13 @@ await checkBasemap(page);
 if (process.argv.includes("--journey-review")) {
   await checkJourneyReview(page, VIEWPORTS[0].name);
   await checkSelectedFareRoute(page);
+  await checkJourneySimple(page, VIEWPORTS[0].name);
+  await checkDelayMap(page, VIEWPORTS[0].name);
   for (const vp of VIEWPORTS.slice(1)) {
     const p = await openPage(vp);
     await checkJourneyReview(p, vp.name);
+    await checkJourneySimple(p, vp.name);
+    await checkDelayMap(p, vp.name);
     await screenshot(p, `journey-review-${vp.name}`);
     p.ws.close();
   }
@@ -2949,6 +3183,8 @@ await checkJourneyPresets(page);
 await checkJourneyTimes(page);
 await checkSelectedFareRoute(page);
 await checkJourneyReview(page, VIEWPORTS[0].name);
+await checkJourneySimple(page, VIEWPORTS[0].name);
+await checkDelayMap(page, VIEWPORTS[0].name);
 await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
 await checkDeepLinkIndependence();   // own page + request interception; keep it apart
@@ -2972,6 +3208,8 @@ for (const vp of VIEWPORTS.slice(1)) {
   if (vp.name === "desktop") await checkReadingLayout(p);
   await checkReachableAcrossViews(p, vp.name);
   await checkJourneyReview(p, vp.name);
+  await checkJourneySimple(p, vp.name);
+  await checkDelayMap(p, vp.name);
   p.ws.close();
 }
 
