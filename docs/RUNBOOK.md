@@ -40,7 +40,7 @@ The arithmetic behind the window is in `LIMITS.md`: the service is up about
 500 hours a month against a 750-hour allowance, so widening the window is not
 free.
 
-**Roll back a bad timetable.** Dated releases are kept (five deep). Copy the
+**Roll back a bad timetable.** Dated releases are retained for historical measurement and replay (no five-release pruning). Copy the
 assets from a good one onto the rolling tag:
 
 ```sh
@@ -116,3 +116,90 @@ the verification record and scoped commits.
 - Two update photographs have no recorded provenance — see
   `docs/ASSET_RIGHTS.md`.
 - The project has no `LICENSE` file while describing itself as open source.
+
+## Reliability publication and replay (23 September implementation)
+
+This workflow is implemented locally; deployment is not established by this
+runbook. See [implementation status](IMPLEMENTATION_DATA_UI_2026-09-22.md) for
+validation and the current timetable cohort blocker.
+
+Deploy the compatible Worker routes/recorder, API and frontend before enabling
+new processing. The Worker must serve `journey-times/builds/<sha256>/...` as
+well as the root index. Leave `JOURNEY_TIMES_PUBLIC` false until recording
+coverage, independent timing checks and replay have been verified.
+
+The nightly *Process Snapshots* workflow now:
+
+1. Selects a checksum-verified timetable describing the day and every relevant
+   local operator/service cohort, searching all pages of archived releases.
+   A global date range is insufficient. The local 21 September build cannot
+   validate 23 September for BHBC 25X; do not bypass this as a routine fix.
+2. Downloads SIRI and RT independently, accepting either feed on its own.
+   The combined object floor is a download sanity check, not a coverage score.
+3. Generates method-4 observations and a daily summary; restores every known
+   input for the rolling 35-day view and the requested calendar month. Failed
+   downloads, altered hashes and wrong-day files stop the run. Old-month reruns
+   do not move or widen the latest rolling window.
+4. Creates a replay archive of exact recorded objects, timetable, code,
+   configuration and runtime-version evidence. Validates all candidate
+   derivatives before any release/publication upload.
+5. Publishes a unique `reliability-run-<run-id>-<attempt>` release containing
+   replay evidence, observations and the complete candidate archive. Assets
+   are not overwritten. The historical source catalog remains in the index.
+6. Enforces the published bucket's separate 4 GiB budget, uploads the immutable
+   generation, reads back and hashes every object, then switches the single
+   public `journey-times/index.json` pointer. Old generations remain available.
+
+The manifest is authoritative for observation, summary and rollup versions;
+there is no daily Git commit of refreshed summaries. Known legacy inputs are
+migrated to unique release assets when restored; that freezes their bytes but
+cannot supply missing raw evidence or upgrade their method.
+
+### Local preparation
+
+Use an isolated output directory and the original historical timetable. This
+example writes only local files; replace the example date with the input day.
+`raw/<day>/` and `rt/<day>/` contain the original recorded objects.
+
+```sh
+DAY=2026-09-22
+python scripts/timetable_covers.py --timetable replay/timetable.sqlite --day "$DAY"
+python scripts/process_snapshots.py --day "$DAY" \
+  --snapshots "replay/raw/$DAY" --gtfs-rt "replay/rt/$DAY" \
+  --timetable replay/timetable.sqlite --out observations.json \
+  --summary-out summary.json
+python scripts/archive_reliability_evidence.py --observations observations.json \
+  --snapshots replay/raw --rt replay/rt --timetable replay/timetable.sqlite \
+  --out evidence.tar.gz
+python scripts/build_journey_times.py --observations observations.json \
+  --out candidate-journeys --timetable replay/timetable.sqlite
+python scripts/build_delay_hotspots.py --observations observations.json \
+  --out hotspot-preview.json
+python scripts/check_published.py --journey-times candidate-journeys \
+  --summaries summary.json
+```
+
+Use the workflow's `prepare_reliability_inputs.py` and `publication_bundle.py`
+steps for a complete multi-day candidate. A single-day local check does not
+validate replacement of the rolling public view.
+
+### Replay and rollback
+
+Download the source catalog's day-specific replay archive and observation
+asset; verify their SHA-256 values against the immutable index before use.
+Extract into an isolated directory. `manifest.json` hashes every archived raw
+object, code file and timetable; verify all of them. `provenance.json` records
+configuration and runtime/package versions. Run the archived code with those
+inputs and settings in an isolated environment, and compare observation
+identities, epochs, quality flags, intervals and downstream statistics.
+Generation timestamps may differ; do not treat timestamp-only differences as
+changed measurements. Legacy days without archives cannot pass this replay.
+
+For rollback, obtain the current immutable index's `rollback_index`, verify
+that its referenced generation and objects are available and their hashes
+match, then replace only the root `journey-times/index.json` with that previous
+index using the existing publication credentials. No service file needs an
+in-place overwrite. A failed upload/read-back leaves the old pointer active;
+its unused release/generation is not proof of successful publication. Check
+both fresh and build-pinned links after rollback. These remote recovery steps
+have not yet been exercised by this implementation.

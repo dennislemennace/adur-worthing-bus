@@ -468,7 +468,8 @@ def test_the_figures_say_which_timetable_produced_them(tmp_path, tt):
     db = tmp_path / "timetable.sqlite"
     db.write_bytes(b"not a database")
     (tmp_path / "timetable.sqlite.sha256").write_text("a" * 64 + "  timetable.sqlite\n")
-    assert ps._timetable_version(db) == "timetable.sqlite sha256:" + "a" * 16
+    import hashlib
+    assert ps._timetable_version(db) == "timetable.sqlite sha256:" + hashlib.sha256(db.read_bytes()).hexdigest()
     assert ps._timetable_version(tmp_path / "missing.sqlite") == "unknown"
 
 
@@ -509,7 +510,7 @@ def test_the_censored_tails_are_written_down(tt):
     assert censoring, "the censored tails are not stated in the caveats"
     assert "floor" in censoring[0] and "optimistic" in censoring[0], \
         "the caveat does not say which way the censoring cuts"
-    assert "censored" in ps.METHOD or "cannot be observed" in ps.METHOD, \
+    assert "matching window" in ps.METHOD, \
         "the method does not mention the matching window's effect on the figures"
 
 
@@ -667,9 +668,8 @@ def test_the_departure_rule_states_its_own_lean(tt):
     # to find.
     lean = [c for c in ps.CAVEATS if "150 m past" in c]
     assert lean, "the departure rule's own bias is not stated"
-    assert "20 seconds late" in lean[0]
-    assert "23%" in lean[0] and "4%" in lean[0], \
-        "the caveat does not say how much worse the rule it replaced was"
+    assert "overstating" in lean[0] and "understate" in lean[0]
+    assert "universal" in lean[0], "uncertainty must not promise a fixed accuracy"
 
 
 # ── When the feed says which journey it is ──────────────────
@@ -752,6 +752,7 @@ def test_a_journey_we_do_not_hold_falls_back_to_inference(tt):
     obs, _ = observations(tt, declaring(range(600, 646), "NOT-IN-OUR-TIMETABLE"))
     assert obs, "a bus naming an unknown journey was dropped entirely"
     assert {o["match"] for o in obs} == {"inferred"}
+    assert all("unresolved_declared_trip" in o["quality_flags"] for o in obs if not o["estimated"])
 
 
 def test_the_declared_share_is_reported(tt):
@@ -804,7 +805,8 @@ def test_the_two_recorded_feeds_are_joined_by_vehicle(tt, tmp_path):
         # The SIRI fixture's vehicle is SCSO-1234; the GTFS-RT object names the
         # journey that vehicle is running.
         (rt / f"{name}.pb").write_bytes(
-            a_feed([a_vehicle(trip="W600", vehicle="SCSO-1234", lat=blat, lon=blon)]))
+            a_feed([a_vehicle(trip="W600", vehicle="SCSO-1234", lat=blat, lon=blon,
+                              stamp=int(datetime(2026, 9, 16, 9, 15+n, tzinfo=timezone.utc).timestamp()))]))
 
     out = tmp_path / "obs.json"
     rc = ps.main(["--day", DAY.isoformat(), "--snapshots", str(snaps),

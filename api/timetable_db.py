@@ -606,6 +606,15 @@ class Timetable:
             if sid in sid_to_stop
         }
 
+    def timepoints_by_call(self, trip_id: str) -> list:
+        """Timing-point flags in call order, preserving repeated stop visits."""
+        trip = self.trips.get(trip_id)
+        if not trip or self._con is None:
+            return []
+        column = "timepoint" if self._has_timepoint() else "NULL"
+        return [row[0] for row in self._conn().execute(
+            f"SELECT {column} FROM stop_times WHERE tid=? ORDER BY seq", (trip["_tid"],))]
+
     def _has_timepoint(self) -> bool:
         """Whether this database has the timing-point column. Asked once."""
         if self._timepoint_column is None:
@@ -1130,23 +1139,92 @@ class Timetable:
                 if value:
                     dates.add(value)
         for exceptions in self.calendar_dates.values():
-            dates.update(d for d in exceptions if d)
+            dates.update(d for d, kind in exceptions.items() if d and str(kind) == "1")
         if not dates:
             return (None, None)
         return (min(dates), max(dates))
 
-    def covers_day(self, day) -> bool:
-        """Whether `day` falls inside this build's service window.
+    def covers_day(self, day, service_ids=None) -> bool:
+        """A relevant calendar actually describes this date, not its envelope.
 
-        A build with no dated calendar covers nothing knowable, so this answers
-        False rather than True: refusing to measure is recoverable, publishing a
-        silent zero is not.
+        A bounded calendar describes non-running weekdays too. Exception-only
+        service describes its addition dates, not all intervening dates. A
+        removal outside a calendar cannot extend the build's validity.
+        Callers can restrict the check to a route/operator's service IDs.
         """
-        first, last = self.service_window()
-        if not first or not last:
-            return False
-        stamp = day.strftime("%Y%m%d") if hasattr(day, "strftime") else str(day)
-        return first <= stamp <= last
+        stamp = day.strftime("%Y%m%d") if hasattr(day, "strftime") else str(day).replace("-", "")
+        ids = (set(self.calendar) | set(self.calendar_dates)) if service_ids is None else set(service_ids)
+        for sid in ids:
+            cal = self.calendar.get(sid, {})
+            first, last = cal.get("start_date"), cal.get("end_date")
+            if first and last and first <= stamp <= last:
+                return True
+            if str(self.calendar_dates.get(sid, {}).get(stamp)) == "1":
+                return True
+        return False
+
+    def uncovered_cohorts(self, day, atcos) -> list:
+        """Local operator/service groups whose timetable cannot describe the date.
+
+        A date somewhere in this database must not validate an unrelated route,
+        so coverage is asked per operator and service rather than of the build
+        as a whole.
+
+        "Uncovered" is not the same as "not running", and the difference is the
+        whole point. A bounded calendar that has not started yet is a statement
+        about the network: the 25X runs one week from 27 September, so on the
+        22nd it is legitimately absent, and blocking publication over it would
+        stop the pipeline every night until term begins. What cannot be
+        published is a date the timetable is unable to speak about at all,
+        because that is how two days came to be published with no observations
+        and read as "no service".
+
+        So a cohort blocks only when it is uncovered and one of:
+
+          * no local cohort at all describes the date — the build is the wrong
+            one for this day, whatever an unrelated calendar may span; or
+          * this cohort's own dates have run out before it — its operator's
+            data is stale inside an otherwise current build, which would
+            publish a false zero for a service that really ran.
+        """
+        from api.trip_match import COACH_NOCS
+        trip_ids = {trip for atco in atcos for _secs, trip in self.stop_times_for(atco)}
+        cohorts = {}
+        for tid in trip_ids:
+            trip = self.trips.get(tid, {})
+            route_id = trip.get("route_id", "")
+            noc = self.noc_for_route(route_id)
+            if noc in COACH_NOCS:
+                continue
+            key = (noc, self.routes.get(route_id, {}).get("short_name", ""))
+            cohorts.setdefault(key, set()).add(trip.get("service_id", ""))
+
+        uncovered = [(key, ids) for key, ids in sorted(cohorts.items())
+                     if not self.covers_day(day, ids)]
+        if not uncovered:
+            return []
+        stamp = (day.strftime("%Y%m%d") if hasattr(day, "strftime")
+                 else str(day).replace("-", ""))
+        nothing_local_covers = len(uncovered) == len(cohorts)
+        return [list(key) for key, ids in uncovered
+                if nothing_local_covers or self._cohort_ends_before(ids, stamp)]
+
+    def _cohort_ends_before(self, service_ids, stamp: str) -> bool:
+        """Whether every date these services describe falls before `stamp`.
+
+        The last date a cohort can speak about is the latest of its calendar
+        end dates and its added exception dates. A cohort with no dated
+        calendar at all describes nothing, which is the original failure this
+        guard exists for, so it counts as ended.
+        """
+        last = ""
+        for sid in service_ids:
+            end = (self.calendar.get(sid, {}) or {}).get("end_date") or ""
+            last = max(last, end)
+            for date_stamp, kind in (self.calendar_dates.get(sid, {}) or {}).items():
+                if str(kind) == "1" and date_stamp:
+                    last = max(last, date_stamp)
+        return last < stamp
 
     def sample_week(self, from_day=None) -> dict:
         """A concrete week to measure, as {day name: date}.
@@ -1444,7 +1522,7 @@ class Timetable:
                         # company you are paying.
                         key = (route_of(one["tid"]), route_of(tid))
                         held = candidates.get(key)
-                        if held is None or score < held["score"]:
+                        if held is None or (total, walk_km) < (held["total_secs"], held["walk_m"] / 1000):
                             candidates[key] = {
                                 "score": score, "total_secs": total, "one": one,
                                 "from_sid": sid, "to_sid": c[1],
@@ -1479,8 +1557,18 @@ class Timetable:
         # Described lazily: _describe_leg walks the whole stop path of a trip,
         # so describing every candidate when the caller wanted one would make
         # the common case pay for the uncommon one.
-        ranked = sorted(candidates.values(), key=lambda x: x["score"])
-        return [describe(entry) for entry in ranked[:limit]]
+        ranked = sorted(candidates.values(), key=lambda x: (x["total_secs"], x["walk_m"], x["score"]))
+        # Preserve the fastest and different operator combinations before the
+        # display limit. Fares are calculated later against the actual paths.
+        diverse, rest, seen_operators = [], [], set()
+        for entry in ranked:
+            operators = tuple(self.noc_for_route(route_of(entry[k]["tid"])) for k in ("one", "two"))
+            if operators not in seen_operators:
+                diverse.append(entry)
+                seen_operators.add(operators)
+            else:
+                rest.append(entry)
+        return [describe(entry) for entry in (diverse + rest)[:limit]]
 
     def _describe_leg(self, leg) -> dict:
         trip_id = self._tid_to_trip.get(leg["tid"])

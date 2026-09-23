@@ -1,5 +1,9 @@
 # adur-worthing-bus — working instructions
 
+## Current data and UI review handoff
+
+- For follow-up to the 22 September 2026 review, read [the Claude Code handoff](docs/CLAUDE_HANDOFF_DATA_UI_2026-09-22.md), which links all 14 findings, proposed resolutions, Open Innovations lessons and the [delay-hotspot feasibility assessment](docs/reliability/DELAY_HOTSPOT_FEASIBILITY_2026-09-22.md). Reconcile its reviewed commit with current HEAD before implementation; the handoff does not mark the issues fixed.
+
 ## Efficient verification
 
 - Preserve correctness and useful regression coverage; reduce repeated work, not assurance.

@@ -74,33 +74,21 @@ const BUS_ISSUE_CATEGORIES = new Set([
  * name is a 404 before R2 is touched.
  */
 function servePublished(url, request, env) {
-  const match = /^\/journey-times\/([A-Za-z0-9_-]{1,24}\.json)$/.exec(url.pathname);
-  if (!match) return null;
-  if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "OPTIONS") {
+  const match = /^\/journey-times\/((?:builds\/[a-f0-9]{64}\/)?[A-Za-z0-9_-]{1,100}\.json(?:\.gz)?)$/.exec(url.pathname);
+  if (!match) return url.pathname.startsWith("/journey-times/")
+    ? new Response("Not found", { status: 404 }) : null;
+  if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     return new Response("Method not allowed", { status: 405 });
   }
-  // The index is not cached like the documents it names.
-  //
-  // Everything here was served with an hour's cache, index included — and the
-  // index is the one file that says which documents exist. The night the
-  // documents were split by operator, `1.json` became `1-BHBC.json` and
-  // `1-SCSO.json` and the old name was deleted from the bucket, so every
-  // reader holding an hour-old index was asking for a file that no longer
-  // existed. A cross-origin fetch is not reliably re-fetched by a hard reload
-  // either, so "I have pressed Ctrl+Shift+R several times" does not clear it.
-  //
-  // A minute on the index costs one small request a minute per reader and
-  // buys the guarantee that the list of files is never far out of date. The
-  // documents themselves keep the hour: a stale chart is yesterday's data,
-  // which is honest, where a stale index is a broken view.
+  const immutable = match[1].startsWith("builds/");
   const isIndex = match[1] === "index.json";
   const headers = {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, HEAD, OPTIONS",
     "cache-control": isIndex
       ? "public, max-age=60, stale-while-revalidate=300"
-      : "public, max-age=3600",
-    "content-type": "application/json; charset=utf-8",
+      : immutable ? "public, max-age=31536000, immutable" : "public, max-age=3600",
+    "content-type": match[1].endsWith(".gz") ? "application/gzip" : "application/json; charset=utf-8",
   };
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (!env.PUBLISHED) {

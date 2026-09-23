@@ -11,11 +11,9 @@ single journey supplied 30 of the 44 arrivals over fifteen minutes late. So
 every figure carries **two denominators**, observations and journeys, and each
 group also gets a per-journey median in which one bad journey counts once.
 
-**The distribution is censored.** A bus more than 5 minutes early or 25 late
-for a journey is matched to a neighbouring one instead, so no observation can
-fall outside that window — of 5,079 measured, none did. A mean over a censored
-distribution is biased, which is why medians and band shares are the default
-and `mean` has to be asked for.
+**Inferred identities are window-censored.** Inference uses a -5/+25 minute
+window and may misassign very late buses. Declared identities are not censored
+by that window, but may still be wrong. Each cell reports its composition.
 
 **A stop late in a route inherits every minute lost upstream.** Ranking stops
 by lateness finds the end of the route, not the problem. `segment_stats` is the
@@ -36,6 +34,9 @@ flattered the worst hours specifically.
 """
 
 import statistics
+from datetime import datetime
+from observation_contract import LONDON
+from observation_contract import row_identity
 
 # DfT BUS09's yardstick for a non-frequent service, so the definition is not
 # ours to argue about: on time is no more than one minute early and no more
@@ -70,7 +71,7 @@ def band(lateness_secs):
 
 def journey_key(row):
     """What counts as one bus's run: a trip on a service day."""
-    return (row.get("day", ""), row.get("trip_id", ""))
+    return row_identity(row)
 
 
 def service_key(row):
@@ -153,9 +154,11 @@ def stats(rows, mean=False, include_estimates=False):
         # How hard the matching window is pressing on this cell. Arrivals piled
         # against a bound mean a tail was cut off, so the figures are floors.
         "at_censoring_bound": sum(
-            1 for v in late
-            if v <= CENSORED_EARLY_SECS + AT_BOUND_SECS
-            or v >= CENSORED_LATE_SECS - AT_BOUND_SECS),
+            1 for row in rows if row.get("match") != "declared"
+            and (row["lateness_secs"] <= CENSORED_EARLY_SECS + AT_BOUND_SECS
+                 or row["lateness_secs"] >= CENSORED_LATE_SECS - AT_BOUND_SECS)),
+        "matching": {kind: sum(r.get("match", "unknown") == kind for r in rows)
+                     for kind in ("declared", "inferred", "mixed", "unknown")},
         # Stated rather than implied. A cell resting on 40 arrivals of which 30
         # were interpolated is a different claim from one resting on 40 seen.
         "measured_only": not include_estimates,
@@ -165,8 +168,9 @@ def stats(rows, mean=False, include_estimates=False):
         # Asked for explicitly, and never without this note attached.
         cell["mean_secs"] = statistics.fmean(late)
         cell["mean_caveat"] = (
-            "The distribution is censored at 5 minutes early and 25 late, so "
-            "this mean is pulled towards the middle. Prefer the median."
+            "Inferred matches are censored at 5 minutes early and 25 late; declared "
+            "matches are not window-censored. Mixed coverage and identity errors can "
+            "bias this mean. Inspect matching composition and prefer the median."
         )
     return cell
 
@@ -187,7 +191,7 @@ def scheduled_hour(row):
     seen at 18:05 is the 17:00 timetable failing, and counting it at 18:00
     moves the delay out of the hour that caused it.
     """
-    return f'{row["scheduled_secs"] // 3600 % 24:02d}'
+    return clock_hour(row, "scheduled")
 
 
 def observed_hour(row):
@@ -196,19 +200,22 @@ def observed_hour(row):
     The right bucket for time *lost*: the traffic that delayed a bus is the
     traffic it was sitting in, whatever hour it was supposed to be there.
     """
-    return f'{row["observed_secs"] // 3600 % 24:02d}'
+    return clock_hour(row, "observed")
 
 
-def segment_stats(rows, hour=False, include_estimates=False):
+def clock_hour(row, kind):
+    if row.get(kind + "_epoch") is not None:
+        return datetime.fromtimestamp(row[kind + "_epoch"], LONDON).strftime("%H")
+    return f'{row[kind + "_secs"] // 3600 % 24:02d}'
+
+
+def segment_stats(rows, hour=False, include_estimates=False, from_hour=None, to_hour=None):
     """Where time is lost: lateness gained between consecutive timing points.
 
-    Keyed by `(from_stop, to_stop, direction)` — a segment is directional, and
-    the two sides of a coast road are different journeys in different traffic.
-    With `hour`, keyed additionally by the hour the bus *traversed* it.
-
-    Only consecutive observed timing points on the same journey count. The pair
-    need not be adjacent stops: barely a fifth of stops are timing points, so
-    `median_stops_apart` records how much road a segment covers.
+    Keys retain stop names/direction for display, followed by operator, service,
+    ATCO call pair, pattern, timetable, method and matching cohort. Optional hour
+    is the observed entry hour. These are exploratory observations; use the
+    stricter hotspot preparer for bounded, adjacent measured timing points.
     """
     # Timing points *and* measured. A stop can be both a genuine timing point
     # and interpolated — the operator commits to a time there, and our bus was
@@ -225,13 +232,28 @@ def segment_stats(rows, hour=False, include_estimates=False):
         journey.sort(key=lambda r: (r.get("stop_index", 0), r["scheduled_secs"]))
         for first, second in zip(journey, journey[1:]):
             scheduled_gap = second["scheduled_secs"] - first["scheduled_secs"]
-            if scheduled_gap <= 0:
-                continue                    # same minute, or out of order
+            if scheduled_gap <= 0 or second["observed_secs"] <= first["observed_secs"]:
+                continue
+            entry_hour = int(observed_hour(first))
+            if from_hour is not None and entry_hour < from_hour:
+                continue
+            if to_hour is not None and entry_hour > to_hour:
+                continue
+            if first.get("timing_point_order") is not None and second.get("timing_point_order") != first["timing_point_order"] + 1:
+                continue
+            if any(first.get(k) != second.get(k) for k in ("route_pattern", "match", "operator", "service")):
+                continue
             key = (first.get("stop_name", ""), second.get("stop_name", ""),
                    first.get("direction", "unknown"))
             if hour:
-                key = key + (observed_hour(second),)
+                key = key + (observed_hour(first),)
+            cohort = {k: first.get(k, "unknown") for k in
+                      ("operator", "service", "route_pattern", "data_version", "method_version", "match")}
+            cohort.update(from_atco=first.get("atco", ""), to_atco=second.get("atco", ""),
+                          from_sequence=first.get("stop_index", 0), to_sequence=second.get("stop_index", 0))
+            key += tuple(str(cohort[k]) for k in sorted(cohort))
             segments.setdefault(key, []).append({
+                "cohort": cohort,
                 "gained_secs": second["lateness_secs"] - first["lateness_secs"],
                 "scheduled_gap_secs": scheduled_gap,
                 "stops_apart": second.get("stop_index", 0) - first.get("stop_index", 0),
@@ -247,6 +269,8 @@ def segment_stats(rows, hour=False, include_estimates=False):
         scheduled = statistics.median(leg["scheduled_gap_secs"] for leg in legs)
         median_gain = statistics.median(gains)
         out[key] = {
+            "cohort": legs[0]["cohort"],
+            "coverage_status": "observed_only_exploratory",
             "observations": n,
             "journeys": len({leg["journey"] for leg in legs}),
             "median_gained_secs": median_gain,

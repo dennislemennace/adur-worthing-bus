@@ -34,6 +34,11 @@ const put = (e, prefix) => e.SNAPSHOTS.puts.find(p => p.key.startsWith(prefix));
 
 const at = (iso) => new Date(iso);
 
+test("the repeated autumn hour retains both recordings", () => {
+  const early = at("2026-10-25T00:30:00Z"), late = at("2026-10-25T01:30:00Z");
+  assert.notEqual(gtfsRtKey(early), gtfsRtKey(late));
+});
+
 /** An R2 bucket that remembers what it was given, and can be seeded with
  *  objects so pruning and measuring have something to work on. */
 function fakeBucket(objects = []) {
@@ -130,11 +135,11 @@ test("in the quiet hours the journey feed still records, the positions do not", 
 // ── The key ─────────────────────────────────────────────────
 
 test("a key sorts by day and minute, in London time", () => {
-  assert.equal(snapshotKey(at("2026-09-16T11:45:00Z")), "raw/2026-09-16/1245.xml");
-  assert.equal(snapshotKey(at("2027-01-14T11:45:00Z")), "raw/2027-01-14/1145.xml");
+  assert.equal(snapshotKey(at("2026-09-16T11:45:00Z")), "raw/2026-09-16/1245-1789559100.xml");
+  assert.equal(snapshotKey(at("2027-01-14T11:45:00Z")), "raw/2027-01-14/1145-1799927100.xml");
   // Just before midnight London, the day is still the 16th, so an evening and
   // the night buses after it land in one folder to process together.
-  assert.equal(snapshotKey(at("2026-09-16T22:05:00Z")), "raw/2026-09-16/2305.xml");
+  assert.equal(snapshotKey(at("2026-09-16T22:05:00Z")), "raw/2026-09-16/2305-1789596300.xml");
 });
 
 // ── Storing ─────────────────────────────────────────────────
@@ -145,7 +150,7 @@ test("a snapshot is stored once, as the feed sent it", async () => {
   const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"), bothFeeds(body));
   assert.equal(r.recorded, true);
   const siri = put(e, "raw/");
-  assert.equal(siri.key, "raw/2026-09-16/1245.xml");
+  assert.equal(siri.key, "raw/2026-09-16/1245-1789559100.xml");
   assert.equal(decode(siri.body), body, "the body was not passed through untouched");
   assert.equal(siri.opts.customMetadata.recordedAt, "2026-09-16T11:45:00.000Z");
   assert.equal(r.bytes, body.length);
@@ -159,7 +164,7 @@ test("the same minute's GTFS-RT is stored beside it", async () => {
   const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"), bothFeeds());
   assert.equal(e.SNAPSHOTS.puts.length, 2, "only one feed was recorded");
   const rt = put(e, "rt/");
-  assert.equal(rt.key, "rt/2026-09-16/1245.pb");
+  assert.equal(rt.key, "rt/2026-09-16/1245-1789559100.pb");
   assert.equal(rt.opts.httpMetadata.contentType, "application/x-protobuf");
   assert.equal(r.rt.stored, true);
 });

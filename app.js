@@ -29,7 +29,8 @@ const CONFIG = {
   // of them part-days, is not something to put in front of a reader who will
   // take "median 79 minutes" as a fact about the route. Reachable meanwhile
   // with ?preview=1, which is how it gets looked at before it is published.
-  // Flip this when a full week exists.
+  // Enable after verified recording coverage, replayable publication and
+  // independent timing checks; a full calendar week alone is insufficient.
   JOURNEY_TIMES_PUBLIC: false,
 
   // Geographic centre of Adur & Worthing
@@ -400,6 +401,7 @@ function buildUrlHash() {
   else if (state.viewMode === "tickets") parts.push("view=t");
   else if (state.viewMode === "network") parts.push("view=n");
   else if (state.viewMode === "updates") parts.push("view=u");
+  else if (state.viewMode === "journeytimes") parts.push("view=j");
   if (state.serviceMode === "night")     parts.push("svc=n");
   if (state.viewMode === "live") {
     if (state.selectedStop && state.selectedStop.atcoCode) {
@@ -442,8 +444,11 @@ async function applyUrlState(parsed) {
                : parsed.view === "t" ? "tickets"
                : parsed.view === "n" ? "network"
                : parsed.view === "u" ? "updates"
+               : parsed.view === "j" ? "journeytimes"
                : "live";
+    if (view === "journeytimes") jtEntry.sharedApplied = false;
     if (state.viewMode !== view) setViewMode(view);
+    else if (view === "journeytimes") await renderJourneyTimes();
 
     if (view === "network" && parsed.objective) {
       state.selectedObjectiveId = parsed.objective;
@@ -525,7 +530,10 @@ async function init() {
   for (const id of ["journey-times-service", "journey-times-direction",
                     "journey-times-from", "journey-times-to",
                     "journey-times-mode", "journey-times-days",
-                    "journey-times-from-date", "journey-times-to-date"]) {
+                    "journey-times-from-date", "journey-times-to-date",
+                    "journey-times-time-from", "journey-times-time-to",
+                    "journey-times-evidence", "journey-times-identity",
+                    "journey-times-quality", "journey-times-cohort"]) {
     document.getElementById(id)?.addEventListener("change", (e) => {
       // A new service means new directions, and a new direction means new
       // stops. Both lists are keyed by what they were built for, so clearing
@@ -1706,6 +1714,7 @@ function journeyTimesBetween(doc, fromIndex, toIndex) {
     const from = singleCallAt(journey, fromIndex);
     const to   = singleCallAt(journey, toIndex);
     if (!from || !to) continue;
+    if (from.length >= 5 && to.length >= 5 && to[4] <= from[4]) continue;
     // Direction matters: the same pair of names exists on both sides of a
     // road, and a journey that calls at "to" before "from" is going the
     // other way, not travelling backwards in time.
@@ -1718,9 +1727,28 @@ function journeyTimesBetween(doc, fromIndex, toIndex) {
     // the line that decides what a reader sees, so it refuses them here too
     // rather than trusting every file it is ever handed.
     if (to[1] <= from[1]) continue;
+    if (to[1] - from[1] > 12 * 3600) continue;
     out.push({
       day: journey.day,
-      start: journey.start,
+      start: jtClock(from[1], from[5]),
+      tripStart: journey.start,
+      tripId: journey.trip_id || "",
+      fromAtco: doc.stops?.[fromIndex]?.atco || "", toAtco: doc.stops?.[toIndex]?.atco || "",
+      match: from[9] && to[9] ? (from[9] === to[9] ? from[9] : "mixed") : journey.match || "unknown",
+      qualityFlags: from[8] && to[8] ? [...new Set([...from[8], ...to[8]])] : journey.quality_flags || [],
+      methodVersion: journey.method_version || "unknown",
+      dataVersion: journey.data_version || "unknown",
+      routePattern: journey.route_pattern || "unknown",
+      fromSequence: from[4] ?? null, toSequence: to[4] ?? null,
+      departInterval: from[7] || null, arriveInterval: to[7] || null,
+      sourceFiles: journey.source_files || [],
+      departEpoch: from[5] ?? null,
+      arriveEpoch: to[5] ?? null,
+      scheduledDepartSecs: from[2],
+      scheduledArriveSecs: to[2],
+      arriveSecs: to[1],
+      departureLatenessSecs: from[1] - from[2],
+      arrivalLatenessSecs: to[1] - to[2],
       direction: journey.direction,
       departSecs: from[1],
       observedSecs: to[1] - from[1],
@@ -1733,6 +1761,14 @@ function journeyTimesBetween(doc, fromIndex, toIndex) {
     });
   }
   return out.sort((a, b) => a.departSecs - b.departSecs);
+}
+
+function jtClock(seconds, epoch = null) {
+  if (epoch != null) return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).format(new Date(epoch * 1000));
+  const minutes = ((Math.floor(seconds / 60) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
 /** The stops a bus can actually reach from `fromIndex`, with how many do.
@@ -2323,13 +2359,18 @@ function journeyTimesEntryPick(atco) {
  *  both and connect neither.
  */
 async function journeyTimesResolvePair() {
+  const a = jtEntry.a, b = jtEntry.b, epoch = ++jtEntry.epoch;
+  const mine = claimRender("journeytimes");
+  const owns = () => mine() && epoch === jtEntry.epoch && a === jtEntry.a && b === jtEntry.b;
   const host = document.getElementById("journey-times-result");
   if (host) {
     host.innerHTML = `<p class="panel-empty">Looking for buses between
       ${escapeHtml(prettifyName(state.stopData[jtEntry.a]?.name || ""))} and
       ${escapeHtml(prettifyName(state.stopData[jtEntry.b]?.name || ""))}…</p>`;
   }
+  try {
   const index = await loadJourneyTimesIndex();
+  if (!owns()) return;
   const candidates = journeyTimesCandidateServices(
     index, journeyTimesServicesAt(jtEntry.a),
     journeyTimesServicesAt(jtEntry.b));
@@ -2337,6 +2378,7 @@ async function journeyTimesResolvePair() {
   const runs = [];
   for (const entry of candidates) {
     const doc = await loadJourneyTimes(entry.file);
+    if (!owns()) return;
     const pair = doc && journeyTimesPairInDoc(
       doc, jtEntry.a, jtEntry.b,
       state.stopData[jtEntry.a]?.name, state.stopData[jtEntry.b]?.name);
@@ -2363,6 +2405,14 @@ async function journeyTimesResolvePair() {
   jtEntry.wanted = runs[0].pair;
   clearJourneyTimesEntryLayer();
   renderJourneyTimes();
+  } catch (err) {
+    if (!owns()) return;
+    if (host) {
+      host.innerHTML = `<p class="panel-empty">Recorded journeys could not be loaded.
+        <button type="button" class="jt-reset-days" data-act="retry">Retry</button></p>`;
+      host.querySelector('[data-act="retry"]')?.addEventListener("click", journeyTimesResolvePair);
+    }
+  }
 }
 
 /** The opening state: what to do, and the way past it. */
@@ -2382,16 +2432,12 @@ function renderJourneyTimesIntro(opts = {}) {
     // The common answer, and on a site about missing links it is the
     // interesting one rather than a failure. 87.8% of stop pairs in this area
     // share no service at all.
-    lead = `<p class="jt-verdict"><strong>No bus we tracked runs between
-      ${nameOf(jtEntry.a)} and ${nameOf(jtEntry.b)}.</strong></p>
-      <p>${opts.noneFound
-        ? `${opts.noneFound} service${opts.noneFound === 1 ? "" : "s"} call at
-           both, but no journey we recorded went from one to the other. They
-           run opposite ways, or only part of the route.`
-        : `They share no service at all. Getting between them means changing
-           buses.`}</p>
-      <p>The <button type="button" class="jt-link" data-go="tickets">ticket
-        checker</button> will price that journey and say which buses it needs.</p>`;
+    lead = `<p class="jt-verdict"><strong>No recorded journeys were found between
+      ${nameOf(jtEntry.a)} and ${nameOf(jtEntry.b)} in these dates.</strong></p>
+      <p>That does not establish whether a direct bus runs. Recording coverage,
+        direction and the selected dates can all limit these results.</p>
+      <p>The <button type="button" class="jt-link" data-go="tickets">timetable and
+        ticket checker</button> can check available connections.</p>`;
   } else if (jtEntry.a) {
     lead = `<p class="jt-verdict">Now pick the stop you want to travel
       <strong>to</strong>.</p>
@@ -2679,29 +2725,30 @@ function journeyTimesSummary(timings) {
 // Worker and once here per visit. ──
 const journeyTimesCache = new Map();
 
-async function loadJourneyTimesIndex() {
-  if (!journeyTimesCache.has("_index")) {
-    const res = await fetch(`${CONFIG.JOURNEY_TIMES_BASE}/index.json`);
-    if (!res.ok) throw new Error(`index ${res.status}`);
-    journeyTimesCache.set("_index", await res.json());
-  }
-  return journeyTimesCache.get("_index");
+function journeyTimesBuildFromUrl() {
+  try {
+    const build = new URLSearchParams(location.search).get("jt-build");
+    return /^[a-f0-9]{64}$/.test(build || "") ? build : "";
+  } catch { return ""; }
 }
 
-/** One published document, named by the index rather than guessed at.
- *
- *  The filename used to be derived from the service number, which worked only
- *  while a number meant one route. It does not: the 1, the 5 and the 7 are
- *  each run by two operators over entirely separate roads — zero stops in
- *  common, in all three cases — so each is now published per operator and the
- *  index is the only thing that knows the names.
- */
+async function loadJourneyTimesIndex() {
+  const build = journeyTimesBuildFromUrl();
+  return loadJourneyTimes(build ? `builds/${build}/index.json` : "index.json");
+}
+
+/** Fetch the exact path named in the manifest; never guess or rewrite it. */
 async function loadJourneyTimes(file) {
+  if (!/^(?:builds\/[a-f0-9]{64}\/)?[A-Za-z0-9_-]{1,100}\.json$/.test(String(file))) {
+    throw new Error("Invalid measurement document path");
+  }
   if (!journeyTimesCache.has(file)) {
-    const safe = String(file).replace(/[^A-Za-z0-9_.-]/g, "");
-    const res = await fetch(`${CONFIG.JOURNEY_TIMES_BASE}/${safe}`);
+    const res = await fetch(`${CONFIG.JOURNEY_TIMES_BASE}/${file}`);
     if (!res.ok) throw new Error(`${file} ${res.status}`);
-    journeyTimesCache.set(file, await res.json());
+    const doc = await res.json();
+    const build = file.startsWith("builds/") ? file.split("/")[1] : "";
+    if (build && doc.build_id !== build) throw new Error("Measurement build mismatch");
+    journeyTimesCache.set(file, doc);
   }
   return journeyTimesCache.get(file);
 }
@@ -2737,15 +2784,16 @@ function jtMinutes(secs) {
  *  line drawn at the median scheduled duration is up to twelve minutes wrong
  *  about any individual 700 journey, in both directions.
  */
-function journeyTimesChart(timings, summary, mode = "delay") {
+function journeyTimesChart(timings, summary, mode = "delay", width = 640) {
   const delayed = journeyTimesDelays(timings);
   // Delay needs promises to compare against. With none, the only honest chart
   // is the raw duration, and saying so beats an empty frame.
-  const showDelay = mode === "delay" && delayed.length > 0;
+  const punctuality = mode === "punctuality";
+  const showDelay = mode !== "duration" && delayed.length > 0;
   const points = showDelay ? delayed : timings;
-  const valueOf = t => (showDelay ? t.delaySecs : t.observedSecs);
+  const valueOf = t => (showDelay ? (punctuality ? t.arrivalLatenessSecs : t.delaySecs) : t.observedSecs);
 
-  const W = 640, H = 300, L = 52, R = 14, T = 22, B = 46;
+  const W = Math.max(280, Math.round(width)), H = 300, L = 52, R = 14, T = 22, B = 46;
   const values = points.map(valueOf);
   let lo, hi;
   if (showDelay) {
@@ -2762,7 +2810,7 @@ function journeyTimesChart(timings, summary, mode = "delay") {
   const y = secs => T + (1 - (secs - lo) / (hi - lo)) * (H - T - B);
 
   const hours = [];
-  for (let h = 0; h <= 24; h += 4) {
+  for (let h = 0; h <= 24; h += W < 480 ? 6 : 4) {
     hours.push(`<line class="jt-grid" x1="${x(h * 3600).toFixed(1)}" y1="${T}" `
       + `x2="${x(h * 3600).toFixed(1)}" y2="${H - B}"></line>`
       // The first and last labels are anchored inward: centred, they hang past
@@ -2786,7 +2834,7 @@ function journeyTimesChart(timings, summary, mode = "delay") {
 
   const zeroLabel = showDelay
     ? `<text class="jt-axis jt-promise-label" x="${W - R}" `
-      + `y="${(y(0) - 6).toFixed(1)}" text-anchor="end">on the timetable</text>`
+      + `y="${(y(0) - 6).toFixed(1)}" text-anchor="end">${punctuality ? "on time at destination" : "no extra section time"}</text>`
     : summary.scheduledSecs != null
       ? `<line class="jt-promise" x1="${L}" y1="${y(summary.scheduledSecs).toFixed(1)}" `
         + `x2="${W - R}" y2="${y(summary.scheduledSecs).toFixed(1)}"></line>`
@@ -2801,21 +2849,26 @@ function journeyTimesChart(timings, summary, mode = "delay") {
   // Each dot is focusable and carries its own label, so the chart can be read
   // with a keyboard and by a screen reader rather than being an image of data.
   // The <title> alone is a mouse-only affordance.
-  const dots = points.map(t => {
+  const pointIndices = timings.map((row, index) => ({row, index})).filter(x => !showDelay || x.row.promised).map(x => x.index);
+  const dots = points.map((t, i) => {
     const value = valueOf(t);
-    const label = showDelay
+    const label = showDelay && punctuality
+      ? `${t.start} ${t.day}: ${jtMinutes(Math.abs(value))} ${value >= 0 ? "late" : "early"} at destination`
+      : showDelay
       ? `${t.start} ${t.day} — ${value >= 0 ? "" : "-"}${jtMinutes(Math.abs(value))} `
         + `${value >= 0 ? "slower than" : "inside"} the timetable`
       : `${t.start} ${t.day} — ${jtMinutes(value)}`;
     const full = `${label}${t.estimated ? ", part interpolated" : ""}`;
-    return `<circle class="jt-dot${t.estimated ? " jt-dot--estimated" : ""}" `
-      + `cx="${x(t.departSecs % 86400).toFixed(1)}" cy="${y(value).toFixed(1)}" r="3.8" `
-      + `tabindex="0" role="img" aria-label="${escapeAttr(full)}">`
-      + `<title>${escapeHtml(full)}</title></circle>`;
+    const cx = x(jtClockMinutes(t.start) * 60).toFixed(1), cy = y(value).toFixed(1);
+    return `<g class="jt-point" tabindex="0" role="button" data-jt-point="${pointIndices[i]}" aria-label="${escapeAttr(full)}">`
+      + `<circle cx="${cx}" cy="${cy}" r="22" fill="transparent" pointer-events="all"></circle>`
+      + `<circle class="jt-dot${t.estimated ? " jt-dot--estimated" : ""}" cx="${cx}" cy="${cy}" r="5">`
+      + `<title>${escapeHtml(full)}</title></circle></g>`;
   }).join("");
 
-  const axisTitle = showDelay ? "minutes against the timetable" : "minutes";
-  const summaryText = showDelay
+  const axisTitle = showDelay ? (punctuality ? "minutes late at destination" : "extra minutes on section") : "journey minutes";
+  const summaryText = punctuality && showDelay ? `${points.length} journeys: arrival lateness includes time lost upstream`
+    : showDelay
     ? `${points.length} journeys with a promised time, median `
       + `${summary.medianDelaySecs >= 0 ? "" : "-"}`
       + `${jtMinutes(Math.abs(summary.medianDelaySecs))} against the timetable`
@@ -2833,8 +2886,7 @@ function journeyTimesChart(timings, summary, mode = "delay") {
       was not seen at one end, so its time there is worked out from the stops
       either side</li>
     ${showDelay
-      ? `<li><span class="jt-key jt-key--zero"></span>on the timetable; above the
-         line is slower than promised</li>`
+      ? `<li><span class="jt-key jt-key--zero"></span>${punctuality ? "above zero is late at the destination" : "above zero is time gained against this section’s schedule"}</li>`
       : summary.scheduledSecs != null
         ? `<li><span class="jt-key jt-key--promise"></span>median scheduled time
            across these journeys</li>` : ""}
@@ -2854,6 +2906,95 @@ function previewEnabled() {
   }
 }
 
+const JT_FILTER_IDS = ["service", "direction", "from", "to", "mode", "days", "from-date", "to-date",
+  "time-from", "time-to", "evidence", "identity", "quality", "cohort"];
+
+function jtClockMinutes(clock) {
+  const [h, m] = String(clock || "00:00").split(":").map(Number);
+  return h * 60 + m;
+}
+function jtCohort(t) { return JSON.stringify([t.routePattern, t.dataVersion, t.methodVersion]); }
+function journeyTimesFilter(rows, filters) {
+  const start = jtClockMinutes(filters.start || "00:00"), end = jtClockMinutes(filters.end || "23:59");
+  return rows.filter(t => {
+    const at = jtClockMinutes(t.start);
+    return (start <= end ? at >= start && at <= end : at >= start || at <= end)
+      && (filters.evidence !== "measured" || !t.estimated)
+      && (!filters.identity || filters.identity === "all" || t.match === filters.identity)
+      && (filters.quality !== "clear" || !t.qualityFlags.length)
+      && (!filters.cohort || filters.cohort === "all" || jtCohort(t) === filters.cohort);
+  });
+}
+function journeyTimesCsv(rows, doc) {
+  const fields = ["build_id", "as_of", "time_basis", "service", "operator", "day", "tripId", "fromAtco", "toAtco", "start", "departEpoch", "arriveEpoch",
+    "observedSecs", "scheduledSecs", "departureLatenessSecs", "arrivalLatenessSecs", "estimated", "promised",
+    "match", "methodVersion", "dataVersion", "routePattern", "fromSequence", "toSequence",
+    "qualityFlags", "sourceFiles", "departInterval", "arriveInterval"];
+  const quote = value => {
+    let text = value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value);
+    if (/^[=+@\t\r]/.test(text)) text = "'" + text;
+    return `"${text.replace(/"/g, '""')}"`;
+  };
+  return [fields.join(","), ...rows.map(row => fields.map(k => quote(({...doc, ...row})[k])).join(","))].join("\r\n");
+}
+function journeyTimesShareUrl(index) {
+  const url = new URL(location.href);
+  if (index.build_id) url.searchParams.set("jt-build", index.build_id);
+  for (const key of JT_FILTER_IDS) {
+    const value = document.getElementById(`journey-times-${key}`)?.value;
+    if (value) url.searchParams.set(`jt-${key}`, value);
+  }
+  url.hash = "view=j";
+  return url.href;
+}
+function jtDownload(name, value, type) {
+  const url = URL.createObjectURL(new Blob([value], {type}));
+  const link = document.createElement("a");
+  link.href = url; link.download = name; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function jtSigned(seconds) {
+  return `${seconds >= 0 ? "+" : "−"}${jtMinutes(Math.abs(seconds))}`;
+}
+function journeyTimesPointHtml(t) {
+  return `<strong>${escapeHtml(t.day)} · departed ${escapeHtml(t.start)}</strong>
+    <p>Took ${jtMinutes(t.observedSecs)}${t.promised ? `; scheduled ${jtMinutes(t.scheduledSecs)}.
+      Extra section time ${jtSigned(t.observedSecs - t.scheduledSecs)}.
+      Departure lateness ${jtSigned(t.departureLatenessSecs)}; arrival lateness ${jtSigned(t.arrivalLatenessSecs)}` : "; no promised endpoint time"}.</p>
+    <p>${t.estimated ? "Part interpolated" : "Measured endpoints"} · ${escapeHtml(t.match)} identity.
+      ${t.qualityFlags.length ? `Quality: ${escapeHtml(t.qualityFlags.join(", "))}.` : "No recorded quality flags."}</p>
+    <details><summary>Journey evidence</summary><p>Trip ${escapeHtml(t.tripId || "unknown")};
+      method ${escapeHtml(String(t.methodVersion))}; timetable ${escapeHtml(t.dataVersion)}.</p>
+      <p>Source SHA-256: ${escapeHtml(t.sourceFiles.join(", ") || "not recorded")}</p></details>`;
+}
+function journeyTimesEvidenceHtml(doc, index, timings, excluded) {
+  const measured = timings.filter(t => !t.estimated).length;
+  const declared = timings.filter(t => t.match === "declared").length;
+  const flagged = timings.filter(t => t.qualityFlags.length).length;
+  const methods = [...new Set(timings.map(t => t.methodVersion))];
+  const hashes = new Set(timings.flatMap(t => t.sourceFiles));
+  const sources = (index.observation_sources || []).filter(source => hashes.has(source.sha256));
+  const sourceLink = source => /^https:\/\//.test(source.url || "")
+    ? `<a href="${escapeAttr(source.url)}" target="_blank" rel="noopener">${escapeHtml(source.day)} observations</a>` : escapeHtml(source.day);
+  return `<details class="jt-evidence"><summary>Evidence and limitations</summary>
+    <p>${measured} of ${timings.length} have measured endpoints; ${declared} declared, ${timings.filter(t => t.match === "inferred").length} inferred identities;
+      ${flagged} have quality flags. ${excluded} removed by your filters.</p>
+    <p>Methods ${escapeHtml(methods.join(", "))}. Built ${escapeHtml(doc.as_of || "date unrecorded")}.
+      ${methods.some(m => Number(m) < 4 || m === "unknown") ? "Legacy matching has not been revalidated from raw recordings." : ""}
+      Inferred matches use a limited time window and may miss very late buses.</p>
+    <p>Time of day is the observed departure in Europe/London. Days refer to timetable service days.
+      Extra section time includes dwell and holding. Arrival lateness also includes delay inherited upstream.
+      These observations alone do not establish traffic as the cause, or the proportion of all scheduled buses delayed.</p>
+    <p>${escapeHtml(doc.method || "Original observation method was not recorded.")}</p>
+    ${(doc.caveats || []).map(c => `<p>${escapeHtml(c)}</p>`).join("")}
+    <details><summary>Input methods and recording coverage</summary>
+      <pre>${escapeHtml(JSON.stringify((doc.source_methods || []).filter(source => !hashes.size || hashes.has(source.sha256)), null, 2))}</pre></details>
+    <p>${sources.map(sourceLink).join(" · ") || "Observation downloads are not available for this older publication."}</p>
+    ${index.evidence?.url && /^https:\/\//.test(index.evidence.url) ? `<p><a href="${escapeAttr(index.evidence.url)}">Latest day's replay archive</a> (raw reports, timetable and code).</p>` : ""}
+    <p>Build: ${escapeHtml(index.build_id || "legacy unversioned publication")}</p>
+  </details>`;
+}
+
 /** The panel: pickers, chart, the numbers, and what they rest on. */
 async function renderJourneyTimes() {
   const host = document.getElementById("journey-times-result");
@@ -2865,6 +3006,13 @@ async function renderJourneyTimes() {
   const modeSel = document.getElementById("journey-times-mode");
   if (!host || !serviceSel) return;
 
+  let shared = null;
+  try { if (!jtEntry.sharedApplied && new URLSearchParams(location.search).has("jt-service")) shared = new URLSearchParams(location.search); } catch {}
+  if (shared) jtEntry.mode = "browse";
+  const restore = key => {
+    const el = document.getElementById(`journey-times-${key}`), value = shared?.get(`jt-${key}`);
+    if (el && value != null) el.value = value;
+  };
   // The opening state owns the panel: instructions and the map, no controls.
   if (jtEntry.mode === "start") { renderJourneyTimesIntro(); return; }
   const controls = document.querySelector(".journey-times-controls");
@@ -2877,6 +3025,11 @@ async function renderJourneyTimes() {
     // After two stops are picked the Service list holds only the services that
     // really run between them — usually one. Keyed by what it was built for,
     // like every other list here, so going back to browsing rebuilds it.
+    if (jtEntry.indexBuild !== (index.build_id || "legacy")) {
+      if (jtEntry.indexBuild) jtEntry.only = null;
+      jtEntry.indexBuild = index.build_id || "legacy";
+      serviceSel.dataset.only = "";
+    }
     const onlyKey = jtEntry.only
       ? jtEntry.only.map(e => e.file).join(",") : "all";
     if (serviceSel.dataset.only !== onlyKey) {
@@ -2902,6 +3055,8 @@ async function renderJourneyTimes() {
       }
       serviceSel.dataset.only = onlyKey;
     }
+    restore("service");
+    if (!index.services?.length) throw new Error("No recorded services in manifest");
     const doc = await loadJourneyTimes(
       serviceSel.value || index.services[0].file);
     if (!mine()) return;
@@ -2946,6 +3101,7 @@ async function renderJourneyTimes() {
       if (fromDate && !fromDate.value) fromDate.value = first;
       if (toDate && !toDate.value) toDate.value = last;
     }
+    for (const key of ["days", "from-date", "to-date", "mode", "time-from", "time-to", "evidence", "identity", "quality"]) restore(key);
     if (rangeBox) rangeBox.hidden = daysSel.value !== "range";
     if (dirSel && dirSel.dataset.docKey !== docKey) {
       dirSel.innerHTML = dirs.map((d, i) =>
@@ -2969,6 +3125,7 @@ async function renderJourneyTimes() {
         fromSel.dataset.pair = "";       // its stop list belongs to the old one
       }
     }
+    restore("direction");
     const direction = dirs[Number(dirSel?.value || 0)] || dirs[0];
 
     // Stops are those the chosen direction actually serves, in the order its
@@ -3003,6 +3160,7 @@ async function renderJourneyTimes() {
     // them and two plausible-looking stops can belong to different workings —
     // offering that pair answers "no bus we tracked made that trip", which
     // reads as a broken tool rather than an impossible question.
+    restore("from");
     if (direction && toSel.dataset.from !== fromSel.value) {
       // Read before the options are replaced. Setting innerHTML makes the
       // browser select the first option, so asking afterwards whether the
@@ -3038,6 +3196,7 @@ async function renderJourneyTimes() {
       }
       jtEntry.wanted = null;
     }
+    restore("to");
     if (!toSel.options.length) {
       journeyTimesMarkPicks(doc, direction, Number(fromSel.value), -1);
       host.innerHTML = `<p class="panel-empty">No journey we tracked goes on
@@ -3055,8 +3214,23 @@ async function renderJourneyTimes() {
 
     journeyTimesMarkPicks(doc, direction, Number(fromSel.value), Number(toSel.value));
     const all = journeyTimesBetween(doc, Number(fromSel.value), Number(toSel.value));
-    const timings = journeyTimesForDays(all, daysSel.value,
-      { from: fromDate ? fromDate.value : "", to: toDate ? toDate.value : "" });
+    const cohortSel = document.getElementById("journey-times-cohort");
+    if (cohortSel) {
+      const previous = cohortSel.value;
+      const cohorts = [...new Set(all.map(jtCohort))];
+      cohortSel.innerHTML = '<option value="all">All cohorts (exploratory)</option>' + cohorts.map((key, i) => {
+        const [pattern, version, method] = JSON.parse(key);
+        return `<option value="${escapeAttr(key)}">Pattern ${pattern.slice(0, 8)} · timetable ${version.slice(0, 8)} · method ${method}</option>`;
+      }).join("");
+      cohortSel.value = cohorts.includes(previous) ? previous : "all";
+    }
+    restore("cohort");
+    if (shared) jtEntry.sharedApplied = true;
+    const val = key => document.getElementById(`journey-times-${key}`)?.value;
+    const filters = {start: val("time-from"), end: val("time-to"), evidence: val("evidence"),
+      identity: val("identity"), quality: val("quality"), cohort: val("cohort")};
+    const timings = journeyTimesFilter(journeyTimesForDays(all, daysSel.value,
+      { from: fromDate ? fromDate.value : "", to: toDate ? toDate.value : "" }), filters);
     const refused = journeyTimesContradictions(
       doc, Number(fromSel.value), Number(toSel.value));
     const summary = journeyTimesSummary(timings);
@@ -3066,16 +3240,19 @@ async function renderJourneyTimes() {
       // on the days you asked for" are different facts, and only one of them is
       // about the service. Telling a reader to widen the days when the pair has
       // no journeys at all sends them round a loop that cannot end.
-      const narrowed = daysSel.value !== "all" && all.length;
+      const narrowed = all.length;
       host.innerHTML = narrowed
         ? `<p class="panel-empty">${all.length} journey${all.length === 1 ? "" : "s"}
            we tracked made that trip, but none
-           ${daysSel.value === "range" ? "within those dates" : "on those days"}.
-           <button type="button" class="jt-reset-days">Show all days</button></p>`
+           with these filters.
+           <button type="button" class="jt-reset-days">Reset filters</button></p>`
         : `<p class="panel-empty">No bus we tracked made that trip on the days
            recorded. Try two stops on the same side of the road.</p>`;
       host.querySelector(".jt-reset-days")?.addEventListener("click", () => {
         daysSel.value = "all";
+        for (const [key, value] of Object.entries({"time-from": "00:00", "time-to": "23:59", evidence: "all", identity: "all", quality: "all", cohort: "all"})) {
+          const el = document.getElementById(`journey-times-${key}`); if (el) el.value = value;
+        }
         if (rangeBox) rangeBox.hidden = true;
         renderJourneyTimes();
       });
@@ -3084,8 +3261,8 @@ async function renderJourneyTimes() {
 
     const from = doc.stops[Number(fromSel.value)];
     const to = doc.stops[Number(toSel.value)];
-    const rows = timings.map(t =>
-      `<tr><td>${escapeHtml(t.day)}</td><td>${escapeHtml(t.start)}</td>`
+    const rows = timings.map((t, i) =>
+      `<tr><td>${escapeHtml(t.day)}</td><td><button type="button" class="jt-link" data-jt-point="${i}">${escapeHtml(t.start)}</button></td>`
       + `<td>${jtMinutes(t.observedSecs)}${t.estimated ? " *" : ""}</td>`
       + `<td>${t.promised ? jtMinutes(t.scheduledSecs) : "—"}</td></tr>`).join("");
 
@@ -3103,21 +3280,32 @@ async function renderJourneyTimes() {
              ${escapeHtml(summary.days[summary.days.length - 1])},
              ${summary.days.length} days`}${summary.estimated
           ? ` · ${summary.estimated} of ${summary.journeys} part-interpolated` : ""}${refused
-          ? ` · ${refused} journey${refused === 1 ? "" : "s"} excluded as
-              contradictory` : ""}
+          ? ` · ${refused} journey${refused === 1 ? "" : "s"} excluded: reversed or unresolved timing` : ""}
       </p>
       ${(jtPick.unplaceable || []).length ? `<p class="jt-provenance jt-offmap">
         ${escapeHtml(jtPick.unplaceable.map(prettifyName).join(" and "))}
         ${jtPick.unplaceable.length === 1 ? "is" : "are"} just outside the area
         this map draws, so ${jtPick.unplaceable.length === 1 ? "it is" : "they are"}
         not marked on it. The figures above are unaffected.</p>` : ""}
-      ${journeyTimesChart(timings, summary, modeSel?.value || "delay")}
+      <p class="jt-provenance">${timings.length} of ${all.length} recorded journeys match these filters.
+        ${new Set(timings.map(jtCohort)).size > 1 ? "Multiple route or timetable cohorts are combined; select one for a like-for-like comparison." : ""}</p>
+      <div class="jt-chart-area">
+        <button type="button" class="jt-link jt-expand">Expand chart</button>
+        <div class="jt-chart-content">${journeyTimesChart(timings, summary, modeSel?.value || "delay", host.clientWidth || 640)}</div>
+        <div class="jt-point-detail" aria-live="polite">Select a dot or a departure in the table for its evidence.</div>
+      </div>
+      <div class="jt-entry-actions">
+        <button type="button" class="btn-secondary jt-csv">Download filtered CSV</button>
+        <button type="button" class="btn-secondary jt-json">Download filtered JSON</button>
+        <a class="jt-link" href="${escapeAttr(journeyTimesShareUrl(index))}">${index.build_id ? "Link to this view and data build" : "Link to this view (data may change)"}</a>
+        <a class="jt-link" href="${escapeAttr(CONFIG.JOURNEY_TIMES_BASE + "/" + serviceSel.value)}" target="_blank" rel="noopener">Source JSON</a>
+      </div>
+      ${journeyTimesEvidenceHtml(doc, index, timings, all.length - timings.length)}
       ${journeyTimesDestinations(direction)}
       <ul class="jt-figures">
         ${summary.medianDelaySecs != null
           ? `<li>Median <strong>${summary.medianDelaySecs >= 0 ? "+" : "−"}${
-              jtMinutes(Math.abs(summary.medianDelaySecs))}</strong> against
-             the timetable, over ${summary.promisedJourneys} journeys it
+              jtMinutes(Math.abs(summary.medianDelaySecs))}</strong> extra section time, over ${summary.promisedJourneys} journeys it
              promised a time for</li>` : ""}
         <li>Fastest ${jtMinutes(summary.fastestSecs)}</li>
         <li>Slowest ${jtMinutes(summary.slowestSecs)}</li>
@@ -3126,7 +3314,7 @@ async function renderJourneyTimes() {
           : `<li class="jt-thin">Too few journeys for a 9-in-10 figure
              (${summary.journeys} of ${summary.percentileFloor})</li>`}
         ${summary.overPromised != null
-          ? `<li>Over the timetable on ${summary.overPromised} of
+          ? `<li>Section took over 1 minute longer than scheduled on ${summary.overPromised} of
              ${summary.promisedJourneys} journeys</li>` : ""}
       </ul>
       <details class="jt-table-wrap">
@@ -3146,8 +3334,38 @@ async function renderJourneyTimes() {
              there is nothing to compare against — only what we measured. `
           : ""}
         Measured from the operators' own vehicle feed, ${escapeHtml(doc.days.join(", "))}.
-        Built from ${escapeHtml((doc.data_versions || []).join(", "))}.
+        Source methods and recording coverage are in Evidence and limitations above.
       </p>`;
+    const selectPoint = event => {
+      if (event.type === "keydown" && event.key === "Escape" && host.querySelector(".jt-chart-area--expanded")) {
+        host.querySelector(".jt-expand").click(); return;
+      }
+      const point = event.target.closest("[data-jt-point]");
+      if (!point || (event.type === "keydown" && !["Enter", " "].includes(event.key))) return;
+      event.preventDefault();
+      const t = timings[Number(point.dataset.jtPoint)];
+      if (t) {
+        const detail = host.querySelector(".jt-point-detail");
+        detail.innerHTML = journeyTimesPointHtml(t);
+        detail.scrollIntoView({block: "nearest"});
+      }
+    };
+    host.onclick = selectPoint;
+    host.onkeydown = selectPoint;
+    host.querySelector(".jt-csv")?.addEventListener("click", () => jtDownload("journey-times.csv", journeyTimesCsv(timings, doc), "text/csv"));
+    host.querySelector(".jt-json")?.addEventListener("click", () => jtDownload("journey-times.json", JSON.stringify({
+      build_id: index.build_id || null, service: doc.service, operator: doc.operator,
+      from, to, filters: {...filters, days: daysSel.value, fromDate: fromDate?.value, toDate: toDate?.value},
+      units: "seconds; epochs are UTC, clock displays Europe/London", as_of: doc.as_of,
+      method: doc.method, source_methods: doc.source_methods, observation_sources: index.observation_sources,
+      caveats: doc.caveats, excluded_by_filters: all.length - timings.length, journeys: timings,
+    }, null, 2), "application/json"));
+    host.querySelector(".jt-expand")?.addEventListener("click", () => {
+      const area = host.querySelector(".jt-chart-area");
+      const expanded = area.classList.toggle("jt-chart-area--expanded");
+      area.querySelector(".jt-expand").textContent = expanded ? "Close expanded chart" : "Expand chart";
+      area.querySelector(".jt-chart-content").innerHTML = journeyTimesChart(timings, summary, modeSel?.value || "delay", area.clientWidth - 24);
+    });
   } catch (err) {
     console.warn("Journey times unavailable:", err);
     if (!mine()) return;
@@ -8900,6 +9118,7 @@ function journeyRoutes(journey) {
  *    on a journey whose second bus it does not cover.
  */
 function costRoute(route, ctx) {
+  ctx = routeFareContext(route, ctx);
   const { allStandardZones, endpointOperators, operatorsKnown, usable,
           byId, meta } = ctx;
   const legOperators = route.operators.length ? route.operators : null;
@@ -8956,6 +9175,22 @@ function costRoute(route, ctx) {
            singlesOption, cheapest, dayBaseline,
            total: cheapest ? cheapest.total : null,
            minutes: route.minutes };
+}
+
+/** Path and operator coverage belong to this candidate, including each leg. */
+function routeFareContext(route, ctx) {
+  const legs = route.option ? [route.option] : (route.itinerary?.legs || []);
+  const own = legs.flatMap(leg => (leg.stops || [])
+    .filter(s => typeof s.lat === "number" && typeof s.lon === "number")
+    .map(stop => ({ stop, operators: leg.operator ? [leg.operator] : null })));
+  if (own.length) return { ...ctx, usable: own.map(s => s.stop),
+    endpointOperators: own.map(s => s.operators), operatorsKnown: own.every(s => s.operators) };
+  // Legacy caller with common endpoints only: never inherit another option's company.
+  const endpointOperators = (ctx.usable || []).map((_, i, all) => {
+    const op = route.operators[i === all.length - 1 ? route.operators.length - 1 : 0];
+    return op ? [op] : null;
+  });
+  return { ...ctx, endpointOperators, operatorsKnown: endpointOperators.every(Boolean) };
 }
 
 /** The three things the page has to say, from the routes it costed.
@@ -9114,7 +9349,7 @@ function journeyRowHtml(kind, label, costed, byId) {
     ? `${costed.route.minutes} min` : "time not published";
   const ticket = journeyTicketName(costed, byId);
   return `<li class="journey-row journey-row--${kind}">
-    <span class="journey-row-label">${escapeHtml(label)}</span>
+    <span class="journey-row-label">${escapeHtml(label)} <button type="button" class="jt-link" data-journey-choice="${kind}">Show route</button></span>
     <span class="journey-row-price">${formatGbp(costed.total)}</span>
     <span class="journey-row-detail">${ride} &middot; ${escapeHtml(mins)}${
       ticket ? ` &middot; ${ticket}` : ""}</span>
@@ -9184,7 +9419,7 @@ function journeyTradeOffHtml(answer, zoneIds, byId, meta) {
   </li>`;
 }
 
-function renderJourneyResult(journey, fromAtco, toAtco) {
+function renderJourneyResult(journey, fromAtco, toAtco, selectedChoice = "cheapest") {
   const host = dom.jcResult;
   if (!host) return;
 
@@ -9192,25 +9427,32 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   const byId  = Object.fromEntries(allZones.map(z => [z.id, z]));
   const meta  = state.ticketFaresMeta || {};
 
-  // Path-aware when a direct bus exists; endpoints-only otherwise, and we say
-  // which of the two we did.
-  const option = pickRepresentativeOption(journey.options);
-  const pathStops = option ? option.stops : [
+  const routes = journeyRoutes(journey);
+  const fallbackStops = [
     Object.assign({ atco: fromAtco }, state.stopData[fromAtco] || {}),
-    Object.assign({ atco: toAtco },   state.stopData[toAtco]   || {}),
+    Object.assign({ atco: toAtco }, state.stopData[toAtco] || {}),
   ];
+  const fallbackOperators = journeyEndpointOperators(journey, null, fallbackStops);
+  const costed = routes.map(r => costRoute(r, {
+    allStandardZones: allZones.filter(isStandardFareZone),
+    endpointOperators: fallbackOperators, operatorsKnown: fallbackOperators.every(o => o !== null),
+    usable: fallbackStops, byId, meta,
+  }));
+  const answer = journeyAnswer(costed, localTicketOperators(allZones));
+  const selected = answer[selectedChoice] || answer.cheapest;
+  const route = selected?.route || routes[0];
+  const option = route?.option || null;
+  const interchange = route?.itinerary || null;
+  const routeStops = option?.stops || interchange?.legs?.flatMap(leg => leg.stops || []) || [];
+  const pathStops = routeStops.length ? routeStops : fallbackStops;
   const operator = option ? option.operator : "";
-
-  // Who actually runs a bus from each end. On a direct journey every stop is
-  // served by the operator running it; on an interchange journey the API
-  // tells us per endpoint. Older deployments of the API don't send this, so
-  // `null` means "unknown" and is reported as such rather than assumed away.
-  const endpointOperators = journeyEndpointOperators(journey, option, pathStops);
+  const endpointOperators = option ? pathStops.map(() => [operator])
+    : interchange && routeStops.length ? interchange.legs.flatMap(leg => (leg.stops || []).map(() => [leg.operator]))
+    : fallbackOperators;
   const operatorsKnown = endpointOperators.every(o => o !== null);
 
   // Drawn before any verdict is chosen, so the map shows the journey whichever
   // branch the fare logic takes — including the ones that end in "we can't say".
-  const interchange = journey.interchange || null;
   const notToday    = !option && !!journey.interchange_on;
   drawJourneyOnMap(
     option ? [{ service: option.service, operator: option.operator, stops: option.stops }]
@@ -9242,8 +9484,8 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // operator in common, so no day ticket can span them at any price.
   const shared = operatorsKnown ? commonOperators(endpointOperators) : null;
   // Which buses this journey is actually on, where the API broke it into legs.
-  const legOperators = journeyLegOperators(journey);
-  const legServices  = journeyLegServices(journey);
+  const legOperators = journeyLegOperators({interchange});
+  const legServices  = journeyLegServices({interchange});
   const zones = (operatorsKnown || legOperators)
     ? ticketsUsableEndToEnd(allStandardZones, endpointOperators, legOperators)
     : allStandardZones;
@@ -9292,25 +9534,14 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // dropped — an argument quietly omitted is what produced the £12.50 claim.
   const routeLine = option
     ? `<p class="journey-note">Following the ${escapeHtml(option.service)}: ${option.stop_count} stops, ${escapeHtml(option.depart)} to ${escapeHtml(option.arrive)}.</p>`
-    : `<p class="journey-note">${escapeHtml(journey.note || "No direct bus found.")}</p>${itinerary}`;
+    : interchange ? itinerary
+    : `<p class="journey-note">${escapeHtml(journey.note || "No connection found for this search.")}</p>`;
 
   const header = `
     <p class="journey-endpoints">
       <strong>${escapeHtml(journey.from.name || fromAtco)}</strong> →
       <strong>${escapeHtml(journey.to.name || toAtco)}</strong>
     </p>${routeLine}`;
-
-  // Every route the API offered, each costed on its own, so the page can say
-  // "cheapest" and "quickest" and mean two different journeys. The variables
-  // above stay as they were and still describe the representative journey —
-  // they feed the zone list, the provenance and the caveat — while these
-  // answer the comparison.
-  const routes = journeyRoutes(journey);
-  const costed = routes.map(r => costRoute(r, {
-    allStandardZones: allZones.filter(isStandardFareZone),
-    endpointOperators, operatorsKnown, usable, byId, meta,
-  }));
-  const answer = journeyAnswer(costed, localTicketOperators(allZones));
 
   // ── No zonal ticket spans the journey, but a network one does ──
   // This is a boundary penalty in its own right: the zone tickets stop short,
@@ -9458,7 +9689,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // layouts. Quickest appears only when it is a different journey from the
   // cheapest: on a direct single-operator bus there is no trade-off to show,
   // and printing one route twice under two headings reads as padding.
-  const cheapest = answer.cheapest
+  const cheapest = selected?.cheapest
     || cheapestRealOption(best, networkOption, supplement, unifiedOption,
                           singlesOption);
   // The zones behind the price actually shown. The representative route's
@@ -9466,12 +9697,7 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
   // is a citySAVER on the 2 and the 49, while the representative route is a
   // 700 and a 49 that no ticket spans — so sourcing the former from the latter
   // printed a price with no provenance at all, on three of the six presets.
-  const cheapestZones = answer.cheapest && answer.cheapest.best
-    && answer.cheapest.best.zones;
-  const zoneIds = cheapestZones
-    || (best && best.zones)
-    || coveringZoneIds(answer.cheapest ? answer.cheapest.coverPerStop
-                                       : coverPerStop);
+  const zoneIds = selected?.best?.zones || (best && best.zones) || coveringZoneIds(coverPerStop);
   // Which zones the journey passes through, whatever ticket happens to be
   // valid on it. The reform question cannot be asked of the zones the *usable*
   // tickets cover, because on a cross-operator journey no ticket is usable and
@@ -9493,11 +9719,12 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
        the figure isn't published here.</p>`;
 
   host.innerHTML = header + `
+    ${selected ? `<p class="journey-basis">Map, itinerary and ticket details: ${selectedChoice === "quickest" ? "quickest" : "cheapest"} option found.</p>` : ""}
     <div class="journey-alert journey-alert--${alertKind}">
       ${caveat ? `<p>${caveat}</p>` : ""}
       ${extra}
       ${rows ? `<p class="journey-basis journey-rows-basis">What one return trip
-        costs today, and how long it takes.</p>
+        costs today, and how long it takes, among the options found for this departure time.</p>
         <ul class="journey-rows">${rows}</ul>` : ""}
       ${journeyCoachNoteHtml(answer)}
       ${routes.length ? money : ""}
@@ -9505,7 +9732,11 @@ function renderJourneyResult(journey, fromAtco, toAtco) {
     + zoneListHtml(coverPerStop, byId, droppedForOperator, shared,
                    partiallyValid, legServices)
     + faresProvenanceHtml(zoneIds, byId, meta,
-                          answer.cheapest ? answer.cheapest.cheapest : cheapest);
+                          selected ? selected.cheapest : cheapest);
+  host.querySelectorAll?.("[data-journey-choice]").forEach(button => {
+    button.setAttribute("aria-pressed", String(button.dataset.journeyChoice === selectedChoice));
+    button.addEventListener("click", () => renderJourneyResult(journey, fromAtco, toAtco, button.dataset.journeyChoice));
+  });
 }
 
 /** The zones this journey crosses, itemised with what each ticket costs. */

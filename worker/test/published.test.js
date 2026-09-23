@@ -136,3 +136,18 @@ test("the split filenames are servable at all", async () => {
   const res = await get("/journey-times/1-BHBC.json");
   assert.equal(res.status, 200, "an operator-split filename was rejected");
 });
+
+test("generation paths are immutable, readable and confined", async () => {
+  const build = "a".repeat(64), asked = [];
+  const e = env({ PUBLISHED: { async get(key) { asked.push(key); return {body: BODY}; } } });
+  const res = await get(`/journey-times/builds/${build}/700-SCSO.json`, "GET", e);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("cache-control"), /immutable/);
+  assert.equal(asked[0], `journey-times/builds/${build}/700-SCSO.json`);
+  const gzip = await get(`/journey-times/builds/${build}/observations-2026-09-21.json.gz`, "GET", e);
+  assert.equal(gzip.headers.get("content-type"), "application/gzip");
+  for (const bad of [`builds/short/700.json`, `builds/${build}/nested/700.json`, `builds/${build}/%2e%2e%2fraw.json`]) {
+    assert.equal((await get(`/journey-times/${bad}`, "GET", e)).status, 404);
+  }
+  assert.equal(asked.length, 2);
+});

@@ -107,12 +107,12 @@ export function isJourneyFeedTime(_when) {
 /** Where a snapshot lives: one folder a day, one object a minute, so a day can
  *  be listed and deleted by prefix once it has been processed. */
 export function snapshotKey(when) {
-  return `raw/${LONDON_DATE.format(when)}/${LONDON_CLOCK.format(when).replace(":", "")}.xml`;
+  return `raw/${LONDON_DATE.format(when)}/${LONDON_CLOCK.format(when).replace(":", "")}-${Math.floor(when.getTime() / 60000) * 60}.xml`;
 }
 
 /** The same minute's GTFS-RT, beside it. */
 export function gtfsRtKey(when) {
-  return `rt/${LONDON_DATE.format(when)}/${LONDON_CLOCK.format(when).replace(":", "")}.pb`;
+  return `rt/${LONDON_DATE.format(when)}/${LONDON_CLOCK.format(when).replace(":", "")}-${Math.floor(when.getTime() / 60000) * 60}.pb`;
 }
 
 /** The service day a key belongs to: "raw/2026-09-18/0740.xml" → "2026-09-18".

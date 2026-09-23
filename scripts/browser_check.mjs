@@ -2384,6 +2384,96 @@ async function checkJourneyPresets(page) {
  * view as working. So the first thing asserted is that dots were actually
  * drawn, before anything about what they mean.
  */
+/** Deterministic review fixture: exercises rendered controls without a live publication. */
+async function checkJourneyReview(page, viewport) {
+  const result = await page.evaluate(`(async () => {
+    const build = "a".repeat(64), file = "builds/" + build + "/700-SCSO.json";
+    const day = "2026-09-21", origin = Date.parse(day + "T00:00:00+01:00") / 1000;
+    const stops = [{atco:"4400AD0064",name:"Lancing",lat:50.823,lon:-.321},
+                  {atco:"149000007830",name:"Brighton",lat:50.820,lon:-.136}];
+    const journeys = [0,1,2].map(i => ({day, start:"07:00", trip_id:"probe-"+i,
+      direction:"eastbound", headsign:"Brighton", route_pattern:"pattern", data_version:"timetable", method_version:4,
+      match:i===2?"inferred":"declared", source_files:["input-hash"], quality_flags:[],
+      calls:[[0,28800+i*1800,28740+i*1800,i===1?1:0,0,origin+28800+i*1800,origin+28740+i*1800,[origin+28800,origin+28830],[],i===2?"inferred":"declared"],
+             [1,30000+i*1800,29340+i*1800,0,1,origin+30000+i*1800,origin+29340+i*1800,[origin+30000,origin+30030],[],i===2?"inferred":"declared"]]}));
+    const doc = {build_id:build, service:"700", operator:"SCSO", days:[day], stops, journeys,
+      method:"Review fixture", as_of:day, caveats:["Synthetic browser fixture"], source_methods:[]};
+    const index = {build_id:build, days:[day], services:[{file,service:"700",operator:"SCSO",journeys:3}]};
+    journeyTimesCache.set("index.json", index); journeyTimesCache.set(file, doc);
+    jtEntry.mode="browse"; jtEntry.only=null; jtEntry.wanted=null;
+    for (const key of ["service", "direction", "from", "to", "days"]) {
+      const el=document.getElementById("journey-times-"+key); for(const attr of Object.keys(el.dataset)) delete el.dataset[attr];
+    }
+    setViewMode("journeytimes"); await renderJourneyTimes();
+    const host=document.getElementById("journey-times-result");
+    const axis=host.querySelector(".jt-axis"), dot=host.querySelector(".jt-dot");
+    const font=axis ? parseFloat(getComputedStyle(axis).fontSize)*axis.getScreenCTM().a : 0;
+    const initialDots=host.querySelectorAll(".jt-dot").length;
+    dot?.dispatchEvent(new MouseEvent("click", {bubbles:true}));
+    const detail=host.querySelector(".jt-point-detail")?.textContent || "";
+    const link=[...host.querySelectorAll("a")].find(a=>a.textContent.includes("Link to this view"));
+    document.getElementById("journey-times-identity").value="declared";
+    await renderJourneyTimes();
+    const declaredDots=host.querySelectorAll(".jt-dot").length;
+    host.querySelector(".jt-expand")?.click();
+    const expanded=host.querySelector(".jt-chart-area--expanded");
+    const expandedRect=expanded?.getBoundingClientRect();
+    const expands=!!expandedRect && expandedRect.left>=0 && expandedRect.right<=innerWidth && expandedRect.height<=innerHeight;
+    host.querySelector(".jt-expand")?.click();
+    host.querySelector(".jt-chart")?.scrollIntoView({block:"center"});
+    const bodyWidth=document.documentElement.scrollWidth;
+    // A shared URL must restore values after the controls have lost their state.
+    const oldUrl=location.href;
+    const share=journeyTimesShareUrl(index);
+    journeyTimesCache.set("builds/"+build+"/index.json", index);
+    history.replaceState(null,"",share);
+    document.getElementById("journey-times-identity").value="all";
+    document.getElementById("journey-times-mode").value="duration";
+    jtEntry.sharedApplied=false; await renderJourneyTimes();
+    const restored=document.getElementById("journey-times-identity").value==="declared"
+      && document.getElementById("journey-times-mode").value==="delay"
+      && document.getElementById("journey-times-service").value===file;
+    history.replaceState(null,"",oldUrl);
+    host.querySelector(".jt-chart")?.scrollIntoView({block:"center"});
+    return {restored, font, initialDots, declaredDots, detail, expands, bodyWidth, width:innerWidth,
+      shared:link?.href, csv:!!host.querySelector(".jt-csv"), evidence:!!host.querySelector(".jt-evidence"),
+      departure:host.querySelector(".jt-table tbody tr td:nth-child(2)")?.textContent};
+  })()`);
+  check(`journey review ${viewport}: mobile chart text is readable`, result.font >= 12, `${result.font.toFixed(1)}px`);
+  check(`journey review ${viewport}: measured and declared filters agree with chart`, result.initialDots === 2 && result.declaredDots === 1, JSON.stringify(result));
+  check(`journey review ${viewport}: tapping a point opens its actual departure and evidence`, /08:00/.test(result.detail) && /arrival lateness/i.test(result.detail), result.detail.slice(0,140));
+  check(`journey review ${viewport}: selected-stop departure is shown in the table`, result.departure === "08:00", result.departure);
+  check(`journey review ${viewport}: chart expands inside the viewport`, result.expands);
+  check(`journey review ${viewport}: shared links restore the chosen cohort and metric`, result.restored);
+  check(`journey review ${viewport}: view and build are shareable`, /jt-build=a{64}/.test(result.shared || "") && /jt-service=/.test(result.shared || ""));
+  check(`journey review ${viewport}: exports and evidence are available without page overflow`, result.csv && result.evidence && result.bodyWidth <= result.width + 1, JSON.stringify(result));
+}
+
+async function checkSelectedFareRoute(page) {
+  const result = await page.evaluate(`(async () => {
+    await loadTicketZones(); setViewMode("tickets");
+    const a={atco:"probe-a",name:"Start",lat:50.823,lon:-.16};
+    const b={atco:"probe-b",name:"End",lat:50.823,lon:-.13};
+    const mid={atco:"probe-mid",name:"Change",lat:50.823,lon:-.15};
+    state.stopData[a.atco]=a; state.stopData[b.atco]=b;
+    const legs=[{service:"2",operator:"BHBC",depart:"12:00",arrive:"12:08",stops:[a,mid]},
+      {service:"25",operator:"BHBC",depart:"12:10",arrive:"12:20",stops:[mid,b]}];
+    const interchange={legs,total_minutes:20,change_at:mid,board_at:mid,walk_metres:0,wait_minutes:2};
+    const journey={from:a,to:b,options:[{service:"700",operator:"SCSO",depart:"12:00",arrive:"13:00",stops:[a,b],stop_count:2}],
+      interchange,itineraries:[interchange]};
+    renderJourneyResult(journey,a.atco,b.atco);
+    const before=state.journeyLayers.filter(layer=>layer.options?.className?.startsWith("journey-leg ")).length;
+    const button=dom.jcResult.querySelector('[data-journey-choice="quickest"]');
+    const rect=button?.getBoundingClientRect();
+    button?.click();
+    const after=state.journeyLayers.filter(layer=>layer.options?.className?.startsWith("journey-leg ")).length;
+    const chosen=dom.jcResult.querySelector('[data-journey-choice="quickest"]')?.getAttribute("aria-pressed");
+    return {before,after,chosen,height:rect?.height,says:dom.jcResult.textContent};
+  })()`);
+  check("selecting a fare alternative redraws its own route and itinerary", result.before===1 && result.after===2 && result.chosen==="true" && /quickest option found/.test(result.says), JSON.stringify(result));
+  check("fare route selection meets the touch target minimum", result.height>=44, String(result.height));
+}
+
 async function checkJourneyTimes(page) {
   await page.evaluate(`setViewMode('journeytimes')`);
   await sleep(4000);
@@ -2811,6 +2901,20 @@ try {
 
 const page = await openPage(VIEWPORTS[0]);
 await checkBasemap(page);
+if (process.argv.includes("--journey-review")) {
+  await checkJourneyReview(page, VIEWPORTS[0].name);
+  await checkSelectedFareRoute(page);
+  for (const vp of VIEWPORTS.slice(1)) {
+    const p = await openPage(vp);
+    await checkJourneyReview(p, vp.name);
+    await screenshot(p, `journey-review-${vp.name}`);
+    p.ws.close();
+  }
+  for (const r of results) console.log(`${r.pass ? "PASS" : "FAIL"} ${r.name} ${r.detail || ""}`);
+  console.log(`${results.filter(r => r.pass).length}/${results.length} checks passed`);
+  page.ws.close();
+  process.exit(results.some(r => !r.pass) ? 1 : 0);
+}
 await checkHeaderControlRow(page, VIEWPORTS[0].name);
 await checkLayout(page, "live view");
 await checkFailureIsVisible(page, VIEWPORTS[0].name);
@@ -2843,6 +2947,8 @@ await checkInteractiveSurfaces(page);
 await checkCouncillorContact(page);
 await checkJourneyPresets(page);
 await checkJourneyTimes(page);
+await checkSelectedFareRoute(page);
+await checkJourneyReview(page, VIEWPORTS[0].name);
 await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
 await checkDeepLinkIndependence();   // own page + request interception; keep it apart
@@ -2865,6 +2971,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   if (vp.name === "desktop") await checkA11yMenu(p, vp.name, { desktop: true });
   if (vp.name === "desktop") await checkReadingLayout(p);
   await checkReachableAcrossViews(p, vp.name);
+  await checkJourneyReview(p, vp.name);
   p.ws.close();
 }
 

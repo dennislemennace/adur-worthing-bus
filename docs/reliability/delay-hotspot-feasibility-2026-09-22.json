@@ -1,0 +1,650 @@
+{
+  "status": "diagnostic only; upstream review findings unresolved",
+  "as_of": "2026-09-22T16:37:33.319683+00:00",
+  "data_version": "review manifest sha256:a7d9d91563f54739be5a7bf15ec06c9301fdb5b6b0866c74cef7c260373e16e6",
+  "diagnostic_method_version": 1,
+  "reviewed_application_commit": "ec9f12c7940ca0ba4bd452cb33ebf67ba8e0c28a",
+  "diagnostic_script_sha256": "833e4c238633e29c7fa47283a89635a8cc38838739b4770f339f6f71d24ef45f",
+  "reliability_stats_sha256": "9b2ba31f77b9815a66ba8c51513732a3a93dd094b2c24da304dc1ece8dc652c1",
+  "method": "Measured timing-point pairs, same-file same-day, scheduled/observed 06:00–22:00; partition by timetable, method, operator, service, direction, headsign, match label, call count, ordered ATCO/call indices, weekday/weekend and observed entry period. Consecutive observed timing points need not be adjacent scheduled timing points.",
+  "caveats": [
+    "Headsign/call count/indices are a route-pattern proxy, not a verified shape.",
+    "Declared is the current journey-level label, not proof for each observation.",
+    "Endpoint report intervals and raw matching evidence are absent.",
+    "No scheduled-traversal denominator or congestion causation is established.",
+    "The 30-journey/5-day floor is an exploratory design choice, not statistical proof.",
+    "Filters bound the diagnostic; they do not repair or validate upstream measurements."
+  ],
+  "inputs": [
+    {
+      "file": "observations-2026-09-16.json.gz",
+      "sha256": "675de5e9990e32ea099a6799134c0b828cc0d64d08fd523900cb12e06b31a384",
+      "rows": 36978,
+      "day": "2026-09-16",
+      "as_of": "2026-09-19T12:36:48+00:00",
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3
+    },
+    {
+      "file": "observations-2026-09-17.json.gz",
+      "sha256": "b4b8ffc649d3e693d5564b33594fbe01f822cbbbc3a1f59dfb734f0c3d61d944",
+      "rows": 88654,
+      "day": "2026-09-17",
+      "as_of": "2026-09-19T22:11:35+00:00",
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3
+    },
+    {
+      "file": "observations-2026-09-18.json.gz",
+      "sha256": "b14b84c9173ff9024f58cbcfb5f42c9bd6d995e9942be3c12a06ae4fdfdb6958",
+      "rows": 92982,
+      "day": "2026-09-18",
+      "as_of": "2026-09-21T15:53:13+00:00",
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3
+    },
+    {
+      "file": "observations-2026-09-19.json.gz",
+      "sha256": "e116875a68b4f21af5a15930db70ab61e84d773442477a57a0fea16661a639f6",
+      "rows": 84055,
+      "day": "2026-09-19",
+      "as_of": "2026-09-21T15:55:26+00:00",
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3
+    },
+    {
+      "file": "observations-2026-09-20.json.gz",
+      "sha256": "cc357126a846a7c09e60b9f3cd53ef70b28afe54b2e17f3613cd79db0a1b0d5e",
+      "rows": 55190,
+      "day": "2026-09-20",
+      "as_of": "2026-09-21T16:07:12+00:00",
+      "data_version": "timetable.sqlite sha256:08577f86a5c1b431",
+      "method_version": 3
+    }
+  ],
+  "input_rows": 357859,
+  "measured_timing_points_by_day": [
+    {
+      "day": "2026-09-16",
+      "measured_timing_points": 6591,
+      "declared_tagged": 0
+    },
+    {
+      "day": "2026-09-17",
+      "measured_timing_points": 16263,
+      "declared_tagged": 0
+    },
+    {
+      "day": "2026-09-18",
+      "measured_timing_points": 17355,
+      "declared_tagged": 10804
+    },
+    {
+      "day": "2026-09-19",
+      "measured_timing_points": 15572,
+      "declared_tagged": 15451
+    },
+    {
+      "day": "2026-09-20",
+      "measured_timing_points": 10333,
+      "declared_tagged": 10287
+    }
+  ],
+  "existing_700_westbound_hourly": {
+    "cells": 198,
+    "shown": 0,
+    "suppressed": 198,
+    "floor": {
+      "traversals": 30,
+      "journeys": 5
+    }
+  },
+  "diagnostic": {
+    "cells": 9298,
+    "traversals": 51079,
+    "cells_meeting_exploratory_floor": 0,
+    "exclusions": {
+      "pairs_with_nonpositive_time_or_sequence": 93,
+      "pairs_outside_daytime_scope": 5042,
+      "pairs_service_day_differs_from_file_day": 213
+    }
+  },
+  "example_46_westbound_holmbush_to_southwick": [
+    {
+      "data_version": "timetable.sqlite sha256:08577f86a5c1b431",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "declared",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekend",
+      "observed_entry_period": "10-16",
+      "traversals": 3,
+      "distinct_journeys": 3,
+      "distinct_days": 1,
+      "by_day": {
+        "2026-09-20": {
+          "traversals": 3,
+          "gained_at_least_600s": 0
+        }
+      },
+      "median_gained_secs": 10,
+      "p90_gained_secs": 63,
+      "gained_at_least_600s": 0,
+      "median_stops_apart": 8,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:08577f86a5c1b431",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "declared",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekend",
+      "observed_entry_period": "16-19",
+      "traversals": 1,
+      "distinct_journeys": 1,
+      "distinct_days": 1,
+      "by_day": {
+        "2026-09-20": {
+          "traversals": 1,
+          "gained_at_least_600s": 0
+        }
+      },
+      "median_gained_secs": -34,
+      "p90_gained_secs": -34,
+      "gained_at_least_600s": 0,
+      "median_stops_apart": 8,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "declared",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekday",
+      "observed_entry_period": "10-16",
+      "traversals": 6,
+      "distinct_journeys": 6,
+      "distinct_days": 1,
+      "by_day": {
+        "2026-09-18": {
+          "traversals": 6,
+          "gained_at_least_600s": 0
+        }
+      },
+      "median_gained_secs": 70.0,
+      "p90_gained_secs": 281,
+      "gained_at_least_600s": 0,
+      "median_stops_apart": 8.0,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "declared",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekday",
+      "observed_entry_period": "16-19",
+      "traversals": 2,
+      "distinct_journeys": 2,
+      "distinct_days": 1,
+      "by_day": {
+        "2026-09-18": {
+          "traversals": 2,
+          "gained_at_least_600s": 0
+        }
+      },
+      "median_gained_secs": 45.5,
+      "p90_gained_secs": 116,
+      "gained_at_least_600s": 0,
+      "median_stops_apart": 8.0,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "declared",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekday",
+      "observed_entry_period": "other daytime",
+      "traversals": 4,
+      "distinct_journeys": 4,
+      "distinct_days": 1,
+      "by_day": {
+        "2026-09-18": {
+          "traversals": 4,
+          "gained_at_least_600s": 0
+        }
+      },
+      "median_gained_secs": 0.0,
+      "p90_gained_secs": 486,
+      "gained_at_least_600s": 0,
+      "median_stops_apart": 8.0,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "declared",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekend",
+      "observed_entry_period": "07-10",
+      "traversals": 1,
+      "distinct_journeys": 1,
+      "distinct_days": 1,
+      "by_day": {
+        "2026-09-19": {
+          "traversals": 1,
+          "gained_at_least_600s": 0
+        }
+      },
+      "median_gained_secs": 125,
+      "p90_gained_secs": 125,
+      "gained_at_least_600s": 0,
+      "median_stops_apart": 8,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "declared",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekend",
+      "observed_entry_period": "10-16",
+      "traversals": 11,
+      "distinct_journeys": 11,
+      "distinct_days": 1,
+      "by_day": {
+        "2026-09-19": {
+          "traversals": 11,
+          "gained_at_least_600s": 0
+        }
+      },
+      "median_gained_secs": -19,
+      "p90_gained_secs": 63,
+      "gained_at_least_600s": 0,
+      "median_stops_apart": 8,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "declared",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekend",
+      "observed_entry_period": "16-19",
+      "traversals": 4,
+      "distinct_journeys": 4,
+      "distinct_days": 1,
+      "by_day": {
+        "2026-09-19": {
+          "traversals": 4,
+          "gained_at_least_600s": 0
+        }
+      },
+      "median_gained_secs": -8.0,
+      "p90_gained_secs": 127,
+      "gained_at_least_600s": 0,
+      "median_stops_apart": 8.0,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "declared",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekend",
+      "observed_entry_period": "other daytime",
+      "traversals": 3,
+      "distinct_journeys": 3,
+      "distinct_days": 1,
+      "by_day": {
+        "2026-09-19": {
+          "traversals": 3,
+          "gained_at_least_600s": 1
+        }
+      },
+      "median_gained_secs": 25,
+      "p90_gained_secs": 662,
+      "gained_at_least_600s": 1,
+      "median_stops_apart": 8,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "declared",
+      "calls_total": 71,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 62,
+      "to_stop_index": 70,
+      "day_type": "weekend",
+      "observed_entry_period": "07-10",
+      "traversals": 3,
+      "distinct_journeys": 3,
+      "distinct_days": 1,
+      "by_day": {
+        "2026-09-19": {
+          "traversals": 3,
+          "gained_at_least_600s": 0
+        }
+      },
+      "median_gained_secs": -40,
+      "p90_gained_secs": 121,
+      "gained_at_least_600s": 0,
+      "median_stops_apart": 8,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "inferred",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekday",
+      "observed_entry_period": "07-10",
+      "traversals": 6,
+      "distinct_journeys": 6,
+      "distinct_days": 2,
+      "by_day": {
+        "2026-09-17": {
+          "traversals": 2,
+          "gained_at_least_600s": 1
+        },
+        "2026-09-18": {
+          "traversals": 4,
+          "gained_at_least_600s": 4
+        }
+      },
+      "median_gained_secs": 937.0,
+      "p90_gained_secs": 1433,
+      "gained_at_least_600s": 5,
+      "median_stops_apart": 8.0,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "inferred",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekday",
+      "observed_entry_period": "10-16",
+      "traversals": 23,
+      "distinct_journeys": 23,
+      "distinct_days": 2,
+      "by_day": {
+        "2026-09-17": {
+          "traversals": 15,
+          "gained_at_least_600s": 9
+        },
+        "2026-09-18": {
+          "traversals": 8,
+          "gained_at_least_600s": 7
+        }
+      },
+      "median_gained_secs": 725,
+      "p90_gained_secs": 890,
+      "gained_at_least_600s": 16,
+      "median_stops_apart": 8,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "inferred",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekday",
+      "observed_entry_period": "16-19",
+      "traversals": 8,
+      "distinct_journeys": 8,
+      "distinct_days": 2,
+      "by_day": {
+        "2026-09-16": {
+          "traversals": 3,
+          "gained_at_least_600s": 0
+        },
+        "2026-09-17": {
+          "traversals": 5,
+          "gained_at_least_600s": 1
+        }
+      },
+      "median_gained_secs": 307.5,
+      "p90_gained_secs": 656,
+      "gained_at_least_600s": 1,
+      "median_stops_apart": 8.0,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "inferred",
+      "calls_total": 67,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 58,
+      "to_stop_index": 66,
+      "day_type": "weekday",
+      "observed_entry_period": "other daytime",
+      "traversals": 5,
+      "distinct_journeys": 5,
+      "distinct_days": 2,
+      "by_day": {
+        "2026-09-16": {
+          "traversals": 3,
+          "gained_at_least_600s": 0
+        },
+        "2026-09-17": {
+          "traversals": 2,
+          "gained_at_least_600s": 1
+        }
+      },
+      "median_gained_secs": 427,
+      "p90_gained_secs": 697,
+      "gained_at_least_600s": 1,
+      "median_stops_apart": 8,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "inferred",
+      "calls_total": 71,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 62,
+      "to_stop_index": 70,
+      "day_type": "weekday",
+      "observed_entry_period": "07-10",
+      "traversals": 2,
+      "distinct_journeys": 2,
+      "distinct_days": 2,
+      "by_day": {
+        "2026-09-17": {
+          "traversals": 1,
+          "gained_at_least_600s": 1
+        },
+        "2026-09-18": {
+          "traversals": 1,
+          "gained_at_least_600s": 1
+        }
+      },
+      "median_gained_secs": 1251.5,
+      "p90_gained_secs": 1455,
+      "gained_at_least_600s": 2,
+      "median_stops_apart": 8.0,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    },
+    {
+      "data_version": "timetable.sqlite sha256:f1daaae3ed886a18",
+      "method_version": 3,
+      "operator": "BHBC",
+      "service": "46",
+      "direction": "westbound",
+      "headsign": "Southwick Square",
+      "match_label": "inferred",
+      "calls_total": 71,
+      "from_atco": "4400AD0222",
+      "to_atco": "4400AD0259",
+      "from_name": "Holmbush Centre",
+      "to_name": "Southwick Square",
+      "from_stop_index": 62,
+      "to_stop_index": 70,
+      "day_type": "weekday",
+      "observed_entry_period": "other daytime",
+      "traversals": 2,
+      "distinct_journeys": 2,
+      "distinct_days": 2,
+      "by_day": {
+        "2026-09-17": {
+          "traversals": 1,
+          "gained_at_least_600s": 1
+        },
+        "2026-09-18": {
+          "traversals": 1,
+          "gained_at_least_600s": 1
+        }
+      },
+      "median_gained_secs": 883.5,
+      "p90_gained_secs": 899,
+      "gained_at_least_600s": 2,
+      "median_stops_apart": 8.0,
+      "meets_exploratory_floor_30_journeys_5_days": false
+    }
+  ]
+}

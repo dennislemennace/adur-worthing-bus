@@ -8,8 +8,8 @@ name: Process Snapshots
 # **Why a nightly Action and not the Worker or Render.** Render's free tier has
 # no disk and sleeps, and its cron is a paid feature. The Worker has 10 ms of
 # CPU an invocation, nowhere near enough to match a day of positions against a
-# timetable. A public repo has unlimited Action minutes, and the output belongs
-# in the repo anyway, so the write half needs no credentials.
+# timetable. Derived documents are uploaded to a separate public-read bucket
+# after validation; immutable replay archives are attached to run-specific releases.
 #
 # GitHub's schedules are unreliable — 13 runs in 38 hours, measured — which is
 # why they are not used for *recording*, where a missed minute is a hole in the
@@ -19,7 +19,8 @@ name: Process Snapshots
 on:
   schedule:
     # 03:20 UTC: past midnight in both BST and GMT, so "yesterday" is a
-    # complete service day including night buses recorded until 00:30.
+    # complete London recording date. RT covers the whole night; GTFS service
+    # days spanning two dates are merged by their explicit instance identity.
     - cron: "20 3 * * *"
   workflow_dispatch:
     inputs:
@@ -31,8 +32,7 @@ on:
 permissions:
   contents: write
 
-# Two runs must not interleave: both commit to main and both upload to the
-# same release.
+# Serialise builds so each manifest names the previous complete generation.
 concurrency:
   group: reliability-processing
   cancel-in-progress: false
@@ -57,16 +57,19 @@ jobs:
       # The matcher these figures rest on. If it is broken, publishing a
       # punctuality number is worse than publishing nothing at all.
       - name: Test the matcher and the processor
-        run: python -m pytest -q tests/test_trip_match.py tests/test_process_snapshots.py
+        run: python -m pytest -q tests/test_trip_match.py tests/test_process_snapshots.py tests/test_review_accuracy.py tests/test_delay_hotspots.py tests/test_publication_bundle.py
 
       - name: Choose the day
         id: day
+        env:
+          REQUESTED_DAY: ${{ inputs.day }}
         run: |
-          DAY="${{ inputs.day }}"
+          DAY="$REQUESTED_DAY"
           if [ -z "$DAY" ]; then
             # Yesterday in London: the service day just finished.
             DAY=$(TZ=Europe/London date -d "yesterday" +%Y-%m-%d)
           fi
+          python -c 'import datetime, sys; datetime.date.fromisoformat(sys.argv[1])' "$DAY"
           echo "day=$DAY" >> "$GITHUB_OUTPUT"
           echo "Processing $DAY"
 
@@ -109,7 +112,7 @@ jobs:
           fi
 
           echo "::warning::timetable-latest does not cover $DAY — looking for the build that was in force"
-          TAGS=$(gh api 'repos/${{ github.repository }}/releases?per_page=100' \
+          TAGS=$(gh api --paginate 'repos/${{ github.repository }}/releases?per_page=100' \
                    --jq '.[].tag_name' \
                  | grep -E '^timetable-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}$' \
                  | sort -r)
@@ -139,6 +142,7 @@ jobs:
         run: |
           DAY="${{ steps.day.outputs.day }}"
           ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          mkdir -p "snapshots/$DAY" "gtfs-rt/$DAY"
           aws s3 sync \
             "s3://adur-worthing-reliability/raw/$DAY/" "snapshots/$DAY/" \
             --endpoint-url "$ENDPOINT" --no-progress
@@ -148,20 +152,20 @@ jobs:
           # old way.
           aws s3 sync \
             "s3://adur-worthing-reliability/rt/$DAY/" "gtfs-rt/$DAY/" \
-            --endpoint-url "$ENDPOINT" --no-progress || true
+            --endpoint-url "$ENDPOINT" --no-progress
           echo "GTFS-RT objects: $(find "gtfs-rt/$DAY" -name '*.pb' 2>/dev/null | wc -l)"
-          COUNT=$(find "snapshots/$DAY" -name '*.xml' | wc -l)
+          COUNT=$(find "snapshots/$DAY" "gtfs-rt/$DAY" -type f | wc -l)
           echo "Downloaded $COUNT snapshots"
-          # A full day is about 1,170. Far fewer means the recorder stopped,
-          # and a figure from a part-day understates coverage without saying
-          # so, so fail loudly rather than publish it.
+          # Object counts are only a download sanity check, not recording coverage.
+          # Processing publishes parsed, fresh and matched counters independently
+          # per feed; two objects from one minute never count as two minutes.
           if [ "$COUNT" -lt 600 ]; then
             if [ -n "${{ inputs.day }}" ]; then
               # A named day is someone deliberately processing a part-day, such
               # as the first afternoon of recording. Their figures, their call.
               echo "::warning::only $COUNT snapshots for $DAY — coverage will be partial"
             else
-              echo "::error::only $COUNT snapshots for $DAY (expected ~1170) — not publishing"
+              echo "::error::only $COUNT snapshots for $DAY (download sanity floor 600 combined feed objects) — not publishing"
               exit 1
             fi
           fi
@@ -181,143 +185,103 @@ jobs:
             --summary-out "data/reliability/$DAY.json"
           gzip -9 "observations-$DAY.json"
 
-      # The full observations are the working out: too large for the repo, but
-      # published so anyone can check a figure instead of taking it on trust.
-      - name: Publish the observations
+      - name: Restore every known input and archive replay evidence
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           DAY="${{ steps.day.outputs.day }}"
-          MONTH=$(echo "$DAY" | cut -c1-7)
-          TAG="reliability-$MONTH"
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" \
-              --title "Reliability observations $MONTH" \
-              --notes "Arrival observations derived from recorded BODS vehicle positions, one asset a day. Method and caveats: scripts/process_snapshots.py."
-          fi
-          gh release upload "$TAG" "observations-$DAY.json.gz" --clobber
+          TAG="reliability-run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG"
+          echo "EVIDENCE_TAG=$TAG" >> "$GITHUB_ENV"
+          curl --fail --silent --show-error --retry 3 \
+            https://adur-worthing-submissions.dennislemennace.workers.dev/journey-times/index.json \
+            -o previous-index.json
+          python scripts/prepare_reliability_inputs.py \
+            --day "$DAY" --current "observations-$DAY.json.gz" \
+            --previous-index previous-index.json --release-base "$BASE" \
+            --repository "$GITHUB_REPOSITORY" --out inputs
+          python scripts/archive_reliability_evidence.py \
+            --observations "observations-$DAY.json.gz" --snapshots snapshots --rt gtfs-rt \
+            --timetable data/timetable.sqlite --out evidence.tar.gz > evidence.json
+          python - "$BASE" <<'PYMETA'
+          import json, sys
+          from pathlib import Path
+          p = Path("evidence.json")
+          d = json.loads(p.read_text())
+          d["url"] = sys.argv[1] + "/evidence.tar.gz"
+          p.write_text(json.dumps(d, sort_keys=True))
+          sources_path = Path("inputs/sources.json")
+          sources = json.loads(sources_path.read_text())
+          for source in sources:
+              if source["day"] == d["day"]:
+                  source["evidence"] = d
+          sources_path.write_text(json.dumps(sources, sort_keys=True))
+          PYMETA
 
-      # The site reads the summary from the repo, so it has to land here — the
-      # same reason update-timetable.yml commits its statistics.
-      - name: Commit the day's summary
+      - name: Build and validate the whole candidate before publishing
         run: |
           DAY="${{ steps.day.outputs.day }}"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Stage first, then ask about the *staged* diff. `git diff` alone says
-          # nothing about an untracked file, so checking before staging reported
-          # "unchanged" for every new day and published none of them. The same
-          # shape works in update-timetable.yml only because its files already
-          # exist in the tree.
-          git add "data/reliability/$DAY.json"
-          if git diff --cached --quiet -- "data/reliability/$DAY.json"; then
-            echo "Summary unchanged — nothing to commit."
-            exit 0
-          fi
-          git commit -m "Reliability summary for $DAY"
-          # Rebase before pushing. This was a plain push, which is fine for one
-          # nightly run and not for two: processing several days in a row, the
-          # second run checks out before the first has pushed and its own push
-          # is then rejected, losing a day that had already been measured. The
-          # rollup step below already did this; the summary step did not.
-          git pull --rebase --autostash
-          git push
+          MONTH="${DAY:0:7}"
+          python scripts/build_journey_times.py --observations inputs/window \
+            --out journey-times --timetable data/timetable.sqlite
+          python scripts/query_reliability.py --observations inputs/month \
+            --rollup "rollup-$MONTH.json"
+          python scripts/build_delay_hotspots.py --observations inputs/window --out hotspot-preview.json
+          python scripts/check_published.py --journey-times journey-times \
+            --summaries "data/reliability/$DAY.json" "rollup-$MONTH.json"
+          python scripts/publication_bundle.py --journey-times journey-times \
+            --artifact "observations-$DAY.json.gz=observations-$DAY.json.gz" \
+            --artifact "summary-$DAY.json=data/reliability/$DAY.json" \
+            --artifact "rollup-$MONTH.json=rollup-$MONTH.json" \
+            --artifact "hotspot-preview.json=hotspot-preview.json" \
+            --sources inputs/sources.json --evidence evidence.json \
+            --previous-index previous-index.json --out candidate > build-id.txt
+          # No empty or partly validated generation can reach the upload steps.
+          tar -czf publication.tar.gz -C candidate .
 
-      # The journey-time tool reads these, and they are too large and too
-      # changeable to commit: a few megabytes rewritten nightly is over a
-      # gigabyte of history a year. They go to R2 and are served by the Worker
-      # with CORS headers, on a token scoped to this bucket alone so a mistake
-      # here cannot reach the raw record.
-      - name: Publish journey times
+      - name: Publish immutable evidence and validated generation archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # This tag names this run and attempt; no asset is replaced in place.
+          gh release create "$EVIDENCE_TAG" --latest=false --title "Reliability evidence $EVIDENCE_TAG" \
+            --notes "Immutable recorded inputs, exact timetable and processing code, source observations and validated publication. Read index.json in publication.tar.gz for lineage and caveats."
+          gh release upload "$EVIDENCE_TAG" evidence.tar.gz evidence.json publication.tar.gz \
+            inputs/publish-assets/*.json.gz
+
+      - name: Upload generation and switch one public manifest
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_PUBLISH_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_PUBLISH_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
-          GH_TOKEN: ${{ github.token }}
         run: |
-          DAY="${{ steps.day.outputs.day }}"
-          mkdir -p window journey-times
-          cp "observations-$DAY.json.gz" window/
-          # A rolling week. Each day was published as a release asset when it
-          # was processed, so the window costs nothing to rebuild and a day
-          # that failed to process simply is not in it.
-          for back in 1 2 3 4 5 6; do
-            PAST=$(date -d "$DAY -$back day" +%Y-%m-%d)
-            gh release download "reliability-${PAST:0:7}" \
-              -p "observations-$PAST.json.gz" -D window --clobber 2>/dev/null || true
-          done
-          echo "window: $(find window -name '*.json.gz' | wc -l) day(s)"
-          # --timetable gives each stop the town it is in, so a direction can
-          # be called "towards Durrington" rather than "towards Montreal Way".
-          # Without it the build still works and names directions after the
-          # destination on the bus.
-          python -u scripts/build_journey_times.py \
-            --observations window --out journey-times \
-            --timetable data/timetable.sqlite
-
-          # Read what was just built, before anyone else can. The suite was
-          # green while 69 journey times in which a bus arrived before it set
-          # off were published: every test asserted something about the code
-          # and none about the output. This asserts about the output, and exits
-          # non-zero, so a bad night publishes nothing rather than something
-          # wrong.
-          python -u scripts/check_published.py \
-            --journey-times journey-times \
-            --summaries "data/reliability/$DAY.json"
-
-          if [ -z "${{ secrets.R2_PUBLISH_ACCESS_KEY_ID }}" ]; then
-            echo "::warning::no publish credentials — journey times built but not uploaded"
-            exit 0
-          fi
-          # Documents first, index last. `aws s3 sync` uploads alphabetically,
-          # which puts index.json ahead of every file it names — so for the
-          # length of the sync the index points at services that are not there
-          # yet, and a reader arriving then gets an empty view with no error
-          # anyone sees.
-          aws s3 sync journey-times/ "s3://adur-worthing-published/journey-times/" \
-            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
-            --exclude index.json --delete --no-progress
-          aws s3 cp journey-times/index.json \
-            "s3://adur-worthing-published/journey-times/index.json" \
-            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
-            --no-progress
-
-      # The monthly aggregate the site reads. Nothing rebuilt it, so it stated
-      # whichever days happened to be processed when someone last ran the
-      # script by hand — and it carries an `as_of` and a list of days, so a
-      # reader could see it was stale and had no way to know why.
-      - name: Rebuild the monthly rollup
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          DAY="${{ steps.day.outputs.day }}"
-          MONTH=$(echo "$DAY" | cut -c1-7)
-          mkdir -p month
-          # Every day of the month published so far, from the release each was
-          # uploaded to. A day that failed to process is simply absent, and the
-          # rollup names the days it actually used.
-          gh release download "reliability-$MONTH" -p 'observations-*.json.gz' \
-            -D month --clobber 2>/dev/null || true
-          COUNT=$(find month -name '*.json.gz' | wc -l)
-          echo "rollup window: $COUNT day(s) of $MONTH"
-          if [ "$COUNT" -eq 0 ]; then
-            echo "::warning::no observations for $MONTH — rollup not rebuilt"
-            exit 0
-          fi
-          python -u scripts/query_reliability.py \
-            --observations month --rollup "data/reliability/$MONTH.json"
-          python -u scripts/check_published.py \
-            --summaries "data/reliability/$MONTH.json"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "data/reliability/$MONTH.json"
-          if git diff --cached --quiet -- "data/reliability/$MONTH.json"; then
-            echo "Rollup unchanged — nothing to commit."
-            exit 0
-          fi
-          git commit -m "Reliability rollup for $MONTH"
-          # The summary step already pushed, so rebase onto whatever landed.
-          git pull --rebase --autostash
-          git push
+          test -n "$AWS_ACCESS_KEY_ID"
+          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          BUILD=$(cat build-id.txt)
+          # Leave headroom for raw recording: published data has its own 4 GiB cap.
+          aws s3 ls s3://adur-worthing-published/ --recursive --summarize \
+            --endpoint-url "$ENDPOINT" > published-usage.txt
+          USED=$(awk '/Total Size:/ {print $3}' published-usage.txt)
+          test -n "$USED"
+          SIZE=$(du -sb candidate | cut -f1)
+          test "$((USED + SIZE))" -le 4294967296
+          aws s3 cp "candidate/builds/$BUILD/" \
+            "s3://adur-worthing-published/journey-times/builds/$BUILD/" \
+            --recursive --endpoint-url "$ENDPOINT" --no-progress
+          # Read back every object and check its bytes before exposing this generation.
+          aws s3 sync "s3://adur-worthing-published/journey-times/builds/$BUILD/" \
+            verified-generation --endpoint-url "$ENDPOINT" --no-progress
+          python - "$BUILD" <<'PYVERIFY'
+          import hashlib, sys
+          from pathlib import Path
+          base = Path("candidate/builds") / sys.argv[1]
+          for path in base.iterdir():
+              remote = Path("verified-generation") / path.name
+              if not remote.exists() or hashlib.sha256(path.read_bytes()).digest() != hashlib.sha256(remote.read_bytes()).digest():
+                  raise SystemExit("Publication read-back failed: " + path.name)
+          PYVERIFY
+          # Sole mutable pointer; old builds remain available to cached/shared links.
+          aws s3 cp candidate/index.json s3://adur-worthing-published/journey-times/index.json \
+            --endpoint-url "$ENDPOINT" --content-type application/json --no-progress

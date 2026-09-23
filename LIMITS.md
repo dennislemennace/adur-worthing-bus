@@ -196,8 +196,8 @@ GitHub issues. Replaced the Web3Forms email relay.)
 
 (`worker/src/recorder.js` — two feeds, a minute apiece, for the nightly
 processor: BODS SIRI-VM positions 05:00 to 00:30 London as
-`raw/YYYY-MM-DD/HHMM.xml`, and BODS GTFS-RT **around the clock** as
-`rt/YYYY-MM-DD/HHMM.pb`.
+`raw/YYYY-MM-DD/HHMM-<UTC-epoch-seconds>.xml`, and BODS GTFS-RT **around the clock** as
+`rt/YYYY-MM-DD/HHMM-<UTC-epoch-seconds>.pb`.
 
 The hours differ because the costs do. SIRI-VM is 285 KB a minute and says only
 where a bus is; GTFS-RT is 34 KB and names the scheduled journey it is running,
@@ -362,3 +362,42 @@ dark mode broke silently for every user until someone happened to look.
 
 5. **Don't switch to a paid tier of any service** without a separate decision —
    this doc exists to keep that pressure off, not to enable it.
+
+## Reliability evidence and immutable publication — implementation budget
+
+Added 23 September 2026. These are application safeguards, not a new verification
+of provider pricing. No paid tier or increased raw retention is introduced.
+
+- Recorder keys now include UTC minute identity:
+  `raw/YYYY-MM-DD/HHMM-<UTC-epoch-seconds>.xml` and
+  `rt/YYYY-MM-DD/HHMM-<UTC-epoch-seconds>.pb`. Readers accept old HHMM-only keys too.
+  This prevents overwriting the repeated autumn clock hour without increasing
+  poll cadence. The existing 7-day / 4 GiB / 30,000-object raw limits remain.
+- Replay evidence goes into immutable GitHub releases. A compressed daily
+  archive over **250 MiB** stops publication before upload. Each includes exact
+  raw objects, timetable and code, so repeated timetable bytes are deliberate.
+  Actual daily compression/storage growth must be measured on live inputs;
+  this is a maximum, not a forecast or a cumulative retention policy.
+- The published R2 bucket has a separate **4 GiB** pre-upload budget, including
+  old generations. Together the nominal raw and published budgets are 8 GiB;
+  other account usage and raw measurement headroom still need monitoring.
+  No automatic deletion invalidates old share links. At saturation the
+  workflow stops and keeps the previous public generation; an explicit
+  retention/migration decision is required before capacity can be reclaimed.
+- Every new generation adds per-service documents, summaries and observations,
+  then reads each uploaded object back once before switching the pointer.
+  The reviewed five-day derivative has 38 service files plus an index, about
+  36 MB uncompressed before observation/summary assets. Full 35-day method-4
+  bytes, read-back traffic and release growth have not been measured. Each
+  rebuild repeats those bytes, even when much of the input window overlaps.
+- Heavy processing stays in Actions. The five-day local builder used about
+  **832 MiB peak RSS** and 6.96 seconds on the review machine. This does not fit
+  the Render free instance and is not a 35-day capacity test. Compact consumer
+  projections avoid retaining full raw-report payloads in aggregate jobs;
+  benchmark the complete method-4 window before expanding collection or UI
+  retention.
+- Historical restore downloads are bounded by the current 35-day window and
+  the requested month, while the small source catalog retains the complete
+  known history. A missing archived day is an error, never silently omitted.
+  Timetable archive searches paginate because daily evidence releases can
+  push older timetable tags beyond the first page.

@@ -119,7 +119,7 @@ def test_a_segment_measures_time_gained_not_lateness_carried():
     rows = [obs(trip="J", stop="A", index=0, sched=36_000, late=120),
             obs(trip="J", stop="B", index=1, sched=36_060, late=120),
             obs(trip="J", stop="C", index=2, sched=36_120, late=480)]
-    segs = rs.segment_stats(rows)
+    segs = {k[:3]: v for k, v in rs.segment_stats(rows).items()}
     assert segs[("A", "B", "westbound")]["median_gained_secs"] == 0
     assert segs[("B", "C", "westbound")]["median_gained_secs"] == 360
 
@@ -130,7 +130,7 @@ def test_a_segment_ratio_is_a_share_of_the_scheduled_time():
     # minutes printed before this test existed.
     rows = [obs(trip="J", stop="A", index=0, sched=36_000, late=0),
             obs(trip="J", stop="B", index=1, sched=36_600, late=360)]
-    cell = rs.segment_stats(rows)[("A", "B", "westbound")]
+    cell = {k[:3]: v for k, v in rs.segment_stats(rows).items()}[("A", "B", "westbound")]
     assert cell["scheduled_secs"] == 600
     assert cell["median_gained_secs"] == 360
     assert abs(cell["over_scheduled_share"] - 0.6) < 1e-9, \
@@ -144,7 +144,7 @@ def test_the_two_sides_of_a_road_are_not_averaged_together():
             obs(trip="W", stop="B", index=1, sched=36_120, late=300, direction="westbound"),
             obs(trip="E", stop="A", index=0, sched=36_000, late=0, direction="eastbound"),
             obs(trip="E", stop="B", index=1, sched=36_120, late=0, direction="eastbound")]
-    segs = rs.segment_stats(rows)
+    segs = {k[:3]: v for k, v in rs.segment_stats(rows).items()}
     assert ("A", "B", "westbound") in segs and ("A", "B", "eastbound") in segs
     assert segs[("A", "B", "westbound")]["median_gained_secs"] == 300
     assert segs[("A", "B", "eastbound")]["median_gained_secs"] == 0
@@ -156,7 +156,7 @@ def test_an_interpolated_stop_is_never_a_segment_endpoint():
     rows = [obs(trip="J", stop="A", index=0, sched=36_000, late=0, timepoint=1),
             obs(trip="J", stop="B", index=1, sched=36_060, late=600, timepoint=0),
             obs(trip="J", stop="C", index=2, sched=36_120, late=300, timepoint=1)]
-    segs = rs.segment_stats(rows)
+    segs = {k[:3]: v for k, v in rs.segment_stats(rows).items()}
     assert list(segs) == [("A", "C", "westbound")]
     assert segs[("A", "C", "westbound")]["median_gained_secs"] == 300
     assert segs[("A", "C", "westbound")]["median_stops_apart"] == 2
@@ -167,9 +167,9 @@ def test_segments_can_be_split_by_the_hour_the_bus_traversed_them():
     # observed rather than scheduled — the opposite choice to punctuality.
     rows = [obs(trip="J", stop="A", index=0, sched=17 * 3600 + 55 * 60, late=0),
             obs(trip="J", stop="B", index=1, sched=17 * 3600 + 58 * 60, late=600)]
-    keyed = rs.segment_stats(rows, hour=True)
-    assert list(keyed) == [("A", "B", "westbound", "18")], \
-        "the leg was traversed at 18:08, whatever hour it was due"
+    keyed = {k[:4]: v for k, v in rs.segment_stats(rows, hour=True).items()}
+    assert list(keyed) == [("A", "B", "westbound", "17")], \
+        "the leg was entered at 17:55; its exit must not move the cohort into 18:00"
 
 
 # ── Not publishing what is too thin ─────────────────────────
@@ -279,7 +279,7 @@ def test_a_segment_is_not_timed_between_two_guesses():
         rows += losing_time(f"SEEN{i}", 4, 0)              # keeps to time
     for i in range(6):
         rows += losing_time(f"GUESS{i}", 4, 300, estimated=True)   # 5 min a stop
-    segments = rs.segment_stats(rows)
+    segments = {k[:3]: v for k, v in rs.segment_stats(rows).items()}
     assert segments, "the measured segments were dropped along with the guesses"
     for key, cell in segments.items():
         assert cell["median_gained_secs"] == 0, \

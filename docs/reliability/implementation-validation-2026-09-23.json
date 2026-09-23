@@ -1,0 +1,331 @@
+{
+  "as_of": "2026-09-23T09:56:15.559592+00:00",
+  "baseline_commit": "ec9f12c7940ca0ba4bd452cb33ebf67ba8e0c28a",
+  "code_sha256": {
+    ".github/workflows/process-snapshots.yml": "be4de65d8f41476fe8f7f17a13dc29d8a7d4a044e61c0dcf43283cb89790e1fe",
+    ".github/workflows/update-timetable.yml": "d3dc9bea9d8c77760e50cfda5a24c32845fb09b1835a6ad8b3f2eb61597c4430",
+    "api/gtfs_rt.py": "a8a1513b8faa54955595d2516fc475f8182a5b1602486b5c4352a4f928e8b94c",
+    "api/main.py": "77cde4d1646a133ec87235ab3b30cde20714c63237cb5a0c8b88013b16409e07",
+    "api/timetable_db.py": "7fb7084786c630af2dfafaa4bdd1b0ee3805b01e6aab37adce07843b3773cff0",
+    "api/trip_match.py": "538ae1130ed1c5d295de616d5a2954e21023507d9701d94bc6c0311e1f74847b",
+    "app.js": "186be379dcf140ee6c5e6305622c9de226f3c74ec332c59a9b1b0ab45ca70ed1",
+    "index.html": "ebd259e8d8f335712535d394f4b1014f27789910b74e4b56d503b9d691c2dcb4",
+    "scripts/archive_reliability_evidence.py": "e4c19323bc8ac8793cd87afa4aaac2244c668ba999b2466a2114b9a6e127b5b8",
+    "scripts/browser_check.mjs": "0cdaff4fb497c494341c4823abfaffd427ce7a9c6b5c07007466ffa063da5859",
+    "scripts/build_delay_hotspots.py": "5c89bdad45cdb6d461814121f0db7f5f9d8d46744be06b0349b8102429a03c0a",
+    "scripts/build_journey_times.py": "2f8d7a08b36545de8951d98a6a62d1b820de80012def0f9ae46fa6a0a7f8b6e2",
+    "scripts/check_published.py": "fd06010d50fca2c7454ea7103d84fe3676a8ae2ad97167ee5723a1b13cad87c4",
+    "scripts/observation_contract.py": "10ea6fb1ea4a16e0dc32f4d681864ac8448f27e8fd8db79acac15cc31f1d44e9",
+    "scripts/prepare_reliability_inputs.py": "d0c6300b2018de22389c2e858b41a2beaa21d8d9bf7a7fdaa339310820f53b75",
+    "scripts/process_snapshots.py": "727cdcfdeed42b7ab1df7229036bfcd65a33b3051b5c9805f4bfb2e748ba70b2",
+    "scripts/publication_bundle.py": "e46818b829ab99605a5172c8a660c6309cce24ab117cd9085553c85bba62b764",
+    "scripts/query_reliability.py": "a759f56c624d96d75e707832b24cf3c03954527cae587199d51ead72e8e36ef8",
+    "scripts/recorded_inputs.py": "b9e14a6fc3251ba7fec9dc3ea0c00ef47e9405f53a44d8dbb3e7212f4960023b",
+    "scripts/reliability_stats.py": "330d7aee88edc344d010ef1767e70960fc6343e9c680409596a791962acf645b",
+    "scripts/timetable_covers.py": "5ba1bcd8d764dbf090bb8cf033af201809f410ef476939e30e645b891e484729",
+    "style.css": "3a7564bd58c461e5fde00977d71a78b0ef527a80c210e253ab6b59d93e6f3c4d",
+    "tests/test_delay_hotspots.py": "d4e889d8f1d2fececcddd88decd9dcb0df52a9184ef7371e181431978d51fef6",
+    "tests/test_process_snapshots.py": "a1153b182a74ffe528b394689a2b44e79066e4210cfc1ebe84e796440e246a8d",
+    "tests/test_publication_bundle.py": "9dfcbaee3d654d4c364ce244d3ff60fdfa9310e34ad48d2a4985a95bc6783f1f",
+    "tests/test_reliability_stats.py": "1dc33191c4e8f4c25677ad4d4124e59c9b8a4ffc5a8c9897fb6b6cf47dfda6ee",
+    "tests/test_review_accuracy.py": "31a1b203528f003d0960ccce22081257fde93bb1e6d34e3fd4c3596c9b6b828a",
+    "tests/test_review_ranking.py": "d1e370e37a146afa8f1ddeaadb406a3ddcf9dec824e4c5cd7911df7691452508",
+    "tests/test_review_ui.mjs": "e3a817aa6dac0bbdc9edf1f6da6dbd1c080ab3deadb205d9bfc2f8d56c41f184",
+    "tests/test_timetable_release.py": "e79bd4b44c4060c96d515af082179bc9f740926d2567def7941a278f3328dd28",
+    "tests/test_timetable_semantics.py": "00fbe4f30b95072eba923957c349583be5b8512f1085a9051356915df4c175c0",
+    "tests/test_trip_match.py": "2c0c37e7521611b9a1f9f4eb7448b4fa732481c691653eea7037ec697c4f1868",
+    "worker/src/index.js": "d79aa9860ec9fd83601fe460e07174649452c7d8d470f1b874dac8ad7769679c",
+    "worker/src/recorder.js": "81c2570bd371cf39c6398d70c6927e84f6dacc7f3b7882098de8eb39c7291e52",
+    "worker/test/published.test.js": "4273df654f2f11c104ea0fb91d0bc2e59c28f7d6f027987713602b590ba4d889",
+    "worker/test/recorder.test.js": "8e3391d359f4c3690bad2e727b3b090cd577e758d9120d5a4b9194d49d574917"
+  },
+  "comparison": {
+    "hotspot": {
+      "eligible_traversals": 0,
+      "excluded": {
+        "journey_has_duplicate_call_identity": 75,
+        "legacy_or_unknown_method": 63388
+      }
+    },
+    "rebuilt": {
+      "adjacent_over_12h": 0,
+      "backwards": 0,
+      "calls": 357090,
+      "journeys": 9541,
+      "quarantined": 12,
+      "services": 38,
+      "zero_pairs": 26657
+    },
+    "reviewed": {
+      "adjacent_over_12h": 106,
+      "backwards": 74,
+      "calls": 357539,
+      "journeys": 9553,
+      "quarantined": 0,
+      "services": 38,
+      "zero_pairs": 26609
+    }
+  },
+  "current_timetable_coverage_check": {
+    "25X_calendar": {
+      "end": "2026-10-03",
+      "start": "2026-09-27"
+    },
+    "day": "2026-09-23",
+    "result": "blocked",
+    "timetable_sha256": "c4a758f1abfd1d1fa6276ce58fea4fb7e19ccd7c0060391d210c3995c485e8f3",
+    "uncovered_cohorts": [
+      [
+        "BHBC",
+        "25X"
+      ]
+    ]
+  },
+  "hotspot_caveats": [
+    "Preview: sample sufficiency is not independent validation or proof of congestion.",
+    "Report intervals bound departures from a radius, not exact bus-stop departures.",
+    "Section time includes dwell and holding. No precise road geometry or traffic cause is inferred.",
+    "Scheduled coverage of observed-entry cohorts is not established. Missing trips may bias delay downwards.",
+    "Weekday/weekend grouping does not control holidays, diversions or school calendars."
+  ],
+  "local_rebuild_resource": {
+    "days": 5,
+    "elapsed_seconds": 6.96,
+    "full_35_day_method4_benchmark": false,
+    "peak_rss_KiB": 851768
+  },
+  "remaining": [
+    "Remote deployment/publication/read-back/rollback verification",
+    "Matching historical raw reports and exact timetables where available",
+    "Resolve all-cohort timetable coverage before processing",
+    "Independent timing validation and section-specific scheduled coverage",
+    "Full-window resource and archive growth benchmark",
+    "Dedicated reverse-stop control, enhanced search and archived traversal geometry",
+    "Reconstructed GTFS/accessibility analysis is a later extension"
+  ],
+  "reviewed_input_manifest_sha256": "a7d9d91563f54739be5a7bf15ec06c9301fdb5b6b0866c74cef7c260373e16e6",
+  "status": "Local uncommitted implementation; no deployment or raw historical rematching",
+  "test_log_sha256": {
+    "bus-browser-final.log": "1cc5e12171c5d0dd0d843d1c19e44958e79765f79b7daa8b72ea644d0bf285c2",
+    "bus-browser-review-final.log": "25029c48366c64251fd5361392821029187ed8870a453ecba6b567cf87085cfe",
+    "bus-js-final.log": "293a9af800ac85248470bed7ca56b2d7d65570cbe7d353d4c6fea316a01cc248",
+    "bus-publication-final.log": "ca12bf5ea55b044bc10bb2aa85a86e00af21c4d9016b261b92fd477b542d30a9",
+    "bus-python-final.log": "6acd924e618565ddaf4989d97bed4f7e7cd19271ded27b3daafa0b0549e2b33e"
+  },
+  "validation": {
+    "browser_focused": {
+      "passed": 44,
+      "total": 44
+    },
+    "browser_full": {
+      "passed": 498,
+      "total": 498,
+      "viewport_widths": [
+        320,
+        390,
+        740,
+        768,
+        1440
+      ]
+    },
+    "compact_rebuild_equal_except_as_of": true,
+    "diff_whitespace": "passed",
+    "javascript_worker": {
+      "failed": 0,
+      "passed": 554
+    },
+    "publication_after_workflow_edits": {
+      "passed": 7
+    },
+    "published_derivative_files": 39,
+    "published_resolution_notes": {
+      "zero_duration_pairs_with_advancing_schedule": 13061
+    },
+    "python": {
+      "passed": 455,
+      "warnings": 492
+    },
+    "workflow_yaml_and_bash_syntax": {
+      "files": 2,
+      "shell_blocks": 23
+    }
+  },
+  "verified_inputs": [
+    {
+      "file": "observations-2026-09-16.json.gz",
+      "sha256": "675de5e9990e32ea099a6799134c0b828cc0d64d08fd523900cb12e06b31a384"
+    },
+    {
+      "file": "observations-2026-09-17.json.gz",
+      "sha256": "b4b8ffc649d3e693d5564b33594fbe01f822cbbbc3a1f59dfb734f0c3d61d944"
+    },
+    {
+      "file": "observations-2026-09-18.json.gz",
+      "sha256": "b14b84c9173ff9024f58cbcfb5f42c9bd6d995e9942be3c12a06ae4fdfdb6958"
+    },
+    {
+      "file": "observations-2026-09-19.json.gz",
+      "sha256": "e116875a68b4f21af5a15930db70ab61e84d773442477a57a0fea16661a639f6"
+    },
+    {
+      "file": "observations-2026-09-20.json.gz",
+      "sha256": "cc357126a846a7c09e60b9f3cd53ef70b28afe54b2e17f3613cd79db0a1b0d5e"
+    },
+    {
+      "file": "1-BHBC.json",
+      "sha256": "e6e40b730775059f0afeb399fa0bb0e5607734be56898141869f6504f15954eb"
+    },
+    {
+      "file": "1-SCSO.json",
+      "sha256": "9085131084a1de400c2b720014b765f034fc5c4380f1d4bf920038eb90e096a6"
+    },
+    {
+      "file": "10-SCSO.json",
+      "sha256": "3fffad2e5bad3bb633c229da6d2c6a5a184c4e7f7d895437ba62eefcbc9dbb11"
+    },
+    {
+      "file": "11-SCSO.json",
+      "sha256": "9485d5d2c1dee45d0037b15e462bebc8faf572f50deaa13242fdfda52f9608e3"
+    },
+    {
+      "file": "13X-BHBC.json",
+      "sha256": "4413a79e9ab08ab285d2832084cc538008d1d5adf85f22a963696830d63c04a1"
+    },
+    {
+      "file": "16-COMT.json",
+      "sha256": "7495728aa463b8fc247727bfeed3af62739c4a4e6a81685576b5d2a0711b554d"
+    },
+    {
+      "file": "19-COMT.json",
+      "sha256": "485e778f0a3dc6ee4bb7f35f597a687b47610cecdf6617f21713aa59f1d4ff43"
+    },
+    {
+      "file": "19A-COMT.json",
+      "sha256": "1fb427a8fcbc800b8bd613f5fbc89d70209c2b4bec030cba9d6770727007f38c"
+    },
+    {
+      "file": "1X-BHBC.json",
+      "sha256": "0537f4d6e034e31eeae852186620234dd5323557e6fa59f7506ac94bc8ac81a1"
+    },
+    {
+      "file": "2-BHBC.json",
+      "sha256": "4a343e72fbb21b164f1fddcea830306412acca222e242ac44e76d2c6f0e76912"
+    },
+    {
+      "file": "21-BHBC.json",
+      "sha256": "5d90aa63de5d6c159dd3d634efe3788e68540d96cc4a1e8d1980bf8f89496ff8"
+    },
+    {
+      "file": "23-METR.json",
+      "sha256": "478594ed406bb1d3649addf724134f3659b80288e9d77bc243249a251728db80"
+    },
+    {
+      "file": "23X-METR.json",
+      "sha256": "f301ace7332c5cc5ee6f357a333f4a65ee6b544a856581d7ad92378abe739cf5"
+    },
+    {
+      "file": "2B-BHBC.json",
+      "sha256": "4ae6ddbedc0aec6f8fb37ae9949d4ecb9be98dee7b73505a02742105273cb645"
+    },
+    {
+      "file": "37-COMT.json",
+      "sha256": "b2037290d394ad190947f6f1e2857cfa27ccd6e649eedad98036c8b25aea2b72"
+    },
+    {
+      "file": "37B-COMT.json",
+      "sha256": "a530ed131e0dd68d2e9927549f6dcad99cb440733ff0b7334535cb4a3b0195d2"
+    },
+    {
+      "file": "3X-BHBC.json",
+      "sha256": "dae07dde8fd8292251ee8c279bd5221a2433f7011d7373d2c4bad5043c2f521c"
+    },
+    {
+      "file": "46-BHBC.json",
+      "sha256": "dfb1338bed842dbc276f529b3f8e4ec72e598c3d1debf72e43e00c41a74bf166"
+    },
+    {
+      "file": "47-COMT.json",
+      "sha256": "efed58368e2d87a91871e12e45be38693b091ce31cef72311c319a8cb197e8e5"
+    },
+    {
+      "file": "49-BHBC.json",
+      "sha256": "89ccbceebb75e8f4cb027f9566b5a6dac149246ec27a79ac226672ae039f0705"
+    },
+    {
+      "file": "5-BHBC.json",
+      "sha256": "eb3480d0b0d00efa5cacb4351eacdc8adba24798b68d897eae6571819e6541ce"
+    },
+    {
+      "file": "5-SCSO.json",
+      "sha256": "dcc0a06c967ee82e06c17e923240dd9838c4948fc66dc4109cd219ec9b1e80b5"
+    },
+    {
+      "file": "59A-BHBC.json",
+      "sha256": "15c2d31243df45cffbb960ee73f9741d8de3adf4b2392112cfb68f01c675cb1c"
+    },
+    {
+      "file": "5B-BHBC.json",
+      "sha256": "d89572221c76cdcaa7d1821ca8d57a528427619c3e54514adfbb563e4d0e1d79"
+    },
+    {
+      "file": "6-BHBC.json",
+      "sha256": "2c87718f2b0662e544ce0ec9e00f25643ef2cf5f6624e45d1897e8a90883958e"
+    },
+    {
+      "file": "7-BHBC.json",
+      "sha256": "48a382a717b8a9f23767dc59fdc14b888374480a492c40a103672739dad6ea11"
+    },
+    {
+      "file": "7-SCSO.json",
+      "sha256": "90cedf3c31e36ce42db9a6ee350446ec9546a52207ed448853d4305a40cfc148"
+    },
+    {
+      "file": "700-SCSO.json",
+      "sha256": "0fe3563abf745e474d74104983aea933e3e26ab8cce39c7b5d6d21e272728fd0"
+    },
+    {
+      "file": "701-SCSO.json",
+      "sha256": "127986851120b13232d9e04ed59c1b3bdb5fecae1002e327628601ea07aef26c"
+    },
+    {
+      "file": "740-COMT.json",
+      "sha256": "c0f931c2b2e48875098a2afd263019b27889e7433309816ada44ae081dde0b8e"
+    },
+    {
+      "file": "8-COMT.json",
+      "sha256": "290ce98e557ee0cc13e489dd58cc56080766f17919594efc7f5cbb51ab639440"
+    },
+    {
+      "file": "8A-COMT.json",
+      "sha256": "5f297d6bdbc427e68f26c4a42c76d5247b6d57a0d0388c9154e2efa68286962c"
+    },
+    {
+      "file": "9-SCSO.json",
+      "sha256": "7581651afb748be0fbcab5b511e2e8223aae2f5d17b97a675bf73ecbd35d079d"
+    },
+    {
+      "file": "N1-BHBC.json",
+      "sha256": "64fc400b1efb25585876a8908c119ed5c3192e1e7f12376b3d7bd20f4683f8b2"
+    },
+    {
+      "file": "N12-BHBC.json",
+      "sha256": "69ea20a455b6bdc6b15942deb11d7832f127132f426e5a449bce9994ec730c3a"
+    },
+    {
+      "file": "N25-BHBC.json",
+      "sha256": "72f6ec7b9f40c04d7172e670ebc72c5b0875d30e95b8d8a5b6b707497141ba70"
+    },
+    {
+      "file": "N29-BHBC.json",
+      "sha256": "03f051a70aedde2c72987c67ce5c9824a767d38abdddb564f3fae8b69db489c5"
+    },
+    {
+      "file": "N7-BHBC.json",
+      "sha256": "81d1a80be3a8084222b0ad7ab24bcb139bc99075ee3991dde6eaa6311b96a918"
+    },
+    {
+      "file": "index.json",
+      "sha256": "de0896c61f0e10d1106d3372e95de42785e9cdc308058840ed5ec719b0f57563"
+    }
+  ]
+}

@@ -117,10 +117,14 @@ def check_journey_document(doc, name, fails):
 
         # The one that reached readers. Wherever the scheduled times advance,
         # the observed times must advance too.
-        usable = sorted((c for c in calls
-                         if len(c) >= 4 and c[1] is not None and c[2] is not None),
-                        key=lambda c: c[2])
+        usable = [c for c in calls if len(c) >= 4 and c[1] is not None and c[2] is not None]
         for before, after in zip(usable, usable[1:]):
+            if len(before) >= 5 and len(after) >= 5 and after[4] <= before[4]:
+                fails.add("call sequence does not advance", where)
+            if after[2] < before[2]:
+                fails.add("scheduled times run backwards in route order", where)
+            if after[1] - before[1] > 12 * 3600:
+                fails.add("implausible adjacent duration requires review", where)
             if after[2] <= before[2]:
                 continue                    # same scheduled minute: nothing to compare
             if after[1] < before[1]:
@@ -182,7 +186,9 @@ def check_summary(summary, name, fails):
     # against. Without it a figure from before the arrival picker was made
     # monotonic cannot be told from one after, and on the journeys that were
     # wrong those two answers differ by up to an hour.
-    if not isinstance(summary.get("method_version"), int):
+    if not (isinstance(summary.get("method_version"), int)
+            or (summary.get("method_version") == "mixed" and summary.get("method_versions")
+                and all(isinstance(m, int) for m in summary["method_versions"]))):
         fails.add("summary is missing its provenance",
                   f'{name}: no method_version')
     if not (summary.get("day") or summary.get("month")):

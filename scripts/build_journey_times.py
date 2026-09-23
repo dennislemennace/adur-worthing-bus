@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from process_snapshots import CAVEATS, METHOD, METHOD_VERSION    # noqa: E402
 from query_reliability import load_observations                  # noqa: E402
+from observation_contract import TIME_BASIS, row_identity
 
 # A journey with fewer calls than this says nothing about running time between
 # two places, and would only add noise to a chart.
@@ -136,15 +137,26 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
 
     journeys = {}
     for row in rows:
-        key = (row["day"], row["trip_id"])
+        key = row_identity(row)
         journey = journeys.setdefault(key, {
             "day": row["day"],
+            "trip_id": row["trip_id"],
+            "data_version": row.get("data_version", "unknown"),
+            "method_version": row.get("method_version", "unknown"),
+            "route_pattern": row.get("route_pattern"),
+            "source_files": [],
+            "quality_flags": [],
             "start": row.get("journey_start", ""),
             "direction": row.get("direction", "unknown"),
             "headsign": row.get("headsign", ""),
             "match": row.get("match", "inferred"),
             "calls": [],
         })
+        for field, values in (("source_files", [row.get("source_file_sha256")]),
+                              ("quality_flags", row.get("quality_flags", []))):
+            journey[field] = sorted(set(journey[field]) | {v for v in values if v})
+        if journey["match"] != row.get("match", "inferred"):
+            journey["match"] = "mixed"
         journey["calls"].append([
             index[row["atco"]],
             row["observed_secs"],
@@ -154,11 +166,32 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
             # while a non-timing-point *schedule* is GTFS's guess at when the
             # bus was due. The first affects the dot, the second the line.
             (1 if row.get("estimated") else 0) | (0 if row.get("timepoint") == 1 else 2),
+            row.get("stop_index", 0),
+            row.get("observed_epoch"),
+            row.get("scheduled_epoch"),
+            row.get("observed_interval_epoch"),
+            row.get("quality_flags", []),
+            row.get("match", "unknown"),
         ])
 
     kept = []
+    quarantined = []
     for journey in journeys.values():
-        journey["calls"].sort(key=lambda call: call[2])
+        journey["calls"].sort(key=lambda call: call[4])
+        # Repeated imports of the exact same call are harmless; contradictory
+        # observations of one call are evidence to investigate, not to average.
+        unique = {}
+        for call in journey["calls"]:
+            if call[4] in unique and call != unique[call[4]]:
+                journey["quality_flags"].append("conflicting_call_observations")
+            unique.setdefault(call[4], call)
+        journey["calls"] = list(unique.values())
+        invalid = any(b[1] < a[1] or b[2] < a[2] or b[1] - a[1] > 12 * 3600
+                      for a, b in zip(journey["calls"], journey["calls"][1:]))
+        if invalid or "conflicting_call_observations" in journey["quality_flags"] or "legacy_dst_time_ambiguous" in journey["quality_flags"]:
+            quarantined.append({"day": journey["day"], "trip_id": journey["trip_id"],
+                                "reason": "invalid_call_times_or_identity", "source_files": journey["source_files"]})
+            continue
         if len(journey["calls"]) >= MIN_CALLS:
             kept.append(journey)
     kept.sort(key=lambda j: (j["day"], j["start"]))
@@ -214,16 +247,23 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
         # and is theirs to know.
         "window_days": list(meta["days"]),
         "data_versions": meta["data_versions"],
-        "method": METHOD,
-        "method_version": METHOD_VERSION,
-        "caveats": CAVEATS,
-        # Calls are [stop, observed, scheduled, estimated] — seconds from
-        # midnight, and estimated meaning the time was interpolated between two
-        # sightings rather than observed. Said here because the browser reads
-        # these arrays and a reader may open the file directly.
+        "method": "Ordered stop-call aggregation; source_methods retains each input's observation method. "
+                  "Legacy folder-relative times are normalised to service day; legacy matching remains unverified.",
+        "method_version": meta.get("method_versions", ["unknown"])[0] if len(meta.get("method_versions", [])) == 1 else "mixed",
+        "method_versions": meta.get("method_versions", ["unknown"]),
+        "source_methods": [{k: s.get(k) for k in ("sha256", "day", "data_version", "method_version", "method", "caveats", "coverage", "as_of")}
+                           for s in meta.get("sources", [])],
+        "time_basis": TIME_BASIS,
+        "quarantined_journeys": quarantined,
+        "caveats": ["Each input retains its original method and limitations in source_methods.",
+                    "Legacy times are normalised to service day; this does not revalidate legacy matching.",
+                    "Section duration includes dwell and holding and cannot establish traffic causation."],
+        # Seconds use the explicit GTFS service-day time basis; UTC epochs
+        # disambiguate midnight and DST. Call order is independent of clocks.
         # flags: 1 the observation was interpolated, 2 the scheduled time is
         # GTFS's estimate rather than a timing point.
-        "call_format": ["stop_index", "observed_secs", "scheduled_secs", "flags"],
+        "call_format": ["stop_index", "observed_secs", "scheduled_secs", "flags", "call_sequence",
+                        "observed_epoch", "scheduled_epoch", "observed_interval_epoch", "quality_flags", "match"],
         "series": "timing_point" if timing_points_only else "all_stops",
         "stops": listed,
         "journeys": kept,
@@ -280,7 +320,7 @@ def main(argv=None):
             print(f"no localities ({err}); directions named by destination stop",
                   file=sys.stderr)
 
-    rows, meta = load_observations(args.observations)
+    rows, meta = load_observations(args.observations, compact=True)
     if not rows:
         print(f"no observations found in {args.observations}", file=sys.stderr)
         return 1

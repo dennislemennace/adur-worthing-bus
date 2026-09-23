@@ -150,6 +150,12 @@ def test_departure_board_reads_rebuilt_service_days(
             return now.astimezone(tz) if tz else now
 
     class FixtureTimetable:
+        def noc_for_route(self, route_id):
+            return "SCSO"
+
+        def trip_stops_for(self, trip_id):
+            return [(departure_seconds, "4400B")]
+
         stops = {"4400B": {"name": "Second"}}
         trips = {"trip": {"route_id": "route", "service_id": "service"}}
         routes = {"route": {"short_name": "700"}}

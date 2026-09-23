@@ -46,9 +46,19 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import reliability_stats as rs                                   # noqa: E402
 from process_snapshots import CAVEATS, METHOD, METHOD_VERSION    # noqa: E402
+from observation_contract import canonical_row, digest_file
 
 
-def load_observations(patterns):
+# Consumers of aggregate timings do not need to retain every raw report in RAM.
+# Exact observation downloads and the hotspot builder keep the complete evidence.
+ANALYSIS_FIELDS = {"day", "trip_id", "service", "operator", "vehicle", "atco", "stop_name",
+    "stop_index", "direction", "headsign", "journey_start", "journey_start_secs", "route_pattern",
+    "scheduled_secs", "observed_secs", "lateness_secs", "scheduled_epoch", "observed_epoch",
+    "observed_clock_secs", "observed_interval_epoch", "timepoint", "timing_point_order",
+    "estimated", "match", "quality_flags"}
+
+
+def load_observations(patterns, *, compact=False, row_filter=None):
     """Observations from files, directories or globs. Gzipped or not.
 
     Returns `(rows, meta)`, where meta records which days and which timetable
@@ -62,16 +72,30 @@ def load_observations(patterns):
             paths += sorted(candidate.glob("observations-*.json*"))
         else:
             paths += [Path(p) for p in sorted(glob.glob(pattern))]
-    rows, days, versions = [], set(), set()
-    for path in paths:
+    rows, days, versions, methods, sources = [], set(), set(), set(), []
+    seen_hashes = set()
+    for path in sorted(set(paths)):
         opener = gzip.open if path.suffix == ".gz" else open
         with opener(path, "rt", encoding="utf-8") as handle:
             doc = json.load(handle)
-        rows += doc.get("observations", [])
+        source_hash = digest_file(path)
+        if source_hash in seen_hashes:
+            continue
+        seen_hashes.add(source_hash)
+        for r in doc.get("observations", []):
+            if row_filter is not None and not row_filter(r):
+                continue
+            projected = {k: v for k, v in r.items() if k in ANALYSIS_FIELDS} if compact else r
+            rows.append(canonical_row(projected, doc, source_hash))
         days.add(doc.get("day", "?"))
         versions.add(doc.get("data_version", "unknown"))
-    return rows, {"files": len(paths), "days": sorted(days),
-                  "data_versions": sorted(versions)}
+        methods.add(doc.get("method_version", "unknown"))
+        sources.append({"file": path.name, "sha256": source_hash,
+                        **{k: doc.get(k) for k in ("day", "data_version", "method_version",
+                                                  "method", "caveats", "coverage", "as_of", "provenance")}})
+    return rows, {"files": len(sources), "days": sorted(days),
+                  "data_versions": sorted(versions), "method_versions": sorted(methods, key=str),
+                  "sources": sources}
 
 
 def filtered(rows, args):
@@ -83,10 +107,10 @@ def filtered(rows, args):
         kept = [r for r in kept if r.get("direction") == args.direction]
     if args.day:
         kept = [r for r in kept if r.get("day") in args.day]
-    if args.from_hour is not None:
-        kept = [r for r in kept if r["scheduled_secs"] // 3600 % 24 >= args.from_hour]
-    if args.to_hour is not None:
-        kept = [r for r in kept if r["scheduled_secs"] // 3600 % 24 <= args.to_hour]
+    if args.by != "segment" and args.from_hour is not None:
+        kept = [r for r in kept if int(rs.scheduled_hour(r)) >= args.from_hour]
+    if args.by != "segment" and args.to_hour is not None:
+        kept = [r for r in kept if int(rs.scheduled_hour(r)) <= args.to_hour]
     return kept
 
 
@@ -98,14 +122,14 @@ KEYS = {
     "vehicle": (lambda r: r.get("vehicle", "?"), "vehicle"),
     "stop": (lambda r: r.get("stop_name", "?"), "stop"),
     "hour": (rs.scheduled_hour, "hour due"),
-    "service-hour": (lambda r: f'{r.get("service", "?")} {rs.scheduled_hour(r)}',
+    "service-hour": (lambda r: f'{rs.service_key(r)} {rs.scheduled_hour(r)}',
                      "service, hour due"),
     # For comparing the same hour across days: "did Thursday's 17:00 look like
     # Wednesday's?" Sort it with --sort key, or the rows arrive worst-first and
     # the two days interleave.
     "day-hour": (lambda r: f'{r.get("day", "?")} {rs.scheduled_hour(r)}',
                  "day, hour due"),
-    "journey": (lambda r: f'{r.get("service", "?")} {r.get("journey_start", "?")}'
+    "journey": (lambda r: f'{rs.service_key(r)} {r.get("journey_start", "?")}'
                           f' {r.get("direction", "?")[:4]}', "service, departure"),
 }
 
@@ -146,6 +170,11 @@ def render_table(rows, args):
     return out
 
 
+def segment_cells(rows, args):
+    return rs.segment_stats(rows, hour=args.segment_hours,
+                            from_hour=args.from_hour, to_hour=args.to_hour)
+
+
 def render_segments(rows, args):
     """Where time is lost, worst first.
 
@@ -154,7 +183,7 @@ def render_segments(rows, args):
     answer is always the end of the route, because a stop inherits every minute
     lost before it.
     """
-    cells = rs.segment_stats(rows, hour=args.segment_hours)
+    cells = segment_cells(rows, args)
     kept, thin = rs.suppress(cells, args.min, args.min_journeys)
     if not kept and not thin:
         return ["No segments match."]
@@ -163,7 +192,8 @@ def render_segments(rows, args):
             f"{'gained':>7} {'p90':>7} {'worst':>7} {'sched':>6} {'vs sched':>9}")
     out = [head, "  " + "-" * (len(head) - 2)]
     for key, cell in order[:args.limit]:
-        tail = f" [{key[2]}" + (f" {key[3]}:00]" if args.segment_hours else "]")
+        cohort = cell["cohort"]
+        tail = f" [{cohort['service']} {cohort['operator']} {key[2]}" + (f" {key[3]}:00]" if args.segment_hours else "]")
         # Trim the stop names, never the direction tag: a segment without its
         # direction is two different roads averaged together.
         name = f"{key[0]} → {key[1]}"[:56 - len(tail)]
@@ -181,21 +211,22 @@ def render_segments(rows, args):
 
 def provenance(rows, meta, args):
     """What a reader needs before believing any of the numbers above."""
+    rows = rs.measured(rows)
     journeys = len({rs.journey_key(r) for r in rows})
     series = ("all stops (timing points and GTFS-interpolated)" if args.all_stops
               else "the operator's own timing points only")
     buckets = ("hour the bus was due" if args.by in ("hour", "service-hour")
-               else "hour traversed" if args.by == "segment" else "n/a")
+               else "hour traversed (observed entry at the first endpoint)" if args.by == "segment" else "n/a")
     return [
         "",
-        f"  arrivals: {len(rows)} across {journeys} journeys, "
-        f"{len(meta['days'])} day(s): {', '.join(meta['days'])}",
+        f"  {'endpoint input pool' if args.by == 'segment' else 'arrivals'}: {len(rows)} across {journeys} journeys, "
+        f"{len({r['day'] for r in rows})} contributing day(s): {', '.join(sorted({r['day'] for r in rows}))}",
         f"  series:   {series}",
         f"  buckets:  {buckets}",
         f"  data:     {', '.join(meta['data_versions'])}",
         "  on time:  1 min early to 5 min 59 late (DfT BUS09), per arrival",
         f"  floor:    {args.min} arrivals and {args.min_journeys} journeys a cell",
-        "  caveat:   lateness is censored at 5 min early / 25 min late by the",
+        "  caveat:   inferred lateness is censored at 5 min early / 25 min late by the",
         "            matcher, so early and very-late counts are floors.",
     ]
 
@@ -213,9 +244,9 @@ def write_report(lines, meta, args):
         "",
         "## Method",
         "",
-        METHOD,
-        "",
-        "## Caveats",
+        "Aggregation of measured observations; original methods are preserved per input below.",
+        "", "```json", json.dumps(meta.get("sources", []), indent=1), "```",
+        "", "## Caveats",
         "",
         *[f"- {c}" for c in CAVEATS],
         "",
@@ -248,9 +279,14 @@ def write_rollup(rows, meta, args):
         "as_of": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "data_versions": meta["data_versions"],
         "days": meta["days"],
-        "method": METHOD,
-        "method_version": METHOD_VERSION,
-        "caveats": CAVEATS,
+        "method": "Measured-only aggregation; observation methods and coverage are retained per input in sources.",
+        "method_version": meta.get("method_versions", ["unknown"])[0] if len(meta.get("method_versions", [])) == 1 else "mixed",
+        "method_versions": meta.get("method_versions", ["unknown"]),
+        "sources": [{k: s.get(k) for k in ("file", "sha256", "day", "method_version", "method", "data_version", "coverage", "caveats")}
+                    for s in meta.get("sources", [])],
+        "caveats": ["Measured observations only; original observation caveats are retained in sources.",
+                    "Pooled services and hours may span different patterns, timetables and matching methods.",
+                    "Inferred matching is window-censored; declared matching is not. Missing reports can bias either cohort."],
         "series": "all_stops" if args.all_stops else "timing_point",
         "hour_basis": "scheduled departure hour",
         # Interpolated times are excluded from every cell here, as they are
@@ -262,7 +298,7 @@ def write_rollup(rows, meta, args):
                        "segments": len(thin_segments)},
         "by_service": kept_service,
         "by_hour": kept_hour,
-        "segments": {f"{k[0]} → {k[1]} [{k[2]}]": v for k, v in segments.items()},
+        "segments": {" | ".join(k): v for k, v in segments.items()},
     }
     path = Path(args.rollup)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -300,7 +336,7 @@ def main(argv=None):
     ap.add_argument("--rollup", help="write the monthly aggregate here")
     args = ap.parse_args(argv)
 
-    rows, meta = load_observations(args.observations)
+    rows, meta = load_observations(args.observations, compact=True)
     if not rows:
         print(f"no observations found in {args.observations}", file=sys.stderr)
         return 1
@@ -322,10 +358,14 @@ def main(argv=None):
         return 1
 
     if args.json:
-        cells = (rs.segment_stats(rows, hour=args.segment_hours) if args.by == "segment"
+        cells = (segment_cells(rows, args) if args.by == "segment"
                  else rs.group_stats(rows, KEYS[args.by][0], mean=args.mean))
-        print(json.dumps({" | ".join(k) if isinstance(k, tuple) else k: v
-                          for k, v in cells.items()}, indent=1, sort_keys=True))
+        kept, thin = rs.suppress(cells, args.min, args.min_journeys)
+        keyed = lambda k: " | ".join(k) if isinstance(k, tuple) else k
+        print(json.dumps({"cells": {keyed(k): v for k, v in kept.items()},
+                          "suppressed": {keyed(k): {"observations": v["observations"], "journeys": v["journeys"]} for k, v in thin.items()},
+                          "floor": {"observations": args.min, "journeys": args.min_journeys},
+                          "inputs": meta, "provenance": provenance(rows, meta, args)}, indent=1, sort_keys=True))
     else:
         lines = render_table(rows, args)
         print("\n".join(lines))

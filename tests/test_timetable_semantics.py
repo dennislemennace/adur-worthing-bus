@@ -253,7 +253,8 @@ def test_a_service_dated_only_by_exception_still_bounds_the_window():
     # calendar_dates would report no window and refuse a day it can measure.
     tt = _windowed({}, {"SVC_X": {"20260907": "1", "20260910": "1"}})
     assert tt.service_window() == ("20260907", "20260910")
-    assert tt.covers_day(date(2026, 9, 8)) is True
+    assert tt.covers_day(date(2026, 9, 7)) is True
+    assert tt.covers_day(date(2026, 9, 8)) is False, "the gap between additions is not a service calendar"
 
 
 def test_a_build_with_no_dated_calendar_covers_nothing():
@@ -277,6 +278,12 @@ def test_a_blank_date_is_not_mistaken_for_a_boundary():
 # ── Departure boards span the service day, not the clock day ─
 
 class _FakeTimetable:
+    def noc_for_route(self, route_id):
+        return "SCSO"
+
+    def trip_stops_for(self, trip_id):
+        return []
+
     """Just enough Timetable for _departures_for_stop.
 
     One stop, one trip: the 23:55 from Stop A that reaches Stop B at 24:05 —
@@ -599,3 +606,78 @@ def test_a_direction_code_is_never_shown_as_a_destination():
     assert '"destination":   jtext("DestinationName"),' in source, \
         "the destination field has a fallback again"
     assert 'jtext("DestinationName") or jtext("DirectionRef")' not in source
+
+
+# ── Coverage: "not running" is not "not described" ───────────
+
+def _coverage_db(tmp_path_factory, monkeypatch_module, routes, calendars, day_stamp="20260922"):
+    """A tiny build whose only variable is what each route's calendar says."""
+    monkeypatch_module.setenv("SKIP_OSRM", "1")
+    feed = tmp_path_factory.mktemp("cov") / "feed.zip"
+    stop = ("4400SH01", "Shoreham High Street", 50.8320, -0.2750)
+    with zipfile.ZipFile(feed, "w") as z:
+        z.writestr("agency.txt", _csv([("AG1", "Coast Buses", "SCSO"),
+                                       ("AG2", "City Buses", "BHBC")],
+                                      ["agency_id", "agency_name", "agency_noc"]))
+        z.writestr("stops.txt", _csv([stop], ["stop_id", "stop_name",
+                                              "stop_lat", "stop_lon"]))
+        z.writestr("routes.txt", _csv(
+            [(rid, ag, short, "", 3) for rid, ag, short in routes],
+            ["route_id", "agency_id", "route_short_name",
+             "route_long_name", "route_type"]))
+        z.writestr("trips.txt", _csv(
+            [(f"T_{rid}", rid, f"S_{rid}", "Somewhere", "") for rid, _, _ in routes],
+            ["trip_id", "route_id", "service_id", "trip_headsign", "shape_id"]))
+        z.writestr("stop_times.txt", _csv(
+            [(f"T_{rid}", 1, stop[0], "09:00:00", "09:00:00") for rid, _, _ in routes],
+            ["trip_id", "stop_sequence", "stop_id", "arrival_time", "departure_time"]))
+        z.writestr("calendar.txt", _csv(
+            [(f"S_{rid}", 1, 1, 1, 1, 1, 1, 1, start, end)
+             for rid, (start, end) in calendars.items()],
+            ["service_id", "monday", "tuesday", "wednesday", "thursday",
+             "friday", "saturday", "sunday", "start_date", "end_date"]))
+    out = tmp_path_factory.mktemp("covdb") / "timetable.sqlite"
+    j2s.convert(bt.parse_gtfs(str(feed)), out)
+    from api.timetable_db import Timetable
+    return Timetable(out, allow_fetch=False)
+
+
+def test_a_service_that_has_not_started_yet_does_not_block_publication(
+        tmp_path_factory, monkeypatch_module):
+    """The 25X runs one week from 27 September. On the 22nd it is simply not
+    running, and the timetable says so — that is a fact about the network, not
+    a hole in the data. Blocking on it stopped the nightly publish every night
+    until term began."""
+    tt = _coverage_db(
+        tmp_path_factory, monkeypatch_module,
+        routes=[("R700", "AG1", "700"), ("R25X", "AG2", "25X")],
+        calendars={"R700": ("20260901", "20270101"),
+                   "R25X": ("20260927", "20261003")})
+    assert tt.uncovered_cohorts(date(2026, 9, 22), ["4400SH01"]) == []
+
+
+def test_a_service_whose_timetable_ran_out_still_blocks(
+        tmp_path_factory, monkeypatch_module):
+    """The other direction, and the one worth stopping for: an operator's data
+    has expired inside an otherwise current build, so measuring the day would
+    publish a zero for a service that really ran."""
+    tt = _coverage_db(
+        tmp_path_factory, monkeypatch_module,
+        routes=[("R700", "AG1", "700"), ("R049", "AG2", "49")],
+        calendars={"R700": ("20260901", "20270101"),
+                   "R049": ("20260801", "20260910")})
+    assert tt.uncovered_cohorts(date(2026, 9, 22), ["4400SH01"]) == [["BHBC", "49"]]
+
+
+def test_a_build_describing_no_local_service_blocks_every_cohort(
+        tmp_path_factory, monkeypatch_module):
+    """The original failure: the wrong build for the day. Every local cohort is
+    silent about it, so there is nothing to measure against and a published
+    zero would read as "no service"."""
+    tt = _coverage_db(
+        tmp_path_factory, monkeypatch_module,
+        routes=[("R700", "AG1", "700"), ("R25X", "AG2", "25X")],
+        calendars={"R700": ("20261001", "20270101"),
+                   "R25X": ("20261001", "20261003")})
+    assert tt.uncovered_cohorts(date(2026, 9, 22), ["4400SH01"]) == [
+        ["BHBC", "25X"], ["SCSO", "700"]]

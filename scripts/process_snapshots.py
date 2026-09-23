@@ -1,49 +1,16 @@
-"""Turn a day of recorded feed snapshots into arrival observations.
+"""Derive stop-departure evidence from recorded SIRI-VM and GTFS-RT.
 
-The Worker records where every bus was, once a minute, all day
-(`worker/src/recorder.js`). This reads a day of that and answers the question
-the snapshots exist for: **when did each bus actually reach each stop, against
-when the timetable said it would?**
-
-**How an arrival is decided.** Each snapshot is matched to scheduled journeys by
-`api/trip_match.py`, the same matcher the live gap monitor uses, so a published
-figure and a live alert cannot disagree. A journey's arrival at one of its stops
-is the report in which its bus came nearest that stop, provided it came within
-150 m. Nothing is interpolated: the answer is the time of a real report.
-
-**Whose clock.** Every observation is timed *and matched* by the operator's own
-`RecordedAtTime`, never by when we fetched it. This is not a nicety. Measured
-over 2,297 reports in recorded snapshots, the feed is a **median 186 seconds
-behind**: three quarters of reports are over a minute stale and half over three
-minutes. Timing arrivals by the fetch would have added about three minutes to
-every bus, against punctuality bands one and six minutes wide — an operator
-would have been shown as late for our latency. Worse, *matching* on the fetch
-time shifts a bus three minutes down its route and onto the journey behind it,
-which turns a late bus into an early one.
-
-**What the resolution really is.** Not one minute. A vehicle's position repeats
-unchanged across snapshots — 866 of those 2,297 reports were repeats — so the
-real interval is the operator's own reporting rate, a median of about three
-minutes, and repeats are discarded rather than counted as sightings. An arrival
-is therefore accurate to roughly half that interval, and the error is symmetric:
-it neither flatters nor damns an operator.
-
-**What is missing, and which way that cuts.** A bus that stops reporting leaves
-no observation, so its lateness goes uncounted. A journey that never ran leaves
-no observation either — so *absence is not lateness and must never be published
-as if it were*. Coverage, the share of scheduled journeys that produced any
-observation, is reported beside every figure for exactly that reason.
-
-Usage:
-
-    python scripts/process_snapshots.py --day 2026-09-16 \\
-        --snapshots raw/2026-09-16 --timetable data/timetable.sqlite \\
-        --out data/reliability/2026-09-16.json
+See METHOD/CAVEATS for the versioned method. Times retain their source report,
+service-day origin and UTC instant. Interpolated calls are explicitly marked;
+missing data and uncertain matching must not become precise hotspot claims.
 """
 
 import argparse
+import hashlib
+from importlib import metadata
 import json
 import struct
+import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, time, timezone
@@ -60,6 +27,8 @@ from api import gtfs_rt                      # noqa: E402
 import reliability_stats                      # noqa: E402
 from api import trip_match                    # noqa: E402
 from api.timetable_db import Timetable        # noqa: E402
+from observation_contract import TIME_BASIS, digest_file, service_origin
+from recorded_inputs import recorded_stream
 
 SIRI_NS = "http://www.siri.org.uk/siri"
 
@@ -122,32 +91,38 @@ AFTER_LAST_SECS = 30 * 60
 #   3  arrivals must advance along the route; interpolated stops carry their own
 #      timing-point flag; declared journeys matched outside the active window;
 #      estimates excluded from every statistic
-METHOD_VERSION = 3
+METHOD_VERSION = 4
 
 METHOD = (
-    "Bus positions recorded from the Bus Open Data Service (SIRI-VM) once a "
-    "minute are matched to scheduled journeys by position, service number and "
-    "time (at most 5 minutes early or 25 minutes late, within 400 m of the "
-    "route, heading-checked where published), each position judged at the time "
-    "the operator recorded it rather than when it was read. A journey's arrival at a stop is "
-    "the recorded position nearest that stop, where it came within 150 m, so "
-    "times are accurate to about 30 seconds either way. Journeys with no "
-    "tracked bus produce no observation and are counted as missing coverage, "
-    "never as lateness. Lateness outside 5 minutes early to 25 minutes late "
-    "cannot be observed at all: such a bus is matched to a neighbouring "
-    "journey, so both tails of the distribution are censored and the share on "
-    "time is optimistic. Coaches are excluded."
+    "Recorded SIRI-VM and GTFS-RT positions are evaluated at their report timestamps. "
+    "GTFS-RT trip identity is preferred; inference uses route, position, heading and "
+    "a -5/+25 minute matching window. Candidate stop visits are aligned to ordered "
+    "route calls. A departure estimate uses the last report within 150 m of the "
+    "selected visit, with the following report retained as an interval bound where "
+    "available. UTC instants and GTFS service-day elapsed seconds are retained. "
+    "Missing calls are interpolated only between observations and explicitly flagged. "
+    "Measured statistics exclude interpolation. Unobserved journeys are missing "
+    "coverage, never on-time journeys or confirmed cancellations. Coaches are excluded."
 )
 
 CAVEATS = [
+    "Report spacing and a 150 m stop radius limit timing and spatial precision. "
+    "The report interval bounds a radius departure, not an exact door-closing time; "
+    "unbounded, ambiguous and missing-timestamp observations are flagged.",
+    "Inferred identity can confuse a bus more than half a headway late with the "
+    "next journey. Very late running may be understated: the reported tail can be a "
+    "floor. Wrong trip or visit assignments can also move individual delay gains "
+    "in either direction. The inference window does not censor declared matches.",
+    "Inferred matches are censored by the matching window; tail counts may be a "
+    "floor and on-time shares optimistic. Declared matches are not window-censored.",
+    "The last report may be up to 150 m past the pole, overstating lateness; "
+    "sparse reports before departure may understate it. Neither bias has a "
+    "universal seconds allowance. Inspect the retained report interval.",
+    "A declared label describes the selected report's identity, not a guarantee "
+    "of correct stop timing. Mixed identities and ambiguous visits remain visible.",
     "A journey that ran without reporting its position is indistinguishable "
     "from one that did not run. Neither produces an observation, so coverage "
     "is published beside every figure and absence is never counted as lateness.",
-    "Observed times are the nearest recorded position to a stop, sampled once "
-    "a minute, so each is accurate to about 30 seconds either way.",
-    "Journeys are matched to the timetable by position and time, not by a "
-    "journey identifier: the feed's journey reference matches no timetable "
-    "trip here. A mismatch would move a journey's lateness, not invent it.",
     "Every journey calling at a stop inside the recorded area is measured "
     "(Adur, Worthing and the Brighton coast). Journeys that only touch the "
     "area outside it are not, and a journey is measured only where it is "
@@ -156,23 +131,8 @@ CAVEATS = [
     "a measure of that interpolation, not of the service. Arrivals are "
     "therefore reported separately for the operator's own timing points, for "
     "interpolated stops, and for feeds that do not say which is which.",
-    "A bus more than half a headway late cannot be told apart from the next "
-    "journey running early, because the feed publishes no journey identifier "
-    "that matches the timetable. Such a journey is recorded as the later one, "
-    "so measured lateness is a floor and the real figure is this or worse.",
-    "A stop is timed by the last report within 150 m of it — when the bus "
-    "left — because the scheduled time it is compared against is a departure "
-    "time. For a bus that does not stop, that report can be up to 150 m past "
-    "the stop, so such arrivals read up to about 20 seconds late. The earlier "
-    "rule, nearest approach, leaned the other way and much harder: it timed "
-    "the middle of a layover and reported 23% of timing-point arrivals as "
-    "early, against 4% once corrected.",
-    "Lateness is censored at the matching window: a bus more than 5 minutes "
-    "early or 25 minutes late for a journey is attributed to a neighbouring "
-    "one instead, so no observation can fall outside that range. In a measured "
-    "day of 5,079 observations, none did. Both tails are therefore cut off, "
-    "every count of early or very late running is a floor, and the share on "
-    "time is correspondingly optimistic.",
+    "Section duration includes stop dwell and holding. Delay gained between two "
+    "observed timing points does not establish which road or traffic condition caused it.",
 ]
 
 
@@ -227,7 +187,7 @@ def parse_snapshot(xml_text, at_utc=None):
         recorded_at = rec.text.strip() if rec is not None and rec.text else ""
         reported_at = _reported_at(recorded_at) if recorded_at else None
         if at_utc is not None and reported_at is not None:
-            if (at_utc - reported_at).total_seconds() > VEHICLE_STALE_SECS:
+            if not -60 <= (at_utc - reported_at).total_seconds() <= VEHICLE_STALE_SECS:
                 continue
 
         bearing = jtext("Bearing")
@@ -245,6 +205,7 @@ def parse_snapshot(xml_text, at_utc=None):
             "longitude": lon,
             "bearing": bearing,
             "recorded_at": recorded_at,
+            "recorded_epoch": int(reported_at.timestamp()) if reported_at else None,
             # When the operator says the bus was there, in seconds from London
             # midnight. None when the feed omits it, and then the fetch time
             # has to stand in.
@@ -298,6 +259,9 @@ def gtfs_rt_files(directory):
     found = []
     for path in sorted(Path(directory).glob("*.pb")):
         name = path.stem
+        if "-" in name and name.split("-", 1)[1].isdigit():
+            found.append((int(name.split("-", 1)[1]), path))
+            continue
         if len(name) != 4 or not name.isdigit():
             continue
         found.append((int(name[:2]) * 3600 + int(name[2:]) * 60, path))
@@ -309,80 +273,67 @@ def snapshot_files(directory):
     found = []
     for path in sorted(Path(directory).glob("*.xml")):
         name = path.stem
+        if "-" in name and name.split("-", 1)[1].isdigit():
+            found.append((int(name.split("-", 1)[1]), path))
+            continue
         if len(name) != 4 or not name.isdigit():
             continue
         found.append((int(name[:2]) * 3600 + int(name[2:]) * 60, path))
     return sorted(found)
 
 
-def arrivals_along(samples, calls, stops):
-    """Where along one bus's track it called at each of its journey's stops.
+def arrivals_along(samples, calls, stops, diagnostics=None):
+    """Align bounded candidate visits to the complete ordered route.
 
-    Yields `(stop_index, scheduled_secs, atco, sample_index, metres)` for every
-    stop the bus can be said to have reached, in route order. `samples` are
-    `(secs, lat, lon, ref)` sorted by time; `calls` are `(secs, atco)` in route
-    order; `stops` is the timetable's stop table.
-
-    **A journey's arrivals advance along the road.** Each stop is timed from
-    the samples at or after the one that timed the stop before it, which is
-    the whole reason this is a function rather than a loop over independent
-    minimums.
-
-    Without that constraint each stop took its nearest approach over the bus's
-    entire track, and a journey that comes back near one of its own early stops
-    — which on a real network means little more than the other side of the road
-    — timed that stop from the later pass. Measured over 16–18 September: **475
-    pairs of adjacent stops ran backwards in time, across 293 of 2,880
-    journeys**, the worst by 59 minutes. A 3X "reached" Moulsecoomb Way at 18:45
-    and Brighton University, its very next stop, at 17:46. Subtracted by the
-    journey-time tool, that is a bus arriving an hour before it set off, and 69
-    such durations were published.
+    Maximise supported calls before minimising spatial distance. Unlike a
+    greedy closest first point, a later return cannot discard an earlier run.
+    Equal-support alternative visits remain flagged as ambiguous evidence.
+    The beam bounds work for long circular routes; it is not ground truth.
     """
-    floor = 0          # no stop is timed from a sample before this one
-    for stop_index, (scheduled_secs, atco) in enumerate(calls):
+    if not samples:
+        return
+    # (matched calls, distance cost, last approach, last departure, path)
+    states = [(0, 0, 0, -1, ())]
+    for stop_index, (scheduled, atco) in enumerate(calls):
         stop = stops.get(atco) or {}
         if stop.get("lat") is None:
             continue
-        dists = [trip_match.km(s[1], s[2], stop["lat"], stop["lon"]) for s in samples]
-        # Equality with the floor is allowed: stops a few metres apart share
-        # their nearest sample, and forcing each strictly later would push one
-        # of every closely-spaced pair off its own arrival.
-        nearest = min(range(floor, len(dists)), key=dists.__getitem__)
-        metres = round(dists[nearest] * 1000)
-        if metres > ARRIVAL_RADIUS_M:
-            continue
-        # When the bus *left*, not when it first got there. The timetable time
-        # this is judged against is a departure time — the builder reads
-        # departure_time — and at a terminus a bus stands for minutes. Taking
-        # its nearest approach timed the middle of the layover and reported the
-        # bus as leaving early: measured on 17 September, 56% of arrivals at Old
-        # Steine and 51% at Marine Parade came out early, against 13% across
-        # the route.
-        #
-        # Only the run of samples containing the nearest approach counts, so a
-        # route passing the same stop twice does not have its two visits merged
-        # into one long dwell.
-        i = nearest
-        while i + 1 < len(dists) and dists[i + 1] * 1000 <= ARRIVAL_RADIUS_M:
+        distances = [trip_match.km(s[1], s[2], stop["lat"], stop["lon"]) * 1000
+                     for s in samples]
+        candidates, i = [], 0
+        while i < len(samples):
+            if distances[i] > ARRIVAL_RADIUS_M:
+                i += 1
+                continue
+            begin = i
+            while i + 1 < len(samples) and distances[i + 1] <= ARRIVAL_RADIUS_M:
+                i += 1
+            end = i
+            nearest = min(range(begin, end + 1), key=distances.__getitem__)
+            metres = round(distances[nearest])
+            if not ((nearest == 0 or end == len(samples) - 1) and metres > AT_THE_STOP_M):
+                candidates.append((nearest, end, metres))
             i += 1
-        # The visit must be bounded: the bus seen coming *and* going. At the
-        # edge of what may be looked at, the real nearest approach can lie
-        # outside it, which reads as a bus arriving early at a stop it had not
-        # reached — measured on live data, a stop due at 15:31 was recorded as
-        # reached at 15:28 because that was simply the last snapshot taken.
-        # The lower edge is the floor rather than the start of the track: a
-        # stop whose closest sample is the moment the bus left the previous
-        # stop cannot be placed, unless the two are near enough to be one place.
-        if (nearest == floor or i == len(samples) - 1) and metres > AT_THE_STOP_M:
-            continue
-        # The *departure* has to advance too, and constraining the nearest
-        # approach alone does not make it so: a brief pass at a stop can end its
-        # run before a long dwell at the stop before it ends. Measured after the
-        # nearest-approach fix, 2 pairs of 1,049 journeys on 16 September still
-        # ran backwards, the worst by 2.1 minutes — small enough to look like a
-        # real figure on a chart, which is what makes it worth refusing.
-        floor = nearest
-        yield stop_index, scheduled_secs, atco, i, metres
+        next_states = list(states)       # missing calls stay missing
+        for count, cost, floor, left, path in states:
+            for nearest, end, metres in candidates:
+                if nearest < floor or end < left:
+                    continue
+                if nearest == floor and metres > AT_THE_STOP_M:
+                    continue
+                # A repeated ATCO in a loop requires a distinct visit.
+                if any(c[2] == atco and c[3] == end for c in path):
+                    continue
+                call = (stop_index, scheduled, atco, end, metres)
+                next_states.append((count + 1, cost + metres, nearest, end, path + (call,)))
+        states = sorted(next_states, key=lambda x: (-x[0], x[1], x[3]))[:64]
+    best = states[0]
+    if diagnostics is not None:
+        alternatives = [x for x in states[1:] if x[0] == best[0] and x[1] <= best[1] + 20
+                        and tuple(c[3] for c in x[4]) != tuple(c[3] for c in best[4])]
+        if alternatives:
+            diagnostics.append("ambiguous_visit_alignment")
+    yield from best[4]
 
 
 def advancing_only(arrivals):
@@ -422,12 +373,22 @@ def observe_day(tt, day, snapshots, atcos=None):
     """
     atcos = stops_in_box(tt) if atcos is None else list(atcos)
     instances, _scheduled = trip_match.build_instances(
-        tt, day, atcos, (-BEFORE_FIRST_SECS, 86400 + AFTER_LAST_SECS))
+        tt, day, atcos, (-7200, 93600))
+    origin = service_origin(day)
+    for (_trip, service_day), inst in instances.items():
+        shift = origin - service_origin(service_day)
+        inst["calls"] = [(secs + inst["shift"] - shift, atco) for secs, atco in inst["calls"]]
+        inst["shift"] = shift
 
     # Where each journey's bus was, every time it reported.
     tracks = {key: [] for key in instances}
     declared_journeys_seen = set()   # journeys the feed named rather than us
     seen = set()            # (journey, vehicle, report time): the feed repeats
+    report_details = {}
+    repeated_reports = 0
+    matched_reports = 0
+    matched_by_feed = {"siri": 0, "gtfs_rt": 0, "unknown": 0}
+    matched_by_feed_hour = {}
     window_times = []
     for at_secs, vehicles in snapshots:
         window_times.append((at_secs, None))
@@ -435,8 +396,8 @@ def observe_day(tt, day, snapshots, atcos=None):
         # is matched against a day of journeys, which is hours of work.
         active = {k: i for k, i in instances.items()
                   if i["calls"]
-                  and i["calls"][0][0] - BEFORE_FIRST_SECS <= at_secs
-                  <= i["calls"][-1][0] + AFTER_LAST_SECS}
+                  and i["calls"][0][0] - BEFORE_FIRST_SECS <= at_secs + 60
+                  <= i["calls"][-1][0] + AFTER_LAST_SECS + VEHICLE_STALE_SECS}
         # Nothing to match. This was "if not active" — abandoning the whole
         # snapshot when no journey was plausibly running — which is the same
         # window by another route, and incoherent now that declared journeys
@@ -450,7 +411,8 @@ def observe_day(tt, day, snapshots, atcos=None):
         # minutes down the timetable and onto the following journey, which
         # reads as a bus running early. Measured: a bus three minutes late,
         # reported four minutes behind, came out as 7 minutes early.
-        when_of = [_same_day(v.get("recorded_secs"), at_secs) for v in vehicles]
+        when_of = [(v["recorded_epoch"] - origin if v.get("recorded_epoch") is not None
+                    else _same_day(v.get("recorded_secs"), at_secs)) for v in vehicles]
         when_of = [at_secs if w is None else w for w in when_of]
 
         # What the feed states, before anything we infer — against *every*
@@ -475,9 +437,18 @@ def observe_day(tt, day, snapshots, atcos=None):
             when = when_of[vi]
             ref = v.get("vehicle_ref", "")
             if (key, ref, when) in seen:
+                repeated_reports += 1
                 continue        # the same report, fetched again a minute later
             seen.add((key, ref, when))
             tracks[key].append((when, v["latitude"], v["longitude"], ref))
+            report_details[(key, ref, when)] = {**v, "match": "declared" if key in declared else "inferred"}
+            matched_reports += 1
+            feed = (v.get("source_report") or {}).get("feed", "unknown")
+            matched_by_feed[feed] = matched_by_feed.get(feed, 0) + 1
+            fetched = (v.get("source_report") or {}).get("fetched_epoch", origin + at_secs)
+            hour = datetime.fromtimestamp(fetched, LONDON).strftime("%H")
+            bucket = matched_by_feed_hour.setdefault(feed, {})
+            bucket[hour] = bucket.get(hour, 0) + 1
 
     # Journeys scheduled to be running while snapshots were actually being
     # taken. Counting the whole day against a part-day of snapshots would
@@ -493,7 +464,7 @@ def observe_day(tt, day, snapshots, atcos=None):
         samples.sort()
     spans = {k: (i["calls"][0][0], i["calls"][-1][0])
              for k, i in instances.items() if i["calls"]}
-    tracks = _resolve_vehicle_journeys(tracks, spans)
+    tracks = _resolve_vehicle_journeys(tracks, spans, declared_journeys_seen)
 
     observations = []
     observed_by_journey = {}     # journey -> [(stop index, scheduled, observed)]
@@ -509,9 +480,8 @@ def observe_day(tt, day, snapshots, atcos=None):
         # Whether this journey's identity came from the feed or from our
         # matching. Only the second is censored by the tolerance window, and a
         # figure that mixes them without saying so is two measurements.
-        matched_by = "declared" if key in declared_journeys_seen else "inferred"
         # Which of this journey's times the operator actually commits to.
-        timepoints = tt.timepoints_for(trip_id)
+        timepoints = dict(enumerate(tt.timepoints_by_call(trip_id)))
         # Which way along the coast, and the operator's own word for where it
         # is going. Both are settled here, not in analysis later: trip ids
         # belong to one timetable build, and joining observations to whatever
@@ -526,35 +496,63 @@ def observe_day(tt, day, snapshots, atcos=None):
                 direction = "westbound" if shift < 0 else "eastbound"
         headsign = (inst["trip"].get("headsign") or "").strip()
         journey_start = calls[0][0]
+        route_pattern = hashlib.sha256(json.dumps(
+            [route_id, [atco for _secs, atco in calls]], separators=(",", ":")).encode()).hexdigest()
+        timing_indices = [i for i, (_secs, atco) in enumerate(calls) if timepoints.get(i) == 1]
 
         # One journey can be matched to more than one vehicle across a day if a
         # bus is swapped; the one seen most often is the journey's bus.
         refs = [s[3] for s in samples if s[3]]
         vehicle = max(set(refs), key=refs.count) if refs else ""
         seen_here = []          # (stop index, scheduled, observed) for this journey
-        for stop_index, scheduled_secs, atco, sample_i, metres in advancing_only(
-                arrivals_along(samples, calls, tt.stops)):
+        alignment_flags = []
+        arrivals = list(arrivals_along(samples, calls, tt.stops, alignment_flags))
+        for stop_index, scheduled_secs, atco, sample_i, metres in advancing_only(arrivals):
             stop = tt.stops.get(atco) or {}
             best = samples[sample_i]
+            detail = report_details.get((key, best[3], best[0]), {})
+            next_sample = samples[sample_i + 1] if sample_i + 1 < len(samples) else None
+            flags = list(alignment_flags) + detail.get("identity_flags", [])
+            if detail.get("recorded_epoch") is None:
+                flags.append("missing_report_timestamp")
+            if next_sample is None or next_sample[3] != best[3]:
+                flags.append("unbounded_departure")
+                next_sample = None
+            next_detail = report_details.get((key, next_sample[3], next_sample[0]), {}) if next_sample else {}
+            source_reports = [d[k] for d in (detail, next_detail)
+                              for k in ("source_report", "identity_source") if d.get(k)]
+            if next_sample and next_sample[0] - best[0] > 180:
+                flags.append("wide_departure_interval")
+            service_shift = inst["shift"]
             seen_here.append((stop_index, scheduled_secs, best[0]))
             observations.append({
                 "day": service_day.isoformat(),
                 "trip_id": trip_id,
                 "service": inst["service"],
                 "operator": tt.noc_for_route(route_id),
-                "vehicle": vehicle,
+                "vehicle": best[3] or vehicle,
+                "route_id": route_id,
+                "route_pattern": route_pattern,
+                "time_basis": TIME_BASIS,
+                "scheduled_epoch": origin + scheduled_secs,
+                "observed_epoch": origin + best[0],
+                "observed_clock_secs": _local_secs(datetime.fromtimestamp(origin + best[0], timezone.utc)),
+                "source_reports": source_reports,
+                "observed_interval_epoch": [origin + best[0], origin + next_sample[0] if next_sample else None],
+                "quality_flags": flags,
+                "timing_point_order": timing_indices.index(stop_index) if stop_index in timing_indices else None,
                 "atco": atco,
                 "stop_name": stop.get("name", ""),
                 "scheduled": trip_match.clock(scheduled_secs),
-                "scheduled_secs": scheduled_secs,
+                "scheduled_secs": scheduled_secs + service_shift,
                 "observed": trip_match.clock(best[0]),
-                "observed_secs": best[0],
+                "observed_secs": best[0] + service_shift,
                 "lateness_secs": best[0] - scheduled_secs,
                 "nearest_m": metres,
                 "samples": len(samples),
                 # 1 a timing point, 0 a time GTFS interpolated, None unstated.
-                "timepoint": timepoints.get(atco),
-                "match": matched_by,
+                "timepoint": timepoints.get(stop_index),
+                "match": detail.get("match", "inferred"),
                 # A real sighting, not a time worked out from its neighbours.
                 "estimated": False,
                 "direction": direction,
@@ -566,7 +564,7 @@ def observe_day(tt, day, snapshots, atcos=None):
                 "calls_total": len(calls),
                 # The journey's own identity to a reader: "the 17:22".
                 "journey_start": trip_match.clock(journey_start),
-                "journey_start_secs": journey_start,
+                "journey_start_secs": journey_start + service_shift,
             })
         observed_by_journey[key] = seen_here
         # A dict a stop, not a tuple: this grew a field once already and the
@@ -578,13 +576,28 @@ def observe_day(tt, day, snapshots, atcos=None):
                 # This stop's own flag. Interpolated observations used to
                 # inherit it from whichever stop happened to be the template,
                 # which labelled GTFS's own guesses as operator promises.
-                "timepoint": timepoints.get(atco)}
+                "timepoint": timepoints.get(i)}
             for i, (secs, atco) in enumerate(calls)
             if (tt.stops.get(atco) or {}).get("lat") is not None}
 
     observations += _fill_gaps(observations, observed_by_journey, calls_by_journey)
+    # Interpolation operates in the processing day's coordinates. Canonicalise
+    # its new rows and derive their own instants instead of copying the template.
+    for row in observations:
+        if row.get("estimated"):
+            shift = origin - service_origin(row["day"])
+            row["scheduled_epoch"] = origin + row["scheduled_secs"]
+            row["observed_epoch"] = origin + row["observed_secs"]
+            row["scheduled_secs"] += shift
+            row["observed_secs"] += shift
+            row["observed_clock_secs"] = _local_secs(datetime.fromtimestamp(row["observed_epoch"], timezone.utc))
+            row["quality_flags"] = ["interpolated"]
+            row["observed_interval_epoch"] = None
+            # Endpoint references are retained by _fill_gaps, never passed off as direct sightings.
+            row["timing_point_order"] = None
 
-    by_hour, partial, absent = coverage_by_hour(t for t, _ in window_times)
+    by_hour, partial, absent = coverage_by_hour(
+        _local_secs(datetime.fromtimestamp(origin + t, timezone.utc)) for t, _ in window_times)
     coverage = {
         "snapshots": len(window_times),
         "recorded_from": trip_match.clock(seen_from) if window_times else None,
@@ -594,6 +607,12 @@ def observe_day(tt, day, snapshots, atcos=None):
         "tracked_journeys": tracked,
         "scheduled_journeys_all_day": len(instances),
         "observations": len(observations),
+        "matched_reports": matched_reports,
+        "matched_reports_by_feed": matched_by_feed,
+        "matched_reports_by_feed_hour": matched_by_feed_hour,
+        "repeated_reports": repeated_reports,
+        "measured_observations": sum(not r.get("estimated") for r in observations),
+        "quality_flagged_observations": sum(bool(r.get("quality_flags")) for r in observations),
         # Minutes captured in each hour. "snapshots: 900" hides a three-hour
         # hole; twenty-four counts cannot. An hour that is *partly* recorded is
         # the interesting case — recording stopped and started again — so it is
@@ -605,6 +624,18 @@ def observe_day(tt, day, snapshots, atcos=None):
                        "An absent hour may be outside the recording window; a "
                        "partial one means recording was interrupted."),
     }
+    cohorts = {}
+    measured_keys = {(r["trip_id"], r["day"]) for r in observations if not r.get("estimated")}
+    window_keys = set(in_window)
+    for key, inst in instances.items():
+        cohort = (tt.noc_for_route(inst["trip"].get("route_id", "")), inst["service"], key[1].isoformat())
+        cell = cohorts.setdefault(cohort, {"operator": cohort[0], "service": cohort[1], "day": cohort[2],
+            "scheduled_journeys": 0, "scheduled_in_recording_span": 0, "journeys_with_measured_calls": 0})
+        cell["scheduled_journeys"] += 1
+        cell["scheduled_in_recording_span"] += key in window_keys
+        cell["journeys_with_measured_calls"] += (key[0], key[1].isoformat()) in measured_keys
+    coverage["cohorts"] = list(cohorts.values())
+    coverage["cohorts_note"] = "Recording span runs from first to last parsed snapshot and may contain gaps; these counts do not establish section-level coverage."
     return observations, coverage
 
 
@@ -689,7 +720,7 @@ def summarise(observations, coverage):
         # Bucketed on the *scheduled* hour. A bus due 17:45 and seen 18:05
         # belongs to the 17:00 timetable; counting it at 18:00 moves delay out
         # of the hour that caused it and flatters the peak.
-        hour = f'{o["scheduled_secs"] // 3600 % 24:02d}'
+        hour = reliability_stats.scheduled_hour(o)
         hr = by_hour.setdefault(hour, {k: 0 for k in bands})
         hr[b] += 1
         tp = by_timepoint.setdefault(timepoint_class(o.get("timepoint")),
@@ -741,6 +772,7 @@ def _fill_gaps(observations, observed_by_journey, calls_by_journey):
     for o in observations:
         by_journey.setdefault((o["trip_id"], o["day"]), o)
 
+    endpoint_sources = {(o["trip_id"], o["day"], o.get("stop_index")): o.get("source_reports", []) for o in observations}
     filled = []
     for key, seen in observed_by_journey.items():
         template = by_journey.get((key[0], key[1].isoformat()))
@@ -782,11 +814,14 @@ def _fill_gaps(observations, observed_by_journey, calls_by_journey):
                     # inheriting it labelled roughly a fifth of interpolated
                     # stops as times the operator had committed to.
                     "estimated": True,
+                    "interpolation_endpoints": [i_before, i_after],
+                    "source_reports": [ref for i in (i_before, i_after)
+                        for ref in endpoint_sources.get((key[0], key[1].isoformat(), i), [])],
                 })
     return filled
 
 
-def _resolve_vehicle_journeys(tracks, scheduled_spans):
+def _resolve_vehicle_journeys(tracks, scheduled_spans, declared=()):
     """Stop one bus being on two journeys *at once* — while letting it run several.
 
     Matching each snapshot independently lets a bus drift between journeys: a
@@ -832,7 +867,7 @@ def _resolve_vehicle_journeys(tracks, scheduled_spans):
     keep = {}
     for ref, claimed in claims.items():
         accepted = []
-        for n, key in sorted(claimed, key=lambda c: (-c[0], scheduled_spans[c[1]][0])):
+        for n, key in sorted(claimed, key=lambda c: (c[1] not in declared, -c[0], scheduled_spans[c[1]][0])):
             lo, hi = scheduled_spans[key]
             clash = any(min(hi, a_hi) - max(lo, a_lo) > OVERLAP_GRACE_SECS
                         for a_lo, a_hi in accepted)
@@ -848,13 +883,8 @@ def _resolve_vehicle_journeys(tracks, scheduled_spans):
 
 
 def _timetable_version(db_path):
-    """Which build of the timetable this is, from the sidecar the release ships."""
-    sidecar = db_path.with_suffix(db_path.suffix + ".sha256")
-    if sidecar.exists():
-        digest = sidecar.read_text(encoding="utf-8").split()[0].strip()
-        if digest:
-            return f"timetable.sqlite sha256:{digest[:16]}"
-    return "unknown"
+    """Hash the actual input bytes, not a possibly stale sidecar."""
+    return f"timetable.sqlite sha256:{digest_file(db_path)}" if db_path.exists() else "unknown"
 
 
 def main(argv=None):
@@ -870,8 +900,7 @@ def main(argv=None):
     ap.add_argument("--out", help="write observations here as JSON")
     ap.add_argument("--summary-out", help="write the day's counts here as JSON")
     ap.add_argument("--timetable-version",
-                    help="identifier for the timetable build, recorded with every "
-                         "figure. Defaults to the .sha256 sidecar beside it.")
+                    help="optional human label; the actual database SHA-256 always identifies the input")
     args = ap.parse_args(argv)
 
     day = date.fromisoformat(args.day)
@@ -890,47 +919,44 @@ def main(argv=None):
     # There is deliberately no flag to override this. A day the timetable does
     # not cover cannot be measured against it at all — the answer is to fetch
     # the build that was in force, not to proceed and publish nothing.
-    if not tt.covers_day(day):
+    missing_cohorts = tt.uncovered_cohorts(day, CORRIDOR_ATCOS if args.corridor_only else stops_in_box(tt))
+    if not tt.covers_day(day) or missing_cohorts:
         first, last = tt.service_window()
         where = f"{first}..{last}" if first else "no dated calendar at all"
         print(f"{args.timetable} does not cover {args.day} (it describes "
-              f"{where}) — every service would be inactive and the day would "
-              f"measure nothing. Fetch the timetable build in force on "
+              f"{where}; uncovered local cohorts: {missing_cohorts}) — the day would "
+              f"have unverified timetable coverage. Fetch the build in force on "
               f"{args.day}.", file=sys.stderr)
         return 1
 
     # A derived figure that cannot say which data produced it cannot be checked,
     # and the timetable is rebuilt weekly. See the evidence-provenance skill.
-    version = args.timetable_version or _timetable_version(Path(args.timetable))
+    version = _timetable_version(Path(args.timetable))
     files = snapshot_files(args.snapshots)
-    if not files:
+    rt_files = gtfs_rt_files(args.gtfs_rt) if args.gtfs_rt else []
+    if not files and not rt_files:
         print(f"no snapshots in {args.snapshots}", file=sys.stderr)
         return 1
 
-    london = ZoneInfo("Europe/London")
-
-    # The same minute in the other feed, where it was recorded.
-    rt_by_minute = dict(gtfs_rt_files(args.gtfs_rt)) if args.gtfs_rt else {}
-
-    def stream():
-        for secs, path in files:
-            at_utc = datetime.combine(day, time(secs // 3600, secs % 3600 // 60),
-                                      tzinfo=london).astimezone(timezone.utc)
-            vehicles = parse_snapshot(path.read_text(encoding="utf-8"), at_utc)
-            rt_path = rt_by_minute.get(secs)
-            if rt_path:
-                # Both feeds carry the same vehicle ids — checked vehicle by
-                # vehicle against the same minute, agreeing to a median of 0 m
-                # (docs/reliability/gtfs-rt-probe.md).
-                stated = declared_journeys(rt_path)
-                for v in vehicles:
-                    trip = stated.get(v.get("vehicle_ref", ""))
-                    if trip:
-                        v["trip_id"] = trip
-            yield secs, vehicles
-
+    health, manifest = {}, []
     observations, coverage = observe_day(
-        tt, day, stream(), atcos=CORRIDOR_ATCOS if args.corridor_only else None)
+        tt, day, recorded_stream(tt, day, files, rt_files, health, manifest, parse_snapshot),
+        atcos=CORRIDOR_ATCOS if args.corridor_only else None)
+    coverage["feeds"] = health
+    for feed, count in coverage["matched_reports_by_feed"].items():
+        if feed in health:
+            health[feed]["unique_matched_reports"] = count
+            for hour, matched in coverage["matched_reports_by_feed_hour"].get(feed, {}).items():
+                health[feed]["hours"][hour]["matched_reports"] = matched
+    for row in observations:
+        if row.get("estimated") or not row.get("source_reports"):
+            continue
+        source = row["source_reports"][0]
+        feed = source.get("feed")
+        if feed in health and source.get("fetched_epoch") is not None:
+            hour = datetime.fromtimestamp(source["fetched_epoch"], LONDON).strftime("%H")
+            health[feed]["hours"][hour]["measured_calls"] += 1
+    coverage["feed_health_note"] = "Fetched means downloaded recorded objects, not confirmed upstream requests; failed fetch attempts cannot be reconstructed from missing objects. Hour counts use London fetch hour; both autumn 01:00 hours share one bucket with 120 expected RT minutes."
     declared = sum(1 for o in observations if o.get("match") == "declared")
     coverage["declared_share"] = round(declared / len(observations), 3) if observations else 0
     payload = {
@@ -942,6 +968,26 @@ def main(argv=None):
         "data_version": version,
         "coverage": coverage,
         "observations": observations,
+        "time_basis": TIME_BASIS,
+        "provenance": {
+            "runtime": {"python": sys.version, "packages": {d.metadata["Name"]: d.version for d in metadata.distributions() if d.metadata["Name"]}},
+            "processing_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+            "code_sha256": {str(p.relative_to(ROOT)): digest_file(p) for p in (
+                Path(__file__), ROOT / "api/trip_match.py", ROOT / "api/gtfs_rt.py",
+                ROOT / "api/timetable_db.py", ROOT / "scripts/observation_contract.py",
+                ROOT / "scripts/reliability_stats.py", ROOT / "scripts/recorded_inputs.py",
+                ROOT / "scripts/build_journey_times.py", ROOT / "scripts/query_reliability.py",
+                ROOT / "scripts/build_delay_hotspots.py", ROOT / "scripts/check_published.py",
+                ROOT / "scripts/publication_bundle.py", ROOT / "scripts/prepare_reliability_inputs.py",
+                ROOT / "scripts/archive_reliability_evidence.py",
+                ROOT / ".github/workflows/process-snapshots.yml")},
+            "timetable_sha256": digest_file(Path(args.timetable)),
+            "timetable_label": args.timetable_version,
+            "sources": manifest,
+            "config": {"arrival_radius_m": ARRIVAL_RADIUS_M, "min_samples": MIN_SAMPLES,
+                       "stale_secs": VEHICLE_STALE_SECS, "timezone": "Europe/London",
+                       "corridor_only": args.corridor_only},
+        },
     }
     if args.summary_out:
         summary = {
@@ -951,6 +997,7 @@ def main(argv=None):
             "caveats": CAVEATS,
             "as_of": payload["as_of"],
             "data_version": version,
+            "provenance": {k: v for k, v in payload["provenance"].items() if k != "sources"},
             **summarise(observations, coverage),
         }
         out = Path(args.summary_out)

@@ -1648,14 +1648,9 @@ async def get_journey(
     itineraries = [interchange] if interchange else []
     alternatives_note = ""
     if options:
-        direct_nocs = {o["operator"] for o in options if o.get("operator")}
-        both_ends = set(tt.operators_at_stop(a)) & set(tt.operators_at_stop(b))
-        if both_ends - direct_nocs:
-            itineraries = tt.interchange_options(a, b, today, anchor, limit=4)
-        else:
-            alternatives_note = (
-                "Every operator serving both ends also runs the direct bus, so "
-                "no change could make this journey cheaper.")
+        itineraries = tt.interchange_options(a, b, today, anchor, limit=4)
+        alternatives_note = ("Comparison covers the options found at the selected departure time, "
+                             "including up to four one-change alternatives; it is not an exhaustive fare search.")
     elif interchange:
         # No direct bus at all, so the alternatives *are* the answer and there
         # is nothing to skip the search for. This is where the comparison
@@ -2729,6 +2724,7 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
     # wants to know whether one is coming.
     departures = []
     seen = set()
+    patterns = {}
     for offset_days in (-1, 0, 1):
         service_day  = today + timedelta(days=offset_days)
         day_start    = _service_day_start(service_day)
@@ -2765,8 +2761,12 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
             # route to the same place in the same minute are one departure
             # slot, which is the argument the headway median already makes.
             headsign = trip.get("headsign", "")
-            key = (route.get("short_name", "?"), headsign,
-                   dep_secs, service_day)
+            operator = tt.noc_for_route(trip.get("route_id", ""))
+            if trip_id not in patterns:
+                patterns[trip_id] = tuple(atco for _secs, atco in tt.trip_stops_for(trip_id))
+            pattern = patterns[trip_id]
+            key = (operator, route.get("short_name", "?"), headsign,
+                   dep_secs, service_day, pattern)
             if key in seen:
                 continue
             seen.add(key)
@@ -2781,6 +2781,7 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
                     origin_name = tt.stops.get(calls[0][1], {}).get("name", "")
             departures.append({
                 "service":            route.get("short_name", "?"),
+                "operator":           operator,
                 "destination":        _destination_of(headsign, stop_name,
                                                       origin_name),
                 "aimed_departure":    dep_dt.isoformat(),

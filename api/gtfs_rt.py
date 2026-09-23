@@ -64,8 +64,8 @@ def _text(raw):
 
 
 def _trip(raw):
-    """TripDescriptor: 1 trip_id, 2 route_id, 3 direction_id, 4 start_time,
-    5 start_date, 6 schedule_relationship."""
+    """TripDescriptor wire fields: 1 trip_id, 2 start_time, 3 start_date,
+    4 schedule_relationship, 5 route_id (GTFS-realtime protobuf)."""
     out = {}
     for number, _wire, value in fields(raw):
         if number == 1:

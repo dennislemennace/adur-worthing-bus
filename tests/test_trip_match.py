@@ -225,4 +225,4 @@ def test_two_buses_cannot_both_declare_the_same_journey(tt):
     twins = [dict(bus_at(0), trip_id="T1"), dict(bus_at(1), trip_id="T1")]
     placed, claimed = trip_match.place_declared(tt, twins, instances, 36_000)
     assert len(placed) == 1, f"one journey was claimed twice: {placed}"
-    assert len(claimed) == 1, "both buses were treated as placed"
+    assert claimed == {0, 1}, "duplicate declarations must not be inferred onto another journey"

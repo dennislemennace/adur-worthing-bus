@@ -54,11 +54,14 @@ def main(argv=None):
         print(window)
         return 0
 
-    if tt.covers_day(date.fromisoformat(args.day)):
+    # Use exactly the recording area's cohorts; a calendar elsewhere is insufficient.
+    from process_snapshots import stops_in_box
+    missing = tt.uncovered_cohorts(date.fromisoformat(args.day), stops_in_box(tt))
+    if tt.covers_day(date.fromisoformat(args.day)) and not missing:
         if not args.quiet:
             print(f"{path.name} covers {args.day} (describes {window})")
         return 0
-    print(f"{path.name} does NOT cover {args.day} (describes {window})",
+    print(f"{path.name} does NOT cover all local cohorts for {args.day} (describes {window}; uncovered={missing})",
           file=sys.stderr)
     return 1
 

@@ -925,7 +925,8 @@
                    700 journey, in both directions. -->
               <span class="field-label">Show</span>
               <select id="journey-times-mode" class="field-input">
-                <option value="delay">Against the timetable</option>
+                <option value="delay">Extra time on this section</option>
+                <option value="punctuality">Lateness at destination</option>
                 <option value="duration">Journey time</option>
               </select>
             </label>
@@ -937,6 +938,16 @@
               <span class="field-label">Days</span>
               <select id="journey-times-days" class="field-input"></select>
             </label>
+            <details class="jt-filter-options"><summary>Time and evidence filters</summary>
+              <div class="jt-filter-grid">
+            <label class="field"><span class="field-label">Departures from (London)</span><input type="time" value="00:00" id="journey-times-time-from" class="field-input"></label>
+            <label class="field"><span class="field-label">Departures until (London)</span><input type="time" value="23:59" id="journey-times-time-to" class="field-input"></label>
+            <label class="field"><span class="field-label">Observations</span><select id="journey-times-evidence" class="field-input"><option value="measured">Measured endpoints only</option><option value="all">Include interpolation</option></select></label>
+            <label class="field"><span class="field-label">Journey identity</span><select id="journey-times-identity" class="field-input"><option value="all">All identities</option><option value="declared">Declared by operator</option><option value="inferred">Inferred from position</option></select></label>
+            <label class="field"><span class="field-label">Quality</span><select id="journey-times-quality" class="field-input"><option value="all">All, including flagged</option><option value="clear">No quality flags</option></select></label>
+            <label class="field"><span class="field-label">Comparable cohort</span><select id="journey-times-cohort" class="field-input"><option value="all">All cohorts (exploratory)</option></select></label>
+              </div>
+            </details>
           </div>
 
           <div class="jt-range" id="journey-times-range" hidden>

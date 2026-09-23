@@ -29,6 +29,7 @@ fit first, so two buses reporting the same position cannot both claim it.
 """
 
 import math
+import re
 from datetime import timedelta
 
 # Late by up to 25 minutes; early by no more than 5. See the note above.
@@ -155,10 +156,38 @@ def place_declared(tt, vehicles, instances, now):
     for vi, v in enumerate(vehicles):
         trip = (v.get("trip_id") or "").strip()
         candidates = by_trip.get(trip)
-        if not trip or not candidates:
+        if not trip:
             continue
-        key = min(candidates, key=lambda k: _span_distance(instances[k], now))
+        if v.get("schedule_relationship", 0) not in (None, 0):
+            claimed.add(vi)  # new/cancelled instance has no usable static schedule
+            continue
+        if not candidates:
+            # Still usable for exploratory inference, never certified as declared.
+            v.setdefault("identity_flags", []).append("unresolved_declared_trip")
+            continue
+        start_time = v.get("start_time")
+        if start_time:
+            valid = re.fullmatch(r"(\d+):([0-5]\d):([0-5]\d)", start_time)
+            calls = tt.trip_stops_for(trip)
+            start_secs = sum(int(x) * unit for x, unit in zip(valid.groups(), (3600, 60, 1))) if valid else None
+            if not calls or start_secs != calls[0][0]:
+                claimed.add(vi)  # frequency/replacement instance is not in this static timetable
+                continue
+        start_date = (v.get("start_date") or "").replace("-", "")
+        if start_date:
+            candidates = [k for k in candidates if k[1].strftime("%Y%m%d") == start_date]
+            if not candidates:
+                claimed.add(vi)  # named a different instance: do not silently infer one
+                continue
+        report_now = v.get("recorded_secs")
+        report_now = now if report_now is None else report_now
+        key = min(candidates, key=lambda k: _span_distance(instances[k], report_now))
         if key in placed:
+            claimed.add(vi)
+            other = vehicles[placed[key][0]]
+            if v.get("vehicle_ref") != other.get("vehicle_ref"):
+                v.setdefault("identity_flags", []).append("conflicting_declared_vehicles")
+                other.setdefault("identity_flags", []).append("conflicting_declared_vehicles")
             continue                      # two buses claiming one journey
         idx = nearest_call(tt, instances[key], v.get("latitude"), v.get("longitude"))
         if idx is None:
