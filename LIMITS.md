@@ -424,10 +424,18 @@ Added 23 September 2026, measured on that day's timetable rather than estimated.
   day pointing at a deduplicated set of trips. Every weekday under one timetable
   is identical, so a 35-day window stores a handful of sets per service.
 - **Delay-map files** (`hotspot-map-*.json`, one per service, plus an index):
-  48 files and **675 KB in total** for 23 September's timetable, the largest
-  66 KB. `check_published.py` refuses any single file over 500 KB. They are
-  rebuilt into every publication generation, so they add about 0.7 MB to each
-  generation's share of the 4 GiB published budget.
+  48 files and **675 KB in total** for 23 September's timetable before any
+  current-method journeys were in them, the largest 66 KB. They grow with the
+  cells measured: on 24 September one day of journeys took the 2's file to
+  507 KB, over the 500 KB raw cap then in force, and the whole night's
+  publication stopped. Map cells now carry only what the map uses (no route
+  pattern hash or status; builds named by a 16-character hash), about a third
+  smaller, and `check_published.py` judges a file by what a phone downloads:
+  at most **200 KB compressed** (gzip, as a cautious stand-in for the Worker's
+  Brotli), with a 4 MB raw ceiling. A simulated 2,100-cell file, weekdays and
+  weekends for a route like the 2, is about 640 KB raw and 32 KB compressed.
+  They are rebuilt into every publication generation, so budget about 1 to 2 MB
+  of each generation's share of the 4 GiB published total for them.
 - Building the delay map with its geometry took 3.4 seconds and 430 MB peak RSS
   on the review machine. Heavy, but in Actions, and nowhere near Render.
 - No new external calls. Stretch geometry comes from the timetable's own shapes;

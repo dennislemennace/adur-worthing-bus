@@ -216,9 +216,29 @@ def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=18
 # Fields a map cell keeps. The rest — per-day breakdowns, every traversal and
 # its source reports — stays in hotspot-preview.json, the evidence file, so the
 # map a phone downloads stays small.
+# What a map cell carries to a phone: what the map draws and says, and enough
+# provenance to name its builds. Not the 64-character route pattern, which the
+# map never reads, nor `status`, which repeats `sample_sufficient`: on 24
+# September 2026 they helped take the 2's map over its size limit and stopped
+# the whole night's publication. The full cells stay in hotspot-preview.json.
 MAP_CELL_FIELDS = ("resolution", "period", "hour", "day_type", "schedule_era", "data_versions",
                    "median_gained_secs", "p90_gained_secs", "at_least_600s", "traversals",
-                   "journeys", "distinct_days", "sample_sufficient", "status")
+                   "journeys", "distinct_days", "sample_sufficient")
+
+
+def short_version(version):
+    """A timetable build named by its hash alone, 16 characters: the same build
+    was named both ways in the window ("timetable.sqlite sha256:<16>" and the
+    full 64), and a phone needs neither the file name nor the rest."""
+    text = str(version)
+    return text.split("sha256:", 1)[1][:16] if "sha256:" in text else text
+
+
+def map_cell(stretch, cell):
+    out = {"stretch": stretch, **{k: cell.get(k) for k in MAP_CELL_FIELDS if k in cell}}
+    if "data_versions" in out:
+        out["data_versions"] = sorted({short_version(v) for v in out["data_versions"] or []})
+    return out
 
 # A stretch whose road-following path is this much longer than the chain of
 # its stops has been projected onto the wrong pass of a looping shape.
@@ -396,8 +416,7 @@ def build_map(result, tt, day, out_dir):
                                       == (cell["from_atco"], cell["to_atco"])), None)
                     if same_ends:
                         sections[key] = same_ends
-                        cells.append({"stretch": same_ends, "route_pattern": cell["route_pattern"],
-                                      **{k: cell.get(k) for k in MAP_CELL_FIELDS if k in cell}})
+                        cells.append(map_cell(same_ends, cell))
                         continue
                     # Otherwise draw the two ends, roughly, rather than drop
                     # measured evidence.
@@ -413,8 +432,7 @@ def build_map(result, tt, day, out_dir):
                         "headsign": "", "geometry": _decimate([(e["lat"], e["lon"]) for e in ends]),
                         "approximate": True})
                     sections[key] = stretch_key
-            cells.append({"stretch": sections[key], "route_pattern": cell["route_pattern"],
-                          **{k: cell.get(k) for k in MAP_CELL_FIELDS if k in cell}})
+            cells.append(map_cell(sections[key], cell))
         if not stretches:
             continue
         # The era a reader should see first: the one holding the latest day.

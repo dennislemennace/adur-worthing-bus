@@ -28,6 +28,7 @@ publishing. Usage:
 """
 
 import argparse
+import gzip
 import json
 import sys
 from pathlib import Path
@@ -179,11 +180,16 @@ def check_document_schedule(doc, name, fails):
             fails.add("schedule describes a day outside the window", f"{name} {day}")
 
 
-# A phone downloads one of these per service it looks at.
-HOTSPOT_MAP_MAX_BYTES = 500_000
+# A phone downloads one of these per service it looks at, compressed: the
+# Worker serves them Brotli-encoded, and gzip is measured here as the cautious
+# stand-in. The raw ceiling guards parse time and memory against runaway
+# growth. A 500 KB raw cap stopped the whole night's publication on 24
+# September 2026 over the 2's 507 KB file, which gzip takes to tens of KB.
+HOTSPOT_MAP_MAX_COMPRESSED = 200_000
+HOTSPOT_MAP_MAX_BYTES = 4_000_000
 
 
-def check_hotspot_map(doc, name, fails, size=None):
+def check_hotspot_map(doc, name, fails, size=None, raw=None):
     """One service's delay map: small, self-consistent, and never overclaiming.
 
     The line colour a reader sees is a claim about a road, so a cell may only be
@@ -192,6 +198,12 @@ def check_hotspot_map(doc, name, fails, size=None):
     and their source reports belong in the evidence file, and finding them here
     means the wrong thing was published to every phone.
     """
+    if raw is not None:
+        size = len(raw)
+        compressed = len(gzip.compress(raw, 6))
+        if compressed > HOTSPOT_MAP_MAX_COMPRESSED:
+            fails.add("delay map file is too large for a phone",
+                      f"{name}: {compressed} bytes compressed")
     if size is not None and size > HOTSPOT_MAP_MAX_BYTES:
         fails.add("delay map file is too large for a phone", f"{name}: {size} bytes")
     if "traversals" in doc or any("traversals" in s for s in doc.get("stretches") or []):

@@ -254,7 +254,7 @@ def _cell(pattern_id, pattern, i, j, **extra):
     return {"service": "700", "operator": "SCSO", "route_pattern": pattern_id,
             "direction": "westbound", "from_sequence": i, "to_sequence": j,
             "from_atco": pattern["atcos"][i], "to_atco": pattern["atcos"][j],
-            "from_name": "x", "to_name": "y", "resolution": "period", "period": "07-10",
+            "from_name": "x", "to_name": "y", "resolution": "period", "period": "08-10",
             "day_type": "weekday", "schedule_era": "e1", "data_versions": ["tt"],
             "median_gained_secs": 150, "p90_gained_secs": None, "at_least_600s": 1,
             "traversals": 12, "journeys": 12, "distinct_days": 2, "days": ["2026-09-16"],
@@ -296,10 +296,36 @@ def test_the_published_map_check_refuses_an_overclaim_and_raw_evidence():
                      {"stretch": "ghost", "journeys": 40, "distinct_days": 6, "sample_sufficient": True}],
            "traversals": []}
     failures = checks.Failures()
-    checks.check_hotspot_map(doc, "m.json", failures, size=600_000)
+    # Incompressible, so its download is as big as the file: too large.
+    import os
+    checks.check_hotspot_map(doc, "m.json", failures, raw=os.urandom(300_000))
     found = " ".join(str(i) for i in failures.items)
     for message in ("below the floor", "does not draw", "raw traversals", "too large"):
         assert message in found, message
+
+
+def test_a_map_is_judged_by_what_a_phone_downloads():
+    """The Worker serves these compressed. The 2's map was 507 KB on disk and
+    tens of kilobytes to download, and a cap on the raw size stopped the whole
+    night's publication on 24 September 2026."""
+    import json as _json
+    import check_published as checks
+    cells = [{"stretch": "s1", "resolution": "hour", "hour": h % 24, "day_type": "weekday",
+              "schedule_era": "abcdef0123456789", "data_versions": ["c4a758f1abfd1d1f"],
+              "median_gained_secs": 30 + h % 90, "journeys": 3, "distinct_days": 1,
+              "traversals": 3, "at_least_600s": 0, "sample_sufficient": False, "latest": True}
+             for h in range(4000)]
+    doc = {"floor": {"journeys": 30, "distinct_days": 5},
+           "stretches": [{"id": "s1", "geometry": [[0, 0], [0, 1]]}], "cells": cells}
+    raw = _json.dumps(doc).encode()
+    assert len(raw) > 500_000, "the fixture is not bigger than the old cap"
+    failures = checks.Failures()
+    checks.check_hotspot_map(doc, "big.json", failures, raw=raw)
+    assert not failures.items, failures.items
+    # Past the raw ceiling it is refused whatever it compresses to.
+    failures = checks.Failures()
+    checks.check_hotspot_map(doc, "huge.json", failures, size=checks.HOTSPOT_MAP_MAX_BYTES + 1)
+    assert failures.items
 
 
 def test_the_map_groups_hours_exactly_as_the_journey_view_does():
@@ -332,3 +358,18 @@ def test_the_map_groups_hours_exactly_as_the_journey_view_does():
             assert entry_period(at) == app_period(hour * 60 + minute), (
                 f"{hour:02d}:{minute:02d} is {entry_period(at)} on the map "
                 f"but {app_period(hour * 60 + minute)} in the journey view")
+
+
+def test_a_map_cell_carries_only_what_the_map_uses(tt, tmp_path):
+    """Not the route pattern's 64-character hash, which the map never reads,
+    nor a status repeating sample_sufficient; timetable builds by hash alone."""
+    from build_delay_hotspots import build_map
+    pattern_id, pattern = _real_stretch(tt)
+    cell = _cell(pattern_id, pattern, 10, 20,
+                 data_versions=["timetable.sqlite sha256:c4a758f1abfd1d1f",
+                                "timetable.sqlite sha256:c4a758f1abfd1d1fa6276ce58fea4fb7e19ccd7c0060391d21"])
+    build_map(_empty_result(cells=[cell]), tt, DAY, tmp_path)
+    doc = _json.loads((tmp_path / "hotspot-map-700-SCSO.json").read_text())
+    published = doc["cells"][0]
+    assert "route_pattern" not in published and "status" not in published, published
+    assert published["data_versions"] == ["c4a758f1abfd1d1f"], published["data_versions"]
