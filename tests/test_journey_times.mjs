@@ -548,6 +548,56 @@ test("stops are ordered by where they fall in that direction's journeys", () => 
     "the return direction was listed in the outward order");
 });
 
+test("a short working that starts mid-route does not jumble the stop list", () => {
+  // Stops were ordered by their median position in each journey's call list.
+  // A short working starting at the fifth stop puts that stop at position 0 in
+  // every one of its journeys, so where short workings outnumber the full run
+  // the second half of the route was listed on top of the first. Measured over
+  // the published services: 1,332 pairs of stops listed the opposite way round
+  // to how buses called at them, 495 on the 21 alone.
+  const full = [0, 1, 2, 3, 4, 5, 6, 7];
+  const short = [4, 5, 6, 7];
+  const doc = { journeys: [
+    ...Array.from({ length: 8 }, () =>
+      headed("Marina", full.map((i, n) => [i, 100 + n * 60, 100 + n * 60, 0]))),
+    ...Array.from({ length: 20 }, () =>
+      headed("Marina", short.map((i, n) => [i, 400 + n * 60, 400 + n * 60, 0]))),
+  ] };
+  const [d] = directions(doc);
+  assert.equal(JSON.stringify(d.stops.map(s => s.index)), JSON.stringify(full),
+    "the stop list is not in the order the buses call at them");
+});
+
+test("stops a bus was not seen at still fall in route order", () => {
+  // A journey records only the stops it was seen at, so two journeys along the
+  // same road can hold quite different subsets of it. The positions in their
+  // call lists do not line up, and the list has to come from the order the
+  // stops were called in rather than from where they sat in each list.
+  const route = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+  const seen = [[10, 11, 12, 13, 14, 15, 16, 17, 18, 19], [10, 14, 15, 16, 17, 18, 19],
+                [10, 11, 12, 13, 18, 19], [13, 14, 15, 16], [16, 17, 18, 19],
+                [11, 15, 19], [10, 12, 14, 16, 18]];
+  const doc = { journeys: seen.flatMap(stops => Array.from({ length: 3 }, () =>
+    headed("Hove", stops.map(i => [i, 100 + route.indexOf(i) * 60, 100 + route.indexOf(i) * 60, 0])))) };
+  const [d] = directions(doc);
+  assert.equal(JSON.stringify(d.stops.map(s => s.index)), JSON.stringify(route));
+});
+
+test("a loop run both ways round keeps a stable order rather than failing", () => {
+  // Some town services run a loop in both directions under one destination,
+  // so the same two stops are called in both orders. No order satisfies every
+  // journey; the list must still come back whole and without repeats.
+  const doc = { journeys: [
+    ...Array.from({ length: 5 }, () => headed("Loop", [[0, 100, 100, 0], [1, 200, 200, 0], [2, 300, 300, 0], [3, 400, 400, 0]])),
+    ...Array.from({ length: 5 }, () => headed("Loop", [[0, 100, 100, 0], [3, 200, 200, 0], [2, 300, 300, 0], [1, 400, 400, 0]])),
+  ] };
+  const [d] = directions(doc);
+  const got = d.stops.map(s => s.index);
+  assert.equal(got.length, 4);
+  assert.equal(new Set(got).size, 4, "a stop was listed twice");
+  assert.equal(got[0], 0, "the stop every journey starts from is not first");
+});
+
 test("a service that states no headsign still gets a direction", () => {
   // Older documents carry none. Falling back on the compass label is worse
   // than nothing only when it is wrong about the destination; as a last resort
@@ -720,9 +770,33 @@ test("a destination almost nobody goes to is not half the label", () => {
     toward("Hove", "Palmeira Square", [0, 1]),
   ] };
   const [west] = directions(doc);
-  assert.equal(west.headsign, "Shoreham-by-Sea  (+1 more)");
+  assert.equal(west.headsign, "Shoreham-by-Sea (or 1 other place)");
   assert.equal(west.places.length, 2, "the rare destination was dropped, not counted");
   assert.equal(west.places[1].journeys, 1);
+});
+
+test("a destination is named without the stand letter the feed adds", () => {
+  // The 25 was offered as "towards Old Steine S3" and the 7 as "George Street
+  // (stop J)": the stand at the terminus, which helps nobody pick a direction.
+  const clean = vm.runInContext("jtCleanHeadsign", app);
+  assert.equal(clean("Old Steine S3"), "Old Steine");
+  assert.equal(clean("Imperial Arcade C7"), "Imperial Arcade");
+  assert.equal(clean("George Street (stop J)"), "George Street");
+  assert.equal(clean("Portslade Station (stop G)"), "Portslade Station");
+  assert.equal(clean("Brighton University Falmer"), "Brighton University Falmer");
+  assert.equal(clean("Worthing"), "Worthing");
+  // Where no town tells the two directions apart, the bus's own words are
+  // used, and two stands at one terminus are one destination.
+  const doc = { journeys: [
+    ...Array.from({ length: 5 }, () => headed("Northfield Crescent", [[0, 100, 100, 0], [1, 200, 200, 0]])),
+    ...Array.from({ length: 5 }, () => headed("Old Steine S3", [[5, 100, 100, 0], [6, 200, 200, 0]])),
+    ...Array.from({ length: 2 }, () => headed("Old Steine S1", [[5, 100, 100, 0], [6, 200, 200, 0]])),
+  ].map(j => ({ ...j, place: "Brighton" })) };
+  const got = directions(doc).map(d => d.headsign);
+  assert.ok(got.includes("Old Steine"), `stand letters reached the label: ${got.join(" | ")}`);
+  const label = vm.runInContext("jtDirectionLabel", app);
+  assert.equal(label({ headsign: "Hove" }), "Towards Hove");
+  assert.equal(label({ headsign: "Eastbound" }), "Eastbound", "the compass fallback was given a destination");
 });
 
 test("with no place published the destination text is used", () => {
@@ -881,7 +955,7 @@ test("a direction is not named after somewhere almost nobody goes", () => {
     ...runs(28, "Brighton", "Imperial Arcade", [10, 11, 12, 13]),
   ] };
   const [first] = directions(doc);
-  assert.equal(first.headsign.split("  ")[0], "Marina Cinema",
+  assert.equal(first.headsign.split(" (or ")[0], "Marina Cinema",
     `named after 6% of the direction: ${first.headsign}`);
 });
 
@@ -982,7 +1056,7 @@ import { ROOT } from "./load_app.mjs";
 import { join } from "node:path";
 
 const DEFAULTS = vm.runInContext("JT_DEFAULT_FILTERS", app);
-const inPeriod = vm.runInContext("journeyTimesInPeriod", app);
+const inSlot = vm.runInContext("journeyTimesInSlot", app);
 const insight = vm.runInContext("journeyTimesPeriodInsight", app);
 const scheduleLine = vm.runInContext("journeyTimesScheduleLine", app);
 const coverage = vm.runInContext("journeyTimesCoverage", app);
@@ -1020,14 +1094,26 @@ function tracked(day, h, m, tookMins, promisedMins = 20, tripId = `T${h}${m}`) {
            calls: [[0, dep, dep, 0], [1, dep + tookMins * MIN, dep + promisedMins * MIN, 0]] };
 }
 
-test("the early-and-late period wraps midnight, and weekend means only weekends", () => {
+test("the early-and-late period wraps midnight, and a day type combines with any time", () => {
   const doc = { stops: [{}, {}], journeys: [
     tracked("2026-09-22", 23, 0, 20), tracked("2026-09-22", 5, 0, 20),
-    tracked("2026-09-22", 12, 0, 20), tracked("2026-09-26", 12, 0, 20)] };
+    tracked("2026-09-22", 12, 0, 20), tracked("2026-09-26", 12, 0, 20),
+    tracked("2026-09-27", 8, 0, 20)] };
   const all = between(doc, 0, 1);
-  assert.deepEqual(plain(inPeriod(all, "other").map(t => t.start).sort()), ["05:00", "23:00"]);
-  assert.deepEqual(plain(inPeriod(all, "weekend").map(t => t.day)), ["2026-09-26"]);
-  assert.equal(inPeriod(all, "any").length, 4);
+  assert.deepEqual(plain(inSlot(all, "weekday", "other").map(t => t.start).sort()), ["05:00", "23:00"]);
+  assert.deepEqual(plain(inSlot(all, "weekend", "any").map(t => t.day).sort()), ["2026-09-26", "2026-09-27"]);
+  // Weekends were once a time of day of their own, so a weekend morning
+  // could not be asked for at all.
+  assert.deepEqual(plain(inSlot(all, "weekend", "08-10").map(t => t.day)), ["2026-09-27"]);
+  assert.equal(inSlot(all, "weekday", "any").length, 3);
+  assert.equal(inSlot(all, "all", "any").length, 5);
+  // An old link's "weekend" period still lands somewhere sensible.
+  const fromLink = vm.runInContext("jtSlotFromLink", app);
+  assert.deepEqual(plain(fromLink(null, "weekend")), { day: "weekend", period: "any" });
+  assert.deepEqual(plain(fromLink("weekday", "nonsense")), { day: "weekday", period: null });
+  // The rush hours were 07-10 and 16-19; an old link opens on the new ones.
+  assert.deepEqual(plain(fromLink("weekday", "07-10")), { day: "weekday", period: "08-10" });
+  assert.deepEqual(plain(fromLink("weekday", "16-19")), { day: "weekday", period: "16-18" });
 });
 
 test("the slowest time of day is only named from enough journeys", () => {
@@ -1036,8 +1122,8 @@ test("the slowest time of day is only named from enough journeys", () => {
   for (let i = 0; i < 12; i++) journeys.push(tracked("2026-09-22", 12, i, 22, 20, `D${i}`));
   // Nine evening buses, one short of the floor: not enough to call it anything.
   for (let i = 0; i < 9; i++) journeys.push(tracked("2026-09-22", 17, i, 60, 20, `E${i}`));
-  const found = insight(between({ stops: [{}, {}], journeys }, 0, 1));
-  assert.equal(found.slowest.period.key, "07-10");
+  const found = insight(between({ stops: [{}, {}], journeys }, 0, 1), "weekday");
+  assert.equal(found.slowest.period.key, "08-10");
   assert.equal(found.quickest.period.key, "10-16");
   assert.equal(found.compared, 2, "a period below the floor was compared");
 });
@@ -1085,9 +1171,10 @@ test("coverage counts scheduled journeys in the period against the ones tracked"
   const all = between(doc, 0, 2);
   assert.deepEqual({ ...coverage(doc, 0, 2, ["2026-09-22"], all) },
                    { scheduled: 2, tracked: 1, days: 1 });
-  // Only the 07:00 falls in the morning peak's hours... and both do; the
-  // daytime period holds neither.
-  assert.equal(coverage(doc, 0, 2, ["2026-09-22"], all, "07-10").scheduled, 2);
+  // The morning peak is 08:00 to 10:00: the 08:00 is in it, the 07:00 is
+  // early, and the daytime period holds neither.
+  assert.equal(coverage(doc, 0, 2, ["2026-09-22"], all, "08-10").scheduled, 1);
+  assert.equal(coverage(doc, 0, 2, ["2026-09-22"], all, "other").scheduled, 1);
   assert.equal(coverage(doc, 0, 2, ["2026-09-22"], all, "10-16").scheduled, 0);
   assert.equal(coverage({ stops: [] }, 0, 2, ["2026-09-22"], all), null);
 });
@@ -1128,9 +1215,317 @@ test("in journey-time mode the chart draws the timetable, not one flat median", 
                          { schedule: scheduleLine(doc, 0, 2, ["2026-09-22"]), variant: "simple" });
   assert.match(withLine, /class="jt-timetable jt-timetable--weekday"/);
   assert.doesNotMatch(withLine, /median timetable/);
-  assert.match(withLine, /what the timetable promised, weekdays/);
+  assert.match(withLine, /Timetable, weekdays/);
+  // A step line, not a circle on every departure: on a ten-minute route that
+  // was hundreds of marks saying nothing the line does not.
+  assert.doesNotMatch(withLine, /jt-timetable-stop/);
   const withoutLine = chart(all, summary, "duration", 640);
   assert.match(withoutLine, /median timetable/);
+});
+
+// ── Charts a reader can read ──────────────────────────────────
+
+const niceStep = vm.runInContext("jtNiceStep", app);
+const chartSecs = vm.runInContext("jtChartSecs", app);
+const chartSpan = vm.runInContext("jtChartSpan", app);
+const hourly = vm.runInContext("jtHourlyTypical", app);
+const dayChart = vm.runInContext("journeyTimesDayChart", app);
+const defaultHour = vm.runInContext("jtDefaultHour", app);
+
+/** `n` journeys from stop 0 to 1 on `day`, one every `gap` minutes from `h`:00. */
+function many(n, day = "2026-09-22", h = 7, gap = 10, took = 30) {
+  return Array.from({ length: n }, (_, i) => {
+    const mins = h * 60 + i * gap;
+    return tracked(day, Math.floor(mins / 60) % 24, mins % 60, took, 25, `N${i}`);
+  });
+}
+
+test("axis ticks come in steps a reader can count in", () => {
+  // The old ticks were the range divided by five: 0, 17, 34, 51, 68.
+  for (const range of [3, 9, 17, 34, 68, 75, 140]) {
+    const step = niceStep(range);
+    assert.ok([1, 2, 5, 10, 15, 20, 30, 60, 120].includes(step), `step ${step} for ${range} min`);
+    assert.ok(range / step <= 6, `${range / step} ticks for ${range} min`);
+  }
+  const doc = { stops: [{}, {}], journeys: many(12, "2026-09-22", 7, 20, 61) };
+  const all = between(doc, 0, 1);
+  const svg = chart(all, summarise(all), "duration", 640);
+  const ticks = [...svg.matchAll(/text-anchor="end">(\d+)<\/text>/g)].map(m => Number(m[1]));
+  assert.ok(ticks.length >= 3 && ticks.every(v => v % 5 === 0), `ticks ${ticks.join(", ")}`);
+});
+
+test("the chart's day starts at four, so the last buses of the night come last", () => {
+  assert.equal(chartSecs(4 * 3600), 0);
+  assert.equal(chartSecs(30 * 60), 20.5 * 3600, "00:30 belongs at the end of the day, not the start");
+  const span = chartSpan([chartSecs(5.5 * 3600), chartSecs(0.5 * 3600)]);
+  assert.equal(span.from, 1, "the chart should open at 05:00");
+  assert.equal(span.to, 21, "and run past half past midnight");
+  // Never narrower than six hours, so one busy hour is not a chart of one hour.
+  const narrow = chartSpan([chartSecs(8 * 3600)]);
+  assert.ok(narrow.to - narrow.from >= 6);
+});
+
+test("the typical time is only drawn through hours with at least three journeys", () => {
+  const journeys = [...many(4, "2026-09-22", 8, 10), ...many(2, "2026-09-22", 14, 10)];
+  const rows = hourly(between({ stops: [{}, {}], journeys }, 0, 1));
+  assert.equal(rows[8].journeys, 4);
+  assert.equal(rows[8].medianSecs, 30 * 60);
+  assert.equal(rows[14].journeys, 2);
+  assert.equal(rows[14].medianSecs, null, "two buses made a typical time");
+  assert.equal(rows[14].fastestSecs, 30 * 60, "the hour still says what it saw");
+});
+
+test("the passenger's chart shades the chosen time rather than hiding the rest of the day", () => {
+  const journeys = [...many(20, "2026-09-22", 6, 30, 30), ...many(4, "2026-09-22", 8, 5, 45)];
+  const doc = { stops: [{}, {}, {}], schedule: recorded({ "2026-09-22": 0 }), journeys };
+  const all = between(doc, 0, 1);
+  const got = dayChart(all, { width: 390, periodKey: "08-10", dayKey: "weekday", hour: 8,
+                              schedule: scheduleLine(doc, 0, 2, ["2026-09-22"]) });
+  assert.match(got.svg, /class="jt-band"/, "the morning peak is not shaded");
+  assert.equal((got.svg.match(/<circle class="jt-dot/g) || []).length, all.length,
+    "journeys outside the chosen time were dropped instead of shaded around");
+  assert.match(got.svg, /class="jt-typical"/);
+  assert.match(got.svg, /class="jt-hour-sel"/);
+  assert.match(got.svg, /class="jt-timetable jt-timetable--weekday"/);
+  // Nothing in the drawing takes focus: the hour slider is the way in.
+  assert.doesNotMatch(got.svg, /tabindex/);
+  assert.match(got.key, /Typical time/);
+  assert.match(got.key, /Timetable/);
+  const none = dayChart(all, { width: 390, periodKey: "any", dayKey: "weekday" });
+  assert.doesNotMatch(none.svg, /jt-band/, "all day shaded something");
+});
+
+test("a busy route's dots shrink and fade instead of becoming a blob", () => {
+  const all = between({ stops: [{}, {}], journeys: many(400, "2026-09-22", 5, 2, 12) }, 0, 1);
+  const busy = dayChart(all, { width: 390, dayKey: "weekday" });
+  assert.match(busy.svg, /jt-dot jt-dot--dense/);
+  assert.match(busy.svg, /r="2\.4"/);
+  // Detailed keeps every dot reachable, through one tab stop.
+  const detailed = chart(all, summarise(all), "duration", 640);
+  assert.equal((detailed.match(/tabindex="0"/g) || []).length, 1, "every dot was its own tab stop");
+  assert.equal((detailed.match(/tabindex="-1"/g) || []).length, all.length - 1);
+});
+
+test("the chart opens on the first busy hour of the chosen time", () => {
+  const all = between({ stops: [{}, {}], journeys: [...many(3, "2026-09-22", 6, 10), ...many(6, "2026-09-22", 8, 10), ...many(9, "2026-09-22", 12, 5)] }, 0, 1);
+  const rows = hourly(all);
+  const span = chartSpan(all.map(t => chartSecs(Number(t.start.slice(0, 2)) * 3600)));
+  assert.equal(defaultHour(rows, span, "08-10", null), 8, "the first busy hour of the morning peak");
+  assert.equal(defaultHour(rows, span, "10-16", null), 12, "10:00 and 11:00 had no buses; 12:00 did");
+  assert.equal(defaultHour(rows, span, "any", 6), 6, "the current hour, when it has buses");
+  assert.equal(defaultHour(rows, span, "any", 3), 12, "otherwise the busiest hour");
+});
+
+test("an hour with ten journeys says how long to allow, on the headline's own rule", () => {
+  const journeys = Array.from({ length: 12 }, (_, i) => tracked("2026-09-22", 8, i * 4, 10 + i, 10, `P${i}`));
+  const rows = hourly(between({ stops: [{}, {}], journeys }, 0, 1));
+  // Twelve journeys taking 10..21 min: the ninth-in-ten is index 10, 20 min.
+  assert.equal(rows[8].p90Secs, 20 * MIN);
+  assert.equal(rows[8].longerThanP90, 1);
+  const few = hourly(between({ stops: [{}, {}], journeys: journeys.slice(0, 9) }, 0, 1));
+  assert.equal(few[8].p90Secs, null, "nine journeys gave an hour its own 'allow'");
+  const words = vm.runInContext("jtLongerWords", app);
+  assert.equal(words(12, 1), "Only 1 of the 12 buses we timed took longer.");
+  assert.equal(words(10, 0), "None of the 10 buses we timed took longer.");
+  assert.equal(words(80, 8), "Only 1 in 10 buses we timed took longer.");
+});
+
+test("how long to allow is said for each hour, not drawn over the chart", () => {
+  // The band made the chart harder to read, so the figure moved into the words
+  // the hour slider gives and the table under it.
+  const busy = Array.from({ length: 24 }, (_, i) => tracked("2026-09-22", 8 + Math.floor(i / 12), (i % 12) * 5, 10 + (i % 7), 10, `B${i}`));
+  const all = between({ stops: [{}, {}], journeys: busy }, 0, 1);
+  const got = dayChart(all, { width: 640, dayKey: "weekday" });
+  assert.doesNotMatch(got.svg, /jt-spread/);
+  assert.doesNotMatch(got.key, /Time to allow/);
+  const detail = vm.runInContext("jtHourDetailText", app);
+  const rows = hourly(all);
+  // Twelve journeys taking 10 to 16 min: the middle is 12.5, the ninth in ten
+  // is 15, and one (the 16) took longer.
+  assert.match(detail(rows[8], "weekday", null), /usually 13 min, from 12 buses timed\. Allow 15 min: only 1 of the 12 buses we timed took longer\./);
+});
+
+test("every hour of the chart is also a row in a table", () => {
+  const table = vm.runInContext("jtHoursTableHtml", app);
+  const journeys = [...many(12, "2026-09-22", 8, 4, 20), ...many(2, "2026-09-22", 14, 10, 30)];
+  const all = between({ stops: [{}, {}], journeys }, 0, 1);
+  const rows = hourly(all);
+  const span = chartSpan(all.map(t => chartSecs(Number(t.start.slice(0, 2)) * 3600)));
+  const html = table(rows, span, { series: [] }, all, "weekday");
+  assert.match(html, /<th scope="row">08:00<\/th>\s*<td>20 min<\/td>\s*<td>20 min<\/td>/);
+  assert.match(html, /<th scope="row">14:00<\/th>\s*<td>too few<\/td>/, "two buses gave a usual time");
+  assert.doesNotMatch(html, /<th scope="row">03:00/, "an hour with nothing timed has a row");
+});
+
+// ── Words a passenger can act on ───────────────────────────────
+
+const allowHtml = vm.runInContext("jtAllowHtml", app);
+const versus = vm.runInContext("jtVersusTimetable", app);
+const chips = vm.runInContext("jtWhenChipsHtml", app);
+const slotSummaries = vm.runInContext("journeyTimesSlotSummaries", app);
+
+test("how long to allow is said as how many buses took longer, counted", () => {
+  const took = mins => mins.map((m, i) => tracked("2026-09-22", 8, i, m, 20, `A${i}`));
+  const ten = summarise(between({ stops: [{}, {}], journeys: took([20, 21, 22, 23, 24, 25, 26, 27, 28, 29]) }, 0, 1));
+  assert.match(allowHtml(ten), /Allow <strong>29 min<\/strong>/);
+  assert.match(allowHtml(ten), /None of the 10 buses we timed took longer/,
+    "with ten journeys the ninth-in-ten is the slowest, so none took longer");
+  const twenty = summarise(between({ stops: [{}, {}], journeys: took(Array.from({ length: 20 }, (_, i) => 20 + i)) }, 0, 1));
+  assert.match(allowHtml(twenty), /Only 1 of the 20 buses we timed took longer/);
+  const hundred = summarise(between({ stops: [{}, {}], journeys: Array.from({ length: 100 },
+    (_, i) => tracked("2026-09-22", 6 + Math.floor(i / 10), (i % 10) * 5, 20 + (i % 25), 20, `H${i}`)) }, 0, 1));
+  assert.match(allowHtml(hundred), /Only 1 in 10 buses we timed took longer/);
+  const few = summarise(between({ stops: [{}, {}], journeys: took([20, 21, 22]) }, 0, 1));
+  assert.match(allowHtml(few), /We need 10 timed journeys[\s\S]*We have 3 so far/);
+  assert.doesNotMatch(allowHtml(few), /Allow/);
+});
+
+test("the timetable comparison agrees with the two numbers on screen", () => {
+  assert.equal(versus({ medianSecs: 61 * 60, scheduledSecs: 60 * 60 }), "About 1 min more than the timetable's 60 min.");
+  assert.equal(versus({ medianSecs: 34 * 60 + 20, scheduledSecs: 28 * 60 }), "About 6 min more than the timetable's 28 min.");
+  assert.equal(versus({ medianSecs: 26 * 60, scheduledSecs: 28 * 60 }), "About 2 min less than the timetable's 28 min.");
+  assert.equal(versus({ medianSecs: 28 * 60 + 20, scheduledSecs: 28 * 60 }), "About the same as the timetable's 28 min.");
+  assert.match(versus({ medianSecs: 1500, scheduledSecs: null }), /nothing to compare with/);
+});
+
+const frequency = vm.runInContext("jtFrequency", app);
+const frequencyLabel = vm.runInContext("jtFrequencyLabel", app);
+
+/** A schedule series with departures every `gap` minutes from `from` to `to`. */
+function everyFew(dayType, gap, from = 6 * 60, to = 23 * 60) {
+  const points = [];
+  for (let m = from; m <= to; m += gap) points.push({ departSecs: m * 60, scheduledSecs: 1200, promised: true });
+  return { dayType, points };
+}
+
+test("the badge says how often buses run, and the 700 has plenty all through a weekday", () => {
+  // The 700 as the week's departures show it: every 12 min from 08:00 to
+  // 18:00, every 20 either side of that.
+  const seven = { source: "recorded", series: [{ dayType: "weekday", points: [
+    ...everyFew("weekday", 20, 6 * 60, 8 * 60 - 20).points,
+    ...everyFew("weekday", 12, 8 * 60, 18 * 60).points,
+    ...everyFew("weekday", 20, 18 * 60 + 20, 23 * 60).points] }] };
+  for (const period of ["any", "08-10", "10-16", "16-18"]) {
+    assert.equal(frequency(seven, period).level, "plenty", `the 700 ${period} was not plenty`);
+  }
+  assert.equal(frequency(seven, "other").level, "some", "the 700 early and late is every 20 min");
+  assert.equal(frequencyLabel(frequency(seven, "10-16")), "Plenty of buses · every 12 min");
+  assert.equal(frequencyLabel(frequency({ source: "recorded", series: [everyFew("weekday", 30)] }, "any")),
+    "Some buses · every 30 min");
+  assert.equal(frequencyLabel(frequency({ source: "recorded", series: [everyFew("weekday", 60)] }, "any")),
+    "Only a few buses · about hourly");
+  const one = { source: "recorded", series: [{ dayType: "weekday", points: [{ departSecs: 9 * 3600, scheduledSecs: 900 }] }] };
+  assert.equal(frequencyLabel(frequency(one, "08-10")), "Only a few buses · 1 bus a day");
+  assert.equal(frequency(one, "16-18"), null, "no buses at all is no badge, not 'only a few'");
+});
+
+test("Saturday and Sunday are measured apart, not interleaved into a service twice as frequent", () => {
+  // Every 20 min on each day, offset by ten: pooled, they look every 10.
+  const weekend = { source: "journeys", series: [everyFew("saturday", 20, 8 * 60, 20 * 60),
+                                                 everyFew("sunday", 20, 8 * 60 + 10, 20 * 60)] };
+  assert.equal(frequency(weekend, "any").minutes, 20);
+  assert.equal(frequency(weekend, "any").level, "some");
+});
+
+test("before the timetable is recorded, frequency comes from several days of tracked buses", () => {
+  const fromSchedule = vm.runInContext("jtFrequencySchedule", app);
+  // Stops the timetable gives no time at still have buses leaving them.
+  const unpromised = (day, h, m) => ({ ...tracked(day, h, m, 20, 20, `U${day}${h}${m}`),
+    calls: [[0, h * 3600 + m * 60, h * 3600 + m * 60, 2], [1, h * 3600 + m * 60 + 1200, h * 3600 + m * 60 + 1200, 2]] });
+  const weekdays = ["2026-09-21", "2026-09-22", "2026-09-23"];
+  const journeys = weekdays.flatMap((day, d) => [0, 10, 20, 30, 40, 50].map(m => unpromised(day, 9, m)))
+    .concat([0, 30].map(m => unpromised("2026-09-26", 9, m)));          // one Saturday
+  const doc = { stops: [{}, {}], journeys };
+  const all = between(doc, 0, 1);
+  const got = fromSchedule(doc, 0, 1, [...weekdays, "2026-09-26"], all);
+  assert.equal(got.source, "journeys");
+  assert.deepEqual(plain(got.series.map(s => s.dayType)), ["weekday"],
+    "one Saturday of tracked buses was used to say how often buses run");
+  assert.equal(frequency(got, "08-10").minutes, 10, "unpromised departures were left out");
+  // Once the timetable is recorded it is the source, exact.
+  const recordedDoc = { stops: [{}, {}, {}], schedule: recorded({ "2026-09-22": 0 }), journeys: [] };
+  assert.equal(fromSchedule(recordedDoc, 0, 2, ["2026-09-22"], []).source, "recorded");
+});
+
+test("the night between the last bus and the first is not a gap in the service", () => {
+  // Early and late wraps midnight: the last evening bus and the first morning
+  // one are hours apart, and that is the night, not the frequency.
+  const s = { source: "recorded", series: [everyFew("weekday", 15, 5 * 60, 24 * 60 - 15)] };
+  assert.equal(frequency(s, "other").minutes, 15);
+});
+
+test("each time of day says how long it usually takes, and one with nothing is not offered", () => {
+  const journeys = [...many(12, "2026-09-22", 8, 5, 41), ...many(3, "2026-09-22", 11, 10, 30)];
+  const all = between({ stops: [{}, {}], journeys }, 0, 1);
+  const html = chips("weekday", "any", { summaries: slotSummaries(all, "weekday"),
+    dayCounts: new Map([["weekday", 15], ["weekend", 0]]) });
+  assert.match(html, /data-jt-period="08-10"[^>]*aria-label="Morning peak, 08:00 to 10:00, usually 41 min"/);
+  assert.match(html, /08–10 · 41 min/);
+  assert.match(html, /data-jt-period="10-16"[^>]*aria-label="Daytime, 10:00 to 16:00, only 3 buses timed"/);
+  assert.match(html, /data-jt-period="16-18"[^>]*disabled/, "an evening with no buses timed is offered");
+  assert.match(html, /data-jt-day="weekend"[^>]*disabled/, "weekends with nothing timed are offered");
+  assert.doesNotMatch(chips("weekday", "08-10", { showAll: false }), /data-jt-period="any"/,
+    "the delay map has no all-day figure to offer");
+});
+
+// ── Typing a stop ──────────────────────────────────────────────
+
+const matches = vm.runInContext("jtStopMatches", app);
+
+test("typed stops are found by name, and To offers only a direct bus from From", () => {
+  const place = (label, services, atco = label) => ({ label, name: label.split(",")[0], atco, atcos: [atco], services });
+  const choices = [
+    place("Old Steine", ["1", "2", "7", "700"]),
+    place("Steine Gardens", ["7"]),
+    place("Marine Parade, Worthing", ["700", "10"]),
+    place("Marine Parade, Brighton", ["12", "14"]),
+    place("Hollingbury Asda", ["5B"]),
+  ];
+  assert.deepEqual(plain(matches("steine", choices).map(c => c.label)), ["Steine Gardens", "Old Steine"].sort((a, b) =>
+    a === "Steine Gardens" ? -1 : 1), "a name that starts with what was typed comes first");
+  assert.deepEqual(plain(matches("s", choices)), [], "one letter is not a search");
+  const fromOldSteine = choices[0];
+  const to = plain(matches("marine", choices, fromOldSteine).map(c => c.label));
+  assert.deepEqual(to, ["Marine Parade, Worthing"], "a stop no bus from Old Steine reaches was offered");
+  assert.deepEqual(plain(matches("old", choices, fromOldSteine)), [], "From was offered as its own destination");
+  assert.deepEqual(plain(matches("asda", choices, fromOldSteine)), []);
+});
+
+test("a stop can be found by the place it is in, and by words in any order", () => {
+  // NaPTAN calls Shoreham's main stop "High Street", and the Hollingbury Asda
+  // stop "Asda Crowhurst Road". Nobody types either.
+  const place = (label, locality, services) => ({ label, name: label, atco: label, atcos: [label], locality, services });
+  const choices = [
+    place("High Street", "Shoreham-by-Sea", ["2", "700"]),
+    place("Asda Crowhurst Road", "Hollingbury", ["5B"]),
+    place("Hove Station", "Hove", ["7"]),
+    place("Church Road", "Hove", ["1", "6"]),
+  ];
+  assert.deepEqual(plain(matches("shoreham high", choices).map(c => c.label)), ["High Street"]);
+  assert.deepEqual(plain(matches("hollingbury", choices).map(c => c.label)), ["Asda Crowhurst Road"]);
+  assert.deepEqual(plain(matches("hove", choices).map(c => c.label)), ["Hove Station", "Church Road"],
+    "a stop named for the place should come before one merely in it");
+});
+
+// ── Names for the evidence behind a figure ─────────────────────
+
+const cohortLabels = vm.runInContext("jtCohortLabels", app);
+
+test("timetable versions are named by when they were in use, not by hash", () => {
+  const row = (day, pattern, version, method = 4) => ({ day, routePattern: pattern, dataVersion: version, methodVersion: method });
+  const rows = [
+    ...Array.from({ length: 5 }, () => row("2026-09-16", "main", "timetable.sqlite sha256:aaaa1111")),
+    ...Array.from({ length: 3 }, () => row("2026-09-18", "main", "timetable.sqlite sha256:aaaa1111")),
+    ...Array.from({ length: 2 }, () => row("2026-09-21", "short", "timetable.sqlite sha256:bbbb2222", 3)),
+  ];
+  const labels = [...cohortLabels(rows).values()];
+  assert.equal(labels.length, 2);
+  assert.match(labels[0], /^Timetable in use 16 Sept? to 18 Sept? · main route · 8 journeys$/);
+  assert.match(labels[1], /route variant 2 · earlier matching · 2 journeys$/);
+  assert.ok(labels.every(l => !/sha256|Pattern/.test(l)), labels.join(" | "));
+  // Two versions that read the same are told apart.
+  const twins = [...cohortLabels([row("2026-09-16", "p", "v sha256:cccc3333"), row("2026-09-16", "p", "v sha256:dddd4444")]).values()];
+  assert.notEqual(twins[0], twins[1]);
 });
 
 
@@ -1144,7 +1539,7 @@ const slotOf = vm.runInContext("delaySlot", app);
 
 const FLOOR = { journeys: 30, distinct_days: 5 };
 const cellAt = over => ({ stretch: "s", latest: true, day_type: "weekday", resolution: "period",
-  period: "07-10", median_gained_secs: 150, journeys: 40, distinct_days: 6, traversals: 40,
+  period: "08-10", median_gained_secs: 150, journeys: 40, distinct_days: 6, traversals: 40,
   at_least_600s: 10, sample_sufficient: true, ...over });
 
 test("a stretch is coloured by its own time slot, latest timetable, best evidence", () => {
@@ -1153,11 +1548,11 @@ test("a stretch is coloured by its own time slot, latest timetable, best evidenc
     cellAt({ journeys: 60, distinct_days: 2, sample_sufficient: false, median_gained_secs: 900 }),
     cellAt({ journeys: 35 }),
     cellAt({ journeys: 99, latest: false }),                  // an older timetable's promise
-    cellAt({ journeys: 50, period: "16-19" }),                // another time of day
+    cellAt({ journeys: 50, period: "16-18" }),                // another time of day
     cellAt({ journeys: 50, day_type: "weekend" }),
     cellAt({ journeys: 45, resolution: "hour", hour: 8, period: undefined }),
   ] };
-  const period = { dayType: "weekday", resolution: "period", period: "07-10" };
+  const period = { dayType: "weekday", resolution: "period", period: "08-10" };
   assert.equal(cellFor(doc, "s", period).journeys, 35,
     "the sufficient cell must speak for the stretch, not the busier stale or thin one");
   assert.equal(cellFor(doc, "s", { dayType: "weekday", resolution: "hour", hour: 8 }).journeys, 45);
@@ -1178,11 +1573,13 @@ test("a stretch's words match its evidence, and never colour thin evidence as a 
   const slot = { hint: "07:00–10:00 on weekdays" };
   const stretch = { id: "s", from_name: "Shoreham High St", to_name: "Kingston Bay Rd",
                     direction: "westbound", approximate: false };
-  assert.match(stretchHtml(stretch, cellAt({}), FLOOR, slot), /lost a median\s+of <strong>2\.5 min<\/strong>/);
-  assert.match(stretchHtml(stretch, cellAt({ median_gained_secs: -70 }), FLOOR, slot), /made up a median/);
+  assert.match(stretchHtml(stretch, cellAt({}), FLOOR, slot), /usually lose\s+<strong>2\.5 min<\/strong>/);
+  assert.match(stretchHtml(stretch, cellAt({}), FLOOR, slot), /middle of 40 journeys over 6\s+days/);
+  assert.match(stretchHtml(stretch, cellAt({ median_gained_secs: -70 }), FLOOR, slot), /usually make up/);
   const thin = stretchHtml(stretch, cellAt({ sample_sufficient: false, journeys: 12, distinct_days: 2 }), FLOOR, slot);
   assert.match(thin, /Not enough journeys yet: 12 of the 30 needed/);
-  assert.doesNotMatch(thin, /lost a median/);
+  assert.doesNotMatch(thin, /usually lose/);
+  assert.match(stretchHtml(stretch, null, FLOOR, slot, false, "Towards Worthing"), /Towards Worthing, 07:00/);
   assert.match(stretchHtml(stretch, cellAt({ sample_sufficient: false, journeys: 12 }), FLOOR, slot, true),
                /Early evidence only/);
   assert.match(stretchHtml(stretch, null, FLOOR, slot), /No journeys tracked on this stretch/);
@@ -1192,20 +1589,52 @@ test("a stretch's words match its evidence, and never colour thin evidence as a 
 test("stop names from the feed are escaped before they reach a popup", () => {
   const html = stretchHtml({ id: "s", from_name: '<img src=x onerror="alert(1)">', to_name: "B",
                              direction: "eastbound" }, null, FLOOR, { hint: "x" });
-  assert.doesNotMatch(html, /<img/);
+  // Case-insensitive: prettifyName writes it as "<Img".
+  assert.doesNotMatch(html, /<img/i);
 });
 
 test("the passenger's time buttons and the expert's hour slider name the same groups", () => {
-  const was = vm.runInContext("JSON.stringify({ slot: jtDelay.slot, time: jtDelay.time, hour: jtDelay.hour })", app);
-  vm.runInContext('jtDelay.slot = "weekend"', app);
-  assert.deepEqual(plain(slotOf("simple")), { dayType: "weekend", resolution: "period", period: "10-16",
-    label: "Weekend daytime", hint: "10:00–16:00 on Saturdays and Sundays" });
+  const was = vm.runInContext("JSON.stringify({ slot: jtDelay.slot, day: jtDelay.day, time: jtDelay.time, hour: jtDelay.hour })", app);
+  // The same day and time chips as My journey: a weekend morning can now be
+  // asked for, where the old row had one "weekend daytime" chip.
+  vm.runInContext('jtDelay.day = "weekend"; jtDelay.slot = "08-10"', app);
+  assert.deepEqual(plain(slotOf("simple")), { dayType: "weekend", resolution: "period", period: "08-10",
+    label: "Morning peak", hint: "08:00–10:00 on weekends" });
+  // The map has no all-day figure, so "All day" from My journey opens a peak.
+  vm.runInContext('jtDelay.day = "weekday"; jtDelay.slot = "any"', app);
+  assert.equal(plain(slotOf("simple")).period, "08-10");
   vm.runInContext('jtDelay.time = "hour"; jtDelay.hour = 8; jtDelay.dayType = "weekday"', app);
   const hour = plain(slotOf("detailed"));
   assert.equal(hour.resolution, "hour");
   assert.equal(hour.hour, 8);
   assert.equal(hour.label, "08:00–09:00");
   vm.runInContext(`Object.assign(jtDelay, ${was})`, app);
+});
+
+test("delay-map directions are named where the buses go, not by compass", () => {
+  const labels = vm.runInContext("delayDirectionLabels", app);
+  const got = plain([...labels([
+    { direction: "westbound", headsign: "Hardwick Road" }, { direction: "westbound", headsign: "Hardwick Road" },
+    { direction: "eastbound", headsign: "Hollingbury Asda" }, { direction: "eastbound", headsign: "Imperial Arcade C7" },
+    { direction: "eastbound", headsign: "Hollingbury Asda" },
+  ]).entries()]);
+  assert.deepEqual(got, [["westbound", "Towards Hardwick Road"], ["eastbound", "Towards Hollingbury Asda"]]);
+  // Both directions to one place tells the reader nothing: the compass stays.
+  const same = plain([...labels([{ direction: "westbound", headsign: "Loop" }, { direction: "eastbound", headsign: "Loop" }]).values()]);
+  assert.deepEqual(same, ["Westbound", "Eastbound"]);
+});
+
+test("a destination from the feed cannot write into the delay map's direction chips", () => {
+  const labels = vm.runInContext("delayDirectionLabels", app);
+  const chipsHtml = vm.runInContext("delayDirectionChipsHtml", app);
+  const ways = labels([{ direction: "westbound", headsign: '<img src=x onerror="alert(1)">' },
+                       { direction: "eastbound", headsign: "Marina" }]);
+  const html = chipsHtml(["westbound", "eastbound"], d => ways.get(d), "westbound");
+  // Case-insensitive: prettifyName title-cases it to "<Img", which a
+  // case-sensitive pattern passed straight over.
+  assert.doesNotMatch(html, /<img/i, "a headsign reached the page as markup");
+  assert.match(html, /Towards Marina/);
+  assert.equal(chipsHtml(["westbound"], d => d, "westbound"), "", "one direction needs no chips");
 });
 
 test("the view follows a link over memory, and Detailed stays shut without preview", () => {

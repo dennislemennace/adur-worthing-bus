@@ -204,10 +204,23 @@ def test_a_unique_name_carries_no_direction(tt):
 
     Marine Parade is one pole under one name. There is nothing to
     disambiguate, and a `towards` on it would be padding.
+
+    Its services are carried all the same. The journey-time view finds the
+    buses between two stops from them, and without them 189 stops could not be
+    chosen at all, termini like Marina Cinema among them, for 0.5 KB gzipped.
     """
     marine = by_id(tt.stop_list(WIDE))["4400C"]
-    assert "towards" not in marine and "services" not in marine, \
-        "direction fields were added to a stop whose name is already unique"
+    assert "towards" not in marine, \
+        "a direction was added to a stop whose name is already unique"
+    assert marine.get("services") == ["700"], \
+        "a unique-name stop lost its services, so the journey-time view cannot offer it"
+
+
+def test_every_stop_says_where_it_is(tt):
+    """The town or neighbourhood, so a search for "Shoreham" finds a stop
+    NaPTAN calls "High Street". Empty where the database predates it."""
+    for s in tt.stop_list(WIDE):
+        assert isinstance(s.get("locality"), str), f"{s['atco_code']} has no locality field"
 
 
 # ── The build script ────────────────────────────────────────

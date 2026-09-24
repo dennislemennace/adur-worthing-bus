@@ -786,28 +786,35 @@ class Timetable:
                 "latitude":      lat,
                 "longitude":     lon,
                 "night_serving": stop_id in night,
+                # The town or neighbourhood NaPTAN files the stop under, so a
+                # search for "Shoreham" or "Hollingbury" finds stops named
+                # "High Street" or "Asda Crowhurst Road". Measured at 2.9 KB
+                # gzipped across the 1,520 stops, because the values repeat.
+                "locality":      s.get("locality") or "",
             })
 
-        # Direction and services, but only where the name alone is ambiguous.
-        # Colebrook Road and Shoreham Port each have two poles a hundred
-        # metres apart under one name, so a search showing a single entry
-        # sends half its users to the opposite kerb. Where a name is unique
-        # there is nothing to disambiguate, and carrying the fields for all
-        # 5,000 stops would pad a file the browser downloads on every visit.
+        # Services at every stop, and a direction only where the name alone is
+        # ambiguous. Colebrook Road and Shoreham Port each have two poles a
+        # hundred metres apart under one name, so a search showing a single
+        # entry sends half its users to the opposite kerb; where a name is
+        # unique there is nothing to disambiguate, and a direction would be
+        # padding. The services are different. The journey-time view finds the
+        # buses between two stops from them, and a stop without them could not
+        # be chosen at all: 189 stops, among them termini like Marina Cinema
+        # and Southwick Square. Carrying them there costs 0.5 KB gzipped.
         by_name: dict = {}
         for entry in stops:
             by_name.setdefault(entry["name"], []).append(entry)
-        ambiguous = [e for g in by_name.values() if len(g) > 1 for e in g]
-        if ambiguous:
-            directions = self.stop_directions([e["atco_code"] for e in ambiguous])
-            for entry in ambiguous:
-                d = directions.get(entry["atco_code"])
-                if not d:
-                    continue
-                if d["towards"]:
-                    entry["towards"] = d["towards"]
-                if d["services"]:
-                    entry["services"] = d["services"]
+        ambiguous = {e["atco_code"] for g in by_name.values() if len(g) > 1 for e in g}
+        directions = self.stop_directions([e["atco_code"] for e in stops])
+        for entry in stops:
+            d = directions.get(entry["atco_code"])
+            if not d:
+                continue
+            if d["towards"] and entry["atco_code"] in ambiguous:
+                entry["towards"] = d["towards"]
+            if d["services"]:
+                entry["services"] = d["services"]
         return stops
 
     def stop_directions(self, stop_ids) -> dict:

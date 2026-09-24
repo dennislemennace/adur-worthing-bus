@@ -2445,7 +2445,7 @@ async function checkJourneyReview(page, viewport) {
   })()`);
   check(`journey review ${viewport}: mobile chart text is readable`, result.font >= 12, `${result.font.toFixed(1)}px`);
   check(`journey review ${viewport}: measured and declared filters agree with chart`, result.initialDots === 2 && result.declaredDots === 1, JSON.stringify(result));
-  check(`journey review ${viewport}: tapping a point opens its actual departure and evidence`, /08:00/.test(result.detail) && /arrival lateness/i.test(result.detail), result.detail.slice(0,140));
+  check(`journey review ${viewport}: tapping a point opens its actual departure and evidence`, /08:00/.test(result.detail) && /arrived (on time|\d+ min (late|early))/i.test(result.detail), result.detail.slice(0,140));
   check(`journey review ${viewport}: selected-stop departure is shown in the table`, result.departure === "08:00", result.departure);
   check(`journey review ${viewport}: chart expands inside the viewport`, result.expands);
   check(`journey review ${viewport}: shared links restore the chosen cohort and metric`, result.restored);
@@ -2491,11 +2491,25 @@ async function checkJourneySimple(page, viewport) {
     const trust = simple?.querySelector(".jt-simple-trust")?.textContent.replace(/\\s+/g, " ") || "";
     const small = [...(simple ? simple.querySelectorAll("button, a") : [])]
       .map(el => el.getBoundingClientRect()).filter(r => r.width && Math.min(r.width, r.height) < 44).length;
-    simple?.querySelector(".jt-dot")?.closest("[data-jt-point]")?.dispatchEvent(new MouseEvent("click", {bubbles: true}));
-    const tapped = host.querySelector(".jt-point-detail")?.textContent || "";
+    // One control reads the chart: the hour slider, not a tab stop per bus.
+    const dotStops = simple ? simple.querySelectorAll(".jt-chart [tabindex]").length : -1;
+    const range = simple?.querySelector(".jt-hour-range");
+    const before = range?.getAttribute("aria-valuetext") || "";
+    if (range) { range.value = String(Math.min(Number(range.max), Number(range.min) + 3)); range.dispatchEvent(new Event("input", {bubbles: true})); }
+    const tapped = host.querySelector(".jt-hour-detail")?.textContent || "";
+    const moved = (range?.getAttribute("aria-valuetext") || "") !== before;
+    const badge = simple?.querySelector(".jt-evidence-badge")?.textContent.trim() || "";
+    const allow = simple?.querySelector(".jt-simple-allow")?.textContent.replace(/\\s+/g, " ").trim() || "";
     const chip = simple?.querySelector('[data-jt-period="10-16"]');
+    chip?.focus();
     chip?.click();
     const pressed = host.querySelector('[data-jt-period="10-16"]')?.getAttribute("aria-pressed");
+    // The chip was replaced by the redraw: focus has to land on its successor,
+    // not fall back to the top of the page.
+    const keptFocus = document.activeElement?.getAttribute?.("data-jt-period") || document.activeElement?.tagName || "";
+    await new Promise(r => setTimeout(r, 150));
+    const said = document.getElementById("jt-announce")?.textContent || "";
+    const hoursTable = !!host.querySelector(".jt-hours-table");
     host.querySelector('[data-jt-period="any"]')?.click();
     const bodyWidth = document.documentElement.scrollWidth;
     // The same trip in Detailed, which must say the same number.
@@ -2505,17 +2519,28 @@ async function checkJourneySimple(page, viewport) {
     CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false; jtEntry.view = undefined;
     await renderJourneyTimes();
     return JSON.stringify({simple: !!simple, usually, detailed, legend, line, trust, small, tapped, pressed,
-      bodyWidth, width: innerWidth});
+      dotStops, moved, badge, allow, keptFocus, said, hoursTable, bodyWidth, width: innerWidth});
   })()`));
   check(`journey simple ${viewport}: the passenger answer renders`, result.simple && !!result.usually, JSON.stringify(result));
   check(`journey simple ${viewport}: Simple and Detailed agree on the headline`, result.usually === result.detailed,
     `Simple "${result.usually}" against Detailed "${result.detailed}"`);
   check(`journey simple ${viewport}: the line is the recorded timetable`, result.line === 1
-    && /what the timetable promised, weekdays/.test(result.legend), result.legend.slice(0, 160));
+    && /Timetable/.test(result.legend) && !/from the buses we timed/.test(result.legend), result.legend.slice(0, 160));
   check(`journey simple ${viewport}: it says how many scheduled buses were tracked`,
     /timetable scheduled 13 between these stops/.test(result.trust) && /tracked 12 of them/.test(result.trust), result.trust);
-  check(`journey simple ${viewport}: tapping a journey describes it`, /left at/.test(result.tapped), result.tapped);
+  check(`journey simple ${viewport}: the hour slider says in words what an hour shows`,
+    result.moved && /^Leaving between \d\d:00 and \d\d:00 on weekdays/.test(result.tapped), result.tapped);
+  check(`journey simple ${viewport}: no bus on the chart is its own tab stop`, result.dotStops === 0, `${result.dotStops} tab stops`);
+  // The fixture's timetable runs every 30 minutes, which is "some buses".
+  check(`journey simple ${viewport}: how often buses run, and how long to allow, are in words`,
+    result.badge === "Some buses · every 30 min" && /Allow \d+ min (None|Only \d+) of the 12 buses we timed took longer/.test(result.allow),
+    `${result.badge} | ${result.allow}`);
   check(`journey simple ${viewport}: the time-of-day choice responds`, result.pressed === "true");
+  check(`journey simple ${viewport}: a pressed chip keeps the focus after the redraw`, result.keptFocus === "10-16",
+    `focus on ${result.keptFocus}`);
+  check(`journey simple ${viewport}: the change is announced in one sentence`,
+    /Lancing to Brighton, Weekdays, daytime .*: usually takes \d+ min\. (Allow \d+ min|Too few)/.test(result.said), result.said);
+  check(`journey simple ${viewport}: every hour is also in a table`, result.hoursTable);
   check(`journey simple ${viewport}: targets and width`, result.small === 0 && result.bodyWidth <= result.width + 1,
     `${result.small} small targets; ${result.bodyWidth}px on ${result.width}px`);
 }
@@ -2527,7 +2552,7 @@ async function checkDelayMap(page, viewport) {
     const floor = {journeys: 30, distinct_days: 5};
     const days = ["2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-21", "2026-09-22"];
     const cell = (stretch, over) => ({stretch, latest: true, day_type: "weekday", resolution: "period",
-      period: "07-10", traversals: 40, at_least_600s: 8, journeys: 40, distinct_days: 6,
+      period: "08-10", traversals: 40, at_least_600s: 8, journeys: 40, distinct_days: 6,
       median_gained_secs: 200, sample_sufficient: true, schedule_era: "e", data_versions: ["t"], ...over});
     const mapDoc = {build_id: build, schema_version: 1, service: "700", operator: "SCSO", floor, days_collected: days,
       method: "Delay fixture", pooling: "", caveats: ["Fixture"],
@@ -2550,8 +2575,8 @@ async function checkDelayMap(page, viewport) {
     journeyTimesCache.set("builds/" + build + "/hotspot-map-index.json", mapIndex);
     journeyTimesCache.set("builds/" + build + "/hotspot-map-700-SCSO.json", mapDoc);
     CONFIG.DELAY_MAP_PUBLIC = true; CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false; jtEntry.view = undefined;
-    Object.assign(jtDelay, {service: null, direction: null, slot: "07-10", time: "07-10", hour: 8,
-      dayType: "weekday", exploratory: false, selected: null, fittedFor: ""});
+    Object.assign(jtDelay, {service: null, direction: null, slot: "08-10", day: "weekday", time: "08-10", hour: 8,
+      dayType: "weekday", exploratory: false, selected: null, fittedFor: "", pendingService: null});
     setViewMode("journeytimes");
     document.querySelector('#jt-sections [data-jt-section="delays"]').click();
     await new Promise(r => setTimeout(r, 400));
@@ -2582,7 +2607,7 @@ async function checkDelayMap(page, viewport) {
     const leftover = document.querySelectorAll(".delay-line, .delay-casing").length;
     const muted = state.map.getContainer().classList.contains("delay-map-on");
     CONFIG.DELAY_MAP_PUBLIC = false; CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false;
-    jtEntry.view = undefined; jtEntry.section = "journey"; jtDelay.time = "07-10";
+    jtEntry.view = undefined; jtEntry.section = "journey"; jtDelay.time = "08-10";
     return JSON.stringify({shown: !panel.hidden && rect.height > 0, red: !!red, none: !!none,
       dashed: none?.getAttribute("stroke-dasharray") || "", lightRed, darkRed, mapLegendShown,
       panelLegend: panel.querySelectorAll(".delay-legend-panel .delay-legend li").length,
@@ -2601,12 +2626,190 @@ async function checkDelayMap(page, viewport) {
   check(`delay map ${viewport}: it says how much of the map has enough evidence`,
     /1 of 2 stretches have enough journeys/.test(result.status), result.status);
   check(`delay map ${viewport}: every stretch is reachable from the list and says what it measured`,
-    result.small === 0 && /lost a median of 3\.3 min/.test(result.detail), `${result.small} small; ${result.detail.slice(0, 120)}`);
+    result.small === 0 && /usually lose 3\.3 min/.test(result.detail), `${result.small} small; ${result.detail.slice(0, 120)}`);
   check(`delay map ${viewport}: Detailed adds an hourly slider over the same stretches`, result.slider && result.hourRed === 1,
     `slider ${result.slider}, red at 08:00 ${result.hourRed}`);
   check(`delay map ${viewport}: leaving the view takes every line and the muted map with it`,
     result.leftover === 0 && !result.muted, `${result.leftover} lines left, muted ${result.muted}`);
   check(`delay map ${viewport}: fits the screen`, result.bodyWidth <= result.width + 1, `${result.bodyWidth}px on ${result.width}px`);
+}
+
+/** Two services make one trip, and the busier is not the lowest-numbered.
+ *
+ *  The service list used to be set before it was rebuilt for the new pair, so
+ *  the choice silently failed, the lowest number opened, and the pair's stop
+ *  indices from the 7's document were applied to the 3X's: Brighton Station to
+ *  Hove Station was answered as Brighton University to Hardwick Road. */
+const JT_PAIR_FIXTURE = `
+  const day = "2026-09-21";
+  const A = {atco: "probe-bs", name: "Probe Station", lat: 50.829, lon: -0.141, services: ["3X", "7"], locality: "Probetown"};
+  const B = {atco: "probe-hs", name: "Probe Hove", lat: 50.835, lon: -0.170, services: ["3X", "7"], locality: "Probe Hove"};
+  const X = {atco: "probe-x", name: "Probe University", lat: 50.84, lon: -0.12, services: ["3X"], locality: "Probetown"};
+  const Y = {atco: "probe-y", name: "Probe Hardwick", lat: 50.85, lon: -0.20, services: ["3X"], locality: "Probe Hills"};
+  const Z = {atco: "probe-z", name: "Probe Elsewhere", lat: 50.81, lon: -0.35, services: ["99"], locality: "Faraway"};
+  const fixtureStops = [A, B, X, Y, Z];
+  for (const s of fixtureStops) state.stopData[s.atco] = s;
+  state._stopIndex = null;
+  const trip = (i, calls) => ({day, start: "", trip_id: "t" + i, direction: "westbound", headsign: "Probe Hove",
+    route_pattern: "p", data_version: "t", method_version: 4, match: "declared", source_files: [], quality_flags: [], calls});
+  const doc3x = {service: "3X", operator: "BHBC", days: [day], window_days: [day], method: "fixture", caveats: [], source_methods: [],
+    stops: [X, A, B, Y].map(s => ({atco: s.atco, name: s.name})),
+    journeys: [0, 1, 2].map(i => { const d = 28800 + i * 3600; return trip("3x" + i,
+      [[0, d, d, 0], [1, d + 300, d + 300, 0], [2, d + 900, d + 840, 0], [3, d + 1500, d + 1400, 0]]); })};
+  const doc7 = {service: "7", operator: "BHBC", days: [day], window_days: [day], method: "fixture", caveats: [], source_methods: [],
+    stops: [{atco: "probe-p", name: "Probe P"}, {atco: "probe-q", name: "Probe Q"}, {atco: A.atco, name: A.name}, {atco: B.atco, name: B.name}],
+    journeys: Array.from({length: 12}, (_, i) => { const d = 25200 + i * 1200; return trip("7-" + i,
+      [[0, d, d, 0], [1, d + 200, d + 200, 0], [2, d + 400, d + 400, 0], [3, d + 1100, d + 1000, 0]]); })};
+  const index = {days: [day], services: [
+    {file: "3X-BHBC.json", service: "3X", operator: "BHBC", journeys: 3},
+    {file: "7-BHBC.json", service: "7", operator: "BHBC", journeys: 12},
+    {file: "99-BHBC.json", service: "99", operator: "BHBC", journeys: 1}]};
+  journeyTimesCache.set("index.json", index);
+  journeyTimesCache.set("3X-BHBC.json", doc3x);
+  journeyTimesCache.set("7-BHBC.json", doc7);
+  const cleanup = () => {
+    for (const s of fixtureStops) delete state.stopData[s.atco];
+    state._stopIndex = null; jtBar.list = null;
+    for (const k of ["index.json", "3X-BHBC.json", "7-BHBC.json"]) journeyTimesCache.delete(k);
+    clearJourneyTimesEntry(); jtEntry.runs = null; jtEntry.wanted = null; jtEntry.hour = null;
+  };
+  CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false; jtEntry.view = undefined; jtEntry.section = "journey";
+  setViewMode("journeytimes");
+  await new Promise(r => setTimeout(r, 300));
+  const svc = document.getElementById("journey-times-service");
+  svc.innerHTML = ""; for (const k of Object.keys(svc.dataset)) delete svc.dataset[k];
+  for (const key of ["direction", "from", "to", "days"]) {
+    const el = document.getElementById("journey-times-" + key); for (const k of Object.keys(el.dataset)) delete el.dataset[k];
+  }
+  clearJourneyTimesEntry(); jtEntry.mode = "start"; jtEntry.runs = null; jtEntry.wanted = null;
+  const selName = id => { const sel = document.getElementById(id); return sel.options[sel.selectedIndex]?.textContent.replace(/\\s+—.*$/, "").trim() || ""; };
+  const bar = () => [document.getElementById("jt-from-input").value, document.getElementById("jt-to-input").value];
+`;
+
+async function checkJourneyPairService(page, viewport) {
+  const result = JSON.parse(await page.evaluate(`(async () => {
+    ${JT_PAIR_FIXTURE}
+    try {
+      jtEntry.a = A.atco; jtEntry.b = B.atco;
+      await journeyTimesResolvePair();
+      await new Promise(r => setTimeout(r, 300));
+      const first = {service: svc.value, from: selName("journey-times-from"), to: selName("journey-times-to"), bar: bar()};
+      // The other bus, from the chips: the same two stops on the 3X's own list.
+      document.querySelector('.jt-which [data-jt-file="3X-BHBC.json"]')?.click();
+      await new Promise(r => setTimeout(r, 600));
+      const second = {service: svc.value, from: selName("journey-times-from"), to: selName("journey-times-to"), bar: bar()};
+      return JSON.stringify({first, second});
+    } finally { cleanup(); }
+  })()`));
+  check(`journey pair ${viewport}: the busier of two services opens, on the stops that were picked`,
+    result.first.service === "7-BHBC.json" && result.first.from === "Probe Station" && result.first.to === "Probe Hove",
+    JSON.stringify(result.first));
+  check(`journey pair ${viewport}: switching bus keeps the two stops`,
+    result.second.service === "3X-BHBC.json" && result.second.from === "Probe Station" && result.second.to === "Probe Hove"
+    && result.second.bar[0] === "Probe Station" && result.second.bar[1] === "Probe Hove",
+    JSON.stringify(result.second));
+}
+
+/** The journey bar: type a stop, choose it from the keyboard, and be offered
+ *  only stops a direct bus reaches from it. */
+async function checkJourneyBar(page, viewport) {
+  const result = JSON.parse(await page.evaluate(`(async () => {
+    ${JT_PAIR_FIXTURE}
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const type = async (slot, text) => { const i = document.getElementById("jt-" + slot + "-input"); i.focus(); i.value = text;
+      i.dispatchEvent(new Event("input", {bubbles: true})); await wait(250); };
+    const key = (slot, k) => document.getElementById("jt-" + slot + "-input")
+      .dispatchEvent(new KeyboardEvent("keydown", {key: k, bubbles: true, cancelable: true}));
+    const options = slot => [...document.querySelectorAll("#jt-" + slot + "-list li")].map(li => li.textContent.replace(/\\s+/g, " ").trim());
+    try {
+      renderJourneyTimes(); await wait(300);
+      await type("from", "probetown sta");
+      const fromOptions = options("from");
+      const fromInput = document.getElementById("jt-from-input");
+      const expanded = fromInput.getAttribute("aria-expanded");
+      const active = fromInput.getAttribute("aria-activedescendant");
+      key("from", "Enter"); await wait(400);
+      const chosen = {a: jtEntry.a, bar: bar(), focus: document.activeElement?.id, collapsed: fromInput.getAttribute("aria-expanded")};
+      await type("to", "probe else");
+      // Said beside the box, with a way on, not as a dead option in the list.
+      const unreachable = [document.getElementById("jt-to-note")?.textContent.replace(/\\s+/g, " ").trim() || ""];
+      const wayOn = !!document.querySelector('#jt-to-note [data-jt-note-go="tickets"]');
+      const listShut = document.getElementById("jt-to-input").getAttribute("aria-expanded") === "false";
+      const told = document.getElementById("jt-combo-status")?.textContent || "";
+      await type("to", "probe");
+      const reachable = options("to");
+      key("to", "ArrowDown");
+      const moved = document.getElementById("jt-to-input").getAttribute("aria-activedescendant");
+      const targets = [...document.querySelectorAll("#jt-journey input, #jt-journey button")]
+        .filter(el => el.offsetParent !== null).map(el => el.getBoundingClientRect())
+        .filter(r => r.width && Math.min(r.width, r.height) < 44).length;
+      await type("to", "probe hove");
+      key("to", "Enter");
+      await wait(900);
+      const result = {service: svc.value, bar: bar(), usually: document.querySelector(".jt-simple-usually strong")?.textContent || ""};
+      document.getElementById("jt-swap").click(); await wait(900);
+      // The fixture's buses run one way only, so a swap is answered the way
+      // they run, and says so, rather than with nothing.
+      const swapped = {bar: bar(), note: document.querySelector(".jt-simple .jt-provenance")?.textContent || ""};
+      document.querySelector('[data-jt-clear="to"]').click(); await wait(400);
+      const cleared = {mode: jtEntry.mode, a: jtEntry.a, b: jtEntry.b, bar: bar()};
+      return JSON.stringify({fromOptions, expanded, active, chosen, unreachable, wayOn, listShut, told, reachable, moved, targets, result, swapped, cleared,
+        bodyWidth: document.documentElement.scrollWidth, width: innerWidth});
+    } finally { cleanup(); }
+  })()`));
+  check(`journey bar ${viewport}: a stop is found by its place and words in any order`,
+    result.fromOptions.some(o => /^Probe Station/.test(o)) && result.expanded === "true" && /opt-0$/.test(result.active || ""),
+    JSON.stringify(result.fromOptions));
+  check(`journey bar ${viewport}: Enter takes the highlighted stop and moves on to To`,
+    result.chosen.a === "probe-bs" && result.chosen.bar[0] === "Probe Station" && result.chosen.focus === "jt-to-input"
+    && result.chosen.collapsed === "false", JSON.stringify(result.chosen));
+  check(`journey bar ${viewport}: To offers only stops a direct bus reaches`,
+    /No stop with a direct bus from Probe Station/.test(result.unreachable.join(" ")) && result.wayOn && result.listShut
+    && /No stop with a direct bus/.test(result.told)
+    && !result.reachable.some(o => /Probe Elsewhere|Probe Station/.test(o))
+    && result.reachable.some(o => /Probe Hove/.test(o)), `${result.unreachable.join(" | ")} / ${result.reachable.join(" | ")}`);
+  check(`journey bar ${viewport}: the arrow keys move through the suggestions`, /jt-to-opt-1$/.test(result.moved || ""),
+    String(result.moved));
+  check(`journey bar ${viewport}: two typed stops give an answer on the busier bus`,
+    result.result.service === "7-BHBC.json" && /min/.test(result.result.usually) && result.result.bar[1] === "Probe Hove",
+    JSON.stringify(result.result));
+  check(`journey bar ${viewport}: swap turns the trip round, or says the buses only run one way`,
+    (result.swapped.bar[0] === "Probe Hove" && result.swapped.bar[1] === "Probe Station")
+    || (/direction buses actually run/.test(result.swapped.note) && result.swapped.bar[0] === "Probe Station"),
+    JSON.stringify(result.swapped));
+  check(`journey bar ${viewport}: clearing To goes back a step and keeps From`,
+    result.cleared.mode === "start" && result.cleared.b === null && result.cleared.bar[1] === ""
+    && result.cleared.bar[0] !== "", JSON.stringify(result.cleared));
+  check(`journey bar ${viewport}: targets and width`, result.targets === 0 && result.bodyWidth <= result.width + 1,
+    `${result.targets} small; ${result.bodyWidth}px on ${result.width}px`);
+}
+
+/** A chosen journey survives a visit to the delay map, and a visit to Live.
+ *
+ *  Both used to clear it as a side effect of taking their layers off the map,
+ *  so "Next buses from", then Back, came back to an empty form. */
+async function checkJourneyKept(page, viewport) {
+  const result = JSON.parse(await page.evaluate(`(async () => {
+    ${JT_PAIR_FIXTURE}
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    try {
+      CONFIG.DELAY_MAP_PUBLIC = true;
+      jtEntry.a = A.atco; jtEntry.b = B.atco;
+      await journeyTimesResolvePair(); await wait(300);
+      document.querySelector('#jt-sections [data-jt-section="delays"]').click(); await wait(500);
+      document.querySelector('#jt-sections [data-jt-section="journey"]').click(); await wait(800);
+      const afterSection = {mode: jtEntry.mode, bar: bar(), answer: !!document.querySelector(".jt-simple .jt-simple-usually")};
+      setViewMode("live"); await wait(400);
+      setViewMode("journeytimes"); await wait(1200);
+      const afterView = {mode: jtEntry.mode, bar: bar(), answer: !!document.querySelector(".jt-simple .jt-simple-usually")};
+      return JSON.stringify({afterSection, afterView});
+    } finally { CONFIG.DELAY_MAP_PUBLIC = false; jtEntry.section = "journey"; cleanup(); }
+  })()`));
+  const kept = r => r.mode === "picked" && r.answer && r.bar[0] === "Probe Station" && r.bar[1] === "Probe Hove";
+  check(`journey kept ${viewport}: the delay map and back keeps the journey`, kept(result.afterSection),
+    JSON.stringify(result.afterSection));
+  check(`journey kept ${viewport}: another view and back keeps the journey`, kept(result.afterView),
+    JSON.stringify(result.afterView));
 }
 
 async function checkSelectedFareRoute(page) {
@@ -2865,8 +3068,9 @@ async function checkJourneyTimesDetailedFlow(page) {
   const dd = JSON.parse(dirs);
   check("a service offers two directions, not one per destination",
     dd.count === 2, `${dd.count}: ${dd.labels.join(" | ")}`);
-  check("a direction is named after somewhere, not after a stop",
-    dd.labels.every(t => /^[A-Za-z]/.test(t) && !/towards (Worthing|Brighton)$/i.test(t)),
+  check("a direction is named where the bus goes, without the feed's stand letters",
+    dd.labels.every(t => /^(Towards |(East|West|North|South)bound)/.test(t)
+      && !/\(stop [A-Z0-9]+\)| [A-Z]{1,2}\d{1,2}\b/.test(t)),
     dd.labels.join(" | "));
 
   // The To list offers only what a bus reaches from From. A direction pools
@@ -2934,8 +3138,7 @@ async function checkJourneyTimesDetailedFlow(page) {
 
   // Direction named by headsign, not by compass. "towards Worthing" appeared
   // on services that have never been near Worthing.
-  check("directions are named as the bus names them", d.directions > 0
-    && !/^towards (Worthing|Brighton)/.test(d.headsign),
+  check("directions are named as the bus names them", d.directions > 0 && /^Towards /.test(d.headsign),
     `first direction offered: ${d.headsign}`);
 
   // The map as a way in. The selects stay — this is the second route, not the
@@ -3132,12 +3335,18 @@ try {
 const page = await openPage(VIEWPORTS[0]);
 await checkBasemap(page);
 if (process.argv.includes("--journey-review")) {
+  await checkJourneyPairService(page, VIEWPORTS[0].name);
+  await checkJourneyBar(page, VIEWPORTS[0].name);
+  await checkJourneyKept(page, VIEWPORTS[0].name);
   await checkJourneyReview(page, VIEWPORTS[0].name);
   await checkSelectedFareRoute(page);
   await checkJourneySimple(page, VIEWPORTS[0].name);
   await checkDelayMap(page, VIEWPORTS[0].name);
   for (const vp of VIEWPORTS.slice(1)) {
     const p = await openPage(vp);
+    await checkJourneyPairService(p, vp.name);
+    await checkJourneyBar(p, vp.name);
+    await checkJourneyKept(p, vp.name);
     await checkJourneyReview(p, vp.name);
     await checkJourneySimple(p, vp.name);
     await checkDelayMap(p, vp.name);
@@ -3182,6 +3391,9 @@ await checkCouncillorContact(page);
 await checkJourneyPresets(page);
 await checkJourneyTimes(page);
 await checkSelectedFareRoute(page);
+await checkJourneyPairService(page, VIEWPORTS[0].name);
+await checkJourneyBar(page, VIEWPORTS[0].name);
+await checkJourneyKept(page, VIEWPORTS[0].name);
 await checkJourneyReview(page, VIEWPORTS[0].name);
 await checkJourneySimple(page, VIEWPORTS[0].name);
 await checkDelayMap(page, VIEWPORTS[0].name);
@@ -3207,6 +3419,9 @@ for (const vp of VIEWPORTS.slice(1)) {
   if (vp.name === "desktop") await checkA11yMenu(p, vp.name, { desktop: true });
   if (vp.name === "desktop") await checkReadingLayout(p);
   await checkReachableAcrossViews(p, vp.name);
+  await checkJourneyPairService(p, vp.name);
+  await checkJourneyBar(p, vp.name);
+  await checkJourneyKept(p, vp.name);
   await checkJourneyReview(p, vp.name);
   await checkJourneySimple(p, vp.name);
   await checkDelayMap(p, vp.name);

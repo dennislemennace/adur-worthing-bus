@@ -20,8 +20,12 @@ from observation_contract import LONDON, row_identity
 
 
 def entry_period(epoch):
+    """The time-of-day group a traversal falls in: the journey-time view's own
+    chips, the rush hours 08-10 and 16-18 (narrowed from 07-10 and 16-19 on
+    24 September 2026), daytime between them, and early and late the rest.
+    tests/test_delay_hotspots.py holds the two to the same hours."""
     hour = datetime.fromtimestamp(epoch, LONDON).hour
-    return "07-10" if 7 <= hour < 10 else "10-16" if 10 <= hour < 16 else "16-19" if 16 <= hour < 19 else "other"
+    return "08-10" if 8 <= hour < 10 else "10-16" if 10 <= hour < 16 else "16-18" if 16 <= hour < 18 else "other"
 
 
 def quality_reason(row, max_interval_secs):

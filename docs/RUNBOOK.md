@@ -124,7 +124,7 @@ at the top of `app.js`:
 
 | Switch | What it shows | Default |
 |---|---|---|
-| `JOURNEY_TIMES_PUBLIC` | The **Simple** view: pick two stops, see how long buses usually take, how long to allow, the slowest time of day, and every journey against the timetable. | `true` |
+| `JOURNEY_TIMES_PUBLIC` | The **Simple** view: type or tap two stops, see how long buses usually take, how long to allow, and how that changes through the day against the timetable. | `true` |
 | `JOURNEY_TIMES_DETAILED_PUBLIC` | The **Detailed** view: every evidence filter, cohorts, CSV/JSON exports, the evidence panel. | `false` |
 | `DELAY_MAP_PUBLIC` | **Where buses lose time**: road stretches coloured by the median time lost on each. | `false` |
 
@@ -132,6 +132,45 @@ Everything is reachable with `?preview=1` while its switch is off. Both views
 share one selection and one set of default filters, so the same trip always
 shows the same headline number in both; a node test reads the Detailed
 controls' defaults out of `index.html` to hold that.
+
+**Choosing stops.** One bar at the top of both views takes a typed stop or a
+tap on the map. Suggestions come from the same places as the ticket checker
+(`stopPickerIndex`), limited to stops a published service calls at; once From is
+chosen, To offers only stops sharing a service with it, and the map shows only
+those. Typed words match in any order against the stop's name and its NaPTAN
+locality, so "shoreham high" finds the stop NaPTAN calls "High Street". Both
+come from `data/stops.json`, which carries `services` and `locality` for every
+stop: rebuild it with `scripts/build_stops_json.py` if either is missing.
+
+**Worked examples.** `data/journey_time_presets.json` holds the popular
+journeys, grouped by area (Brighton & Hove, Worthing, Shoreham & Lancing,
+Between towns), at most five shown per area. They are separate from the ticket
+checker's `journey_presets.json`. A preset is only shown when a published
+service calls at both ends, so a stale one hides itself rather than failing;
+pytest checks the schema and that every stop is in the timetable. When the
+network changes, re-check that each still resolves to at least ten journeys
+(open it on the site), update `why` and `checked_on`.
+
+**When you travel.** Simple, and the delay map's Simple view, share one pair of
+chip rows: Weekdays or Weekends, then All day or one of four periods: morning
+peak 08:00–10:00 (`08-10`), daytime 10:00–16:00, evening peak 16:00–18:00
+(`16-18`), and early and late, everything else (`other`). The map has no
+all-day figure. A choice made in one is the choice the other opens on. The
+delay-map pipeline groups its cells by the same hours
+(`entry_period` in `scripts/build_delay_hotspots.py`), and a pytest reads
+`JT_PERIODS` from `app.js` to hold the two together. The peaks were 07-10 and
+16-19 until 24 September 2026: old links open on the new ones, and the first
+nightly run after that change reached the site rebuilds the map's cells, so
+until it has run the map's peak cells read as not enough journeys.
+
+**How often buses run.** The badge beside the answer is service frequency, not
+evidence: plenty of buses is every 15 minutes or better, some up to every 30,
+only a few anything less often (`jtFrequency`). It is the typical gap between
+departures in the chosen time, from the timetable recorded each night; until a
+day type has one, from the tracked buses' departures pooled over at least three
+days of that type, so weekends show no badge until a recorded Saturday and
+Sunday are in the window. How much evidence sits behind the answer is in its
+"Based on" line, and a rough-guide warning below ten journeys.
 
 **The timetable line.** Every observations file now carries the day's timetable
 (`schedule`), and service documents fold it in. Charts draw it as a step line

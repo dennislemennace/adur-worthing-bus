@@ -300,3 +300,35 @@ def test_the_published_map_check_refuses_an_overclaim_and_raw_evidence():
     found = " ".join(str(i) for i in failures.items)
     for message in ("below the floor", "does not draw", "raw traversals", "too large"):
         assert message in found, message
+
+
+def test_the_map_groups_hours_exactly_as_the_journey_view_does():
+    """The delay map's cells and the journey-time view's chips are one set of
+    time-of-day groups, so a colour for the morning peak is about the hours the
+    chip says. Read from app.js, so neither can move without the other: the
+    rush hours were narrowed to 08-10 and 16-18 on 24 September 2026."""
+    import re
+    from datetime import datetime
+    from build_delay_hotspots import entry_period
+    from observation_contract import LONDON
+    app = (Path(__file__).resolve().parents[1] / "app.js").read_text()
+    block = app[app.index("const JT_PERIODS = Object.freeze(["):]
+    block = block[:block.index("]);")]
+    periods = [(key, int(sh) * 60 + int(sm), int(eh) * 60 + int(em))
+               for key, sh, sm, eh, em in re.findall(
+                   r'key: "([^"]+)"[^}]*?start: "(\d\d):(\d\d)", end: "(\d\d):(\d\d)"', block)
+               if key != "any"]
+    assert {k for k, _, _ in periods} == {"08-10", "10-16", "16-18", "other"}, periods
+
+    def app_period(minute):
+        for key, lo, hi in periods:
+            if (lo <= minute <= hi) if lo <= hi else (minute >= lo or minute <= hi):
+                return key
+        return None
+
+    for hour in range(24):
+        for minute in (0, 59):
+            at = datetime(2026, 9, 22, hour, minute, tzinfo=LONDON).timestamp()
+            assert entry_period(at) == app_period(hour * 60 + minute), (
+                f"{hour:02d}:{minute:02d} is {entry_period(at)} on the map "
+                f"but {app_period(hour * 60 + minute)} in the journey view")

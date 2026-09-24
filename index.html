@@ -124,6 +124,9 @@
       <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
       </symbol>
+      <symbol id="i-swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/>
+      </symbol>
       <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
         <path d="M21 3v5h-5"/>
@@ -901,8 +904,48 @@
               <button type="button" class="jt-section" data-jt-section="journey" aria-pressed="true">My journey</button>
               <button type="button" class="jt-section" data-jt-section="delays" aria-pressed="false">Where buses lose time</button>
             </div>
-            <button type="button" class="jt-view-toggle" id="jt-view-toggle" aria-pressed="false" hidden>Detailed view</button>
+            <div class="jt-view-switch" id="jt-view-toggle" role="group" aria-label="Level of detail" hidden>
+              <button type="button" class="jt-view-option" data-jt-view="simple" aria-pressed="true">Simple</button>
+              <button type="button" class="jt-view-option" data-jt-view="detailed" aria-pressed="false">Detailed</button>
+            </div>
           </div>
+          <!-- The two stops, typed or tapped on the map. One bar for both views
+               and both states, so the chosen pair is always shown in one place
+               and changed in one place. The lists are filled by app.js. -->
+          <form class="jt-journey" id="jt-journey" role="search" aria-label="Choose two stops" autocomplete="off">
+            <div class="jt-journey-field" data-jt-slot="from">
+              <label class="jt-journey-label" for="jt-from-input">From</label>
+              <div class="jt-combo">
+                <input id="jt-from-input" class="jt-combo-input" type="text" role="combobox"
+                       aria-autocomplete="list" aria-expanded="false" aria-controls="jt-from-list"
+                       spellcheck="false" placeholder="Type a stop name">
+                <button type="button" class="jt-combo-clear" data-jt-clear="from" aria-label="Clear From" hidden>
+                  <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
+                </button>
+              </div>
+              <ul class="jt-combo-list" id="jt-from-list" role="listbox" aria-label="Stops matching From" hidden></ul>
+              <p class="jt-combo-note" id="jt-from-note" hidden></p>
+            </div>
+            <button type="button" class="jt-swap" id="jt-swap" aria-label="Swap From and To" disabled>
+              <svg class="icon" aria-hidden="true"><use href="#i-swap"/></svg>
+            </button>
+            <div class="jt-journey-field" data-jt-slot="to">
+              <label class="jt-journey-label" for="jt-to-input">To</label>
+              <div class="jt-combo">
+                <input id="jt-to-input" class="jt-combo-input" type="text" role="combobox"
+                       aria-autocomplete="list" aria-expanded="false" aria-controls="jt-to-list"
+                       spellcheck="false" placeholder="Type a stop name">
+                <button type="button" class="jt-combo-clear" data-jt-clear="to" aria-label="Clear To" hidden>
+                  <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
+                </button>
+              </div>
+              <ul class="jt-combo-list" id="jt-to-list" role="listbox" aria-label="Stops matching To" hidden></ul>
+              <p class="jt-combo-note" id="jt-to-note" hidden></p>
+            </div>
+            <p class="jt-journey-hint">Or tap two stops on the map.</p>
+            <!-- How many stops match, for a screen reader; the list says it visually. -->
+            <p class="visually-hidden" id="jt-combo-status" role="status" aria-live="polite"></p>
+          </form>
           <p class="panel-intro" id="journey-times-intro">
             Every journey we tracked between two stops, against the time the
             timetable promised. Measured from the operators' own vehicle feed.
@@ -934,8 +977,8 @@
                    700 journey, in both directions. -->
               <span class="field-label">Show</span>
               <select id="journey-times-mode" class="field-input">
-                <option value="delay">Extra time on this section</option>
-                <option value="punctuality">Lateness at destination</option>
+                <option value="delay">Minutes slower than timetable</option>
+                <option value="punctuality">Minutes late arriving</option>
                 <option value="duration">Journey time</option>
               </select>
             </label>
@@ -947,14 +990,14 @@
               <span class="field-label">Days</span>
               <select id="journey-times-days" class="field-input"></select>
             </label>
-            <details class="jt-filter-options"><summary>Time and evidence filters</summary>
+            <details class="jt-filter-options"><summary>More filters: time of day and evidence</summary>
               <div class="jt-filter-grid">
-            <label class="field"><span class="field-label">Departures from (London)</span><input type="time" value="00:00" id="journey-times-time-from" class="field-input"></label>
-            <label class="field"><span class="field-label">Departures until (London)</span><input type="time" value="23:59" id="journey-times-time-to" class="field-input"></label>
-            <label class="field"><span class="field-label">Observations</span><select id="journey-times-evidence" class="field-input"><option value="measured">Measured endpoints only</option><option value="all">Include interpolation</option></select></label>
-            <label class="field"><span class="field-label">Journey identity</span><select id="journey-times-identity" class="field-input"><option value="all">All identities</option><option value="declared">Declared by operator</option><option value="inferred">Inferred from position</option></select></label>
-            <label class="field"><span class="field-label">Quality</span><select id="journey-times-quality" class="field-input"><option value="all">All, including flagged</option><option value="clear">No quality flags</option></select></label>
-            <label class="field"><span class="field-label">Comparable cohort</span><select id="journey-times-cohort" class="field-input"><option value="all">All cohorts (exploratory)</option></select></label>
+            <label class="field"><span class="field-label">Leaving from (UK time)</span><input type="time" value="00:00" id="journey-times-time-from" class="field-input"></label>
+            <label class="field"><span class="field-label">Leaving until (UK time)</span><input type="time" value="23:59" id="journey-times-time-to" class="field-input"></label>
+            <label class="field"><span class="field-label">Timing</span><select id="journey-times-evidence" class="field-input"><option value="measured">Seen at both stops only</option><option value="all">Include estimated stop times</option></select></label>
+            <label class="field"><span class="field-label">How the bus was identified</span><select id="journey-times-identity" class="field-input"><option value="all">Either way</option><option value="declared">Reported by the operator</option><option value="inferred">Matched by position</option></select></label>
+            <label class="field"><span class="field-label">Warnings</span><select id="journey-times-quality" class="field-input"><option value="all">Include journeys with warnings</option><option value="clear">Only journeys with no warnings</option></select></label>
+            <label class="field"><span class="field-label">Timetable version</span><select id="journey-times-cohort" class="field-input"><option value="all">All versions combined</option></select></label>
               </div>
             </details>
           </div>
@@ -970,7 +1013,10 @@
             </label>
           </div>
 
-          <div id="journey-times-result" aria-live="polite"></div>
+          <div id="journey-times-result"></div>
+          <!-- What just changed, in one sentence, for a screen reader. The panel
+               above was a live region, and every chip read the whole of it out. -->
+          <p class="visually-hidden" id="jt-announce" role="status" aria-live="polite"></p>
           <div id="jt-delay-panel" class="jt-delay-panel" hidden></div>
         </div>
       </div><!-- /panel-mode[data-mode="journeytimes"] -->

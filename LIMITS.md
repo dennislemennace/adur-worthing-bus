@@ -82,10 +82,13 @@ lines and timetables are API calls too, and arrive with it.
   should be deleted rather than budgeted for.
 - **GitHub disables scheduled workflows in a repository with no commits for 60
   days.** That only affects the backup; the Worker's cron is unaffected.
-- Pages also serves `data/stops.json` (~250 KB, ~36 KB gzipped), downloaded on
+- Pages also serves `data/stops.json` (~290 KB, ~41 KB gzipped), downloaded on
   a visitor's first load and then cached. At the 100 GB monthly Pages
   allowance that is not a constraint; it is listed so a future change that
-  inflates it is a deliberate one.
+  inflates it is a deliberate one. The last one was: from 24 September 2026
+  every stop carries its `services` and `locality`, adding 3.4 KB gzipped
+  (0.5 KB for the services on 189 unique-name stops, 2.9 KB for localities),
+  so the journey-time view can offer every stop and find one by its town.
 
 ## BODS — Bus Open Data Service (SIRI-VM vehicles)
 

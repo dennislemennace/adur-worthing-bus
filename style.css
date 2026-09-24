@@ -5962,6 +5962,9 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   flex: 1 1 auto;
   min-height: 0;
 }
+/* The journey-time view had no side padding of its own, so its text ran to
+   the screen edge on a phone and up against the map on a desktop. */
+#tab-content-journey-times { padding: var(--space-sm) var(--space-md) var(--space-lg); }
 
 /* The badge in a departure row is the row's action, so it carries the
    target size the rest of the site holds to. The badge itself keeps its
@@ -6610,6 +6613,11 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
    desaturated basemap (see .delay-map-on below), and each band also changes
    line weight, so colour is never the only cue (WCAG 1.4.1). */
 :root {
+  /* The passenger chart's two lines and its shading. Typical time is the
+     accent so it reads apart from the blue dots and the blue timetable. */
+  --jt-typical:   #b36a00;
+  --jt-band:      rgba(26, 75, 130, 0.09);
+  --jt-hour:      rgba(26, 75, 130, 0.14);
   --delay-green:  #1f8a44;
   --delay-yellow: #d8a800;
   --delay-amber:  #e06a00;
@@ -6618,6 +6626,9 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   --delay-casing: rgba(20, 26, 36, 0.55);
 }
 html.dark-mode {
+  --jt-typical:   #e6a820;
+  --jt-band:      rgba(74, 143, 208, 0.13);
+  --jt-hour:      rgba(74, 143, 208, 0.22);
   --delay-green:  #45c46e;
   --delay-yellow: #f3d23a;
   --delay-amber:  #ff9a3d;
@@ -6663,28 +6674,41 @@ html.dark-mode {
 }
 .jt-section:focus-visible,
 .jt-chip:focus-visible,
-.jt-view-toggle:focus-visible {
+.jt-view-option:focus-visible,
+.jt-area:focus-visible,
+.jt-swap:focus-visible,
+.jt-combo-clear:focus-visible {
   outline: 3px solid var(--color-link);
   outline-offset: 2px;
 }
-.jt-view-toggle {
+/* Simple | Detailed: a pair of buttons, so which one is on is visible rather
+   than inferred from a link that sometimes looked bold. */
+.jt-view-switch {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.jt-view-option {
   min-height: var(--target-min);
-  padding: 0 .25rem;
+  padding: .35rem .8rem;
   border: 0;
-  background: none;
-  color: var(--color-link);
+  background: var(--color-surface);
+  color: var(--color-text);
   font: inherit;
   font-size: var(--font-size-sm);
-  text-decoration: underline;
+  font-weight: 600;
   cursor: pointer;
 }
-.jt-view-toggle[aria-pressed="true"] { font-weight: 700; }
+.jt-view-option + .jt-view-option { border-left: 1px solid var(--color-border); }
+.jt-view-option[aria-pressed="true"] { background: var(--color-surface-2); box-shadow: inset 0 -3px 0 var(--color-link); }
 
-/* Chips: a row of choices that wraps rather than scrolling off a phone. */
+/* Chips: a row of choices that wraps rather than scrolling off a phone. 8px
+   apart, the minimum between touch targets. */
 .jt-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: .4rem;
+  gap: .5rem;
   margin: .75rem 0;
   padding: 0;
   border: 0;
@@ -6708,26 +6732,177 @@ html.dark-mode {
   text-align: left;
 }
 .jt-chip[aria-pressed="true"] { border-color: var(--color-primary); }
+.jt-chip:disabled { opacity: .5; cursor: not-allowed; }
+/* Feedback on hover and press, in colour first; the small press-in only where
+   motion is welcome, and never with the site's own reduce-motion setting. */
+.jt-chip,
+.jt-area,
+.jt-view-option,
+.jt-swap,
+.jt-combo-clear {
+  transition-property: background-color, border-color, color, transform;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+  touch-action: manipulation;
+}
+@media (hover: hover) {
+  .jt-chip:not(:disabled):not([aria-pressed="true"]):hover,
+  .jt-view-option:not([aria-pressed="true"]):hover,
+  .jt-swap:not(:disabled):hover { background: var(--color-border); }
+  .jt-area:not([aria-pressed="true"]):hover { color: var(--color-text); border-bottom-color: var(--color-border); }
+  .jt-combo-clear:hover { color: var(--color-text); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .jt-chip:not(:disabled):active,
+  .jt-swap:not(:disabled):active { transform: scale(0.97); }
+}
+html.a11y-reduce-motion .jt-chip:active,
+html.a11y-reduce-motion .jt-swap:active { transform: none; }
 .jt-chip-note { font-size: .78rem; font-weight: 500; opacity: .9; }
 .jt-popular { margin: .75rem 0 .25rem; }
 
-/* The Simple answer. */
-.jt-simple-route {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: .25rem 1rem;
-}
-.jt-simple-stops {
-  margin: 0;
-  font-size: var(--font-size-lg);
+/* "When do you travel?": a row of days over a row of times, one legend. */
+.jt-when { margin: .75rem 0; padding: 0; border: 0; min-width: 0; }
+.jt-when > legend {
+  margin: 0 0 .35rem;
+  padding: 0;
+  font-size: var(--font-size-sm);
   font-weight: 700;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
+  color: var(--color-text);
 }
-.jt-simple-arrow { color: var(--color-text-muted); padding: 0 .15rem; }
-.jt-simple-route .jt-link,
+.jt-when .jt-chips { margin: 0 0 .4rem; }
+
+/* The areas above the worked examples: tabs rather than chips, so they read
+   as "which list" and not as one more journey to press. */
+.jt-areas { display: flex; flex-wrap: wrap; gap: .5rem .75rem; margin: .1rem 0 .4rem; }
+.jt-area {
+  min-height: var(--target-min);
+  padding: .3rem .2rem;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.jt-area[aria-pressed="true"] { color: var(--color-text); border-bottom-color: var(--color-link); }
+
+/* ── The journey bar: From and To, typed or tapped ── */
+.jt-journey {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .4rem .5rem;
+  align-items: center;
+  margin: .25rem 0 .75rem;
+  padding: .6rem .6rem .5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.jt-journey-field {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+}
+.jt-journey-field[data-jt-slot="from"] { grid-column: 1; grid-row: 1; }
+.jt-journey-field[data-jt-slot="to"] { grid-column: 1; grid-row: 2; }
+.jt-journey-label { font-size: var(--font-size-sm); font-weight: 700; color: var(--color-text); }
+.jt-combo { position: relative; min-width: 0; }
+.jt-combo-input {
+  width: 100%;
+  min-height: var(--target-min);
+  padding: .5rem 2.9rem .5rem .6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  text-overflow: ellipsis;
+}
+.jt-combo-input::placeholder { color: var(--color-text-muted); opacity: 1; }
+.jt-combo-input:focus-visible { outline: 3px solid var(--color-link); outline-offset: 1px; }
+.jt-combo-clear {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: var(--target-min);
+  height: var(--target-min);
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.jt-combo-clear .icon { width: 1.1rem; height: 1.1rem; }
+.jt-combo-list {
+  grid-column: 1 / -1;
+  max-height: 17rem;
+  overflow-y: auto;
+  margin: .3rem 0 0;
+  padding: .2rem;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+.jt-combo-option {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: var(--target-min);
+  padding: .35rem .6rem;
+  border-left: 3px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.jt-combo-option[aria-selected="true"],
+.jt-combo-option:hover { background: var(--color-surface-2); border-left-color: var(--color-link); }
+.jt-combo-name { font-weight: 600; overflow-wrap: anywhere; }
+.jt-combo-meta { font-size: .8rem; color: var(--color-text-muted); }
+.jt-combo-note {
+  grid-column: 1 / -1;
+  margin: .3rem 0 0;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+.jt-combo-note .jt-link { min-height: var(--target-min); }
+@media (prefers-reduced-motion: no-preference) {
+  .jt-combo-list:not([hidden]) { animation: jt-list-in 120ms ease-out; }
+}
+@keyframes jt-list-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+.jt-swap {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  width: var(--target-min);
+  height: var(--target-min);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+.jt-swap { display: grid; place-items: center; }
+.jt-swap .icon { width: 1.25rem; height: 1.25rem; }
+.jt-swap:disabled { opacity: .45; cursor: default; }
+.jt-journey-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* The Simple answer. */
 .jt-simple-links .jt-link {
   min-height: var(--target-min);
   display: inline-flex;
@@ -6739,7 +6914,55 @@ html.dark-mode {
   border-radius: var(--radius-md);
   background: var(--color-surface-2);
 }
+.jt-simple-slot {
+  margin: 0 0 .15rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.jt-simple-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .35rem 1rem;
+}
 .jt-simple-usually { margin: 0; font-size: 1.1rem; }
+/* Figures that change as the reader switches time or hour keep their width,
+   so the line does not shuffle sideways under them. */
+.jt-simple-usually strong,
+.jt-simple-allow-main strong,
+.jt-chip-note,
+.jt-hour-detail,
+.jt-axis,
+.jt-figures,
+.jt-table td { font-variant-numeric: tabular-nums; }
+/* Short lines balanced; running text without a word stranded on its own. */
+.jt-verdict,
+.jt-simple-slot,
+.jt-simple-chart > figcaption { text-wrap: balance; }
+.jt-simple-timetable,
+.jt-simple-allow-why,
+.jt-simple-insight,
+.jt-simple-basis,
+.jt-hour-detail,
+.jt-how p { text-wrap: pretty; }
+/* A heading for a screen reader to land on after a redraw; never drawn. */
+.jt-result-title:focus { outline: none; }
+/* How often the buses run, beside the answer. The tints are the punctuality
+   ones, so both themes and the colour-blind palette already carry them; the
+   words say it without the colour. */
+.jt-evidence-badge {
+  display: inline-block;
+  padding: .15rem .6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+.jt-evidence-badge--plenty { background: var(--tint-on-time-bg); border-color: var(--tint-on-time-border); }
+.jt-evidence-badge--some { background: var(--tint-scheduled-bg); border-color: var(--tint-scheduled-border); }
+.jt-evidence-badge--few { background: var(--tint-late-bg); border-color: var(--tint-late-border); }
 .jt-simple-usually strong {
   font-family: var(--font-brand);
   font-size: 2rem;
@@ -6747,8 +6970,12 @@ html.dark-mode {
   color: var(--color-text);
 }
 .jt-simple-timetable { margin: .15rem 0 .6rem; color: var(--color-text-muted); }
-.jt-simple-allow { margin: 0; line-height: 1.45; }
+.jt-simple-allow { margin: .7rem 0 0; line-height: 1.45; }
+.jt-simple-allow-main { margin: 0; font-size: 1.05rem; }
+.jt-simple-allow-main strong { font-family: var(--font-brand); font-size: 1.45rem; }
+.jt-simple-allow-why { margin: .05rem 0 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .jt-simple-allow.jt-thin { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.jt-simple-rough { margin: .5rem 0 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .jt-simple-insight { margin: .5rem 0 .75rem; line-height: 1.5; }
 .jt-simple-chart { margin: .5rem 0 0; }
 .jt-simple-chart > figcaption {
@@ -6756,44 +6983,84 @@ html.dark-mode {
   font-size: var(--font-size-sm);
   font-weight: 700;
 }
-.jt-simple-trust {
-  margin: .75rem 0 .25rem;
+.jt-simple-trust,
+.jt-simple-basis {
+  margin: .5rem 0 .25rem;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   line-height: 1.5;
 }
-.jt-simple-links { display: flex; flex-wrap: wrap; gap: 0 1.25rem; margin: 0 0 .5rem; }
-.jt-simple .jt-point-detail { min-height: 2.5rem; }
+.jt-how { margin: 0 0 .5rem; font-size: var(--font-size-sm); }
+/* Padding rather than flex for the height: a flex summary loses its marker,
+   and the marker is what says there is more inside. */
+.jt-how > summary { cursor: pointer; padding: .7rem 0; }
+.jt-how p { margin: .25rem 0 .5rem; line-height: 1.5; }
+.jt-how .jt-link { min-height: var(--target-min); display: inline-flex; align-items: center; }
+.jt-simple-links { display: flex; flex-wrap: wrap; gap: 0 1.25rem; margin: .25rem 0 .25rem; }
+.jt-copy-status { margin: 0 0 .5rem; font-size: var(--font-size-sm); }
+.jt-copy-field { width: 100%; min-height: var(--target-min); margin-top: .25rem; font: inherit; }
+
+/* The chart's own marks. */
+.jt-typical {
+  fill: none;
+  stroke: var(--jt-typical);
+  stroke-width: 3.25;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.jt-key--typical {
+  border-radius: 1px;
+  width: 22px;
+  height: 3px;
+  margin-top: .45rem;
+  background: var(--jt-typical);
+}
+.jt-band { fill: var(--jt-band); }
+.jt-hours-table { margin-top: .25rem; }
+.jt-hour-sel { fill: var(--jt-hour); stroke: var(--color-link); stroke-width: 1; }
+.jt-hour-hit { fill: transparent; pointer-events: all; cursor: pointer; }
+.jt-dot--dense { opacity: .38; }
+.jt-chart-key { margin: .25rem 0 .35rem; }
+.jt-hour-pick { display: grid; gap: .1rem; margin: .25rem 0 0; }
+.jt-hour-pick-label { font-size: var(--font-size-sm); font-weight: 700; }
+.jt-hour-range {
+  width: 100%;
+  min-height: var(--target-min);
+  margin: 0;
+  accent-color: var(--color-link);
+}
+.jt-hour-range:focus-visible { outline: 3px solid var(--color-link); outline-offset: 2px; }
+.jt-hour-detail { margin: .1rem 0 .6rem; line-height: 1.45; min-height: 2.9em; }
 
 /* The timetable across the day: a dashed step line per day type, each with a
    different dash so the three stay apart without relying on colour. */
+/* In the text colour rather than the link blue: the dots are blue, and on a
+   ten-minute Brighton route a blue dashed line vanished into them. Dots,
+   typical time and timetable are three different colours as well as three
+   different marks. */
 .jt-timetable {
   fill: none;
-  stroke: var(--color-link);
-  stroke-width: 2.25;
+  stroke: var(--color-text);
+  stroke-width: 2;
   stroke-dasharray: 7 4;
   stroke-linejoin: round;
+  opacity: .9;
 }
 .jt-timetable--saturday { stroke-dasharray: 2 3; }
 .jt-timetable--sunday { stroke-dasharray: 10 3 2 3; }
-.jt-timetable-stop {
-  fill: var(--color-surface);
-  stroke: var(--color-link);
-  stroke-width: 1.25;
-}
 .jt-key--timetable {
   border-radius: 1px;
   width: 22px;
   height: 3px;
   margin-top: .45rem;
-  background: repeating-linear-gradient(to right, var(--color-link) 0 7px, transparent 7px 11px);
+  background: repeating-linear-gradient(to right, var(--color-text) 0 7px, transparent 7px 11px);
 }
 .jt-key--timetable-saturday {
-  background: repeating-linear-gradient(to right, var(--color-link) 0 2px, transparent 2px 5px);
+  background: repeating-linear-gradient(to right, var(--color-text) 0 2px, transparent 2px 5px);
 }
 .jt-key--timetable-sunday {
-  background: repeating-linear-gradient(to right, var(--color-link) 0 10px, transparent 10px 13px,
-    var(--color-link) 13px 15px, transparent 15px 18px);
+  background: repeating-linear-gradient(to right, var(--color-text) 0 10px, transparent 10px 13px,
+    var(--color-text) 13px 15px, transparent 15px 18px);
 }
 
 /* ===== WHERE BUSES LOSE TIME (delay map) ===== */

@@ -1,0 +1,164 @@
+{
+  "_comment": "Worked examples for the journey-times view (How long it really takes), grouped by area. Separate from journey_presets.json, which holds the Ticket view's campaign cases: these are everyday trips, chosen so that Brighton and Hove and Worthing are represented as well as the coast road between them. `from`/`to` are NaPTAN ATCO codes, checked against data/timetable.sqlite by pytest. At runtime a preset is shown only if a published service calls at both ends, so a stale one hides itself rather than leading to 'no journeys found'. Journey counts in `why` are from the published build of 23 September 2026 (seven days, 16 to 22 September).",
+  "checked_on": "2026-09-24",
+  "areas": [
+    { "id": "brighton-hove", "label": "Brighton & Hove" },
+    { "id": "worthing", "label": "Worthing" },
+    { "id": "shoreham-lancing", "label": "Shoreham & Lancing" },
+    { "id": "between-towns", "label": "Between towns" }
+  ],
+  "presets": [
+    {
+      "id": "brighton-station-to-marina",
+      "area": "brighton-hove",
+      "label": "Brighton Station → Marina",
+      "from": "149000006928", "from_name": "Brighton Station",
+      "to": "149000006972", "to_name": "Marina Cinema",
+      "why": "Across the city centre and along the seafront: the 7 (217 journeys, usually 24 min) and the 47 (86) both make it, so the service chips have a real comparison to offer."
+    },
+    {
+      "id": "churchill-square-to-county-hospital",
+      "area": "brighton-hove",
+      "label": "Churchill Square → County Hospital",
+      "from": "149000006989", "from_name": "Churchill Square",
+      "to": "149000007424", "to_name": "County Hospital",
+      "why": "A hospital trip, where being late matters: the 1 (693 journeys, usually 12 min) and the 1X (445)."
+    },
+    {
+      "id": "royal-pavilion-to-university",
+      "area": "brighton-hove",
+      "label": "City centre → University of Brighton",
+      "from": "149000007816", "from_name": "Royal Pavilion",
+      "to": "149000007212", "to_name": "Brighton University",
+      "why": "The Lewes Road corridor students use: the 49 (456 journeys, usually 19 min) and the 25 (146)."
+    },
+    {
+      "id": "churchill-square-to-hove-town-hall",
+      "area": "brighton-hove",
+      "label": "Churchill Square → Hove Town Hall",
+      "from": "149000007990", "from_name": "Churchill Square",
+      "to": "149000007953", "to_name": "Town Hall",
+      "why": "Western Road into Hove, served by six services (1, 2, 5B, 6, 46, 49), each with 280 or more tracked journeys."
+    },
+    {
+      "id": "brighton-station-to-hove-station",
+      "area": "brighton-hove",
+      "label": "Brighton Station → Hove Station",
+      "from": "149000007932", "from_name": "Brighton Station",
+      "to": "149000007680", "to_name": "Hove Railway Station",
+      "why": "Station to station: the 7 (732 journeys, usually 11 min) and the 3X (338). Also the pair that exposed the wrong-service bug, where the 3X opened with another service's stops."
+    },
+    {
+      "id": "preston-circus-to-hollingbury",
+      "area": "brighton-hove",
+      "label": "Preston Circus → Hollingbury Asda",
+      "from": "149000007032", "from_name": "Preston Circus",
+      "to": "149000007238", "to_name": "Asda Crowhurst Road",
+      "why": "Up the hill to the Hollingbury shops on the 5B (197 journeys, usually 17 min)."
+    },
+    {
+      "id": "royal-pavilion-to-whitehawk",
+      "area": "brighton-hove",
+      "label": "City centre → Whitehawk",
+      "from": "149000007921", "from_name": "Royal Pavilion",
+      "to": "149000007657", "to_name": "Whitehawk Crescent",
+      "why": "The 21 out to Whitehawk (326 journeys, usually 21 min), a route whose stop list was the most jumbled before stops were put in route order."
+    },
+    {
+      "id": "churchill-square-to-portslade-station",
+      "area": "brighton-hove",
+      "label": "Churchill Square → Portslade Station",
+      "from": "149000007990", "from_name": "Churchill Square",
+      "to": "149000007455", "to_name": "Portslade Railway Station",
+      "why": "To the western edge of the city: the 1X, 6, 46 and 49 all make it, at noticeably different speeds."
+    },
+    {
+      "id": "worthing-seafront-to-durrington",
+      "area": "worthing",
+      "label": "Worthing seafront → Durrington",
+      "from": "4400WO0255", "from_name": "Marine Parade",
+      "to": "4400WO0069", "to_name": "Durrington High School",
+      "why": "Across Worthing on the 700 (399 journeys, usually 17 min)."
+    },
+    {
+      "id": "worthing-town-hall-to-durrington",
+      "area": "worthing",
+      "label": "Worthing Town Hall → Durrington",
+      "from": "4400WO0244", "from_name": "Town Hall",
+      "to": "4400WO0427", "to_name": "Durrington Cemetery",
+      "why": "A second way to Durrington: the 23 (98 journeys) and the 1 (79)."
+    },
+    {
+      "id": "worthing-to-findon",
+      "area": "worthing",
+      "label": "Worthing → Findon",
+      "from": "4400WO0244", "from_name": "Town Hall",
+      "to": "4400LH0981", "to_name": "Findon Place",
+      "why": "Out to Findon on the 23 (30 journeys, usually 15 min): thinner evidence, which the view says beside the answer."
+    },
+    {
+      "id": "worthing-to-lancing",
+      "area": "worthing",
+      "label": "Worthing → Lancing",
+      "from": "4400WO0254", "from_name": "Marine Parade",
+      "to": "4400AD0062", "to_name": "Lancing Park",
+      "why": "Along the coast road on the 700 (468 journeys, usually 9 min)."
+    },
+    {
+      "id": "lancing-to-shoreham",
+      "area": "shoreham-lancing",
+      "label": "Lancing → Shoreham",
+      "from": "4400AD0062", "from_name": "Lancing Park",
+      "to": "4400AD0204", "to_name": "High Street",
+      "why": "The 700 between the two Adur towns (464 journeys, usually 11 min)."
+    },
+    {
+      "id": "shoreham-station-to-southlands",
+      "area": "shoreham-lancing",
+      "label": "Shoreham Station → Southlands Hospital",
+      "from": "4400AD0314", "from_name": "Shoreham-by-Sea Railway Station",
+      "to": "4400AD0218", "to_name": "Southlands Hospital",
+      "why": "A short hospital trip on the 2 (293 journeys, usually 8 min)."
+    },
+    {
+      "id": "southwick-to-brighton",
+      "area": "shoreham-lancing",
+      "label": "Southwick → Brighton",
+      "from": "4400AD0259", "from_name": "Southwick Square",
+      "to": "149000006990", "to_name": "Churchill Square",
+      "why": "From Southwick into the city on the 46 (248 journeys)."
+    },
+    {
+      "id": "shoreham-to-brighton",
+      "area": "between-towns",
+      "label": "Shoreham → Brighton",
+      "from": "4400AD0204", "from_name": "High Street",
+      "to": "149000006992", "to_name": "Churchill Square",
+      "why": "The clearest service comparison: the 700 usually takes 32 min and the 2 usually 58 (455 and 278 journeys)."
+    },
+    {
+      "id": "worthing-to-brighton",
+      "area": "between-towns",
+      "label": "Worthing → Brighton",
+      "from": "4400WO0254", "from_name": "Marine Parade",
+      "to": "149000007828", "to_name": "Old Steine",
+      "why": "End to end on the Coastliner 700 (106 journeys, usually 61 min)."
+    },
+    {
+      "id": "lancing-to-brighton",
+      "area": "between-towns",
+      "label": "Lancing → Brighton",
+      "from": "4400AD0062", "from_name": "Lancing Park",
+      "to": "149000007828", "to_name": "Old Steine",
+      "why": "The 700 from Lancing (106 journeys, usually 51 min), across the Worthing and Brighton fare boundary."
+    },
+    {
+      "id": "portslade-to-brighton",
+      "area": "between-towns",
+      "label": "Portslade → Brighton",
+      "from": "149000006450", "from_name": "Portslade Railway Station",
+      "to": "149000006991", "to_name": "Churchill Square",
+      "why": "Four Brighton & Hove services from Portslade into the centre (6, 46, 49 and 25), a useful multi-service comparison."
+    }
+  ]
+}

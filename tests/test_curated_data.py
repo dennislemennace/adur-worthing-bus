@@ -618,6 +618,57 @@ def test_journey_preset_stops_exist():
                 f"in the timetable — the checker would report it as unpickable")
 
 
+# ── Journey-time presets ────────────────────────────────────
+#
+# Everyday trips for "How long it really takes", grouped by area so Brighton and
+# Hove and Worthing are offered as well as the coast road. A preset whose stop
+# is not in the timetable hides itself at runtime, which is quiet enough to go
+# unnoticed for weeks, so the schema and the stops are checked here.
+
+def test_journey_time_presets_schema():
+    data = _load("journey_time_presets.json")
+    assert _nonempty_str(data.get("checked_on")), (
+        "journey_time_presets.json needs a 'checked_on': a preset goes stale when "
+        "the network changes under it")
+    date.fromisoformat(data["checked_on"])
+
+    areas = data.get("areas")
+    assert isinstance(areas, list) and areas, "journey_time_presets.json: 'areas' must be a non-empty list"
+    _assert_unique_ids(areas, "journey_time_presets.json areas")
+    for a in areas:
+        assert _nonempty_str(a.get("label")), f"journey_time_presets.json: area '{a.get('id')}' needs a 'label'"
+    area_ids = {a["id"] for a in areas}
+
+    presets = data.get("presets")
+    assert isinstance(presets, list) and presets, "journey_time_presets.json: 'presets' must be a non-empty list"
+    _assert_unique_ids(presets, "journey_time_presets.json")
+    for p in presets:
+        pid = p.get("id", "?")
+        for field in ("id", "area", "label", "from", "to", "from_name", "to_name", "why"):
+            assert _nonempty_str(p.get(field)), f"journey_time_presets.json: '{pid}' needs a '{field}'"
+        assert p["area"] in area_ids, f"journey_time_presets.json: '{pid}' is in an unknown area {p['area']!r}"
+        assert p["from"] != p["to"], f"journey_time_presets.json: '{pid}' starts and ends at the same stop"
+
+    # Every area offers something, and none is a directory: the view shows at
+    # most five per area as one row of chips.
+    for a in area_ids:
+        n = sum(1 for p in presets if p["area"] == a)
+        assert 1 <= n <= 8, f"journey_time_presets.json: area '{a}' has {n} presets"
+
+
+@pytest.mark.skipif(not (ROOT / "data" / "timetable.sqlite").exists(),
+                    reason="data/timetable.sqlite is a build artefact and isn't present")
+def test_journey_time_preset_stops_exist():
+    """Every journey-time preset points at a stop the timetable knows about."""
+    import sqlite3
+    con = sqlite3.connect(ROOT / "data" / "timetable.sqlite")
+    known = {row[0] for row in con.execute("SELECT stop_id FROM stops")}
+    for p in _load("journey_time_presets.json")["presets"]:
+        for end in ("from", "to"):
+            assert p[end] in known, (
+                f"journey_time_presets.json: '{p['id']}' {end}-stop {p[end]!r} is not in the timetable")
+
+
 # ── Derived statistics ──────────────────────────────────────
 #
 # A cited fare carries source_url and checked_on. A number this site works out
