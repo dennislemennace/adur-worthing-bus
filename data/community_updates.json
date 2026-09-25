@@ -1,4 +1,14 @@
 {
   "_comment": "Short articles about changes and news on the network. `official` is maintainer-written; `community` is published from submissions the same way ideas are — nothing reaches either file automatically.",
-  "updates": []
+  "updates": [
+    {
+      "title": "Reported: 700 diverted via Church Road",
+      "summary": "A passenger saw a 700 running via Church Road in Hove on 25 September.",
+      "body": "A passenger reported a 700 diverting via Church Road, seen in Hove at about 14:32 on Thursday 25 September 2026.\n\nIt isn't only the 700: several services have been seen taking the same diversion before the Westbourne Villas stop.\n\nThis is a single report from the live bus view. We haven't confirmed it with Stagecoach, and it doesn't say why buses are being diverted or for how long.",
+      "topic": "Passenger reports",
+      "date": "2026-09-25",
+      "status": "published",
+      "id": "reported-700-vehicle-scso-10957"
+    }
+  ]
 }
