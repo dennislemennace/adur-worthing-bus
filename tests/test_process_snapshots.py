@@ -764,6 +764,32 @@ def test_the_declared_share_is_reported(tt):
     assert "match" in obs[0]
 
 
+def declaring_start(start_date, start_time):
+    samples = declaring(range(600, 646), "W600")
+    for _secs, vehicles in samples:
+        for bus in vehicles:
+            bus.update(start_date=start_date, start_time=start_time)
+    return samples
+
+
+def test_a_start_declared_in_utc_is_measured_and_counted(tt):
+    # How Stagecoach declares W600's 10:00 BST departure. Until method 5 this
+    # bus was discarded, and its journey published as missing coverage.
+    obs, coverage = observations(tt, declaring_start("20260916", "09:00:00"))
+    measured = [o for o in obs if not o["estimated"]]
+    assert measured and all(o["match"] == "declared" for o in measured)
+    assert coverage["declared_start"] == {
+        "local": 0, "utc": 1, "unstated": 0, "contradicted_declarations": 0}
+
+
+def test_a_contradicted_start_is_counted_and_not_measured(tt):
+    # Half an hour out in either reading: some other run of the trip. It must
+    # not be certified, nor inferred onto this journey instead.
+    obs, coverage = observations(tt, declaring_start("20260916", "10:30:00"))
+    assert obs == [], "a contradicted declaration still produced observations"
+    assert coverage["declared_start"]["contradicted_declarations"] == 1
+
+
 def siri_minute(minute, lat, lon, ref="SCSO-1234"):
     """One SIRI snapshot, stamped with the minute it was recorded.
 

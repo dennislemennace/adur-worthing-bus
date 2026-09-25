@@ -106,6 +106,16 @@ the verification record and scoped commits.
 
 ## Known open items
 
+- **23 and 24 September 2026 were measured with method 4**, which discarded
+  almost every declared Stagecoach, Metrobus and Compass bus: those operators'
+  GTFS-RT `start_date`/`start_time` are UTC, and method 4 read them only as
+  local time. The 700 was measured on 12 journeys on 24 September, against
+  173 on the 22nd. Method 5 reads both
+  (`api/trip_match.declared_start`). Once it is on `main`, re-run each day with
+  `gh workflow run process-snapshots.yml -f day=2026-09-23` (then `-24`, and
+  any later day processed before the fix). Raw objects leave R2 after 7 days;
+  after that only the day's release replay archive can recover it.
+
 - The deployed timetable is rebuilt, but the old local `data/timetable.sqlite`
   has not been replaced underneath the running API on port 8011. Stop that
   local API before replacing its database with the verified release copy at
@@ -219,7 +229,7 @@ The nightly *Process Snapshots* workflow now:
    validate 23 September for BHBC 25X; do not bypass this as a routine fix.
 2. Downloads SIRI and RT independently, accepting either feed on its own.
    The combined object floor is a download sanity check, not a coverage score.
-3. Generates method-4 observations and a daily summary; restores every known
+3. Generates method-5 observations and a daily summary; restores every known
    input for the rolling 35-day view and the requested calendar month. Failed
    downloads, altered hashes and wrong-day files stop the run. Old-month reruns
    do not move or widen the latest rolling window.

@@ -226,3 +226,54 @@ def test_two_buses_cannot_both_declare_the_same_journey(tt):
     placed, claimed = trip_match.place_declared(tt, twins, instances, 36_000)
     assert len(placed) == 1, f"one journey was claimed twice: {placed}"
     assert claimed == {0, 1}, "duplicate declarations must not be inferred onto another journey"
+
+
+# ── A declared start written in UTC ─────────────────────────
+# GTFS-RT says a trip's start_date and start_time are local. The Stagecoach,
+# Metrobus and Compass journeys in the BODS feed carry them in UTC instead:
+# sampling every 20th minute of 24 September 2026, 3,027 of 3,074 Stagecoach
+# declarations were exact in UTC and none in local time. Read only as local
+# time, each contradicted its own trip and the bus was discarded unmatched: the
+# 700 was measured on 12 journeys that day against 173 on the 22nd, and
+# Metrobus on none.
+
+def _declared(tt, trip, start_date, start_time, now, stop=15):
+    from datetime import date
+    insts, _ = trip_match.build_instances(
+        tt, date(2026, 9, 16), WATCH_ATCOS, (0, 30 * 3600))
+    bus = dict(bus_at(stop), trip_id=trip, start_date=start_date, start_time=start_time)
+    return trip_match.place_declared(tt, [bus], insts, now), bus
+
+
+def test_a_declared_start_in_utc_names_the_same_journey(tt):
+    # W600 leaves at 10:00 BST on 16 September, which is 09:00 UTC.
+    from datetime import date
+    (placed, claimed), bus = _declared(tt, "W600", "20260916", "09:00:00", 36_900)
+    assert list(placed) == [("W600", date(2026, 9, 16))], \
+        "a start time written in UTC was treated as a different journey"
+    assert claimed == {0}
+    assert bus["declared_start"] == "utc"
+
+
+def test_a_utc_start_after_midnight_carries_the_utc_date(tt):
+    # The 28:40 on Wednesday's service leaves at 04:40 BST on Thursday: in UTC
+    # that is 03:40 on the 17th, and the feed writes both halves that way.
+    from datetime import date
+    (placed, _claimed), bus = _declared(tt, "MORNING", "20260917", "03:40:00", 103_200, stop=0)
+    assert list(placed) == [("MORNING", date(2026, 9, 16))], \
+        "an after-midnight journey declared in UTC was lost at the date check"
+    assert bus["declared_start"] == "utc"
+
+
+def test_a_local_start_is_still_read_as_local(tt):
+    (placed, _claimed), bus = _declared(tt, "W600", "20260916", "10:00:00", 36_900)
+    assert placed and bus["declared_start"] == "local"
+
+
+def test_a_utc_start_on_another_day_does_not_name_this_journey(tt):
+    # 09:00 UTC is W600's start on *every* weekday. Matching the clock alone
+    # would accept Thursday's declaration for Wednesday's journey.
+    (placed, claimed), bus = _declared(tt, "W600", "20260917", "09:00:00", 36_900)
+    assert not placed, "a declaration for another day was accepted"
+    assert claimed == {0}, "a contradicted declaration must not be inferred elsewhere"
+    assert bus["declared_start"] == "contradicts"

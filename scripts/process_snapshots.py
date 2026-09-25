@@ -90,11 +90,19 @@ AFTER_LAST_SECS = 30 * 60
 #   3  arrivals must advance along the route; interpolated stops carry their own
 #      timing-point flag; declared journeys matched outside the active window;
 #      estimates excluded from every statistic
-METHOD_VERSION = 4
+#   4  report-level evidence from both recorded feeds; a declared journey must
+#      agree with its declared start
+#   5  a declared start is read as local time or as a UTC instant. Stagecoach,
+#      Metrobus and Compass publish UTC, and read only as local every one of
+#      their declared buses was discarded: the 700 was measured on 12 journeys
+#      on 24 September 2026, against 173 on the 22nd
+METHOD_VERSION = 5
 
 METHOD = (
     "Recorded SIRI-VM and GTFS-RT positions are evaluated at their report timestamps. "
-    "GTFS-RT trip identity is preferred; inference uses route, position, heading and "
+    "GTFS-RT trip identity is preferred; a declared start date and time must match the "
+    "journey's scheduled first departure, read as local time or as a UTC instant. "
+    "Inference uses route, position, heading and "
     "a -5/+25 minute matching window. Candidate stop visits are aligned to ordered "
     "route calls. A departure estimate uses the last report within 150 m of the "
     "selected visit, with the following report retained as an interval bound where "
@@ -119,6 +127,10 @@ CAVEATS = [
     "universal seconds allowance. Inspect the retained report interval.",
     "A declared label describes the selected report's identity, not a guarantee "
     "of correct stop timing. Mixed identities and ambiguous visits remain visible.",
+    "A bus whose declared start matches its journey in neither local time nor UTC "
+    "(a garage departure the timetable does not hold, say) is neither certified nor "
+    "inferred, so its journey counts as missing coverage. Coverage is understated, "
+    "never inflated; coverage.declared_start counts both readings and the rejections.",
     "A journey that ran without reporting its position is indistinguishable "
     "from one that did not run. Neither produces an observation, so coverage "
     "is published beside every figure and absence is never counted as lateness.",
@@ -478,6 +490,11 @@ def observe_day(tt, day, snapshots, atcos=None):
     # Where each journey's bus was, every time it reported.
     tracks = {key: [] for key in instances}
     declared_journeys_seen = set()   # journeys the feed named rather than us
+    # How each declared journey's start was read, and the declarations whose
+    # start matched no journey at all — the size of the UTC problem, and of
+    # what is still refused, so neither has to be taken on trust.
+    declared_start_readings = {}
+    contradicted = set()
     seen = set()            # (journey, vehicle, report time): the feed repeats
     report_details = {}
     repeated_reports = 0
@@ -524,6 +541,11 @@ def observe_day(tt, day, snapshots, atcos=None):
         declared, claimed = trip_match.place_declared(tt, vehicles, instances, at_secs)
         for key in declared:
             declared_journeys_seen.add(key)
+            reading = vehicles[declared[key][0]].get("declared_start") or "unstated"
+            declared_start_readings.setdefault(key, reading)
+        for v in vehicles:
+            if v.get("declared_start") == "contradicts":
+                contradicted.add((v.get("trip_id"), v.get("start_date"), v.get("start_time")))
         inferred = trip_match.place_vehicles(
             tt, vehicles, active, at_secs, times=when_of,
             skip_vehicles=claimed, skip_journeys=set(declared))
@@ -699,6 +721,14 @@ def observe_day(tt, day, snapshots, atcos=None):
         "matched_reports_by_feed": matched_by_feed,
         "matched_reports_by_feed_hour": matched_by_feed_hour,
         "repeated_reports": repeated_reports,
+        # Declared journeys by how their start was read ("unstated": the feed
+        # gave none), and distinct declarations refused for naming a start the
+        # journey does not have.
+        "declared_start": {
+            **{basis: sum(1 for r in declared_start_readings.values() if r == basis)
+               for basis in ("local", "utc", "unstated")},
+            "contradicted_declarations": len(contradicted),
+        },
         "measured_observations": sum(not r.get("estimated") for r in observations),
         "quality_flagged_observations": sum(bool(r.get("quality_flags")) for r in observations),
         # Minutes captured in each hour. "snapshots: 900" hides a three-hour

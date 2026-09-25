@@ -30,7 +30,10 @@ fit first, so two buses reporting the same position cannot both claim it.
 
 import math
 import re
-from datetime import timedelta
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+LONDON = ZoneInfo("Europe/London")
 
 # Late by up to 25 minutes; early by no more than 5. See the note above.
 MATCH_TOLERANCE_SECS = 25 * 60
@@ -134,6 +137,50 @@ def build_instances(tt, today, atcos, window):
     return instances, scheduled
 
 
+def _service_origin(day) -> int:
+    """GTFS's origin for a service day, noon less twelve hours, as a UTC epoch.
+
+    The same origin as `scripts/observation_contract.service_origin`, which the
+    live API cannot import.
+    """
+    return int(datetime.combine(day, time(12), LONDON).timestamp()) - 43_200
+
+
+def declared_start(start_date, start_time, service_day, first_secs):
+    """How a declared start names one journey: "local", "utc", or None.
+
+    GTFS-RT writes `start_date` and `start_time` in the timetable's own terms:
+    the service day, and local seconds that run past 24:00 after midnight. The
+    Stagecoach, Metrobus and Compass journeys in the BODS feed write the
+    departure as a UTC date and time instead — an hour early all summer, and
+    dated the next day once it is past midnight in UTC. Read only as local
+    time, every such declaration contradicted its own journey and the bus was
+    discarded.
+
+    Both readings are exact, against the journey's scheduled first departure.
+    A start that matches neither names some other run of the trip, and
+    returns None. So does a start that cannot be checked at all.
+    """
+    valid = re.fullmatch(r"(\d+):([0-5]\d):([0-5]\d)", start_time) if start_time else None
+    if (start_time and not valid) or first_secs is None:
+        return None
+    start_secs = int(valid[1]) * 3600 + int(valid[2]) * 60 + int(valid[3]) if valid else None
+    ymd = start_date.replace("-", "")
+    if ((not ymd or ymd == service_day.strftime("%Y%m%d"))
+            and (start_secs is None or start_secs == first_secs)):
+        return "local"
+    if start_secs is None:
+        return None
+    departs = _service_origin(service_day) + first_secs
+    if ymd:
+        try:
+            utc_day = datetime.strptime(ymd, "%Y%m%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+        return "utc" if int(utc_day.timestamp()) + start_secs == departs else None
+    return "utc" if start_secs % 86_400 == departs % 86_400 else None
+
+
 def place_declared(tt, vehicles, instances, now):
     """Place the buses that say which journey they are running.
 
@@ -146,7 +193,9 @@ def place_declared(tt, vehicles, instances, now):
     on the next departure. Returns `(placed, claimed vehicle indices)`.
 
     The same trip id can exist on two service days at once around midnight, so
-    the day whose scheduled span sits nearest `now` wins.
+    the day whose scheduled span sits nearest `now` wins. A declared start date
+    or time narrows that first, read as local or UTC (see `declared_start`),
+    and each vehicle is marked with the reading that placed it.
     """
     by_trip = {}
     for key in instances:
@@ -165,23 +214,26 @@ def place_declared(tt, vehicles, instances, now):
             # Still usable for exploratory inference, never certified as declared.
             v.setdefault("identity_flags", []).append("unresolved_declared_trip")
             continue
-        start_time = v.get("start_time")
-        if start_time:
-            valid = re.fullmatch(r"(\d+):([0-5]\d):([0-5]\d)", start_time)
+        start_date, start_time = v.get("start_date") or "", v.get("start_time") or ""
+        readings = {}
+        if start_date or start_time:
             calls = tt.trip_stops_for(trip)
-            start_secs = sum(int(x) * unit for x, unit in zip(valid.groups(), (3600, 60, 1))) if valid else None
-            if not calls or start_secs != calls[0][0]:
-                claimed.add(vi)  # frequency/replacement instance is not in this static timetable
-                continue
-        start_date = (v.get("start_date") or "").replace("-", "")
-        if start_date:
-            candidates = [k for k in candidates if k[1].strftime("%Y%m%d") == start_date]
+            first = calls[0][0] if calls else None
+            readings = {k: declared_start(start_date, start_time, k[1], first)
+                        for k in candidates}
+            candidates = [k for k in candidates if readings[k]]
             if not candidates:
-                claimed.add(vi)  # named a different instance: do not silently infer one
+                # A start this journey does not have names another instance —
+                # a frequency or replacement run, or another day. Do not
+                # silently infer one.
+                v["declared_start"] = "contradicts"
+                claimed.add(vi)
                 continue
         report_now = v.get("recorded_secs")
         report_now = now if report_now is None else report_now
         key = min(candidates, key=lambda k: _span_distance(instances[k], report_now))
+        if readings:
+            v["declared_start"] = readings[key]
         if key in placed:
             claimed.add(vi)
             other = vehicles[placed[key][0]]
