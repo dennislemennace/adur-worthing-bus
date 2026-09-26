@@ -37,6 +37,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import journey_times_codec                                        # noqa: E402
 import reliability_stats                                          # noqa: E402
 
 
@@ -84,7 +85,16 @@ class Failures:
 
 
 def check_journey_document(doc, name, fails):
-    """One published service: its journeys have to be physically possible."""
+    """One published service: its journeys have to be physically possible.
+
+    A compact document is checked as the browser will read it, expanded. The
+    expansion is a copy: the bundle publishes the document it was handed.
+    """
+    try:
+        doc = journey_times_codec.expand(doc)
+    except (KeyError, IndexError, TypeError, ValueError) as err:
+        fails.add("compact document does not expand", f"{name}: {err!r}")
+        return
     check_document_schedule(doc, name, fails)
     stops = doc.get("stops") or []
     for journey in doc.get("journeys") or []:

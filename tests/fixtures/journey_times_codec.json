@@ -1,0 +1,530 @@
+{
+ "compact": {
+  "call_encoding": {
+   "note": "Each call is a row of steps from the call before it (the first from zero) in stop_index, observed_secs, scheduled_secs and call_sequence, with flags as in call_format. interval_secs is how long after the observed time the next report came: -1 if none came, absent or null if the call has no interval. call_tag indexes tables.call_tags ([quality_flags, match]) and defaults to the journey's call_tag. Epochs are day_origins[day] plus the seconds unless call_exceptions.epochs gives them, and call_exceptions.intervals gives any interval not described by interval_secs. A journey's data_version, source_files and route_pattern index tables. Expanded, every call is exactly call_format.",
+   "row_format": [
+    "stop_index_step",
+    "observed_secs_step",
+    "scheduled_secs_step",
+    "flags",
+    "call_sequence_step",
+    "interval_secs",
+    "call_tag"
+   ]
+  },
+  "call_format": [
+   "stop_index",
+   "observed_secs",
+   "scheduled_secs",
+   "flags",
+   "call_sequence",
+   "observed_epoch",
+   "scheduled_epoch",
+   "observed_interval_epoch",
+   "quality_flags",
+   "match"
+  ],
+  "day_origins": {
+   "2026-09-16": 1789513200,
+   "2026-10-25": 1792886400,
+   "2026-10-26": 1792972800
+  },
+  "days": [
+   "2026-09-16",
+   "2026-10-25",
+   "2026-10-26"
+  ],
+  "encoding": "compact-calls-1",
+  "journeys": [
+   {
+    "call_tag": 0,
+    "calls": [
+     [
+      0,
+      85200,
+      85140,
+      0,
+      0,
+      30
+     ],
+     [
+      1,
+      1260,
+      1260,
+      2,
+      1,
+      -1,
+      1
+     ],
+     [
+      1,
+      540,
+      540,
+      1,
+      1,
+      null,
+      2
+     ],
+     [
+      1,
+      600,
+      600,
+      0,
+      1,
+      100
+     ]
+    ],
+    "data_version": 0,
+    "day": "2026-09-16",
+    "direction": "eastbound",
+    "headsign": "Brighton",
+    "match": "declared",
+    "method_version": 5,
+    "place": "Brighton",
+    "quality_flags": [
+     "interpolated",
+     "unbounded_departure"
+    ],
+    "route_pattern": null,
+    "source_files": [
+     0
+    ],
+    "start": "23:40",
+    "trip_id": "VJ-late"
+   },
+   {
+    "call_tag": 3,
+    "calls": [
+     [
+      5,
+      3600,
+      3600,
+      0,
+      7,
+      60
+     ],
+     [
+      -1,
+      3700,
+      3600,
+      0,
+      1,
+      100
+     ],
+     [
+      2,
+      1700,
+      1700,
+      0,
+      1,
+      100
+     ]
+    ],
+    "data_version": 0,
+    "day": "2026-10-25",
+    "direction": "westbound",
+    "headsign": "Worthing",
+    "match": "inferred",
+    "method_version": 5,
+    "place": "Worthing",
+    "quality_flags": [],
+    "route_pattern": null,
+    "source_files": [
+     0
+    ],
+    "start": "01:00",
+    "trip_id": "VJ-dst"
+   },
+   {
+    "call_exceptions": {
+     "epochs": {
+      "0": [
+       1793008805,
+       1793008800
+      ]
+     },
+     "intervals": {
+      "1": [
+       1793009300,
+       1793009500
+      ],
+      "2": [
+       1793010000,
+       1793009900
+      ]
+     }
+    },
+    "call_tag": 0,
+    "calls": [
+     [
+      0,
+      36000,
+      36000,
+      0,
+      0,
+      60
+     ],
+     [
+      1,
+      600,
+      600,
+      0,
+      1
+     ],
+     [
+      1,
+      600,
+      600,
+      0,
+      1
+     ]
+    ],
+    "data_version": 1,
+    "day": "2026-10-26",
+    "direction": "eastbound",
+    "headsign": "Brighton",
+    "match": "declared",
+    "method_version": 5,
+    "place": "Brighton",
+    "quality_flags": [],
+    "route_pattern": 0,
+    "source_files": [
+     0,
+     1
+    ],
+    "start": "10:00",
+    "trip_id": "VJ-odd"
+   }
+  ],
+  "operator": "SCSO",
+  "service": "700",
+  "stops": [
+   {
+    "atco": "S0",
+    "name": "Stop 0"
+   },
+   {
+    "atco": "S1",
+    "name": "Stop 1"
+   },
+   {
+    "atco": "S2",
+    "name": "Stop 2"
+   },
+   {
+    "atco": "S3",
+    "name": "Stop 3"
+   },
+   {
+    "atco": "S4",
+    "name": "Stop 4"
+   },
+   {
+    "atco": "S5",
+    "name": "Stop 5"
+   },
+   {
+    "atco": "S6",
+    "name": "Stop 6"
+   }
+  ],
+  "tables": {
+   "call_tags": [
+    [
+     [],
+     "declared"
+    ],
+    [
+     [
+      "unbounded_departure"
+     ],
+     "declared"
+    ],
+    [
+     [
+      "interpolated"
+     ],
+     "declared"
+    ],
+    [
+     [],
+     "inferred"
+    ]
+   ],
+   "data_versions": [
+    "timetable.sqlite sha256:aaaa",
+    "timetable.sqlite sha256:bbbb"
+   ],
+   "route_patterns": [
+    "rp1"
+   ],
+   "source_files": [
+    "f1",
+    "f2"
+   ]
+  }
+ },
+ "expanded": {
+  "call_format": [
+   "stop_index",
+   "observed_secs",
+   "scheduled_secs",
+   "flags",
+   "call_sequence",
+   "observed_epoch",
+   "scheduled_epoch",
+   "observed_interval_epoch",
+   "quality_flags",
+   "match"
+  ],
+  "days": [
+   "2026-09-16",
+   "2026-10-25",
+   "2026-10-26"
+  ],
+  "journeys": [
+   {
+    "calls": [
+     [
+      0,
+      85200,
+      85140,
+      0,
+      0,
+      1789598400,
+      1789598340,
+      [
+       1789598400,
+       1789598430
+      ],
+      [],
+      "declared"
+     ],
+     [
+      1,
+      86460,
+      86400,
+      2,
+      1,
+      1789599660,
+      1789599600,
+      [
+       1789599660,
+       null
+      ],
+      [
+       "unbounded_departure"
+      ],
+      "declared"
+     ],
+     [
+      2,
+      87000,
+      86940,
+      1,
+      2,
+      1789600200,
+      1789600140,
+      null,
+      [
+       "interpolated"
+      ],
+      "declared"
+     ],
+     [
+      3,
+      87600,
+      87540,
+      0,
+      3,
+      1789600800,
+      1789600740,
+      [
+       1789600800,
+       1789600900
+      ],
+      [],
+      "declared"
+     ]
+    ],
+    "data_version": "timetable.sqlite sha256:aaaa",
+    "day": "2026-09-16",
+    "direction": "eastbound",
+    "headsign": "Brighton",
+    "match": "declared",
+    "method_version": 5,
+    "place": "Brighton",
+    "quality_flags": [
+     "interpolated",
+     "unbounded_departure"
+    ],
+    "route_pattern": null,
+    "source_files": [
+     "f1"
+    ],
+    "start": "23:40",
+    "trip_id": "VJ-late"
+   },
+   {
+    "calls": [
+     [
+      5,
+      3600,
+      3600,
+      0,
+      7,
+      1792890000,
+      1792890000,
+      [
+       1792890000,
+       1792890060
+      ],
+      [],
+      "inferred"
+     ],
+     [
+      4,
+      7300,
+      7200,
+      0,
+      8,
+      1792893700,
+      1792893600,
+      [
+       1792893700,
+       1792893800
+      ],
+      [],
+      "inferred"
+     ],
+     [
+      6,
+      9000,
+      8900,
+      0,
+      9,
+      1792895400,
+      1792895300,
+      [
+       1792895400,
+       1792895500
+      ],
+      [],
+      "inferred"
+     ]
+    ],
+    "data_version": "timetable.sqlite sha256:aaaa",
+    "day": "2026-10-25",
+    "direction": "westbound",
+    "headsign": "Worthing",
+    "match": "inferred",
+    "method_version": 5,
+    "place": "Worthing",
+    "quality_flags": [],
+    "route_pattern": null,
+    "source_files": [
+     "f1"
+    ],
+    "start": "01:00",
+    "trip_id": "VJ-dst"
+   },
+   {
+    "calls": [
+     [
+      0,
+      36000,
+      36000,
+      0,
+      0,
+      1793008805,
+      1793008800,
+      [
+       1793008805,
+       1793008865
+      ],
+      [],
+      "declared"
+     ],
+     [
+      1,
+      36600,
+      36600,
+      0,
+      1,
+      1793009400,
+      1793009400,
+      [
+       1793009300,
+       1793009500
+      ],
+      [],
+      "declared"
+     ],
+     [
+      2,
+      37200,
+      37200,
+      0,
+      2,
+      1793010000,
+      1793010000,
+      [
+       1793010000,
+       1793009900
+      ],
+      [],
+      "declared"
+     ]
+    ],
+    "data_version": "timetable.sqlite sha256:bbbb",
+    "day": "2026-10-26",
+    "direction": "eastbound",
+    "headsign": "Brighton",
+    "match": "declared",
+    "method_version": 5,
+    "place": "Brighton",
+    "quality_flags": [],
+    "route_pattern": "rp1",
+    "source_files": [
+     "f1",
+     "f2"
+    ],
+    "start": "10:00",
+    "trip_id": "VJ-odd"
+   }
+  ],
+  "operator": "SCSO",
+  "service": "700",
+  "stops": [
+   {
+    "atco": "S0",
+    "name": "Stop 0"
+   },
+   {
+    "atco": "S1",
+    "name": "Stop 1"
+   },
+   {
+    "atco": "S2",
+    "name": "Stop 2"
+   },
+   {
+    "atco": "S3",
+    "name": "Stop 3"
+   },
+   {
+    "atco": "S4",
+    "name": "Stop 4"
+   },
+   {
+    "atco": "S5",
+    "name": "Stop 5"
+   },
+   {
+    "atco": "S6",
+    "name": "Stop 6"
+   }
+  ]
+ },
+ "note": "Generated by the Python codec; tests/test_journey_times_codec.py checks it still produces this, and tests/test_journey_times.mjs that the browser expands it back."
+}

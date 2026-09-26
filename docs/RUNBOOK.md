@@ -115,6 +115,17 @@ the verification record and scoped commits.
   `gh workflow run process-snapshots.yml -f day=2026-09-23` (then `-24`, and
   any later day processed before the fix). Raw objects leave R2 after 7 days;
   after that only the day's release replay archive can recover it.
+  *Done 25 September: both days re-run on method 5 (runs 36141272609 and
+  36141290620); the 700 now has 182 and 170 journeys on them.*
+- A journey that crosses midnight where the method or timetable build changes
+  is published as two partial journeys, because a journey's identity includes
+  its method and data version (`observation_contract.row_identity`). On
+  22 September 2026 (method 3 to 5) that is 32 of 20,261 journeys across all
+  services. The halves cover different stops, so no stop-pair time is counted
+  twice, but journey counts include both. The same split will recur at each
+  weekly timetable change.
+- The published R2 bucket will reach its 4 GiB budget within weeks: see
+  `LIMITS.md`. Choose a retention rule for old generations first.
 
 - The deployed timetable is rebuilt, but the old local `data/timetable.sqlite`
   has not been replaced underneath the running API on port 8011. Stop that
@@ -137,6 +148,20 @@ at the top of `app.js`:
 | `JOURNEY_TIMES_PUBLIC` | The **Simple** view: type or tap two stops, see how long buses usually take, how long to allow, and how that changes through the day against the timetable. | `true` |
 | `JOURNEY_TIMES_DETAILED_PUBLIC` | The **Detailed** view: every evidence filter, cohorts, CSV/JSON exports, the evidence panel. | `false` |
 | `DELAY_MAP_PUBLIC` | **Where buses lose time**: road stretches coloured by the median time lost on each. | `false` |
+
+**Service files are compact on the wire.** `build_journey_times.py` writes
+each `<service>-<NOC>.json` through `scripts/journey_times_codec.py`, and
+refuses to write one that does not expand back to exactly the document it
+built. `check_published.py` checks the expanded form, as does the browser
+(`jtExpandDocument` in `app.js`), and older full-form builds still load. To
+read one by hand:
+
+```sh
+python -c 'import json, sys; sys.path.insert(0, "scripts"); import journey_times_codec as c; print(json.dumps(c.expand(json.load(open(sys.argv[1])))))' 700-SCSO.json
+```
+
+Ship any change to the encoding on the site before the pipeline publishes it:
+a compact build does not render in an `app.js` that predates the decoder.
 
 Everything is reachable with `?preview=1` while its switch is off. Both views
 share one selection and one set of default filters, so the same trip always

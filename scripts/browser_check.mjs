@@ -36,7 +36,8 @@
  *   #6  touch targets were 38–42px, under the 44px guideline
  */
 
-import { writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { isDeepStrictEqual } from "node:util";
 
 const CDP  = process.env.CDP_URL  || "http://127.0.0.1:9222";
 const SITE = process.env.SITE_URL ||
@@ -2710,6 +2711,32 @@ async function checkJourneyPairService(page, viewport) {
     JSON.stringify(result.second));
 }
 
+/** A compact journey-times file, fetched the way the view fetches one, reads
+ *  back as exactly the document it was written from. The nightly build writes
+ *  every service compact (scripts/journey_times_codec.py). Node tests check
+ *  the decoder; this checks it in the browser that actually runs it. */
+async function checkJourneyCompactFile(page) {
+  const fixture = JSON.parse(await readFile(
+    new URL("../tests/fixtures/journey_times_codec.json", import.meta.url), "utf8"));
+  const got = JSON.parse(await page.evaluate(`(async () => {
+    const compact = ${JSON.stringify(fixture.compact)};
+    const realFetch = window.fetch;
+    window.fetch = async (url, ...rest) => String(url).endsWith("/probe-compact.json")
+      ? new Response(JSON.stringify(compact), {headers: {"Content-Type": "application/json"}})
+      : realFetch(url, ...rest);
+    try {
+      const doc = await loadJourneyTimes("probe-compact.json");
+      return JSON.stringify({journeys: doc.journeys, encoding: doc.encoding ?? null, tables: "tables" in doc});
+    } finally {
+      window.fetch = realFetch;
+      journeyTimesCache.delete("probe-compact.json");
+    }
+  })()`));
+  check("journey times: a compact file read by the view is exactly the document written",
+    isDeepStrictEqual(got.journeys, fixture.expanded.journeys) && got.encoding === null && !got.tables,
+    got.encoding ? `still compact: ${got.encoding}` : "");
+}
+
 /** The journey bar: type a stop, choose it from the keyboard, and be offered
  *  only stops a direct bus reaches from it. */
 async function checkJourneyBar(page, viewport) {
@@ -3335,6 +3362,7 @@ try {
 const page = await openPage(VIEWPORTS[0]);
 await checkBasemap(page);
 if (process.argv.includes("--journey-review")) {
+  await checkJourneyCompactFile(page);
   await checkJourneyPairService(page, VIEWPORTS[0].name);
   await checkJourneyBar(page, VIEWPORTS[0].name);
   await checkJourneyKept(page, VIEWPORTS[0].name);
@@ -3391,6 +3419,7 @@ await checkCouncillorContact(page);
 await checkJourneyPresets(page);
 await checkJourneyTimes(page);
 await checkSelectedFareRoute(page);
+await checkJourneyCompactFile(page);
 await checkJourneyPairService(page, VIEWPORTS[0].name);
 await checkJourneyBar(page, VIEWPORTS[0].name);
 await checkJourneyKept(page, VIEWPORTS[0].name);

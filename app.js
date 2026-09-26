@@ -3032,6 +3032,50 @@ async function loadJourneyTimesIndex() {
   return loadJourneyTimes(build ? `builds/${build}/index.json` : "index.json");
 }
 
+const JT_ENCODING = "compact-calls-1";
+
+/** A compact journey-times document as everything here reads it.
+ *
+ *  The nightly build writes each call as steps from the one before, rebuilds
+ *  the epochs from `day_origins` and names repeated strings once in `tables`
+ *  (scripts/journey_times_codec.py says why: the 700's file was a megabyte
+ *  compressed). This is its exact inverse, run once per file before any
+ *  journey is read, so every figure comes from the same calls as before. A
+ *  document that is not compact comes back untouched. */
+function jtExpandDocument(doc) {
+  if (!doc || doc.encoding !== JT_ENCODING) return doc;
+  const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+  const tables = doc.tables;
+  const journeys = doc.journeys.map(journey => {
+    const { epochs = {}, intervals = {} } = journey.call_exceptions || {};
+    const origin = doc.day_origins[journey.day];
+    let stop = 0, observed = 0, scheduled = 0, sequence = 0;
+    const calls = journey.calls.map((row, n) => {
+      stop += row[0]; observed += row[1]; scheduled += row[2]; sequence += row[4];
+      const step = row.length > 5 ? row[5] : null;
+      const tag = row.length > 6 && row[6] !== null ? row[6] : journey.call_tag;
+      const key = String(n);
+      const [observedEpoch, scheduledEpoch] = has(epochs, key)
+        ? epochs[key] : [origin + observed, origin + scheduled];
+      const interval = has(intervals, key) ? intervals[key]
+        : step === null ? null : [observedEpoch, step === -1 ? null : observedEpoch + step];
+      const [flags, match] = tables.call_tags[tag];
+      return [stop, observed, scheduled, row[3], sequence, observedEpoch, scheduledEpoch,
+              interval, [...flags], match];
+    });
+    const out = { ...journey, calls };
+    delete out.call_tag;
+    delete out.call_exceptions;
+    if (has(journey, "data_version")) out.data_version = tables.data_versions[journey.data_version];
+    if (has(journey, "source_files")) out.source_files = journey.source_files.map(i => tables.source_files[i]);
+    if (journey.route_pattern != null) out.route_pattern = tables.route_patterns[journey.route_pattern];
+    return out;
+  });
+  const out = { ...doc, journeys };
+  for (const key of ["encoding", "day_origins", "tables", "call_encoding"]) delete out[key];
+  return out;
+}
+
 /** Fetch the exact path named in the manifest; never guess or rewrite it. */
 async function loadJourneyTimes(file) {
   if (!/^(?:builds\/[a-f0-9]{64}\/)?[A-Za-z0-9_-]{1,100}\.json$/.test(String(file))) {
@@ -3040,7 +3084,7 @@ async function loadJourneyTimes(file) {
   if (!journeyTimesCache.has(file)) {
     const res = await fetch(`${CONFIG.JOURNEY_TIMES_BASE}/${file}`);
     if (!res.ok) throw new Error(`${file} ${res.status}`);
-    const doc = await res.json();
+    const doc = jtExpandDocument(await res.json());
     const build = file.startsWith("builds/") ? file.split("/")[1] : "";
     if (build && doc.build_id !== build) throw new Error("Measurement build mismatch");
     journeyTimesCache.set(file, doc);

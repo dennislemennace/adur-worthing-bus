@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from process_snapshots import CAVEATS, METHOD, METHOD_VERSION    # noqa: E402
 from query_reliability import load_observations                  # noqa: E402
 from observation_contract import TIME_BASIS, row_identity
+import journey_times_codec as codec                              # noqa: E402
 
 # A journey with fewer calls than this says nothing about running time between
 # two places, and would only add noise to a chart.
@@ -405,8 +406,12 @@ def main(argv=None):
         # One file a service *as one operator runs it*: a reader wants one
         # route, not the county, and not two companies' routes overlaid.
         path = out / f"{document_name(service, operator)}.json"
-        path.write_text(json.dumps(doc, separators=(",", ":"), sort_keys=True) + "\n",
-                        encoding="utf-8")
+        # Written compact, and only if it expands back to exactly this
+        # document: a smaller file is no saving if it says something else.
+        wire = json.dumps(codec.compact(doc), separators=(",", ":"), sort_keys=True)
+        if codec.expand(json.loads(wire)) != json.loads(json.dumps(doc)):
+            raise ValueError(f"{path.name}: the compact form does not expand to the document")
+        path.write_text(wire + "\n", encoding="utf-8")
         written.append((label, len(doc["journeys"]), path.stat().st_size))
         days_present.update(doc["days"])
         index.append({"service": service, "operator": operator, "file": path.name,

@@ -399,10 +399,16 @@ of provider pricing. No paid tier or increased raw retention is introduced.
   exceeded, the workflow stops and keeps the previous public generation.
 - Every new generation adds per-service documents, summaries and observations,
   then reads each uploaded object back once before switching the pointer.
-  The reviewed five-day derivative has 38 service files plus an index, about
-  36 MB uncompressed before observation/summary assets. Full 35-day method-4
-  bytes, read-back traffic and release growth have not been measured. Each
-  rebuild repeats those bytes, even when much of the input window overlaps.
+  Service documents are written compact (`scripts/journey_times_codec.py`; the
+  build refuses a file that does not expand back exactly). Measured on
+  24 September 2026, one complete method-5 day across all 40 service files is
+  4.73 MB compact (11.7 MB in the full form), about 0.9 MB as Brotli. Each
+  rebuild stores the whole window again, even when most of it overlaps, so a
+  full 35-day generation is roughly 165 MB of service files before maps,
+  summaries and read-back. That is an estimate from one weekday, not a 35-day
+  measurement, but it puts the **4 GiB published budget about a month of
+  nightly builds away**: decide how old generations are retired before then.
+  Deleting one breaks its build-pinned (`?jt-build=`) links.
 - Heavy processing stays in Actions. The five-day local builder used about
   **832 MiB peak RSS** and 6.96 seconds on the review machine. This does not fit
   the Render free instance and is not a 35-day capacity test. Compact consumer

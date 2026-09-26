@@ -1653,3 +1653,34 @@ test("the view follows a link over memory, and Detailed stays shut without previ
     set("");
   }
 });
+
+// ── The compact wire form ───────────────────────────────────
+// The nightly build writes each service compact (scripts/journey_times_codec.py
+// says why). The browser has to expand it to exactly what the Python codec
+// started from: one fixture, read by both, so the two cannot drift apart.
+
+const CODEC = JSON.parse(readFileSync(join(ROOT, "tests/fixtures/journey_times_codec.json"), "utf8"));
+const expandDocument = vm.runInContext("jtExpandDocument", app);
+
+test("a compact document expands to exactly the document it was written from", () => {
+  const compact = structuredClone(CODEC.compact);
+  assert.deepEqual(plain(expandDocument(compact)), CODEC.expanded);
+  assert.deepEqual(compact, CODEC.compact, "expanding changed the document it was handed");
+});
+
+test("a document that is not compact is read as it is", () => {
+  const doc = structuredClone(CODEC.expanded);
+  assert.equal(expandDocument(doc), doc);
+});
+
+test("the loader expands a compact file before anything reads a journey", async () => {
+  const before = app.fetch;
+  app.fetch = async () => ({ ok: true, status: 200, json: async () => structuredClone(CODEC.compact) });
+  try {
+    const doc = await vm.runInContext("loadJourneyTimes", app)("700-SCSO.json");
+    assert.deepEqual(plain(doc.journeys), CODEC.expanded.journeys);
+    assert.equal(doc.encoding, undefined);
+  } finally {
+    app.fetch = before;
+  }
+});
