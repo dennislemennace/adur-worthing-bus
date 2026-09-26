@@ -1515,6 +1515,7 @@ async def get_disruptions():
         "available": bool(state and state.get("available")),
         "reason": (state or {}).get("reason"),
         "fetched_at": (state or {}).get("fetched_at"),
+        "national_count": (state or {}).get("national_count"),
         "source": "Bus Open Data Service (SIRI-SX), as published by operators and councils",
         "disruptions": _disruptions_now(state),
     }
@@ -1949,14 +1950,23 @@ async def _fetch_disruptions() -> dict:
             resp = await client.get(f"{BODS_BASE}/siri-sx/", params={"api_key": BODS_API_KEY})
             resp.raise_for_status()
         tt = await _get_timetable()
-        keep = sx.area_filter(tt.stops.keys(), _route_index(tt))
+        area = sx.area_filter(tt.stops.keys(), _route_index(tt))
+        seen = [0]
+
+        def keep(sit):
+            seen[0] += 1
+            return area(sit)
         situations = await off_loop(sx.parse_feed, resp.content, keep)
     except Exception as exc:                       # noqa: BLE001 — see docstring
         log.warning("SIRI-SX unavailable: %s", exc)
         return {"available": False, "reason": "upstream", "situations": [],
                 "fetched_at": fetched_at}
-    log.info("SIRI-SX: %d situations for this area", len(situations))
-    return {"available": True, "situations": situations, "fetched_at": fetched_at}
+    log.info("SIRI-SX: %d situations for this area of %d", len(situations), seen[0])
+    # How many the national feed held, so "none here" can be told apart from
+    # "read nothing": a parser that stopped matching the feed returns zero of
+    # zero, and an honest quiet day returns zero of several hundred.
+    return {"available": True, "situations": situations, "fetched_at": fetched_at,
+            "national_count": seen[0]}
 
 
 async def _disruptions_state(wait: bool) -> Optional[dict]:
