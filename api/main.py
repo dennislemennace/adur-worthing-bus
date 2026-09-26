@@ -1517,6 +1517,9 @@ async def get_disruptions():
         "fetched_at": (state or {}).get("fetched_at"),
         "national_count": (state or {}).get("national_count"),
         "local_operator_mentions": (state or {}).get("local_operator_mentions"),
+        # Published notices from our operators that the area filter did not
+        # keep, so a match that has stopped fitting the feed can be seen.
+        "local_unmatched_sample": (state or {}).get("local_unmatched_sample"),
         "source": "Bus Open Data Service (SIRI-SX), as published by operators and councils",
         "disruptions": _disruptions_now(state),
     }
@@ -1955,15 +1958,26 @@ async def _fetch_disruptions() -> dict:
         seen = [0]
         local_nocs = {noc for noc, _ in _route_index(tt)} - sx.COACH_NOCS
         mentions: dict = {}
+        unmatched: list = []
 
         def keep(sit):
             seen[0] += 1
             # Any mention of a local operator, matched or not: if these are
             # non-zero while the area's list is empty, the match is wrong.
-            for noc in ({l["operator"] for l in sit["lines"]}
-                        | {o["operator"] for o in sit["operators"]}) & local_nocs:
+            touched = ({l["operator"] for l in sit["lines"]}
+                       | {o["operator"] for o in sit["operators"]}) & local_nocs
+            for noc in touched:
                 mentions[noc] = mentions.get(noc, 0) + 1
-            return area(sit)
+            kept = area(sit)
+            if touched and not kept and len(unmatched) < 10:
+                unmatched.append({
+                    "summary": sit["summary"][:120],
+                    "lines": [{"operator": l["operator"], "line": l["line"],
+                               "line_ref": l["line_ref"]} for l in sit["lines"]][:8],
+                    "stops": sit["stops"][:5],
+                    "operators": [o["operator"] for o in sit["operators"]],
+                })
+            return kept
         situations = await off_loop(sx.parse_feed, resp.content, keep)
     except Exception as exc:                       # noqa: BLE001 — see docstring
         log.warning("SIRI-SX unavailable: %s", exc)
@@ -1974,7 +1988,8 @@ async def _fetch_disruptions() -> dict:
     # "read nothing": a parser that stopped matching the feed returns zero of
     # zero, and an honest quiet day returns zero of several hundred.
     return {"available": True, "situations": situations, "fetched_at": fetched_at,
-            "national_count": seen[0], "local_operator_mentions": mentions}
+            "national_count": seen[0], "local_operator_mentions": mentions,
+            "local_unmatched_sample": unmatched}
 
 
 async def _disruptions_state(wait: bool) -> Optional[dict]:
