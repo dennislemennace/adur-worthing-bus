@@ -447,6 +447,7 @@
           <div class="panel-header-text">
             <h2 class="panel-stop-name" id="panel-stop-name">Select a stop</h2>
             <p class="panel-stop-id" id="panel-stop-id"></p>
+            <p class="panel-stop-where" id="panel-stop-where" hidden></p>
           </div>
         </div>
 
@@ -583,6 +584,9 @@
             </div>
           </form>
           <div class="departures-notice hidden" id="departures-notice" role="status" aria-live="polite"></div>
+          <!-- Published disruptions for this stop and its services (BODS SIRI-SX),
+               filled by app.js buildDisruptionsHtml. -->
+          <div class="board-disruptions" id="board-disruptions" hidden></div>
           <!-- Route buttons, filled by app.js renderBoardFilter where a stop
                has two or more services. -->
           <div class="board-filter" id="board-filter" role="group"

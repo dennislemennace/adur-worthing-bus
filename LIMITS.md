@@ -124,6 +124,15 @@ lines and timetables are API calls too, and arrive with it.
 
 - Free developer plan: **1,000 hits / day** (historical; verify on dashboard).
 - Current cap: `NEXTBUSES_DAILY_LIMIT=300` (conservative, env-configurable).
+- Two routes to the same NextBuses data, chosen by `NEXTBUSES_MODE`:
+  `rest` (default) calls `GET /v3/uk/bus/stop/{atco}/live.json?nextbuses=yes`,
+  which the bundled £5/month plan covers (300 hits a day, all endpoints);
+  `siri` calls `POST /nextbuses` (SIRI Stop Monitoring), the only endpoint the
+  NextBuses-only plan covers, at £0.0009 a hit. At the 450 hits a month
+  measured to 26 Sep 2026 that is about 41p. Changing plan means changing
+  `NEXTBUSES_MODE` in Render at the same moment, or every call fails and the
+  board falls back to our own estimates and timetable times. On the per-hit
+  plan the daily cap is a spending cap: 1,000 a day is at most 90p.
 - Per-stop response cache: `nb:{stop_id}` for `NEXTBUSES_CACHE_TTL=90` s.
   **Hardcoded constant** at `api/main.py:67` — not env-configurable; change
   requires a code edit.
@@ -147,6 +156,21 @@ lines and timetables are API calls too, and arrive with it.
   and no counter, so it bypassed `NEXTBUSES_DAILY_LIMIT` *and* spent the real
   upstream allowance, unauthenticated. It now shares the cache and gate. A
   diagnostic is still a caller.
+
+## BODS disruptions (SIRI-SX)
+
+- `GET {BODS_BASE}/siri-sx/` with the same BODS key: the national feed,
+  filtered to our stops and routes (`api/disruptions.py`).
+- Fetched at most once every 10 minutes (`DISRUPTIONS_TTL`), by whichever
+  request finds the cache empty; the board never waits on it. No key, or an
+  unreachable feed, means no notices and `/api/disruptions` says why.
+
+## NaPTAN — stop letters, streets, landmarks
+
+- `scripts/build_stop_details.py`, weekly in update-timetable.yml, writes
+  `data/stop_details.json` (about 20 KB compressed). No key, no live calls:
+  the site loads the file when a stop is opened or searched. If NaPTAN is
+  down the workflow keeps last week's file.
 
 ## GoatCounter — visit counting
 

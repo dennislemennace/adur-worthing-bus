@@ -1684,8 +1684,12 @@ async function checkStopBoardPolish(page, where) {
     const soon = (m) => new Date(Date.now() + m * 60000).toISOString();
     renderDepartures({
       stop_name: "Fixture Stop", live: true,
+      disruptions: [{ id: "D1", summary: "700 diverted via Church Road while Portland Road is closed",
+        description: "Eastbound buses only.", advice: "Use the stop on Church Road.",
+        publisher: "WestSussexCC", starts: null, ends: soon(60 * 24 * 5), link: "https://example.org/",
+        lines: [{ operator: "SCSO", line: "700" }], stops: [], operators: [] }],
       departures: [
-        { service: "700", operator: "SCSO", destination: "Brighton Pier",
+        { service: "700", operator: "SCSO", destination: "Brighton Pier", disruption_ids: ["D1"],
           aimed_departure: soon(3), expected_departure: soon(6), status: "Late", delay_seconds: 180 },
         { service: "9", operator: "SCSO", destination: "Worthing",
           aimed_departure: soon(7), expected_departure: null, status: "Scheduled", delay_seconds: null },
@@ -1701,6 +1705,10 @@ async function checkStopBoardPolish(page, where) {
     const lateLabel = rows[0].textContent;
     const buttons = [...document.querySelectorAll("#board-filter button")];
     const key = document.querySelector(".board-key");
+    const notice = document.querySelector("#board-disruptions details.disruption");
+    if (notice) notice.open = true;
+    const noticeShown = !!notice && vis(notice) && vis(notice.querySelector(".disruption-body"));
+    const rowTag = !!rows[0].querySelector(".row-disruption");
     const help = document.getElementById("board-help");
     const btn700 = buttons.find(b => b.dataset.service === "700");
     btn700 && btn700.click();
@@ -1711,12 +1719,14 @@ async function checkStopBoardPolish(page, where) {
       buttons: buttons.map(b => b.textContent.trim()),
       keyShown: !!key && vis(key), helpShown: !!help && vis(help),
       pressed: btn700 && btn700.getAttribute("aria-pressed"),
-      shownAfter, count,
+      shownAfter, count, noticeShown, rowTag,
     });
   })()`));
   if (r.skip) { skip(`stop board shows live and timetable apart — ${where}`, r.skip); return; }
   check(`stop board marks exactly the live rows — ${where}`, r.liveRows === 2, `${r.liveRows} dots`);
   check(`a late bus says by how much — ${where}`, /3 min late/i.test(r.lateLabel), r.lateLabel.replace(/\s+/g, " ").slice(0, 80));
+  check(`a published disruption shows, and its row points at it — ${where}`,
+    r.noticeShown && r.rowTag, `notice ${r.noticeShown}, row tag ${r.rowTag}`);
   check(`the board key and help are on screen — ${where}`, r.keyShown && r.helpShown,
     `key ${r.keyShown}, help ${r.helpShown}`);
   check(`route buttons filter the board — ${where}`,

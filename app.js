@@ -156,6 +156,7 @@ const state = {
   busMarkers:    {},    // vehicleRef → Leaflet marker
   selectedStop:  null,  // { atcoCode, name }
   boardFilter:   null,  // service shown on the stop board, or null for all
+  stopDetails:   null,  // data/stop_details.json stops: atco -> [indicator, street, landmark, bearing]
   refreshTimer:  null,  // setInterval handle for bus positions
   isRefreshing:  true,
   busesVisible:  true,  // header toggle: show bus markers + run live refresh
@@ -1614,9 +1615,17 @@ function buildStopPopup(atcoCode, name) {
   title.className = "popup-stop-name";
   title.textContent = name;
 
+  // Which pole this is, in the words on the flag and the street, where NaPTAN
+  // has told us; the code only where it hasn't, because a visitor can do
+  // nothing with "4400AD0204".
   const id = document.createElement("p");
   id.className = "popup-stop-id";
-  id.textContent = `Stop: ${atcoCode}`;
+  const where = () => [stopContextLine(atcoCode, { withLocality: false }), stopWhereLine(atcoCode)]
+    .filter(Boolean).join(" · ");
+  id.textContent = where();
+  if (!state.stopDetails) {
+    loadStopDetails().then(() => { id.textContent = where(); }).catch(() => {});
+  }
 
   const btn = document.createElement("button");
   btn.className = "popup-btn";
@@ -6507,13 +6516,103 @@ function updateBusMarkerInPlace(marker, label, bearing) {
  * Exported to window so it can be used in inline onclick="" attributes
  * in Leaflet popup HTML.
  */
-/** "Towards Florida Road · West Worthing", or the stop ID where neither is known. */
-function stopContextLine(atcoCode) {
+/** "Stop D · Towards Florida Road · West Worthing", or the stop ID where
+ *  nothing better is known. Heading from NaPTAN's bearing stands in for
+ *  "towards" on the stops the timetable gives no direction. */
+function stopContextLine(atcoCode, { withLocality = true } = {}) {
   const s = (state.stopData || {})[atcoCode] || {};
   const bits = [];
+  const letter = stopLetter(atcoCode);
+  if (letter) bits.push(letter);
   if (s.towards) bits.push(`Towards ${prettifyName(s.towards)}`);
-  if (s.locality) bits.push(s.locality);
+  else {
+    const heading = stopHeading(atcoCode);
+    if (heading) bits.push(`Buses heading ${heading}`);
+  }
+  if (withLocality && s.locality) bits.push(s.locality);
   return bits.length ? bits.join(" · ") : `Stop ID ${atcoCode}`;
+}
+
+// ── Where a stop is, from NaPTAN (data/stop_details.json) ──────────
+//
+// Loaded when a stop is first opened or searched, not on first paint: the
+// map does not need it, and a visitor who never opens a stop never pays for it.
+
+function loadStopDetails() {
+  if (!state._stopDetailsPromise) {
+    state._stopDetailsPromise = (async () => {
+      const res = await fetch("data/stop_details.json");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      state.stopDetails = (data && typeof data.stops === "object") ? data.stops : {};
+      state.stopDetailsCheckedOn = data?.checked_on || null;
+    })().catch(err => {
+      state._stopDetailsPromise = null;
+      throw err;
+    });
+  }
+  return state._stopDetailsPromise;
+}
+
+/** `{indicator, street, landmark, bearing}` for a stop, or null. */
+function stopDetail(atcoCode) {
+  const row = (state.stopDetails || {})[atcoCode];
+  if (!Array.isArray(row)) return null;
+  const [indicator = "", street = "", landmark = "", bearing = ""] = row;
+  return { indicator, street, landmark, bearing };
+}
+
+/** "Stop D", "Stand 3": the letter on the flag, where there is one. */
+function stopLetter(atcoCode) {
+  const d = stopDetail(atcoCode);
+  return d && /^(stop|stand|bay)\s+\S{1,3}$/i.test(d.indicator)
+    ? d.indicator.replace(/^\w/, c => c.toUpperCase()) : "";
+}
+
+const STOP_BEARINGS = {
+  N: "north", NE: "north-east", E: "east", SE: "south-east",
+  S: "south", SW: "south-west", W: "west", NW: "north-west",
+};
+
+/** "north-east": the way buses travel when they call here. */
+function stopHeading(atcoCode) {
+  const d = stopDetail(atcoCode);
+  return (d && STOP_BEARINGS[String(d.bearing).toUpperCase()]) || "";
+}
+
+// NaPTAN's indicators, as a person would say them. Most say where the pole is
+// relative to the landmark: "opp The Cuthbert" is across the road from it.
+const STOP_POSITIONS = {
+  "opp": "Opposite", "adj": "Next to", "o/s": "Outside", "nr": "Near",
+  "by": "By", "at": "At", "before": "Before", "after": "After",
+  "just before": "Just before", "just after": "Just after", "outside": "Outside",
+  "opposite": "Opposite", "near": "Near",
+};
+
+/** "Opposite The Cuthbert, Freshfield Road", or "On Freshfield Road". */
+function stopWhereLine(atcoCode) {
+  const d = stopDetail(atcoCode);
+  if (!d || !d.street) return "";
+  const s = (state.stopData || {})[atcoCode] || {};
+  const street = prettifyName(d.street);
+  const position = STOP_POSITIONS[d.indicator.trim().toLowerCase()];
+  const landmark = d.landmark && d.landmark.toLowerCase() !== String(s.name || "").toLowerCase()
+    && d.landmark.toLowerCase() !== d.street.toLowerCase() ? d.landmark : "";
+  if (position && (landmark || s.name)) {
+    return `${position} ${landmark || s.name}, ${street}`;
+  }
+  return `On ${street}`;
+}
+
+/** Fill the stop header's direction and whereabouts for the open stop. */
+function renderStopHeaderContext(atcoCode) {
+  dom.panelStopId.textContent = stopContextLine(atcoCode);
+  const whereEl = document.getElementById("panel-stop-where");
+  if (whereEl) {
+    const where = stopWhereLine(atcoCode);
+    whereEl.textContent = where;
+    whereEl.hidden = !where;
+  }
 }
 
 window.openDepartures = async function(atcoCode, stopName) {
@@ -6556,7 +6655,12 @@ window.openDepartures = async function(atcoCode, stopName) {
   // know from a name: two poles called "Grand Avenue" sit either side of the
   // road, and only one has the bus they want.
   dom.panelStopName.textContent = stopName;
-  dom.panelStopId.textContent   = stopContextLine(atcoCode);
+  renderStopHeaderContext(atcoCode);
+  if (!state.stopDetails) {
+    loadStopDetails().then(() => {
+      if (state.selectedStop?.atcoCode === atcoCode) renderStopHeaderContext(atcoCode);
+    }).catch(() => {});
+  }
   const idEl = document.getElementById("departures-stop-id");
   if (idEl) idEl.textContent = `Stop ID ${atcoCode}`;
   if (changedStop) state.boardFilter = null;
@@ -6857,6 +6961,13 @@ function renderDepartures(data) {
     return isNaN(t) || (t - now) > -30_000;
   });
 
+  const noticesHost = document.getElementById("board-disruptions");
+  if (noticesHost) {
+    const html = buildDisruptionsHtml(data?.disruptions || []);
+    noticesHost.innerHTML = html;
+    noticesHost.hidden = !html;
+  }
+
   if (departures.length === 0) {
     dom.departuresTbody.innerHTML = `<tr><td colspan="4" class="no-departures">No departures found for this stop in the next 2 hours.</td></tr>`;
     dom.departuresCount.textContent = "No upcoming departures";
@@ -6953,6 +7064,55 @@ function updateDepartureCount(shown, total, service = null) {
     `${shown}${more} departure${total === 1 ? "" : "s"}${on}${asOf}`;
 }
 
+/** "Until Fri 3 Oct", "From Sun 28 Sep, 01:30", or "Until further notice". */
+function disruptionWhen(d) {
+  const fmt = (iso, withTime) => {
+    const t = new Date(iso);
+    if (isNaN(t)) return "";
+    const day = t.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" });
+    return withTime ? `${day}, ${londonClock(t)}` : day;
+  };
+  if (d.starts) return `From ${fmt(d.starts, true)}`;
+  if (d.ends) return `Until ${fmt(d.ends, false)}`;
+  return "Until further notice";
+}
+
+/**
+ * Published disruptions, in their authors' words.
+ *
+ * Each is a claim by an operator or council, sent through the Bus Open Data
+ * Service, so it is shown as theirs: their summary, their advice, their name
+ * and link. Closed by default: one line each says what and until when, which
+ * is what a person at a stop has time to read.
+ */
+function buildDisruptionsHtml(list) {
+  if (!list || !list.length) return "";
+  const items = list.map(d => {
+    const lines = (d.lines || []).map(l => l.line).filter(Boolean);
+    const who = (d.operators || []).map(o => o.name || o.operator).filter(Boolean);
+    const scope = lines.length ? `Service${lines.length > 1 ? "s" : ""} ${[...new Set(lines)].join(", ")}`
+      : who.length ? `All ${who.join(", ")} services` : "This stop";
+    const link = d.link && safeUrl(d.link)
+      ? ` <a href="${escapeAttr(safeUrl(d.link))}" target="_blank" rel="noopener">More details</a>` : "";
+    return `
+      <details class="disruption">
+        <summary>
+          <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+          <span class="disruption-text">
+            <span class="disruption-summary">${escapeHtml(d.summary || "Disruption")}</span>
+            <span class="disruption-when">${escapeHtml(scope)} · ${escapeHtml(disruptionWhen(d))}</span>
+          </span>
+        </summary>
+        <div class="disruption-body">
+          ${d.description && d.description !== d.summary ? `<p>${escapeHtml(d.description)}</p>` : ""}
+          ${d.advice ? `<p><strong>Advice:</strong> ${escapeHtml(d.advice)}</p>` : ""}
+          <p class="disruption-source">Published${d.publisher ? ` by ${escapeHtml(d.publisher)}` : ""} through the Bus Open Data Service.${link}</p>
+        </div>
+      </details>`;
+  }).join("");
+  return `<div class="disruptions" role="region" aria-label="Disruptions">${items}</div>`;
+}
+
 function buildDepartureRow(dep) {
   // dep: { service, operator, destination, aimed_departure, expected_departure,
   //        status, delay_seconds, live_source? }
@@ -6985,12 +7145,16 @@ function buildDepartureRow(dep) {
     : "service-badge--light-text";
 
   return `
-    <tr class="departure-row" data-service="${escapeHtml(service)}" title="Show this bus on the map">
+    <tr class="departure-row${cancelled ? " departure-row--cancelled" : ""}" data-service="${escapeHtml(service)}"
+        ${dep.vehicle_ref ? `data-vehicle="${escapeAttr(dep.vehicle_ref)}"` : ""} title="Show this bus on the map">
       <td><button type="button" class="service-badge-btn"
                   data-service="${escapeAttr(service)}"
                   aria-label="Show service ${escapeAttr(service)} on the map"
           ><span class="service-badge ${badgeTextCls}" style="background:${badgeColour}">${escapeHtml(service)}</span></button></td>
-      <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span></td>
+      <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span>${
+        (dep.disruption_ids || []).length
+          ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Disruption, see notice above</span>`
+          : ""}</td>
       <td><span class="due-cell"><span class="due-time ${isImminent ? "due-imminent" : ""}"
                 ${displayTime ? `data-due-at="${escapeAttr(displayTime)}"` : ""}
           >${escapeHtml(dueText)}</span>${live
@@ -7301,6 +7465,8 @@ function buildBusTabShell(v) {
       </span>
     </label>
 
+    <div id="bus-disruptions"></div>
+
     <div id="bus-upcoming"></div>
 
     <div id="bus-tickets"></div>
@@ -7455,6 +7621,8 @@ function updateBusTabLive() {
     `<span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span>`);
 
   tickBusInfoUpdated();
+  patchHtml(document.getElementById("bus-disruptions"),
+    buildDisruptionsHtml(state.busDetails?.disruptions || []));
   patchHtml(document.getElementById("bus-upcoming"), buildUpcomingStopsHtml());
   patchHtml(document.getElementById("bus-tickets"),
     buildTicketInfoHtml(v.operator_ref, null, v.service_ref || ""));
@@ -8439,7 +8607,12 @@ function bindUIEvents() {
     const btn = e.target.closest("button.service-badge-btn");
     const tr  = e.target.closest("tr.departure-row");
     const service = (btn && btn.dataset.service) || (tr && tr.dataset.service);
-    if (service) openBusFromService(service);
+    // NextBuses can name the vehicle working this departure. Where it does and
+    // that bus is on the map, open that one: the nearest bus with the same
+    // number is often the one before it.
+    const exact = tr && tr.dataset.vehicle && state.busMarkers[tr.dataset.vehicle];
+    if (exact && exact._vehicle) openBusInfo(exact._vehicle);
+    else if (service) openBusFromService(service);
   });
 
   // Dark mode toggle
@@ -10936,8 +11109,10 @@ function stopSearchMatches(query) {
   const candidates = [];
   for (const c of liveSearchIndex()) {
     if (!c.label.toLowerCase().includes(q)) continue;
-    // "Bus stop · towards Old Steine · 700, N700" — which way, and what on.
-    const bits = ["Bus stop"];
+    // "Stop D · towards Old Steine · 700, N700" — which pole, which way, and
+    // what on.
+    const letter = c.atcos.length === 1 ? stopLetter(c.atcos[0]) : "";
+    const bits = [letter || "Bus stop"];
     if (c.towards) bits.push(`towards ${c.towards}`);
     if (c.services && c.services.length) {
       bits.push(c.services.slice(0, 4).join(", ")
@@ -11000,7 +11175,12 @@ function nearestStops(lat, lon, count = NEAR_ME_COUNT) {
   out.sort((a, b) => a.d - b.d);
   return out.filter(o => o.d <= NEAR_ME_MAX_METRES).slice(0, count).map(({ atco, s, d }) => {
     const bits = [d < 1000 ? `${Math.round(d / 10) * 10} m` : `${(d / 1000).toFixed(1)} km`];
+    const letter = stopLetter(atco);
+    if (letter) bits.push(letter);
     if (s.towards) bits.push(`towards ${prettifyName(s.towards)}`);
+    else if (stopHeading(atco)) bits.push(`heading ${stopHeading(atco)}`);
+    const where = stopWhereLine(atco);
+    if (where) bits.push(where);
     if (s.services && s.services.length) {
       bits.push(s.services.slice(0, 4).join(", ") + (s.services.length > 4 ? "…" : ""));
     }
@@ -11022,8 +11202,10 @@ function bindNearMe() {
   btn.addEventListener("click", () => {
     btn.disabled = true;
     say("Finding where you are…");
-    navigator.geolocation.getCurrentPosition((pos) => {
+    loadStopDetails().catch(() => {});
+    navigator.geolocation.getCurrentPosition(async (pos) => {
       btn.disabled = false;
+      await (state._stopDetailsPromise || Promise.resolve()).catch(() => {});
       const { latitude, longitude } = pos.coords;
       const found = nearestStops(latitude, longitude);
       if (!found.length) {
@@ -11204,6 +11386,9 @@ function bindStopSearch() {
   if (!form || !input || !list) return;
 
   const update = () => {
+    if (!state.stopDetails) {
+      loadStopDetails().then(() => { if (input.value.trim().length >= 2) update(); }).catch(() => {});
+    }
     const matches = stopSearchMatches(input.value);
     renderStopSearchResults(list, matches, input.value);
     input.setAttribute("aria-expanded", matches.length ? "true" : "false");

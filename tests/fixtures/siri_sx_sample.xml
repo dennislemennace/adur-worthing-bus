@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A SIRI-SX delivery shaped like BODS's, after the RTIG T038 sample: one of
+     each kind of situation the filter has to decide about. Times are relative
+     to 2026-09-27T12:00:00Z, the clock the tests pin. -->
+<Siri version="2.0" xmlns="http://www.siri.org.uk/siri">
+  <ServiceDelivery>
+    <ResponseTimestamp>2026-09-27T12:00:00Z</ResponseTimestamp>
+    <SituationExchangeDelivery version="2.0">
+      <Situations>
+        <PtSituationElement>
+          <ParticipantRef>WestSussexCC</ParticipantRef>
+          <SituationNumber>DIVERSION-700</SituationNumber>
+          <Progress>open</Progress>
+          <ValidityPeriod><StartTime>2026-09-25T06:00:00Z</StartTime><EndTime>2026-10-03T18:00:00Z</EndTime></ValidityPeriod>
+          <PublicationWindow><StartTime>2026-09-24T00:00:00Z</StartTime></PublicationWindow>
+          <MiscellaneousReason>roadworks</MiscellaneousReason>
+          <Planned>true</Planned>
+          <Summary xml:lang="EN">700 diverted via Church Road</Summary>
+          <Description xml:lang="EN">Eastbound 700 buses are diverted via Church Road while Portland Road is closed.</Description>
+          <InfoLinks><InfoLink><Uri>https://www.stagecoachbus.com/service-updates</Uri></InfoLink></InfoLinks>
+          <Consequences><Consequence>
+            <Condition>diverted</Condition><Severity>normal</Severity>
+            <Affects>
+              <Networks><AffectedNetwork><VehicleMode>bus</VehicleMode>
+                <AffectedLine><AffectedOperator><OperatorRef>SCSO</OperatorRef></AffectedOperator>
+                  <LineRef>700</LineRef><PublishedLineName>700</PublishedLineName></AffectedLine>
+              </AffectedNetwork></Networks>
+              <StopPoints><AffectedStopPoint><StopPointRef>1490WESTBV</StopPointRef><StopPointName>Westbourne Villas</StopPointName></AffectedStopPoint></StopPoints>
+            </Affects>
+            <Advice><Details>Use the stop on Church Road.</Details></Advice>
+          </Consequence></Consequences>
+        </PtSituationElement>
+        <PtSituationElement>
+          <ParticipantRef>WestSussexCC</ParticipantRef>
+          <SituationNumber>STOP-CLOSED</SituationNumber>
+          <Progress>open</Progress>
+          <ValidityPeriod><StartTime>2026-09-26T00:00:00Z</StartTime></ValidityPeriod>
+          <EquipmentReason>constructionWork</EquipmentReason>
+          <Planned>true</Planned>
+          <Summary>High Street stop closed</Summary>
+          <Description>The stop is suspended; use the temporary stop 50 metres east.</Description>
+          <Consequences><Consequence>
+            <Affects><StopPoints><AffectedStopPoint><StopPointRef>4400AD0204</StopPointRef></AffectedStopPoint></StopPoints></Affects>
+          </Consequence></Consequences>
+        </PtSituationElement>
+        <PtSituationElement>
+          <ParticipantRef>BrightonHove</ParticipantRef>
+          <SituationNumber>BHBC-ALL</SituationNumber>
+          <Progress>open</Progress>
+          <ValidityPeriod><StartTime>2026-09-27T05:00:00Z</StartTime><EndTime>2026-09-27T23:00:00Z</EndTime></ValidityPeriod>
+          <MiscellaneousReason>specialEvent</MiscellaneousReason>
+          <Planned>true</Planned>
+          <Summary>Brighton Marathon: all services disrupted</Summary>
+          <Consequences><Consequence>
+            <Affects>
+              <Operators><AffectedOperator><OperatorRef>BHBC</OperatorRef><OperatorName>Brighton &amp; Hove</OperatorName></AffectedOperator></Operators>
+              <Networks><AffectedNetwork><VehicleMode>bus</VehicleMode><AllLines/></AffectedNetwork></Networks>
+            </Affects>
+          </Consequence></Consequences>
+        </PtSituationElement>
+        <PtSituationElement>
+          <SituationNumber>ELSEWHERE</SituationNumber>
+          <Progress>open</Progress>
+          <Summary>Leeds city centre closure</Summary>
+          <Consequences><Consequence><Affects>
+            <Networks><AffectedNetwork><AffectedLine><AffectedOperator><OperatorRef>FLDS</OperatorRef></AffectedOperator><LineRef>1</LineRef></AffectedLine></AffectedNetwork></Networks>
+            <StopPoints><AffectedStopPoint><StopPointRef>450015866</StopPointRef></AffectedStopPoint></StopPoints>
+          </Affects></Consequence></Consequences>
+        </PtSituationElement>
+        <PtSituationElement>
+          <SituationNumber>CLOSED-700</SituationNumber>
+          <Progress>closed</Progress>
+          <Summary>Old 700 diversion</Summary>
+          <Consequences><Consequence><Affects><Networks><AffectedNetwork><AffectedLine><AffectedOperator><OperatorRef>SCSO</OperatorRef></AffectedOperator><LineRef>700</LineRef></AffectedLine></AffectedNetwork></Networks></Affects></Consequence></Consequences>
+        </PtSituationElement>
+        <PtSituationElement>
+          <SituationNumber>EXPIRED-9</SituationNumber>
+          <Progress>open</Progress>
+          <ValidityPeriod><StartTime>2026-09-01T00:00:00Z</StartTime><EndTime>2026-09-20T00:00:00Z</EndTime></ValidityPeriod>
+          <Summary>9 diverted last week</Summary>
+          <Consequences><Consequence><Affects><Networks><AffectedNetwork><AffectedLine><AffectedOperator><OperatorRef>SCSO</OperatorRef></AffectedOperator><LineRef>9</LineRef></AffectedLine></AffectedNetwork></Networks></Affects></Consequence></Consequences>
+        </PtSituationElement>
+        <PtSituationElement>
+          <SituationNumber>TOMORROW-N700</SituationNumber>
+          <Progress>open</Progress>
+          <ValidityPeriod><StartTime>2026-09-28T00:30:00Z</StartTime><EndTime>2026-09-28T05:00:00Z</EndTime></ValidityPeriod>
+          <Summary>N700 not calling at Shoreham tonight</Summary>
+          <Consequences><Consequence><Affects><Networks><AffectedNetwork><AffectedLine><AffectedOperator><OperatorRef>SCSO</OperatorRef></AffectedOperator><LineRef>N700</LineRef></AffectedLine></AffectedNetwork></Networks></Affects></Consequence></Consequences>
+        </PtSituationElement>
+        <PtSituationElement>
+          <SituationNumber>COACH-ALL</SituationNumber>
+          <Progress>open</Progress>
+          <Summary>National Express timetable change</Summary>
+          <Consequences><Consequence><Affects>
+            <Operators><AffectedOperator><OperatorRef>NATX</OperatorRef></AffectedOperator></Operators>
+            <Networks><AffectedNetwork><AllLines/></AffectedNetwork></Networks>
+          </Affects></Consequence></Consequences>
+        </PtSituationElement>
+      </Situations>
+    </SituationExchangeDelivery>
+  </ServiceDelivery>
+</Siri>

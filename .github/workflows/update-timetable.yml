@@ -63,6 +63,7 @@ jobs:
           python -m py_compile scripts/json_to_sqlite.py
           python -m py_compile scripts/build_evidence.py
           python -m py_compile scripts/build_stops_json.py
+          python -m py_compile scripts/build_stop_details.py
 
       - name: Build timetable JSON
         run: python -u scripts/build_timetable.py
@@ -83,6 +84,14 @@ jobs:
       # from, so they cannot disagree about what a stop list is.
       - name: Build the static stop list
         run: python -u scripts/build_stops_json.py
+
+      # Stop letters, streets, landmarks and bearings from NaPTAN. Someone
+      # else's API: if it is down, keep last week's file rather than fail the
+      # timetable build over a detail.
+      - name: Refresh stop details from NaPTAN
+        run: |
+          python -u scripts/build_stop_details.py \
+            || echo "::warning::NaPTAN unavailable; keeping the previous data/stop_details.json"
 
       - name: Recompute published statistics
         run: python -u scripts/build_evidence.py
@@ -139,13 +148,13 @@ jobs:
       # prevent.
       - name: Commit refreshed statistics and stop list
         run: |
-          if git diff --quiet -- data/boundary_evidence.json data/stops.json; then
+          if git diff --quiet -- data/boundary_evidence.json data/stops.json data/stop_details.json; then
             echo "Statistics and stop list unchanged — nothing to commit."
             exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/boundary_evidence.json data/stops.json
+          git add data/boundary_evidence.json data/stops.json data/stop_details.json
           git commit -m "Refresh boundary statistics and stop list from the $(date -u +%Y-%m-%d) timetable"
           git push
 

@@ -1139,3 +1139,30 @@ def test_proposal_lines_pass_through_their_stops_without_looping():
         assert drawn <= 2.0 * chain, (
             f"proposals.json: '{p['id']}' draws {drawn / 1000:.1f} km for a {chain / 1000:.1f} km "
             f"chain of stops, which is a loop round the block, not a route")
+
+
+def test_stop_details_cover_the_stop_list_and_cite_naptan():
+    """data/stop_details.json: where each stop is, from NaPTAN, for every stop."""
+    details = json.loads((DATA_DIR / "stop_details.json").read_text())
+    stops = json.loads((DATA_DIR / "stops.json").read_text())["stops"]
+    assert details["source_url"].startswith("https://naptan.api.dft.gov.uk/")
+    date.fromisoformat(details["checked_on"])
+    assert details["fields"] == ["indicator", "street", "landmark", "bearing"]
+    atcos = {s["atco_code"] for s in stops}
+    assert len(set(details["stops"]) & atcos) >= 0.9 * len(atcos), \
+        "most stops would open with no letter, street or landmark"
+    for atco, row in details["stops"].items():
+        assert isinstance(row, list) and len(row) == 4 and all(isinstance(v, str) for v in row), atco
+        assert row[3] in {"", "N", "NE", "E", "SE", "S", "SW", "W", "NW"}, (atco, row[3])
+
+
+def test_stop_details_builder_reads_naptan_csv():
+    import sys as _sys
+    _sys.path.insert(0, str(ROOT / "scripts"))
+    import build_stop_details as bsd
+    csv_text = ("ATCOCode,Indicator,Street,Landmark,Bearing\n"
+                "4400AD0204,Stop D,High Street,Boots,E\n")
+    parsed = bsd.parse_naptan(csv_text)
+    assert parsed == {"4400AD0204": ["Stop D", "High Street", "Boots", "E"]}
+    out = bsd.build([{"atco_code": "4400AD0204"}, {"atco_code": "MISSING"}], parsed)
+    assert out["count"] == 1 and "MISSING" not in out["stops"]

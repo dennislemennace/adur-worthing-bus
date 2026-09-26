@@ -177,3 +177,49 @@ test("the ticket box reads prices from ticket_zones.json, not a second list", ()
     "Metrobus had no ticket box at all");
   assert.match(app.buildTicketInfoHtml("SCSO", null, "N700"), /N700 night bus/);
 });
+
+// ── Where a stop is (NaPTAN) ────────────────────────────────
+
+test("a stop reads as the flag and the street say it", () => {
+  state.stopData = {
+    D: { name: "Chapel Road", towards: "Brighton", locality: "Worthing" },
+    O: { name: "Cuthbert Road", locality: "Brighton" },
+  };
+  state.stopDetails = {
+    D: ["Stop D", "Chapel Road", "Boots", "S"],
+    O: ["opp", "Freshfield Road", "The Cuthbert", "NE"],
+  };
+  assert.equal(app.stopContextLine("D"), "Stop D · Towards Brighton · Worthing");
+  assert.equal(app.stopWhereLine("O"), "Opposite The Cuthbert, Freshfield Road");
+  // No "towards" from the timetable: the bearing stands in.
+  assert.equal(app.stopContextLine("O"), "Buses heading north-east · Brighton");
+  assert.equal(app.stopWhereLine("D"), "On Chapel Road");
+  state.stopDetails = null;
+  assert.equal(app.stopContextLine("O"), "Brighton", "without NaPTAN the line must still read");
+});
+
+// ── Published disruptions ───────────────────────────────────
+
+test("a disruption shows its own words, scope, dates and author", () => {
+  const html = app.buildDisruptionsHtml([{
+    id: "D1", summary: "700 diverted via Church Road", description: "Eastbound only.",
+    advice: "Use the Church Road stop.", publisher: "WestSussexCC",
+    ends: "2026-10-03T18:00:00+00:00", starts: null, link: "https://example.org/x",
+    lines: [{ operator: "SCSO", line: "700" }], stops: [], operators: [],
+  }]);
+  assert.match(html, /<details class="disruption">/);
+  assert.match(html, /700 diverted via Church Road/);
+  assert.match(html, /Service 700 · Until Sat 3 Oct/);
+  assert.match(html, /Advice:<\/strong> Use the Church Road stop/);
+  assert.match(html, /Published by WestSussexCC through the Bus Open Data Service/);
+  assert.equal(app.buildDisruptionsHtml([]), "");
+});
+
+test("an affected row points at the notice, and a cancelled one says so", () => {
+  const tagged = row({ disruption_ids: ["D1"] });
+  assert.match(tagged, /row-disruption[\s\S]*Disruption, see notice above/);
+  const cancelled = row({ status: "Cancelled", vehicle_ref: "15621" });
+  assert.match(cancelled, /departure-row--cancelled/);
+  assert.match(cancelled, />Cancelled</);
+  assert.match(cancelled, /data-vehicle="15621"/, "the named bus was not kept for the row's click");
+});

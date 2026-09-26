@@ -509,6 +509,27 @@ plus View Transitions route suits this codebase better.
 
 ---
 
+## Next, once there is more data
+
+Agreed 26 September 2026 and deliberately deferred: both need several more
+weeks of method-5 recordings (the reliability window began 16 Sep, and only
+20 Sep onwards is on the current method).
+
+- **"Usually N–M min late here at this time" beside a departure.** From the
+  nightly reliability data: for this service at this stop, in this hour band
+  and day type, the median and the spread of lateness. Needs a minimum sample
+  per cell (as the delay map's 30 journeys over 5 days) and the
+  evidence-provenance treatment: method, as-of, caveats, shown with the number.
+- **Per-stop estimates from measured running times.** `api/live_eta.py`
+  carries the current lateness forward unchanged, which errs later further
+  along the route. The journey-times data measures how long each stretch
+  actually takes by hour, so an estimate could add typical running time
+  instead of the timetable's, and say how often buses make up time. Replace
+  the method in one place (`project_trip`), keep its tests, and update the
+  wording in about.html#live-times and under the Bus tab list.
+
+---
+
 ## Carried over from earlier work
 
 Not part of the three phases, but still open:

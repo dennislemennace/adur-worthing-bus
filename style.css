@@ -1878,6 +1878,17 @@ body.panel-collapsed .btn-collapse-panel .icon {
   letter-spacing: 0.05em;
 }
 
+/* "Opposite The Cuthbert, Freshfield Road": the pole a visitor is looking for,
+   in the words on the street rather than the timetable's. */
+.panel-stop-where {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.35;
+}
+.panel-stop-where[hidden] { display: none; }
+
 /* ===== PANEL STATES ===== */
 .panel-loading,
 .panel-error,
@@ -3641,6 +3652,7 @@ html.dark-mode .departures-table tr.departure-row:hover td {
   justify-content: flex-end;
 }
 .due-time.due-imminent { color: var(--color-accent-text); }
+.departure-row--cancelled .due-time { text-decoration: line-through; color: var(--color-text-muted); }
 /* The imminent state is colour and weight only. It used to carry a pulsing
    dot of its own, which beside the live dot meant two dots with two meanings,
    and a timetable-only row that was due soon looked tracked. */
@@ -3681,6 +3693,48 @@ html.dark-mode .departures-table tr.departure-row:hover td {
   color: var(--color-text-muted);
 }
 .board-key .live-dot { transform: translateY(-1px); }
+
+/* ---- Published disruptions ---- */
+.board-disruptions { padding: var(--space-2xs) var(--space-sm) 0; }
+.board-disruptions[hidden] { display: none; }
+.disruptions { display: grid; gap: var(--space-2xs); margin-bottom: var(--space-xs); }
+.disruption {
+  border: 1px solid var(--tint-late-border);
+  border-left: 4px solid var(--color-late);
+  border-radius: var(--radius-sm);
+  background: var(--tint-late-bg);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+.disruption summary {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  min-height: var(--target-min);
+  padding: var(--space-xs) var(--space-sm);
+  cursor: pointer;
+  list-style: none;
+}
+.disruption summary::-webkit-details-marker { display: none; }
+.disruption summary .icon { flex: none; margin-top: 2px; color: var(--color-late); }
+.disruption summary:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.disruption-text { display: grid; gap: 2px; }
+.disruption-summary { font-weight: 700; }
+.disruption-when { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.disruption-body { padding: 0 var(--space-sm) var(--space-sm) calc(var(--space-sm) + 22px); line-height: 1.45; }
+.disruption-body p { margin: 0 0 var(--space-2xs); }
+.disruption-source { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.disruption-source a { color: var(--color-link); }
+.row-disruption {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+  color: var(--color-late);
+}
+.row-disruption .icon { width: 12px; height: 12px; }
 
 /* ---- Route filter above the board ---- */
 .board-filter {

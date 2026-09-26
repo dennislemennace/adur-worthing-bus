@@ -41,6 +41,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from api import corridor_gaps
+from api import disruptions as sx
 from api import gtfs_rt, live_eta, trip_match
 from api.timetable_db import (NIGHT_ENDS_SECS, Timetable,
                               path_has_time_gap, service_runs_on)
@@ -79,6 +80,17 @@ NEXTBUSES_APP_ID             = os.environ.get("NEXTBUSES_APP_ID", "")
 NEXTBUSES_APP_KEY            = os.environ.get("NEXTBUSES_APP_KEY", "")
 NEXTBUSES_BASE_URL           = os.environ.get("NEXTBUSES_BASE_URL",
                                "https://transportapi.com/v3/uk/bus/stop")
+# Which of TransportAPI's two routes to NextBuses data to call:
+#   "rest" — GET {NEXTBUSES_BASE_URL}/{atco}/live.json?nextbuses=yes, on the
+#            bundled plan (the bus/stop_timetables endpoint);
+#   "siri" — POST {NEXTBUSES_SIRI_URL}, the "NextBuses - powered by
+#            TransportAPI" SIRI Stop Monitoring service, which the NextBuses-
+#            only, pay-per-hit plan covers. It also says which operator runs
+#            each departure, which vehicle, and whether it is cancelled.
+# A Render setting, so changing plan is changing this and nothing else.
+NEXTBUSES_MODE               = os.environ.get("NEXTBUSES_MODE", "rest").strip().lower()
+NEXTBUSES_SIRI_URL           = os.environ.get("NEXTBUSES_SIRI_URL",
+                               "https://transportapi.com/nextbuses")
 NEXTBUSES_CACHE_TTL          = 90   # seconds to cache per-stop predictions
 NEXTBUSES_SKIP_THRESHOLD_SEC = (
     int(os.getenv("NEXTBUSES_SKIP_THRESHOLD_MINUTES", "30")) * 60
@@ -1125,6 +1137,21 @@ async def debug_live_raw(stopId: str = Query(...)):
     if not NEXTBUSES_APP_ID or not NEXTBUSES_APP_KEY:
         return {"error": "Transport API credentials not configured"}
 
+    if NEXTBUSES_MODE == "siri":
+        cached = cache_get(f"nb:{stopId}")
+        if cached is None:
+            _nb_quota_rollover()
+            if _nb_quota["count"] >= NEXTBUSES_DAILY_LIMIT:
+                return {"error": "quota exhausted", "count": _nb_quota["count"],
+                        "limit": NEXTBUSES_DAILY_LIMIT}
+            _nb_quota_bump(1)
+            cached = await _fetch_nextbuses_siri(stopId)
+            if cached is None:
+                _nb_quota_bump(-1)
+                return {"error": "SIRI-SM request failed; see the API log"}
+            cache_set(f"nb:{stopId}", cached, NEXTBUSES_CACHE_TTL)
+        return {"mode": "siri", "parsed_predictions": cached[:10]}
+
     cache_key = f"nb-raw:{stopId}"
     raw = cache_get(cache_key)
     if raw is None:
@@ -1216,6 +1243,9 @@ async def get_vehicle(vehicleRef: str = Query(...)):
         },
         "upcoming_stops": upcoming,
         "source":         source,
+        "disruptions":    sx.affecting(
+            _disruptions_now(await _disruptions_state(wait=False)),
+            services={(vehicle.get("operator_ref") or "", vehicle.get("service_ref") or "")}),
     }
 
 
@@ -1415,6 +1445,8 @@ async def get_departures(
     if "live" not in result and not (NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY):
         # Say so rather than letting scheduled times pass as live ones.
         result = {**result, "live": False, "live_reason": "not_configured"}
+    result = _attach_disruptions(result, resolved,
+                                 _disruptions_now(await _disruptions_state(wait=False)))
     # Cached `base` can be up to a minute old, and the grace window deliberately
     # keeps recently-scheduled rows, so the final cut happens per request.
     return _public_departures(_drop_departed(result))
@@ -1445,6 +1477,8 @@ def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime) ->
         new = dict(dep)
         if new.get("expected_departure"):
             new.setdefault("live_source", "prediction")
+        elif (new.get("status") or "").lower() == "cancelled":
+            pass    # the operator says it is not running; no estimate argues
         else:
             bus = by_trip.get(dep.get("_trip_id"))
             aimed = _parse_iso_datetime(dep.get("aimed_departure"))
@@ -1473,6 +1507,19 @@ def _public_departures(payload: dict) -> dict:
 
 
 # ── /api/stop-span ────────────────────────────────────────────
+@app.get("/api/disruptions")
+async def get_disruptions():
+    """Published disruptions touching this area, as their authors wrote them."""
+    state = await _disruptions_state(wait=True)
+    return {
+        "available": bool(state and state.get("available")),
+        "reason": (state or {}).get("reason"),
+        "fetched_at": (state or {}).get("fetched_at"),
+        "source": "Bus Open Data Service (SIRI-SX), as published by operators and councils",
+        "disruptions": _disruptions_now(state),
+    }
+
+
 @app.get("/api/stop-span")
 async def get_stop_span(
     stopId: str = Query(...),
@@ -1864,6 +1911,93 @@ RECENT_VEHICLES_KEY = "vehicles:recent"
 RECENT_VEHICLES_TTL = 120
 
 
+# ── Published disruptions (BODS SIRI-SX) ──────────────────────
+# The national feed, filtered to our stops and routes (api/disruptions.py).
+# Ten minutes is plenty for notices that are written by hand, and it keeps a
+# national download off every request: the board reads the cache and never
+# waits on the fetch.
+DISRUPTIONS_KEY = "disruptions"
+DISRUPTIONS_TTL = 600
+
+
+def _route_index(tt: Timetable) -> set:
+    """`(operator NOC, line name)` for every route we hold, worked out once."""
+    cached = getattr(tt, "_sx_routes", None)
+    if cached is None:
+        cached = {(tt.noc_for_route(rid), (r or {}).get("short_name", ""))
+                  for rid, r in tt.routes.items()}
+        cached = {(noc, name) for noc, name in cached if noc and name}
+        try:
+            tt._sx_routes = cached
+        except AttributeError:
+            pass
+    return cached
+
+
+async def _fetch_disruptions() -> dict:
+    """The area's situations from BODS, or an explanation of why there are none.
+
+    Never raises: a board with no notices is still a board. What went wrong is
+    returned so /api/disruptions can say so rather than look like good news.
+    """
+    fetched_at = datetime.now(timezone.utc).isoformat()
+    if not BODS_API_KEY:
+        return {"available": False, "reason": "not_configured", "situations": [],
+                "fetched_at": fetched_at}
+    try:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            resp = await client.get(f"{BODS_BASE}/siri-sx/", params={"api_key": BODS_API_KEY})
+            resp.raise_for_status()
+        tt = await _get_timetable()
+        keep = sx.area_filter(tt.stops.keys(), _route_index(tt))
+        situations = await off_loop(sx.parse_feed, resp.content, keep)
+    except Exception as exc:                       # noqa: BLE001 — see docstring
+        log.warning("SIRI-SX unavailable: %s", exc)
+        return {"available": False, "reason": "upstream", "situations": [],
+                "fetched_at": fetched_at}
+    log.info("SIRI-SX: %d situations for this area", len(situations))
+    return {"available": True, "situations": situations, "fetched_at": fetched_at}
+
+
+async def _disruptions_state(wait: bool) -> Optional[dict]:
+    """The cached feed. Without `wait`, a miss starts a fetch and returns None."""
+    if wait:
+        return await cache_single_flight_async(DISRUPTIONS_KEY, _fetch_disruptions, DISRUPTIONS_TTL)
+    hit = cache_get(DISRUPTIONS_KEY)
+    if hit is None and DISRUPTIONS_KEY not in _inflight_async:
+        task = asyncio.create_task(
+            cache_single_flight_async(DISRUPTIONS_KEY, _fetch_disruptions, DISRUPTIONS_TTL))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+    return hit
+
+
+_background_tasks: set = set()
+
+
+def _disruptions_now(state: Optional[dict]) -> list:
+    if not state:
+        return []
+    return sx.current(state.get("situations") or [], datetime.now(timezone.utc))
+
+
+def _attach_disruptions(payload: dict, stop_id: str, disruptions: list) -> dict:
+    """Notices for this stop and its services, on the board and on each row."""
+    if not disruptions:
+        return payload
+    rows = payload.get("departures") or []
+    services = {(d.get("operator") or "", d.get("service") or "") for d in rows}
+    here = sx.affecting(disruptions, stop_id=stop_id, services=services)
+    if not here:
+        return payload
+    out = []
+    for dep in rows:
+        ids = [d["id"] for d in here
+               if sx.row_matches(d, dep.get("operator") or "", dep.get("service") or "")]
+        out.append({**dep, "disruption_ids": ids} if ids else dep)
+    return {**payload, "departures": out, "disruptions": here}
+
+
 async def _live_vehicles() -> list:
     """
     Live vehicles, trip-matched, from the one 15 s cache every caller shares.
@@ -1902,6 +2036,8 @@ async def _fetch_nextbuses(stop_id: str) -> Optional[list]:
 
     Does NOT handle caching or quota — that is the caller's responsibility.
     """
+    if NEXTBUSES_MODE == "siri":
+        return await _fetch_nextbuses_siri(stop_id)
     url = f"{NEXTBUSES_BASE_URL}/{stop_id}/live.json"
     try:
         async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
@@ -1919,6 +2055,92 @@ async def _fetch_nextbuses(stop_id: str) -> Optional[list]:
     except Exception as exc:
         log.warning("Transport API request failed for stop %s: %s", stop_id, exc)
         return None
+
+
+def _siri_sm_request(stop_id: str, now: Optional[datetime] = None) -> str:
+    """The SIRI-SM ServiceRequest for one stop's next two hours, as TransportAPI documents it."""
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    from xml.sax.saxutils import escape
+    return (
+        '<Siri xmlns="http://www.siri.org.uk/" version="1.0"><ServiceRequest>'
+        f"<RequestTimestamp>{stamp}</RequestTimestamp>"
+        "<RequestorRef>adur-worthing-bus</RequestorRef>"
+        '<StopMonitoringRequest version="1.0">'
+        f"<RequestTimestamp>{stamp}</RequestTimestamp>"
+        f"<MessageIdentifier>{escape(stop_id)}-{int(time.time())}</MessageIdentifier>"
+        f"<MonitoringRef>{escape(stop_id)}</MonitoringRef>"
+        "<MaximumStopVisits>30</MaximumStopVisits>"
+        "<PreviewInterval>PT2H</PreviewInterval>"
+        "</StopMonitoringRequest></ServiceRequest></Siri>")
+
+
+async def _fetch_nextbuses_siri(stop_id: str) -> Optional[list]:
+    """POST a SIRI-SM request to NextBuses for one stop. Same contract as _fetch_nextbuses."""
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            resp = await client.post(
+                NEXTBUSES_SIRI_URL,
+                params={"app_id": NEXTBUSES_APP_ID, "app_key": NEXTBUSES_APP_KEY},
+                content=_siri_sm_request(stop_id).encode("utf-8"),
+                headers={"Content-Type": "application/xml", "Accept": "application/xml"},
+            )
+        resp.raise_for_status()
+        return _parse_siri_sm(resp.content)
+    except Exception as exc:
+        log.warning("NextBuses SIRI-SM request failed for stop %s: %s", stop_id, exc)
+        return None
+
+
+def _parse_siri_sm(payload: bytes) -> list:
+    """SIRI-SM MonitoredStopVisits as the same prediction dicts as the REST parser.
+
+    Adds what the REST response cannot say: which operator runs the departure,
+    which vehicle is working it, whether it is cancelled, and whether the time
+    is monitored at all. Namespace-agnostic, because producers disagree about
+    which SIRI namespace URI to use. Raises on a document that is not XML, so
+    the caller reports an upstream failure rather than an empty stop.
+    """
+    root = ET.fromstring(payload)
+
+    def local(tag):
+        return tag.rsplit("}", 1)[-1]
+
+    def first(el, name):
+        for c in el.iter():
+            if local(c.tag) == name and c.text and c.text.strip():
+                return c.text.strip()
+        return ""
+
+    def to_local(value):
+        dt = _parse_iso_datetime(value)
+        return dt.astimezone(UK_TZ).isoformat() if dt else None
+
+    predictions = []
+    for visit in root.iter():
+        if local(visit.tag) != "MonitoredStopVisit":
+            continue
+        service = first(visit, "PublishedLineName") or first(visit, "LineRef")
+        aimed = to_local(first(visit, "AimedDepartureTime") or first(visit, "AimedArrivalTime"))
+        if not service or aimed is None:
+            continue
+        status = (first(visit, "DepartureStatus") or first(visit, "ArrivalStatus")).lower()
+        cancelled = status == "cancelled"
+        # Monitored=false means no vehicle is being tracked for this journey:
+        # any "expected" time is the timetable repeated, and passing it on
+        # would put a live dot on a guess.
+        monitored = first(visit, "Monitored").lower() != "false"
+        predictions.append({
+            "service":    service,
+            "aimed":      aimed,
+            "expected":   None if (cancelled or not monitored) else to_local(
+                first(visit, "ExpectedDepartureTime") or first(visit, "ExpectedArrivalTime")),
+            "direction":  first(visit, "DirectionName") or first(visit, "DestinationName"),
+            "operator":   first(visit, "OperatorRef"),
+            "vehicle_ref": first(visit, "VehicleRef"),
+            "cancelled":  cancelled,
+            "monitored":  monitored,
+        })
+    return predictions
 
 
 def _parse_transportapi_json(data: dict) -> list:
@@ -1947,6 +2169,17 @@ def _parse_transportapi_json(data: dict) -> list:
     return predictions
 
 
+# Operators that publish under more than one code for the same buses.
+_NOC_FAMILIES = {"SCSC": "SCSO", "CMPA": "COMT"}
+
+
+def _same_operator(a: Optional[str], b: Optional[str]) -> bool:
+    """True unless both sides name an operator and they differ."""
+    if not a or not b:
+        return True
+    return _NOC_FAMILIES.get(a, a) == _NOC_FAMILIES.get(b, b)
+
+
 def _transportapi_to_departures(predictions: list) -> list:
     """
     Convert Transport API prediction dicts into our departure row format.
@@ -1967,6 +2200,14 @@ def _transportapi_to_departures(predictions: list) -> list:
             "aimed_departure": aimed_dt.isoformat(),
             "status":          "Scheduled",
         }
+        if pred.get("operator"):
+            dep["operator"] = pred["operator"]
+        if pred.get("vehicle_ref"):
+            dep["vehicle_ref"] = pred["vehicle_ref"]
+        if pred.get("cancelled"):
+            dep["status"] = "Cancelled"
+            departures.append(dep)
+            continue
         exp_dt = _parse_iso_datetime(pred.get("expected"))
         if exp_dt is not None:
             delay              = int((exp_dt - aimed_dt).total_seconds())
@@ -2093,6 +2334,11 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
         for pred in predictions:
             if pred.get("service") not in svc_keys:
                 continue
+            # SIRI-SM names the operator. Two operators can run the same
+            # number past one stop, and a prediction for one is not about
+            # the other's bus.
+            if not _same_operator(pred.get("operator"), dep.get("operator")):
+                continue
             pred_aimed = _parse_iso_datetime(pred.get("aimed"))
             if pred_aimed is None:
                 continue
@@ -2102,6 +2348,17 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
                 best_delta = delta
 
         if best is None or best_delta is None or best_delta > 300:
+            overlaid.append(new)
+            continue
+
+        if best.get("vehicle_ref"):
+            new["vehicle_ref"] = best["vehicle_ref"]
+        if best.get("cancelled"):
+            # The operator says this one is not running. The row stays, marked,
+            # because a departure silently vanishing reads as "already gone".
+            new["status"]      = "Cancelled"
+            new["live_source"] = "prediction"
+            matched += 1
             overlaid.append(new)
             continue
 
