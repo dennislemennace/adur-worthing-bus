@@ -288,6 +288,21 @@ jobs:
           test -n "$AWS_ACCESS_KEY_ID"
           ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           BUILD=$(cat build-id.txt)
+          # Retire generations older than the newest seven, never the live one or
+          # its rollback (scripts/prune_published.py), so the 4 GiB budget below
+          # holds as the window grows. Any doubt about the live index deletes nothing.
+          aws s3 cp s3://adur-worthing-published/journey-times/index.json live-index.json \
+            --endpoint-url "$ENDPOINT" --no-progress || echo '{}' > live-index.json
+          aws s3 ls s3://adur-worthing-published/journey-times/builds/ --recursive \
+            --endpoint-url "$ENDPOINT" > published-builds.txt || : > published-builds.txt
+          python scripts/prune_published.py --listing published-builds.txt \
+            --index live-index.json --keep 7 > retire.txt || : > retire.txt
+          while read -r OLD; do
+            [ -n "$OLD" ] || continue
+            echo "retiring generation $OLD"
+            aws s3 rm "s3://adur-worthing-published/journey-times/builds/$OLD/" --recursive \
+              --endpoint-url "$ENDPOINT" --only-show-errors
+          done < retire.txt
           # Leave headroom for raw recording: published data has its own 4 GiB cap.
           aws s3 ls s3://adur-worthing-published/ --recursive --summarize \
             --endpoint-url "$ENDPOINT" > published-usage.txt

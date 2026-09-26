@@ -392,9 +392,11 @@ of provider pricing. No paid tier or increased raw retention is introduced.
 - The published R2 bucket has a separate **4 GiB** pre-upload budget, including
   old generations. Together the nominal raw and published budgets are 8 GiB;
   other account usage and raw measurement headroom still need monitoring.
-  No automatic deletion invalidates old share links. At saturation the
-  workflow stops and keeps the previous public generation; an explicit
-  retention/migration decision is required before capacity can be reclaimed.
+  **Retention (from 26 September 2026): the newest seven generations**, plus the
+  live one and its rollback whatever their age (`scripts/prune_published.py`,
+  run before the budget check). A link pinned to a retired generation with
+  `?jt-build=` stops working after about a week. If the budget is still
+  exceeded, the workflow stops and keeps the previous public generation.
 - Every new generation adds per-service documents, summaries and observations,
   then reads each uploaded object back once before switching the pointer.
   The reviewed five-day derivative has 38 service files plus an index, about

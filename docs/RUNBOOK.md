@@ -292,6 +292,10 @@ Three safeguards let the record run for months without anyone watching:
   failed is not retried: re-run it by hand once the cause is fixed.
 - **Schedules stay switched on.** `keepalive.yml` (Mondays) re-enables the
   scheduled workflows and commits if the repository has been quiet for 45 days.
+- **The public bucket cannot fill.** Before each upload the nightly run retires
+  published generations beyond the newest seven, never the live one or its
+  rollback (`scripts/prune_published.py`; change `--keep` in the workflow).
+  Each retirement is logged as `retiring generation <id>`.
 
 Re-running a day that is already published replaces it. When its raw objects
 may have started to expire, demand complete feeds:
