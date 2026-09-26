@@ -28,6 +28,10 @@ on:
         description: "Service day to process (YYYY-MM-DD). Blank means yesterday."
         required: false
         type: string
+      min_objects_per_feed:
+        description: "Re-runs only: stop before processing unless each feed has at least this many objects. Blank means no check."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -153,9 +157,20 @@ jobs:
           aws s3 sync \
             "s3://adur-worthing-reliability/rt/$DAY/" "gtfs-rt/$DAY/" \
             --endpoint-url "$ENDPOINT" --no-progress
-          echo "GTFS-RT objects: $(find "gtfs-rt/$DAY" -name '*.pb' 2>/dev/null | wc -l)"
+          SIRI=$(find "snapshots/$DAY" -name '*.xml' 2>/dev/null | wc -l)
+          RT=$(find "gtfs-rt/$DAY" -name '*.pb' 2>/dev/null | wc -l)
+          echo "SIRI-VM objects: $SIRI"
+          echo "GTFS-RT objects: $RT"
           COUNT=$(find "snapshots/$DAY" "gtfs-rt/$DAY" -type f | wc -l)
           echo "Downloaded $COUNT snapshots"
+          # A re-run replaces a day already published. Raw objects leave R2 after
+          # seven days, so one that has started to go would swap a complete old
+          # measurement for a partial new one: the caller can demand a floor.
+          MIN="${{ inputs.min_objects_per_feed }}"
+          if [ -n "$MIN" ] && { [ "$SIRI" -lt "$MIN" ] || [ "$RT" -lt "$MIN" ]; }; then
+            echo "::error::$DAY has $SIRI SIRI-VM and $RT GTFS-RT objects, under the requested $MIN each — not replacing the published day"
+            exit 1
+          fi
           # Object counts are only a download sanity check, not recording coverage.
           # Processing publishes parsed, fresh and matched counters independently
           # per feed; two objects from one minute never count as two minutes.
