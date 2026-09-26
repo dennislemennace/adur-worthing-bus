@@ -30,7 +30,7 @@ def area():
 
 def test_every_situation_is_read():
     ids = [s["id"] for s in sx.parse_feed(FEED)]
-    assert len(ids) == 8 and "DIVERSION-700" in ids
+    assert len(ids) == 9 and "DIVERSION-700" in ids
 
 
 def test_only_situations_touching_this_area_are_kept():
@@ -38,6 +38,8 @@ def test_only_situations_touching_this_area_are_kept():
     assert "ELSEWHERE" not in ids, "a Leeds closure reached a Shoreham board"
     assert "CLOSED-700" not in ids, "a situation marked closed was kept"
     assert "COACH-ALL" not in ids, "an operator-wide coach notice would sit on every local board"
+    assert "HAMPSHIRE-9" not in ids, \
+        "a Hampshire stop suspension on Stagecoach's 9 reached our Stagecoach 9"
     assert {"DIVERSION-700", "STOP-CLOSED", "BHBC-ALL", "EXPIRED-9", "TOMORROW-N700"} <= ids
 
 
@@ -64,7 +66,7 @@ def test_a_zipped_delivery_is_read_the_same():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("sirisx.xml", FEED)
-    assert len(sx.parse_feed(buf.getvalue())) == 8
+    assert len(sx.parse_feed(buf.getvalue())) == 9
 
 
 def test_a_night_n_matches_the_day_number_either_way():

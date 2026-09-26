@@ -167,8 +167,13 @@ def area_filter(stop_ids: Iterable[str], routes: Iterable[tuple]):
     def keep(sit: dict) -> bool:
         if sit["progress"].lower() == "closed":
             return False
-        if any(s in stops for s in sit["stops"]):
-            return True
+        # A notice that names its stops is about those stops. Stagecoach South
+        # runs from Hampshire to Sussex under one operator code and reuses its
+        # route numbers, so a stop suspension on Hampshire's 3 would otherwise
+        # land on any board here that shows a Stagecoach 3. Seen in the live
+        # feed on 26 Sep 2026: six such notices, all 1900HA stops.
+        if sit["stops"]:
+            return any(s in stops for s in sit["stops"])
         if any((l["operator"], service_key(l["line"])) in lines
                or (l["operator"], service_key(l["line_ref"])) in lines
                for l in sit["lines"]):

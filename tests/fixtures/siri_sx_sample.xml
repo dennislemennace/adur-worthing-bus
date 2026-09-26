@@ -68,6 +68,15 @@
           </Affects></Consequence></Consequences>
         </PtSituationElement>
         <PtSituationElement>
+          <SituationNumber>HAMPSHIRE-9</SituationNumber>
+          <Progress>open</Progress>
+          <Summary>Bus Stop Suspension - Walworth Road, Andover</Summary>
+          <Consequences><Consequence><Affects>
+            <Networks><AffectedNetwork><AffectedLine><AffectedOperator><OperatorRef>SCSO</OperatorRef></AffectedOperator><LineRef>9</LineRef></AffectedLine></AffectedNetwork></Networks>
+            <StopPoints><AffectedStopPoint><StopPointRef>1900HAA92049</StopPointRef></AffectedStopPoint></StopPoints>
+          </Affects></Consequence></Consequences>
+        </PtSituationElement>
+        <PtSituationElement>
           <SituationNumber>CLOSED-700</SituationNumber>
           <Progress>closed</Progress>
           <Summary>Old 700 diversion</Summary>
