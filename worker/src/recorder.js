@@ -74,7 +74,10 @@ const MAX_STORED_BYTES = 4 * 1024 * 1024 * 1024; // 40% of the 10 GB free tier
 // full retention window holds, and a test derives that figure rather than
 // trusting this comment.
 const MAX_STORED_OBJECTS = 30_000;
-const USAGE_KEY = "r2-usage";                    // cached in the KV the Worker already binds
+const USAGE_KEY = "r2-usage";
+// The published catalogue: every day it names has been archived in an
+// immutable release, so its raw objects may go.
+const CATALOGUE_KEY = "journey-times/index.json";                    // cached in the KV the Worker already binds
 // The budget is read from KV every minute (~1,400 reads a day, inside the free
 // 100,000) but written only when the bucket is measured, once an hour, because
 // KV allows 1,000 writes a day and the submission counters draw on the same.
@@ -157,6 +160,12 @@ export function withinBudget(usage) {
 export async function pruneAndMeasure(env, when) {
   if (!env.SNAPSHOTS) return { measured: false, reason: "no_bucket" };
   const oldestKept = LONDON_DATE.format(new Date(when.getTime() - RETENTION_DAYS * 86_400_000));
+  // Past the window is not enough: a day goes only once the nightly run has
+  // archived and published it. Otherwise a week of failed runs deletes days
+  // nobody ever processed, for good. Held days still count against the budget,
+  // which pauses recording long before storage costs anything.
+  const archived = await archivedDays(env);
+  const unprocessed = new Set();
   let bytes = 0, objects = 0, deleted = 0, cursor;
   do {
     // Every prefix, not just raw/. The second feed lives under rt/, and a
@@ -166,8 +175,11 @@ export async function pruneAndMeasure(env, when) {
     const stale = [];
     for (const obj of page.objects) {
       const day = keyDay(obj.key);
-      if (day && day < oldestKept) stale.push(obj.key);
-      else { bytes += obj.size || 0; objects += 1; }
+      if (day && day < oldestKept && archived && archived.has(day)) stale.push(obj.key);
+      else {
+        if (day && day < oldestKept) unprocessed.add(day);
+        bytes += obj.size || 0; objects += 1;
+      }
     }
     if (stale.length) {
       await env.SNAPSHOTS.delete(stale);
@@ -176,7 +188,8 @@ export async function pruneAndMeasure(env, when) {
     cursor = page.truncated ? page.cursor : undefined;
   } while (cursor);
 
-  const usage = { bytes, objects, deleted, measured_at: when.toISOString() };
+  const unprocessed_days = [...unprocessed].sort();
+  const usage = { bytes, objects, deleted, unprocessed_days, measured_at: when.toISOString() };
   if (env.RATE_LIMIT) {
     try {
       await env.RATE_LIMIT.put(USAGE_KEY, JSON.stringify(usage));
@@ -184,8 +197,27 @@ export async function pruneAndMeasure(env, when) {
       console.error(`snapshot usage not cached: ${err && err.message}`);
     }
   }
-  console.log(`snapshots: ${objects} kept, ${(bytes / 1e6).toFixed(0)} MB, ${deleted} pruned`);
+  console.log(`snapshots: ${objects} kept, ${(bytes / 1e6).toFixed(0)} MB, ${deleted} pruned`
+    + (unprocessed_days.length ? `, held unprocessed: ${unprocessed_days.join(" ")}` : "")
+    + (archived ? "" : " (published catalogue unreadable: nothing deleted)"));
   return { measured: true, ...usage };
+}
+
+/** The days the nightly run has already archived and published, read from the
+ *  published catalogue, or null if it cannot be read. Null deletes nothing:
+ *  not knowing a day is safe is not the same as knowing it is. */
+export async function archivedDays(env) {
+  if (!env.PUBLISHED) return null;
+  try {
+    const object = await env.PUBLISHED.get(CATALOGUE_KEY);
+    if (!object) return null;
+    const index = JSON.parse(await object.text());
+    return new Set((index.observation_sources || [])
+      .map((source) => source && source.day).filter((day) => typeof day === "string"));
+  } catch (err) {
+    console.error(`published catalogue unreadable: ${err && err.message}`);
+    return null;
+  }
 }
 
 /**
@@ -283,7 +315,7 @@ async function storeFeed(env, fetchImpl, key, when, url, contentType) {
 
 export const _internals = {
   isRecordingTime, isJourneyFeedTime, snapshotKey, gtfsRtKey, keyDay,
-  pruneAndMeasure, withinBudget, readUsage,
+  pruneAndMeasure, withinBudget, readUsage, archivedDays,
   RECORD_FROM, RECORD_TO, BBOX,
   RETENTION_DAYS, MAX_STORED_BYTES, MAX_STORED_OBJECTS, USAGE_REFRESH_MINUTE, USAGE_KEY,
   RT_OBJECTS_PER_DAY, SIRI_OBJECTS_PER_DAY,

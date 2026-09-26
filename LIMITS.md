@@ -80,8 +80,10 @@ lines and timetables are API calls too, and arrive with it.
   scheduled every 10 minutes but GitHub runs it every few hours in practice
   (see the Render section). Free on a public repo; if the repo went private it
   should be deleted rather than budgeted for.
-- **GitHub disables scheduled workflows in a repository with no commits for 60
-  days.** That only affects the backup; the Worker's cron is unaffected.
+- **GitHub disables scheduled workflows in a repository with no activity for 60
+  days**, and the nightly processor no longer commits. `keepalive.yml` re-enables
+  every scheduled workflow each Monday, and makes an empty commit if there has
+  been none for 45 days. The Worker's crons are Cloudflare's and unaffected.
 - Pages also serves `data/stops.json` (~290 KB, ~41 KB gzipped), downloaded on
   a visitor's first load and then cached. At the 100 GB monthly Pages
   allowance that is not a constraint; it is listed so a future change that
@@ -230,9 +232,15 @@ section is the arithmetic that cut-off is set from.
 
 **The hard limits, all enforced in the recorder before anything is written**
 
-- **Retention: 7 days.** Once an hour the Worker lists the bucket and deletes
-  whole days older than that, whether or not the processor has been near them.
-  Unattended failure therefore costs about 2.5 GB, not a bill.
+- **Retention: 7 days, and only once a day is safe.** Once an hour the Worker
+  lists the bucket and deletes whole days older than that *if the published
+  catalogue (`journey-times/index.json`) names them*: the nightly run archives a
+  day's raw objects in an immutable release before it publishes the day. A day
+  no run has processed is kept, and still counts against the budget below; if
+  the catalogue cannot be read, nothing is deleted. Until 26 September 2026
+  days went at seven regardless, so a week of failed runs lost them for good.
+  Unattended failure now fills the 4 GB budget in about 12 days and recording
+  pauses: new minutes are lost, the unprocessed days are not.
 - **Storage budget: 4 GB and 30,000 objects.** The 4 GB is 40% of the free
   allowance and is the limit that matters, because bytes are what R2 charges
   for. Past either, the recorder stops writing and logs `snapshots paused`

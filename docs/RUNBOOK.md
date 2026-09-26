@@ -276,6 +276,27 @@ Use the workflow's `prepare_reliability_inputs.py` and `publication_bundle.py`
 steps for a complete multi-day candidate. A single-day local check does not
 validate replacement of the rolling public view.
 
+### Running unattended
+
+Three safeguards let the record run for months without anyone watching:
+
+- **Nothing unprocessed is deleted.** The recorder keeps a raw day past its
+  seven days until the published catalogue names it (`archivedDays` in
+  `worker/src/recorder.js`). If the nightly runs stop, the recorder pauses at
+  its 4 GB budget rather than deleting evidence, and the hourly log line says
+  `held unprocessed: <days>`.
+- **Missed days catch up by themselves.** After a successful publication the
+  nightly run lists the days held in R2 and dispatches a run for the oldest one
+  the catalogue lacks (`Process Snapshots <day> (catch-up)`). Each catch-up
+  does the same, so a backlog clears a day at a time. A day whose catch-up
+  failed is not retried: re-run it by hand once the cause is fixed.
+- **Schedules stay switched on.** `keepalive.yml` (Mondays) re-enables the
+  scheduled workflows and commits if the repository has been quiet for 45 days.
+
+Re-running a day that is already published replaces it. When its raw objects
+may have started to expire, demand complete feeds:
+`gh workflow run process-snapshots.yml -f day=YYYY-MM-DD -f min_objects_per_feed=1150`.
+
 ### Replay and rollback
 
 Download the source catalog's day-specific replay archive and observation

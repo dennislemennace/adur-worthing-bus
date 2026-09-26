@@ -1,4 +1,6 @@
 name: Process Snapshots
+# Named by day so a catch-up can see which days have already failed once.
+run-name: "Process Snapshots ${{ inputs.day || 'yesterday' }}${{ inputs.catch_up == 'true' && ' (catch-up)' || '' }}"
 
 # Turn yesterday's recorded feed snapshots into arrival observations.
 #
@@ -32,9 +34,15 @@ on:
         description: "Re-runs only: stop before processing unless each feed has at least this many objects. Blank means no check."
         required: false
         type: string
+      catch_up:
+        description: "Set by the pipeline itself when it processes a day a previous night missed."
+        required: false
+        type: string
 
 permissions:
   contents: write
+  # To start a catch-up run for a day a previous night missed.
+  actions: write
 
 # Serialise builds so each manifest names the previous complete generation.
 concurrency:
@@ -305,3 +313,43 @@ jobs:
           # Sole mutable pointer; old builds remain available to cached/shared links.
           aws s3 cp candidate/index.json s3://adur-worthing-published/journey-times/index.json \
             --endpoint-url "$ENDPOINT" --content-type application/json --no-progress
+
+      # A night that failed leaves its day unprocessed. The recorder now keeps a
+      # raw day until the published catalogue names it, so the day is still there
+      # to process: start a run for the oldest one. Each catch-up ends here too,
+      # so a backlog clears one day at a time. A day whose catch-up has already
+      # failed is left for a person, rather than retried every night.
+      - name: Catch up a day a previous night missed
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          for feed in raw rt; do
+            aws s3 ls "s3://adur-worthing-reliability/$feed/" --endpoint-url "$ENDPOINT" || true
+          done | awk '$1 == "PRE" {print $2}' | tr -d / | sort -u > recorded-days.txt
+          gh run list --workflow process-snapshots.yml --limit 100 --json displayTitle,conclusion \
+            --jq '.[] | select(.conclusion == "failure") | .displayTitle' > failed-runs.txt
+          NEXT=$(python - <<'PYCATCH'
+          import json, re
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          today = datetime.now(ZoneInfo("Europe/London")).date().isoformat()
+          done = {s["day"] for s in json.load(open("candidate/index.json"))["observation_sources"]}
+          failed = {m.group(1) for line in open("failed-runs.txt")
+                    for m in [re.search(r"(\d{4}-\d{2}-\d{2}) \(catch-up\)", line)] if m}
+          recorded = [d.strip() for d in open("recorded-days.txt") if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d.strip())]
+          missing = sorted(d for d in recorded if d < today and d not in done and d not in failed)
+          print(missing[0] if missing else "")
+          PYCATCH
+          )
+          if [ -n "$NEXT" ]; then
+            echo "::notice::$NEXT was recorded but never published — starting a catch-up run"
+            gh workflow run process-snapshots.yml -f day="$NEXT" -f catch_up=true
+          else
+            echo "Every recorded day before today is published."
+          fi

@@ -300,6 +300,19 @@ test("wrangler.toml has both triggers and the bucket the recorder needs", () => 
 // is not the writes (a minute apart, they cannot reach a million a month) but
 // storage, if the nightly processor stops deleting what it has used.
 
+/** The published bucket, holding a catalogue that names the days already
+ *  processed and archived. `index` may be a string, to hand it bad JSON. */
+function fakePublished(index) {
+  return {
+    async get(key) {
+      if (key !== "journey-times/index.json" || index === undefined) return null;
+      const text = typeof index === "string" ? index : JSON.stringify(index);
+      return { async text() { return text; } };
+    },
+  };
+}
+const catalogue = (...days) => fakePublished({ observation_sources: days.map((day) => ({ day })) });
+
 test("days past the retention window are deleted, recent ones kept", async () => {
   const e = env({
     SNAPSHOTS: fakeBucket([
@@ -310,6 +323,7 @@ test("days past the retention window are deleted, recent ones kept", async () =>
       ...dayOf("2026-09-16", 3),   // today
     ]),
     RATE_LIMIT: fakeKv(),
+    PUBLISHED: catalogue("2026-09-01", "2026-09-08", "2026-09-09", "2026-09-14"),
   });
   const r = await pruneAndMeasure(e, at("2026-09-16T11:07:00Z"));
   assert.equal(r.deleted, 6, "the wrong number of old snapshots was dropped");
@@ -320,6 +334,40 @@ test("days past the retention window are deleted, recent ones kept", async () =>
     "an expired snapshot survived the prune");
 });
 
+// A day is only ever deleted once it is safe elsewhere. The nightly run archives
+// each day's raw objects in an immutable release before it publishes the day, so
+// a day named in the published catalogue can go; one that is not has never been
+// processed, and deleting it would lose it for good. A week of failed nightly
+// runs used to do exactly that, silently.
+
+test("an expired day the nightly run never processed is kept", async () => {
+  const e = env({
+    SNAPSHOTS: fakeBucket([...dayOf("2026-09-01", 3), ...dayOf("2026-09-08", 3), ...dayOf("2026-09-16", 3)]),
+    RATE_LIMIT: fakeKv(),
+    PUBLISHED: catalogue("2026-09-01"),                 // the 8th never made it
+  });
+  const r = await pruneAndMeasure(e, at("2026-09-16T11:07:00Z"));
+  assert.deepEqual([...new Set(e.SNAPSHOTS.deleted.map(keyDay))], ["2026-09-01"]);
+  assert.ok(e.SNAPSHOTS.held.some((o) => keyDay(o.key) === "2026-09-08"), "an unprocessed day was deleted");
+  assert.equal(r.objects, 6, "a kept day must still count against the budget");
+  assert.deepEqual(r.unprocessed_days, ["2026-09-08"]);
+});
+
+for (const [label, published] of [
+  ["no published bucket is bound", undefined],
+  ["the catalogue is missing", fakePublished(undefined)],
+  ["the catalogue is not JSON", fakePublished("{not json")],
+  ["reading the catalogue fails", { async get() { throw new Error("R2 down"); } }],
+]) {
+  test(`nothing is deleted when ${label}`, async () => {
+    const e = env({ SNAPSHOTS: fakeBucket([...dayOf("2026-09-01", 3), ...dayOf("2026-09-16", 3)]),
+                    RATE_LIMIT: fakeKv(), PUBLISHED: published });
+    const r = await pruneAndMeasure(e, at("2026-09-16T11:07:00Z"));
+    assert.deepEqual(e.SNAPSHOTS.deleted, [], "deleted without knowing the day was safe");
+    assert.equal(r.objects, 6);
+  });
+}
+
 test("what is stored is measured and remembered for the next minute", async () => {
   const kv = fakeKv();
   const e = env({ SNAPSHOTS: fakeBucket(dayOf("2026-09-16", 4, 250 * 1024)), RATE_LIMIT: kv });
@@ -327,9 +375,10 @@ test("what is stored is measured and remembered for the next minute", async () =
   assert.equal(r.bytes, 4 * 250 * 1024);
   assert.equal(r.objects, 4);
   assert.deepEqual(JSON.parse(kv.store.get("r2-usage")),
-    { bytes: 4 * 250 * 1024, objects: 4, deleted: 0, measured_at: "2026-09-16T11:07:00.000Z" });
+    { bytes: 4 * 250 * 1024, objects: 4, deleted: 0, unprocessed_days: [],
+      measured_at: "2026-09-16T11:07:00.000Z" });
   assert.deepEqual(await readUsage(e), r && { bytes: r.bytes, objects: r.objects, deleted: 0,
-    measured_at: "2026-09-16T11:07:00.000Z" });
+    unprocessed_days: [], measured_at: "2026-09-16T11:07:00.000Z" });
 });
 
 test("a bucket larger than a page is measured whole", async () => {
@@ -445,6 +494,7 @@ test("both feeds are pruned when they expire", async () => {
       ...dayOf("2026-09-16", 3, 150 * 1024, "rt", "pb"),   // today's journeys
     ]),
     RATE_LIMIT: fakeKv(),
+    PUBLISHED: catalogue("2026-09-01"),
   });
   const r = await pruneAndMeasure(e, at("2026-09-16T11:07:00Z"));
   assert.equal(r.deleted, 6, "an expired feed survived the prune");
