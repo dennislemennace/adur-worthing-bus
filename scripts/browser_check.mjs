@@ -1669,6 +1669,132 @@ async function checkBusJourney(page, where) {
     r.withGuess.slice(0, 160));
 }
 
+/**
+ * The stop board a visitor reads: live or timetable on every row, route
+ * buttons that actually filter, and a key that survives the phone layout
+ * hiding the column headers. Fixture rows, so the result does not depend on
+ * which buses happen to be running.
+ */
+async function checkStopBoardPolish(page, where) {
+  const r = JSON.parse(await page.evaluate(`(async () => {
+    setViewMode("live");
+    const atco = Object.keys(state.stopData || {})[0];
+    if (!atco) return JSON.stringify({ skip: "no stops loaded" });
+    await openDepartures(atco, (state.stopData[atco] || {}).name || atco);
+    const soon = (m) => new Date(Date.now() + m * 60000).toISOString();
+    renderDepartures({
+      stop_name: "Fixture Stop", live: true,
+      departures: [
+        { service: "700", operator: "SCSO", destination: "Brighton Pier",
+          aimed_departure: soon(3), expected_departure: soon(6), status: "Late", delay_seconds: 180 },
+        { service: "9", operator: "SCSO", destination: "Worthing",
+          aimed_departure: soon(7), expected_departure: null, status: "Scheduled", delay_seconds: null },
+        { service: "10", operator: "SCSO", destination: "Lancing",
+          aimed_departure: soon(11), expected_departure: soon(11), status: "On time", delay_seconds: 20 },
+        { service: "700", operator: "SCSO", destination: "Littlehampton",
+          aimed_departure: soon(15), expected_departure: null, status: "Scheduled", delay_seconds: null },
+      ],
+    });
+    const vis = ${VISIBLE_FN};
+    const rows = [...document.querySelectorAll("tr.departure-row")];
+    const liveRows = rows.filter(tr => tr.querySelector(".live-dot"));
+    const lateLabel = rows[0].textContent;
+    const buttons = [...document.querySelectorAll("#board-filter button")];
+    const key = document.querySelector(".board-key");
+    const help = document.getElementById("board-help");
+    const btn700 = buttons.find(b => b.dataset.service === "700");
+    btn700 && btn700.click();
+    const shownAfter = rows.filter(tr => !tr.hidden).map(tr => tr.dataset.service);
+    const count = document.getElementById("departures-count").textContent;
+    return JSON.stringify({
+      liveRows: liveRows.length, lateLabel,
+      buttons: buttons.map(b => b.textContent.trim()),
+      keyShown: !!key && vis(key), helpShown: !!help && vis(help),
+      pressed: btn700 && btn700.getAttribute("aria-pressed"),
+      shownAfter, count,
+    });
+  })()`));
+  if (r.skip) { skip(`stop board shows live and timetable apart — ${where}`, r.skip); return; }
+  check(`stop board marks exactly the live rows — ${where}`, r.liveRows === 2, `${r.liveRows} dots`);
+  check(`a late bus says by how much — ${where}`, /3 min late/i.test(r.lateLabel), r.lateLabel.replace(/\s+/g, " ").slice(0, 80));
+  check(`the board key and help are on screen — ${where}`, r.keyShown && r.helpShown,
+    `key ${r.keyShown}, help ${r.helpShown}`);
+  check(`route buttons filter the board — ${where}`,
+    r.buttons.join(",") === "All,9,10,700" && r.pressed === "true"
+      && r.shownAfter.length === 2 && r.shownAfter.every(s => s === "700")
+      && /on the 700/.test(r.count),
+    JSON.stringify({ buttons: r.buttons, shown: r.shownAfter, count: r.count }));
+  await checkLayout(page, `stop board — ${where}`);
+  await checkContrastBothThemes(page, `stop board — ${where}`);
+  await page.evaluate(`(() => { const b = document.querySelector('#board-filter button[data-service=""]'); b && b.click(); })()`);
+}
+
+/**
+ * The Bus tab's stops ahead, and the refresh that used to wipe the tab.
+ *
+ * Every 20 seconds the map's poll re-renders the selected bus. That rebuilt
+ * the whole tab, so an expanded list folded itself up, focus fell back to the
+ * page, and a half-typed report vanished. The fixture here expands the list,
+ * focuses the toggle and types into the report, then triggers the refresh.
+ */
+async function checkUpcomingStops(page, where) {
+  const r = JSON.parse(await page.evaluate(`(() => {
+    setViewMode("live");
+    const at = (m) => new Date(Date.now() + m * 60000).toISOString();
+    const bus = {
+      vehicle_ref: "CHECK-UPCOMING", service_ref: "700", operator_ref: "SCSO",
+      latitude: 50.832, longitude: -0.27, destination: "Brighton",
+      trip_source: "feed", journey_start: "14:22", lateness_secs: 240,
+      report_age_secs: 40, recorded_at: at(-1),
+    };
+    const stops = Array.from({ length: 22 }, (_, i) => ({
+      stop_id: "S" + i, stop_name: i === 5 ? "Shoreham-by-Sea Old Shoreham Road Holmbush Roundabout" : "Stop " + i,
+      seq: i, scheduled: at(i * 2), expected: i === 0 ? null : at(i * 2 + 4),
+      lateness_secs: i === 0 ? null : 240, timing_point: i % 5 === 0,
+      passed: i === 0, is_next: i === 1, is_terminus: i === 21,
+    }));
+    state.selectedVehicleRef = bus.vehicle_ref;
+    state.selectedVehicle = bus;
+    state.busDetailsLoading = false;
+    state.busDetails = { source: "trip", upcoming_stops: stops,
+                         vehicle: { trip_source: "feed", recorded_at: bus.recorded_at, report_age_secs: 40 } };
+    state.busTabShellRef = null;
+    state.upcomingExpanded = {};
+    setActiveTab("bus");
+    renderBusTab();
+    const folded = document.querySelectorAll("#bus-upcoming .upcoming-stop").length;
+    const toggle = document.querySelector("#bus-upcoming .upcoming-toggle");
+    toggle.click();
+    const expanded = document.querySelectorAll("#bus-upcoming .upcoming-stop").length;
+    document.querySelector("#bus-upcoming .upcoming-toggle").focus();
+    const report = document.getElementById("rb-details");
+    if (report) report.value = "half-typed";
+    // What the 20-second poll does to the selected bus.
+    state.selectedVehicle = { ...bus, recorded_at: at(0) };
+    renderBusTab();
+    const after = document.querySelectorAll("#bus-upcoming .upcoming-stop").length;
+    const focusKept = document.activeElement && document.activeElement.dataset.focusKey === "toggle";
+    const reportKept = (document.getElementById("rb-details") || {}).value === "half-typed";
+    const text = document.getElementById("bus-upcoming").textContent.replace(/\\s+/g, " ");
+    const said = {
+      passed: /Passed/.test(text), next: /Next stop/.test(text), late: /4 min late/.test(text),
+      advice: /be at your stop by the timetabled time/.test(text),
+    };
+    return JSON.stringify({ folded, expanded, after, focusKept, reportKept, said });
+  })()`));
+  check(`upcoming stops fold, then show every stop — ${where}`,
+    r.folded === 8 && r.expanded === 22, `folded ${r.folded}, expanded ${r.expanded}`);
+  check(`stops ahead say late or on time, with the method — ${where}`,
+    Object.values(r.said).every(Boolean), JSON.stringify(r.said));
+  check(`a refresh keeps the list open, focus, and a half-typed report — ${where}`,
+    r.after === 22 && r.focusKept && r.reportKept,
+    JSON.stringify({ after: r.after, focusKept: r.focusKept, reportKept: r.reportKept }));
+  await checkLayout(page, `bus tab stops — ${where}`);
+  await checkReachable(page, `bus tab stops — ${where}`);
+  await checkContrastBothThemes(page, `bus tab stops — ${where}`);
+  await page.evaluate(`(() => { state.selectedVehicle = null; state.selectedVehicleRef = null; closePanel(); })()`);
+}
+
 async function checkGapMonitor(page, where) {
   await page.evaluate(`(() => { setViewMode("live"); closePanel(); return ""; })()`);
   await sleep(400);
@@ -3406,6 +3532,8 @@ await checkChipPriority(page, VIEWPORTS[0].name);
 await checkLastBusHome(page, VIEWPORTS[0].name);
 await checkGapMonitor(page, VIEWPORTS[0].name);
 await checkBusJourney(page, VIEWPORTS[0].name);
+await checkStopBoardPolish(page, VIEWPORTS[0].name);
+await checkUpcomingStops(page, VIEWPORTS[0].name);
 await checkA11yMenu(page, VIEWPORTS[0].name, { desktop: false });
 await checkLargestText(page, VIEWPORTS[0].name);
 await checkCvdContrast(page, VIEWPORTS[0].name);
@@ -3443,6 +3571,8 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkHeaderControlRow(p, vp.name);
   await checkWakingBanner(p, vp.name);
   await checkGapMonitor(p, vp.name);
+  await checkStopBoardPolish(p, vp.name);
+  await checkUpcomingStops(p, vp.name);
   await checkContrastBothThemes(p, vp.name);
   await checkLargestText(p, vp.name);
   if (vp.name === "desktop") await checkA11yMenu(p, vp.name, { desktop: true });

@@ -50,6 +50,7 @@ EVENT_FAMILIES = {
     "delay-map": "a stretch of road opened on the delay map",
     "api-waking": "live service being woken up",
     "a11y": "an accessibility setting changed",
+    "near-me": "\"stops near me\" used",
 }
 
 

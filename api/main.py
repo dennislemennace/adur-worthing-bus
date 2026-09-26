@@ -41,7 +41,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from api import corridor_gaps
-from api import gtfs_rt, trip_match
+from api import gtfs_rt, live_eta, trip_match
 from api.timetable_db import (NIGHT_ENDS_SECS, Timetable,
                               path_has_time_gap, service_runs_on)
 
@@ -1180,12 +1180,20 @@ async def get_vehicle(vehicleRef: str = Query(...)):
 
     tt = await _get_timetable()
 
-    # Refine the trip match for this one vehicle using position+time (see
-    # _best_trip_for_vehicle) so mid-route buses don't show a fresher trip's
-    # later times. Fall back to the bulk start-time match if it can't lock on.
-    trip_id  = _best_trip_for_vehicle(vehicle, tt) or vehicle.get("trip_id")
+    # The journey the feed names, where it names one we hold; inference only
+    # where it doesn't. Inference used to run first and win, so a bus that
+    # told us it was the 14:22 could be shown the 14:32's stops and times,
+    # under a Journey row that still said the 14:22.
+    declared = vehicle.get("trip_source") == "feed" and vehicle.get("trip_id")
+    if declared:
+        trip_id = vehicle["trip_id"]
+    else:
+        # Position and time, so a mid-route bus doesn't take a fresher trip's
+        # later times; the bulk start-time match if that can't lock on.
+        trip_id = _best_trip_for_vehicle(vehicle, tt) or vehicle.get("trip_id")
     headsign = tt.trips.get(trip_id, {}).get("headsign") or vehicle.get("trip_headsign")
-    upcoming = _upcoming_stops_from_trip(vehicle, tt, trip_id)
+    upcoming = await off_loop(live_eta.project_trip, tt, trip_id, vehicle,
+                              datetime.now(UK_TZ)) if trip_id else []
     source   = "trip"
     if not upcoming:
         upcoming = _upcoming_stops_from_calls(vehicle, tt)
@@ -1201,6 +1209,10 @@ async def get_vehicle(vehicleRef: str = Query(...)):
             "latitude":      vehicle.get("latitude"),
             "longitude":     vehicle.get("longitude"),
             "recorded_at":   vehicle.get("recorded_at"),
+            "report_age_secs": vehicle.get("report_age_secs"),
+            "trip_source":   "feed" if declared else ("inferred" if trip_id else None),
+            "journey_start": vehicle.get("journey_start") if declared else None,
+            "lateness_secs": vehicle.get("lateness_secs") if declared else None,
         },
         "upcoming_stops": upcoming,
         "source":         source,
@@ -1398,12 +1410,66 @@ async def get_departures(
         cache_set(cache_key, base, 60)
 
     result = await _apply_live_overlay(base, resolved)
+    result = await off_loop(_apply_own_feed_estimates, result, tt, resolved,
+                            datetime.now(UK_TZ))
     if "live" not in result and not (NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY):
         # Say so rather than letting scheduled times pass as live ones.
         result = {**result, "live": False, "live_reason": "not_configured"}
     # Cached `base` can be up to a minute old, and the grace window deliberately
     # keeps recently-scheduled rows, so the final cut happens per request.
-    return _drop_departed(result)
+    return _public_departures(_drop_departed(result))
+
+
+def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime) -> dict:
+    """Estimates from the buses themselves, for rows no prediction reached.
+
+    TransportAPI's predictions are capped at 300 calls a day, which a busy day
+    spends by lunchtime. A bus that names its journey already says how late it
+    is running, so any row whose journey is on the road can be estimated for
+    nothing, by the same method as the Bus tab's upcoming stops
+    (`live_eta`), so the two never disagree.
+
+    Reads the vehicles a recent poll left behind and never fetches them: the
+    board must not wait on BODS, or add calls to it. A prediction, where there
+    is one, is kept; it comes from the operator's own system.
+    """
+    cached = cache_get(RECENT_VEHICLES_KEY) or {}
+    by_trip = {v["trip_id"]: v for v in cached.get("vehicles") or []
+               if v.get("trip_source") == "feed" and v.get("trip_id")
+               and v.get("lateness_secs") is not None}
+    departures = payload.get("departures") or []
+    if not by_trip or not departures:
+        return payload
+    out, estimated = [], 0
+    for dep in departures:
+        new = dict(dep)
+        if new.get("expected_departure"):
+            new.setdefault("live_source", "prediction")
+        else:
+            bus = by_trip.get(dep.get("_trip_id"))
+            aimed = _parse_iso_datetime(dep.get("aimed_departure"))
+            est = (live_eta.estimate_at(tt, dep["_trip_id"], bus, stop_id, aimed, now)
+                   if bus and aimed else None)
+            if est:
+                delay = int(est["lateness_secs"])
+                new["expected_departure"] = est["expected"]
+                new["delay_seconds"] = delay
+                new["status"] = _delay_to_status(delay)
+                new["live_source"] = "feed"
+                estimated += 1
+        out.append(new)
+    if not estimated:
+        return payload
+    result = {**payload, "departures": out, "live": True}
+    result.pop("live_reason", None)
+    return result
+
+
+def _public_departures(payload: dict) -> dict:
+    """The board as readers get it: without the trip ids used to build it."""
+    return {**payload, "departures": [
+        {k: v for k, v in dep.items() if not k.startswith("_")}
+        for dep in payload.get("departures") or []]}
 
 
 # ── /api/stop-span ────────────────────────────────────────────
@@ -1786,7 +1852,16 @@ async def _fetch_and_match_vehicles() -> dict:
     # SQLite results: 0.65 s for 233 buses on a desktop, several seconds on the
     # free instance. On the event loop it holds up every other request.
     await off_loop(_enrich_vehicles_with_trip_match, vehicles, tt)
+    # A longer-lived copy for the stop board, which reads vehicles but must
+    # never fetch them (see _apply_own_feed_estimates). Each lateness is
+    # measured at its own report time, so a copy a minute or two old still
+    # says how late each bus was, and the estimate handles the staleness.
+    cache_set(RECENT_VEHICLES_KEY, {"vehicles": vehicles}, RECENT_VEHICLES_TTL)
     return {"vehicles": vehicles, "count": len(vehicles)}
+
+
+RECENT_VEHICLES_KEY = "vehicles:recent"
+RECENT_VEHICLES_TTL = 120
 
 
 async def _live_vehicles() -> list:
@@ -2039,6 +2114,7 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
         new["expected_departure"] = expected_dt.isoformat()
         new["delay_seconds"]      = delay
         new["status"]             = _delay_to_status(delay)
+        new["live_source"]        = "prediction"
         matched += 1
         overlaid.append(new)
 
@@ -2330,10 +2406,6 @@ def _haversine_sq(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return dlat * dlat + dlon * dlon
 
 
-# How many upcoming stops to show (before the terminus)
-_UPCOMING_COUNT = 5
-
-
 def _best_trip_for_vehicle(vehicle: dict, tt: Timetable):
     """Position+time aware trip match for a single vehicle.
 
@@ -2431,130 +2503,6 @@ def _best_trip_for_vehicle(vehicle: dict, tt: Timetable):
     return None
 
 
-def _upcoming_stops_from_trip(vehicle: dict, tt: Timetable, trip_id) -> list:
-    """
-    Return the list of upcoming scheduled stops for a vehicle whose
-    trip has been matched.
-
-    Position in trip:
-      - If SIRI-VM MonitoredCall is present, use the reported next-stop.
-      - Otherwise use GPS proximity: find the stop in the trip sequence
-        that is geographically closest to the vehicle's current position.
-        Falls back to time-based estimation when stop coords are missing.
-
-    Output: up to _UPCOMING_COUNT stops plus the final terminus stop
-    (marked with is_terminus=True), with expected_departure set to
-    aimed_departure + vehicle delay when a delay is known.
-    """
-    if not trip_id:
-        return []
-    trip_stops = tt.trip_stops_for(trip_id)
-    if not trip_stops:
-        return []
-
-    calls = vehicle.get("calls") or []
-    next_stop = calls[0].get("stop_id") if calls else None
-
-    start_idx = 0
-    stops_meta = tt.stops
-
-    if next_stop:
-        # Strategy: MonitoredCall — use reported next stop
-        for i, (_secs, sid) in enumerate(trip_stops):
-            if sid == next_stop or _atco_match(next_stop, sid):
-                start_idx = i
-                break
-    else:
-        # Strategy: GPS proximity — find stop nearest to vehicle's position
-        vlat = vehicle.get("latitude")
-        vlon = vehicle.get("longitude")
-        gps_matched = False
-        if vlat is not None and vlon is not None:
-            best_dist = None
-            for i, (_secs, sid) in enumerate(trip_stops):
-                s = stops_meta.get(sid, {})
-                slat = s.get("lat")
-                slon = s.get("lon")
-                if slat and slon:
-                    d = _haversine_sq(vlat, vlon, slat, slon)
-                    if best_dist is None or d < best_dist:
-                        best_dist = d
-                        start_idx = i
-                        gps_matched = True
-            if gps_matched:
-                # GPS gave us the closest stop; bus may have just departed it —
-                # advance by one so we show stops still ahead
-                if start_idx < len(trip_stops) - 1:
-                    start_idx += 1
-
-        # Fallback: time-based estimation when no coords available.
-        # Uses a 12h wrap-around comparison so that GTFS times stored as
-        # 24:xx–30:xx (night services running past midnight) are treated
-        # correctly: e.g. dep_secs=94800 (26:20) vs now_secs=8700 (02:25)
-        # gives a signed delta of -300 (02:20 was 5 min ago), not +86100.
-        if not gps_matched:
-            now_local_tmp = datetime.now(UK_TZ)
-            now_secs = (now_local_tmp.hour * 3600
-                        + now_local_tmp.minute * 60
-                        + now_local_tmp.second)
-            for i, (dep_secs, _sid) in enumerate(trip_stops):
-                diff = dep_secs - now_secs
-                if diff > 43200:   # dep is "tomorrow" in GTFS notation
-                    diff -= 86400
-                elif diff < -43200:
-                    diff += 86400
-                if diff >= 0:
-                    start_idx = i
-                    break
-            else:
-                start_idx = len(trip_stops)
-
-    # Build call_pred from SIRI-VM calls (usually empty for this region)
-    call_pred: dict = {}
-    for c in calls:
-        sid = c.get("stop_id")
-        if not sid:
-            continue
-        call_pred[sid] = (c.get("expected_departure")
-                          or c.get("expected_arrival")
-                          or c.get("aimed_departure")
-                          or c.get("aimed_arrival"))
-
-    # Blanket delay: apply vehicle's known delay to all upcoming aimed times
-    delay_s = vehicle.get("delay_seconds")
-    delay_td = timedelta(seconds=int(delay_s)) if delay_s else None
-
-    now_local = datetime.now(UK_TZ)
-
-    def _make_stop(dep_secs: int, sid: str, is_terminus: bool) -> dict:
-        dep_h = (dep_secs // 3600) % 24
-        dep_m = (dep_secs % 3600) // 60
-        aimed_dt = now_local.replace(hour=dep_h, minute=dep_m, second=0, microsecond=0)
-        # Use call_pred first; then blanket delay; else None
-        expected_iso = call_pred.get(sid)
-        if expected_iso is None and delay_td is not None:
-            expected_iso = (aimed_dt + delay_td).isoformat()
-        return {
-            "stop_id":            sid,
-            "stop_name":          stops_meta.get(sid, {}).get("name", sid),
-            "aimed_departure":    aimed_dt.isoformat(),
-            "expected_departure": expected_iso,
-            "is_terminus":        is_terminus,
-        }
-
-    slice_stops = trip_stops[start_idx : start_idx + _UPCOMING_COUNT]
-    out = [_make_stop(dep_secs, sid, False) for dep_secs, sid in slice_stops]
-
-    # Append terminus unless it's already the last item in the slice
-    if trip_stops:
-        terminus_secs, terminus_sid = trip_stops[-1]
-        already_shown = any(s["stop_id"] == terminus_sid for s in out)
-        if not already_shown and out:
-            out.append(_make_stop(terminus_secs, terminus_sid, True))
-
-    return out
-
-
 def _upcoming_stops_from_calls(vehicle: dict, tt: Timetable) -> list:
     """
     Fallback when no GTFS trip was matched: build the upcoming-stops
@@ -2570,13 +2518,18 @@ def _upcoming_stops_from_calls(vehicle: dict, tt: Timetable) -> list:
         sid = c.get("stop_id")
         if not sid:
             continue
+        # The same row shape as `live_eta.project_trip`, so the Bus tab reads
+        # one format whichever source filled it.
         out.append({
-            "stop_id":            sid,
-            "stop_name":          stops_meta.get(sid, {}).get("name", sid),
-            "aimed_departure":    (c.get("aimed_departure")
-                                   or c.get("aimed_arrival")),
-            "expected_departure": (c.get("expected_departure")
-                                   or c.get("expected_arrival")),
+            "stop_id":       sid,
+            "stop_name":     stops_meta.get(sid, {}).get("name", sid),
+            "scheduled":     (c.get("aimed_departure") or c.get("aimed_arrival")),
+            "expected":      (c.get("expected_departure") or c.get("expected_arrival")),
+            "lateness_secs": None,
+            "timing_point":  None,
+            "passed":        False,
+            "is_next":       not out,
+            "is_terminus":   False,
         })
     return out
 

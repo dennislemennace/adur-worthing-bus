@@ -97,7 +97,29 @@
     Please report it on the tracker, or by email, and say what you were trying to do.
   </p>
 
-  <h2>Where the data comes from</h2>
+  <h2 id="live-times">Reading live times</h2>
+  <p>
+    On a stop's board, a time with a green dot is <strong>live</strong>: we can
+    see that bus, and the time is worked out from where it is, or taken from the
+    operator's own prediction. A time without a dot comes from the published
+    timetable, because that bus isn't reporting yet.
+  </p>
+  <p>
+    Our own estimates take how late a bus was when it last reported its position
+    and assume it stays that late. A bus running early is assumed to wait at its
+    next timing point, because buses may not leave those early. Buses often make
+    up time further along, so an estimate a long way ahead tends to say
+    <em>later</em> than the bus will really come. Be at your stop by the
+    timetabled time. The bus positions arrive a few minutes late, so a stop the
+    bus has probably already passed is shown as passed.
+  </p>
+  <p>
+    We only estimate for buses that tell us which timetabled journey they are
+    running, about seven in ten. For the others the Bus tab lists the stops
+    ahead with their timetable times, labelled as such.
+  </p>
+
+  <h2 id="data">Where the data comes from</h2>
   <dl>
     <dt>Timetables and live bus positions</dt>
     <dd>

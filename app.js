@@ -155,6 +155,7 @@ const state = {
   stopData:      {},    // atcoCode → { lat, lon }
   busMarkers:    {},    // vehicleRef → Leaflet marker
   selectedStop:  null,  // { atcoCode, name }
+  boardFilter:   null,  // service shown on the stop board, or null for all
   refreshTimer:  null,  // setInterval handle for bus positions
   isRefreshing:  true,
   busesVisible:  true,  // header toggle: show bus markers + run live refresh
@@ -193,6 +194,8 @@ const state = {
   busInfoTickTimer:        null,   // setInterval handle for "X ago" text
   busDetails:              null,   // /api/vehicle response for selected bus
   busDetailsLoading:       false,  // true while waiting on /api/vehicle
+  busTabShellRef:          null,   // the bus the Bus tab's static shell was built for
+  upcomingExpanded:        {},     // vehicle_ref -> true once "Show all stops" is pressed
 
   // ── Rail (Realtime Trains) ──
   railVisible:             true,   // header toggle: show stations + train dots
@@ -6504,6 +6507,15 @@ function updateBusMarkerInPlace(marker, label, bearing) {
  * Exported to window so it can be used in inline onclick="" attributes
  * in Leaflet popup HTML.
  */
+/** "Towards Florida Road · West Worthing", or the stop ID where neither is known. */
+function stopContextLine(atcoCode) {
+  const s = (state.stopData || {})[atcoCode] || {};
+  const bits = [];
+  if (s.towards) bits.push(`Towards ${prettifyName(s.towards)}`);
+  if (s.locality) bits.push(s.locality);
+  return bits.length ? bits.join(" · ") : `Stop ID ${atcoCode}`;
+}
+
 window.openDepartures = async function(atcoCode, stopName) {
   // Editor is in "add stop" mode AND the editor UI is on-screen — clicking
   // a stop adds it to the draft. We gate on the Proposals tab being the
@@ -6540,9 +6552,14 @@ window.openDepartures = async function(atcoCode, stopName) {
     toggleReportStopForm(false);
   }
 
-  // Update panel header
+  // Update panel header. Which way the stop faces is what a visitor cannot
+  // know from a name: two poles called "Grand Avenue" sit either side of the
+  // road, and only one has the bus they want.
   dom.panelStopName.textContent = stopName;
-  dom.panelStopId.textContent   = `ATCO: ${atcoCode}`;
+  dom.panelStopId.textContent   = stopContextLine(atcoCode);
+  const idEl = document.getElementById("departures-stop-id");
+  if (idEl) idEl.textContent = `Stop ID ${atcoCode}`;
+  if (changedStop) state.boardFilter = null;
 
   // Make sure the Stop tab is the one in front
   setActiveTab("stop");
@@ -6818,6 +6835,7 @@ function renderDepartures(data) {
     upstream:    "Showing scheduled times only \u2014 live data unavailable",
     no_coverage: "Showing scheduled times only \u2014 no live tracking for this stop",
     ip_quota:    "Showing scheduled times only \u2014 live predictions paused",
+    not_configured: "Showing timetable times only \u2014 no bus on this board is reporting live just now",
   };
   const reason = data?.live_reason;
   if (data?.live === false && reason && reason !== "too_far" && liveNoticeMessages[reason]) {
@@ -6842,22 +6860,73 @@ function renderDepartures(data) {
   if (departures.length === 0) {
     dom.departuresTbody.innerHTML = `<tr><td colspan="4" class="no-departures">No departures found for this stop in the next 2 hours.</td></tr>`;
     dom.departuresCount.textContent = "No upcoming departures";
+    renderBoardFilter([]);
     showPanelState("results");
     return;
   }
 
-  const shown = departures.slice(0, CONFIG.DEPARTURES_COUNT);
-  dom.departuresTbody.innerHTML = shown.map(dep => buildDepartureRow(dep)).join("");
+  // Every row goes into the table and the filter decides which show, so
+  // choosing a route can reach its departures beyond the first ten.
+  dom.departuresTbody.innerHTML = departures.map(dep => buildDepartureRow(dep)).join("");
 
   // Say when this was fetched, and describe the table rather than the
   // response. This said "16 departures" over ten rows, with no hint that six
   // more existed — and a second, earlier assignment of the same element sat
   // just above, immediately overwritten and long dead.
   state.departuresAsOf = new Date();
-  updateDepartureCount(shown.length, departures.length);
+  renderBoardFilter(departures.map(d => d.service || "?"));
+  applyBoardFilter();
 
   startDepartureTicker();
   showPanelState("results");
+}
+
+/** Route buttons above the board: "All · 700 · 9 · 10".
+ *
+ *  Only where a stop has two or more services; one button would be a label
+ *  pretending to be a control. The filter belongs to the stop, so opening a
+ *  different stop starts from All again (see openDepartures).
+ */
+function renderBoardFilter(services) {
+  const host = document.getElementById("board-filter");
+  if (!host) return;
+  const seen = [];
+  for (const svc of services) if (!seen.includes(svc)) seen.push(svc);
+  seen.sort(compareServiceLabels);
+  if (state.boardFilter && !seen.includes(state.boardFilter)) state.boardFilter = null;
+  if (seen.length < 2) {
+    host.innerHTML = "";
+    host.hidden = true;
+    return;
+  }
+  const active = state.boardFilter;
+  const button = (value, text) => `<button type="button" class="board-filter-btn"
+      data-service="${escapeAttr(value)}" aria-pressed="${active === (value || null) ? "true" : "false"}"
+      >${escapeHtml(text)}</button>`;
+  host.innerHTML = button("", "All") + seen.map(svc => button(svc, svc)).join("");
+  host.hidden = false;
+}
+
+/** Numbers before letters, then numerically, so 2, 9, 10, 700, N700. */
+function compareServiceLabels(a, b) {
+  const na = parseInt(String(a).replace(/^\D+/, ""), 10);
+  const nb = parseInt(String(b).replace(/^\D+/, ""), 10);
+  const la = /^\d/.test(a) ? 0 : 1, lb = /^\d/.test(b) ? 0 : 1;
+  if (la !== lb) return la - lb;
+  if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+  return String(a).localeCompare(String(b));
+}
+
+/** Show the rows the filter allows, the first ten of them, and say so. */
+function applyBoardFilter() {
+  const rows = [...(dom.departuresTbody?.querySelectorAll?.("tr.departure-row") || [])];
+  const want = state.boardFilter;
+  const matching = rows.filter(r => !want || r.dataset.service === want);
+  rows.forEach(r => { r.hidden = true; });
+  matching.slice(0, CONFIG.DEPARTURES_COUNT).forEach(r => { r.hidden = false; });
+  updateDepartureCount(Math.min(matching.length, CONFIG.DEPARTURES_COUNT),
+                       matching.length, want);
+  return matching.length;
 }
 
 /** The line above the board: how many rows it is showing, of how many, and
@@ -6866,25 +6935,27 @@ function renderDepartures(data) {
  *  Owned in one place because the ticker changes it too. Ageing every row out
  *  used to leave "16 departures · as of 21:07" sitting over an empty table.
  */
-function updateDepartureCount(shown, total) {
+function updateDepartureCount(shown, total, service = null) {
   if (!dom.departuresCount) return;
   const at = state.departuresAsOf;
   const asOf = at
     ? ` · as of ${londonClock(at)}`
     : "";
+  const on = service ? ` on the ${service}` : "";
   if (shown === 0) {
     dom.departuresCount.textContent = total > 0
-      ? `Nothing further due${asOf}`
-      : `No upcoming departures${asOf}`;
+      ? `Nothing further due${on}${asOf}`
+      : `No upcoming departures${on}${asOf}`;
     return;
   }
   const more = total > shown ? ` of ${total}` : "";
   dom.departuresCount.textContent =
-    `${shown}${more} departure${total === 1 ? "" : "s"}${asOf}`;
+    `${shown}${more} departure${total === 1 ? "" : "s"}${on}${asOf}`;
 }
 
 function buildDepartureRow(dep) {
-  // dep: { service, destination, aimed_departure, expected_departure, status, delay_seconds }
+  // dep: { service, operator, destination, aimed_departure, expected_departure,
+  //        status, delay_seconds, live_source? }
 
   const service     = dep.service     || "?";
   const destination = prettifyName(dep.destination) || "Unknown";
@@ -6896,10 +6967,19 @@ function buildDepartureRow(dep) {
   const dueText     = displayTime ? formatDueTime(displayTime) : "–";
   const isImminent  = displayTime ? isWithinMinutes(displayTime, 2) : false;
 
-  // Status
-  const { label, cssClass } = buildStatusChip(dep);
+  // A time we are tracking and a time we have only from the timetable look
+  // identical as a countdown, and a visitor has no way to know which to
+  // trust. The dot says so, with words behind it for a screen reader; the
+  // key under the board says what it means.
+  const live = !!expected;
+  const cancelled = (dep.status || "").toLowerCase() === "cancelled";
+  const { label, cssClass } = live || cancelled
+    ? buildStatusChip(dep)
+    : { label: "Timetable", cssClass: "status-scheduled" };
 
-  const badgeColour  = getRouteColour(service, dep.operator_ref);
+  // The API sends `operator`; this read `operator_ref`, which only vehicles
+  // carry, so every route without its own colour fell back to the default.
+  const badgeColour  = getRouteColour(service, dep.operator || dep.operator_ref);
   const badgeTextCls = pickTextOn(badgeColour) === "dark"
     ? "service-badge--dark-text"
     : "service-badge--light-text";
@@ -6911,9 +6991,11 @@ function buildDepartureRow(dep) {
                   aria-label="Show service ${escapeAttr(service)} on the map"
           ><span class="service-badge ${badgeTextCls}" style="background:${badgeColour}">${escapeHtml(service)}</span></button></td>
       <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span></td>
-      <td><span class="due-time ${isImminent ? "due-imminent" : ""}"
+      <td><span class="due-cell"><span class="due-time ${isImminent ? "due-imminent" : ""}"
                 ${displayTime ? `data-due-at="${escapeAttr(displayTime)}"` : ""}
-          >${escapeHtml(dueText)}</span></td>
+          >${escapeHtml(dueText)}</span>${live
+            ? `<span class="live-dot" aria-hidden="true"></span><span class="visually-hidden">, live</span>`
+            : `<span class="visually-hidden">, timetable</span>`}</span></td>
       <td><span class="status-chip ${cssClass}">${escapeHtml(label)}</span></td>
     </tr>`;
 }
@@ -6972,49 +7054,51 @@ function openBusFromService(service) {
 // would be noise, hedging nothing would be a claim we cannot support.
 const STALE_REPORT_SECS = 120;
 
+/** "4 min late", "On time", "about 3 min early": one reading of lateness,
+ *  shared by the Bus tab, the stop board and the list of stops ahead, so a bus
+ *  cannot be "On time" in one place and "1m late" in another. */
+function latenessChip(secs, reportAgeSecs) {
+  // Under a minute either way is on time. Rounding first made 59 seconds
+  // late read as "1 min late", which is a claim the data does not support
+  // at a resolution of one report every few minutes.
+  if (Math.abs(secs) < 60) {
+    return { label: "On time", cssClass: "status-on-time" };
+  }
+  // Round the magnitude, not the signed value: Math.round(-1.5) is -1 and
+  // Math.round(1.5) is 2, so 90 seconds late read as two minutes while 90
+  // seconds early read as one.
+  const mins = Math.round(Math.abs(secs) / 60);
+  // How old the claim is. Lateness is measured at the moment the bus
+  // reported, which is the only honest way to measure it — but that means a
+  // stale report gives a precise answer to a question about the past. The
+  // feed's median lag is about three minutes, so past two the number is
+  // hedged rather than asserted.
+  const stale = reportAgeSecs != null && reportAgeSecs > STALE_REPORT_SECS;
+  const about = stale ? "about " : "";
+  return secs < 0
+    ? { label: `${about}${mins} min early`, cssClass: "status-early" }
+    : { label: `${about}${mins} min late`, cssClass: "status-late" };
+}
+
 function buildStatusChip(dep) {
-  // Use the status field from the API if available, otherwise derive from delay
   const status = (dep.status || "").toLowerCase();
 
+  // The operator's own verdict where it gave one and there is nothing to
+  // add to it. "Late" and "Early" are not verdicts to stop at when the
+  // minutes are known: the board used to say "Delayed" over a prediction
+  // that knew the bus was eleven minutes behind, which is the one number a
+  // waiting passenger wanted.
   if (status === "on time")    return { label: "On time",  cssClass: "status-on-time" };
-  if (status === "early")      return { label: "Early",    cssClass: "status-early"   };
-  if (status === "late" || status === "delayed") return { label: "Delayed", cssClass: "status-late" };
   if (status === "cancelled")  return { label: "Cancelled",cssClass: "status-late"   };
 
-  // Lateness measured against the journey the bus itself declared. The feed
-  // publishes no Delay field at all here — 0 of 235 vehicles carried one —
-  // so before GTFS-RT named the journey there was nothing to say.
-  if (dep.lateness_secs != null) {
-    // Under a minute either way is on time. Rounding first made 59 seconds
-    // late read as "1 min late", which is a claim the data does not support
-    // at a resolution of one report every few minutes.
-    if (Math.abs(dep.lateness_secs) < 60) {
-      return { label: "On time", cssClass: "status-on-time" };
-    }
-    // Round the magnitude, not the signed value: Math.round(-1.5) is -1 and
-    // Math.round(1.5) is 2, so 90 seconds late read as two minutes while 90
-    // seconds early read as one.
-    const mins = Math.round(Math.abs(dep.lateness_secs) / 60);
-    // How old the claim is. Lateness is measured at the moment the bus
-    // reported, which is the only honest way to measure it — but that means a
-    // stale report gives a precise answer to a question about the past. The
-    // feed's median lag is about three minutes, so past two the number is
-    // hedged rather than asserted.
-    const stale = dep.report_age_secs != null && dep.report_age_secs > STALE_REPORT_SECS;
-    const about = stale ? "about " : "";
-    return dep.lateness_secs < 0
-      ? { label: `${about}${mins} min early`, cssClass: "status-early" }
-      : { label: `${about}${mins} min late`, cssClass: "status-late" };
-  }
+  // Lateness measured against the journey the bus itself declared (the
+  // feed publishes no Delay field here — 0 of 235 vehicles carried one), or
+  // a prediction's distance from the timetable.
+  const secs = dep.lateness_secs ?? dep.delay_seconds;
+  if (secs != null) return latenessChip(secs, dep.report_age_secs);
 
-  // Derive from delay_seconds if status not set
-  if (dep.delay_seconds != null) {
-    const mins = Math.round(dep.delay_seconds / 60);
-    if (Math.abs(mins) <= 1) return { label: "On time",     cssClass: "status-on-time" };
-    if (mins < -1)           return { label: `${Math.abs(mins)}m early`, cssClass: "status-early" };
-    return { label: `${mins}m late`, cssClass: "status-late" };
-  }
-
+  if (status === "early")      return { label: "Early",    cssClass: "status-early"   };
+  if (status === "late" || status === "delayed") return { label: "Delayed", cssClass: "status-late" };
   return { label: "Scheduled", cssClass: "status-scheduled" };
 }
 
@@ -7097,6 +7181,7 @@ function openBusInfo(vehicle) {
   state.selectedVehicleLost     = false;
   state.busDetails              = null;
   state.busDetailsLoading       = true;
+  state.busTabShellRef          = null;
   pushUrlState();
 
   revealPanelForSelection();
@@ -7128,7 +7213,14 @@ async function fetchBusDetails(vehicleRef) {
   }
 }
 
-/** Build the Bus tab body from the latest selected vehicle. */
+/** Build the Bus tab body from the latest selected vehicle.
+ *
+ *  In two parts. The shell (badge, operator, toggles, tickets, report form)
+ *  is built once per bus; the parts that move (status, position age, stops
+ *  ahead) are refreshed in place. Rebuilding everything every 20 seconds,
+ *  twice, wiped a half-typed report, dropped keyboard focus and closed an
+ *  expanded stop list under the reader's finger.
+ */
 function renderBusTab() {
   const v = state.selectedVehicle;
 
@@ -7137,9 +7229,17 @@ function renderBusTab() {
     dom.busInfoContainer.classList.add("hidden");
     dom.panelBusName.textContent = "No bus selected";
     dom.panelBusId.textContent   = "";
+    state.busTabShellRef = null;
     return;
   }
 
+  if (state.busTabShellRef !== v.vehicle_ref || !document.getElementById("bus-upcoming")) {
+    buildBusTabShell(v);
+  }
+  updateBusTabLive();
+}
+
+function buildBusTabShell(v) {
   const operatorName = getOperatorName(v.operator_ref);
   const iconUrl      = OPERATOR_ICONS[v.operator_ref];
   const service      = v.service_ref || "?";
@@ -7147,40 +7247,17 @@ function renderBusTab() {
   const badgeTextCls = pickTextOn(colour) === "dark"
     ? "service-badge--dark-text"
     : "service-badge--light-text";
-  const destination  = prettifyName(
-                         v.destination
-                         || state.busDetails?.vehicle?.trip_headsign
-                         || v.trip_headsign
-                       ) || "Unknown";
   const fleetId      = v.vehicle_ref || "–";
-  const chip         = buildStatusChip({ delay_seconds: v.delay_seconds,
-                                         lateness_secs: v.lateness_secs });
-  // Only where the feed named the journey. Inference is right about four
-  // times in five, which is fine for putting a bus on a map and not good
-  // enough to tell someone which departure they are looking at.
-  const journeyHtml  = v.trip_source === "feed" && v.journey_start
-    ? `<div class="bus-info-row">
-        <dt>Journey</dt>
-        <dd>The ${escapeHtml(v.journey_start)}${v.nearest_stop_name
-              ? `, near ${escapeHtml(prettifyName(v.nearest_stop_name))}` : ""}</dd>
-      </div>`
-    : "";
-  const upcomingHtml = buildUpcomingStopsHtml();
-  const ticketHtml   = buildTicketInfoHtml(v.operator_ref, null, service);
 
   const iconHtml = iconUrl
     ? `<img class="bus-info-icon" src="${escapeAttr(safeUrl(iconUrl))}" alt="">`
     : `<div class="bus-info-icon bus-info-icon-fallback" style="background:${colour}"></div>`;
 
-  const lostBanner = state.selectedVehicleLost
-    ? `<div class="bus-info-lost"><svg class="icon" aria-hidden="true"><use href="#i-signal-off"/></svg><span>Signal lost, last seen ${escapeHtml(formatTimeOfDay(state.selectedVehicleLastSeen))}</span></div>`
-    : "";
-
   dom.panelBusName.textContent = `Service ${service}`;
   dom.panelBusId.textContent   = operatorName;
 
   dom.busInfoContainer.innerHTML = `
-    ${lostBanner}
+    <div id="bus-info-lost-host"></div>
     <div class="bus-info-hero">
       ${iconHtml}
       <div class="bus-info-hero-text">
@@ -7192,20 +7269,23 @@ function renderBusTab() {
     <dl class="bus-info-grid">
       <div class="bus-info-row">
         <dt>Destination</dt>
-        <dd>${escapeHtml(destination)}</dd>
+        <dd id="bus-info-destination"></dd>
       </div>
-      ${journeyHtml}
+      <div class="bus-info-row" id="bus-info-journey" hidden>
+        <dt>Journey</dt>
+        <dd id="bus-info-journey-text"></dd>
+      </div>
       <div class="bus-info-row">
         <dt>Status</dt>
-        <dd><span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span></dd>
+        <dd id="bus-info-status"></dd>
       </div>
       <div class="bus-info-row">
         <dt>Fleet ID</dt>
         <dd class="bus-info-mono">${escapeHtml(fleetId)}</dd>
       </div>
       <div class="bus-info-row">
-        <dt>Updated</dt>
-        <dd id="bus-info-updated">${escapeHtml(formatAgo(state.selectedVehicleLastSeen))}</dd>
+        <dt>Position</dt>
+        <dd id="bus-info-updated"></dd>
       </div>
     </dl>
 
@@ -7221,9 +7301,9 @@ function renderBusTab() {
       </span>
     </label>
 
-    ${upcomingHtml}
+    <div id="bus-upcoming"></div>
 
-    ${ticketHtml}
+    <div id="bus-tickets"></div>
 
     <div class="departures-meta bus-report-meta">
       <button class="btn-text" id="report-bus-btn" type="button" aria-expanded="false"
@@ -7272,7 +7352,7 @@ function renderBusTab() {
         This goes privately to the project, so problems can be counted and, once a
         person has reviewed them, quoted. It is not a complaint to the operator and it
         does not reach the driver. For that, contact
-        ${operatorComplaintLinkHtml(state.selectedVehicle && state.selectedVehicle.operator_ref)}.
+        ${operatorComplaintLinkHtml(v.operator_ref)}.
         <a href="privacy.html">How submissions are handled</a>.
       </p>
       <label class="publish-ack" for="rb-ack">
@@ -7290,14 +7370,16 @@ function renderBusTab() {
       </div>
     </form>
 
-    <p class="bus-info-footer">Live data · auto-refreshes every 20s</p>
+    <p class="bus-info-footer">Live data · the map refreshes every 20s</p>
   `;
+  state.busTabShellRef = v.vehicle_ref;
 
   dom.busPanelPrompt.classList.add("hidden");
   dom.busInfoContainer.classList.remove("hidden");
 
   // innerHTML above replaced the form, so its listeners went with it.
   bindReportBusForm();
+  bindUpcomingStops();
 
   const cb = document.getElementById("follow-bus-checkbox");
   if (cb) {
@@ -7316,6 +7398,85 @@ function renderBusTab() {
   if (nb) {
     nb.addEventListener("change", (e) => armNotifyOnMove(e.target.checked, nb));
   }
+
+  if (state.ticketZones == null) {
+    loadTicketZones().then(() => {
+      if (state.busTabShellRef === v.vehicle_ref) updateBusTabLive();
+    }).catch(() => {});
+  }
+}
+
+/** Replace a host's markup only when it has changed, keeping keyboard focus
+ *  on the same control (matched by data-focus-key) if it was inside. */
+function patchHtml(host, html) {
+  if (!host || host.dataset.html === html) return;
+  const active = document.activeElement;
+  const key = active && host.contains(active) ? active.dataset?.focusKey : null;
+  host.innerHTML = html;
+  host.dataset.html = html;
+  if (key) host.querySelector(`[data-focus-key="${CSS.escape(key)}"]`)?.focus();
+}
+
+/** The parts of the Bus tab that change while it is open. */
+function updateBusTabLive() {
+  const v = state.selectedVehicle;
+  if (!v) return;
+  const det = state.busDetails?.vehicle || {};
+
+  patchHtml(document.getElementById("bus-info-lost-host"), state.selectedVehicleLost
+    ? `<div class="bus-info-lost"><svg class="icon" aria-hidden="true"><use href="#i-signal-off"/></svg><span>Signal lost, last seen ${escapeHtml(formatTimeOfDay(state.selectedVehicleLastSeen))}</span></div>`
+    : "");
+
+  const destEl = document.getElementById("bus-info-destination");
+  if (destEl) {
+    destEl.textContent = prettifyName(v.destination || det.trip_headsign || v.trip_headsign) || "Unknown";
+  }
+
+  // Only where the feed named the journey. Inference is right about four
+  // times in five, which is fine for putting a bus on a map and not good
+  // enough to tell someone which departure they are looking at.
+  const journeyRow = document.getElementById("bus-info-journey");
+  if (journeyRow) {
+    const named = v.trip_source === "feed" && v.journey_start;
+    journeyRow.hidden = !named;
+    const text = document.getElementById("bus-info-journey-text");
+    if (named && text) {
+      text.textContent = `The ${v.journey_start}` +
+        (v.nearest_stop_name ? `, near ${prettifyName(v.nearest_stop_name)}` : "");
+    }
+  }
+
+  // report_age_secs goes in too: without it the "about" hedge on a stale
+  // report never fired here, though the chip was written to give it.
+  const chip = buildStatusChip({ delay_seconds: v.delay_seconds,
+                                 lateness_secs: v.lateness_secs,
+                                 report_age_secs: v.report_age_secs });
+  patchHtml(document.getElementById("bus-info-status"),
+    `<span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span>`);
+
+  tickBusInfoUpdated();
+  patchHtml(document.getElementById("bus-upcoming"), buildUpcomingStopsHtml());
+  patchHtml(document.getElementById("bus-tickets"),
+    buildTicketInfoHtml(v.operator_ref, null, v.service_ref || ""));
+}
+
+/** One listener for the stop list, on its host, which outlives every refresh. */
+function bindUpcomingStops() {
+  const host = document.getElementById("bus-upcoming");
+  if (!host) return;
+  host.addEventListener("click", (e) => {
+    const toggle = e.target.closest("button.upcoming-toggle");
+    if (toggle) {
+      const ref = state.selectedVehicleRef;
+      state.upcomingExpanded[ref] = !state.upcomingExpanded[ref];
+      patchHtml(host, buildUpcomingStopsHtml());
+      return;
+    }
+    const stop = e.target.closest("button.upcoming-stop-open");
+    if (stop && stop.dataset.atco) {
+      openDepartures(stop.dataset.atco, stop.dataset.name || stop.dataset.atco);
+    }
+  });
 }
 
 // Arm/disarm the "notify on move" latch. Requesting Notification permission
@@ -7365,33 +7526,57 @@ function armNotifyOnMove(wantOn, checkboxEl) {
 
 /**
  * Build the "Tickets" section for the Bus tab.
- * Uses static OPERATOR_TICKETS data for now; designed so that a future
- * API response (e.g. from /api/tickets?operatorRef=...) can be merged in
- * by passing it as the optional `liveData` argument.
+ *
+ * Prices come from data/ticket_zones.json, the same checked file the Tickets
+ * view uses, with its own checked dates. A second, hand-typed list here had
+ * drifted from it (a DayRider "from £5.50" against £6.00, a Compass day
+ * ticket that Compass does not sell) and no test could see the two disagree.
+ * OPERATOR_TICKETS now carries only the app and the operator's fares page.
  */
+const TICKET_OPERATOR_ALIASES = { SCSC: "SCSO", CMPA: "COMT" };
+
 function buildTicketInfoHtml(operatorRef, liveData = null, service = "") {
-  // Future: merge liveData fields over the static entry when available.
-  const info = OPERATOR_TICKETS[operatorRef] || null;
-  const isN700 = /^N700$/i.test(String(service || "").trim());
-  if (!info && !liveData && !isN700) return "";
+  const op   = TICKET_OPERATOR_ALIASES[operatorRef] || operatorRef;
+  const info = OPERATOR_TICKETS[op] || OPERATOR_TICKETS[operatorRef] || null;
+  const meta = state.ticketFaresMeta || {};
+  const zones = (state.ticketZones || []).filter(z => z.operator === op);
+  const svc = String(service || "").trim().toUpperCase();
+  const supplement = (meta.service_supplements || {})[svc];
+  const note = (state.ticketOperatorNotes || {})[op];
+  if (!info && !zones.length && !supplement && !note) return "";
 
   const rows = [];
-
-  if (isN700) {
-    rows.push(`
+  const dates = [];
+  const row = (label, value) => rows.push(`
       <div class="ticket-row">
-        <span class="ticket-label">N700 single</span>
-        <span class="ticket-value">Anytime single £5, or £2 supplement on a Stagecoach Day/Night Rider.</span>
+        <span class="ticket-label">${escapeHtml(label)}</span>
+        <span class="ticket-value">${escapeHtml(value)}</span>
       </div>`);
-  }
 
-  if (info?.dayPass) {
-    rows.push(`
-      <div class="ticket-row">
-        <span class="ticket-label">Day pass</span>
-        <span class="ticket-value">${escapeHtml(info.dayPass)}</span>
-      </div>`);
+  if (supplement && (!supplement.applies_to_operators
+                     || supplement.applies_to_operators.includes(op))) {
+    row(`${svc} night bus`, supplement.note || supplement.label);
   }
+  const single = meta.single_fare;
+  if (single && single.price_pence != null) {
+    row("Single", `${formatGbp(single.price_pence)} on most journeys` +
+      (single.short_hop_pence != null ? `, ${formatGbp(single.short_hop_pence)} for a short hop` : "") +
+      " (England fare cap)");
+    if (single.checked_on) dates.push(single.checked_on);
+  }
+  for (const z of zones) {
+    const f = z.fares || {};
+    if (f.adult_day && f.adult_day.price_pence != null) {
+      const cash = f.adult_day_cash && f.adult_day_cash.price_pence != null
+        ? ` (${formatGbp(f.adult_day_cash.price_pence)} cash)` : "";
+      row(f.adult_day.label || z.name, `${formatGbp(f.adult_day.price_pence)} a day${cash}`);
+    } else if (f.adult_week && f.adult_week.price_pence != null) {
+      row(f.adult_week.label || z.name, `${formatGbp(f.adult_week.price_pence)} for 7 days`);
+    }
+    const checked = f.checked_on || f.adult_day?.confirmed_against?.checked_on;
+    if (checked) dates.push(checked);
+  }
+  if (note && !zones.some(z => z.fares?.adult_day)) row("Good to know", note);
 
   if (info?.app) {
     rows.push(`
@@ -7403,6 +7588,12 @@ function buildTicketInfoHtml(operatorRef, liveData = null, service = "") {
       </div>`);
   }
 
+  dates.sort();
+  const checkedHtml = dates.length
+    ? `<p class="ticket-checked">Prices checked ${escapeHtml(formatCheckedDate(dates[0]))}${
+        dates[dates.length - 1] !== dates[0] ? ` to ${escapeHtml(formatCheckedDate(dates[dates.length - 1]))}` : ""}.
+        <a href="#view=t" data-view-link="tickets">Compare tickets for a journey</a></p>`
+    : "";
   const footerLink = info?.url
     ? `<a class="ticket-more-link" href="${escapeAttr(safeUrl(info.url))}" target="_blank" rel="noopener">Full fares &amp; tickets →</a>`
     : "";
@@ -7411,65 +7602,153 @@ function buildTicketInfoHtml(operatorRef, liveData = null, service = "") {
     <div class="ticket-info">
       <h3 class="ticket-info-title">Tickets</h3>
       <div class="ticket-rows">${rows.join("")}</div>
+      ${checkedHtml}
       ${footerLink}
     </div>`;
 }
 
+/** "8 Sep 2026" from "2026-09-08". */
+function formatCheckedDate(iso) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  if (isNaN(d)) return iso;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Europe/London" });
+}
+
 /**
- * Build the "Upcoming stops" section for the Bus tab from the detail
- * fetch. Returns an empty string when the fetch is still in flight or
- * returned no stops — keeps the layout tidy.
+ * The "Upcoming stops" section: where the bus is, and when it should reach
+ * each stop still ahead of it.
+ *
+ * Estimates come from the API (api/live_eta.py) and only for a bus that names
+ * the journey it is running. The method and its caveat sit under the list,
+ * because a time that says how it was worked out can be checked, and the
+ * direction it errs in (later than the bus, further along) is the one that
+ * can make someone miss it.
  */
+const UPCOMING_COLLAPSED = 6;
+
 function buildUpcomingStopsHtml() {
+  const title = (sub) => `<h3 class="upcoming-stops-title">Upcoming stops${sub
+    ? ` <span class="upcoming-stops-kind">· ${escapeHtml(sub)}</span>` : ""}</h3>`;
   if (state.busDetailsLoading) {
     return `
       <div class="upcoming-stops">
-        <h3 class="upcoming-stops-title">Upcoming stops</h3>
+        ${title("")}
         <p class="upcoming-stops-loading">Loading route…</p>
       </div>`;
   }
-  const stops = state.busDetails?.upcoming_stops || [];
-  if (stops.length === 0) return "";
-
-  const rows = stops.map((s, i) => {
-    const iso  = s.expected_departure || s.aimed_departure;
-    const time = iso ? formatTimeOfDay(new Date(iso)) : "–";
-    const name = escapeHtml(prettifyName(s.stop_name) || s.stop_id);
-    if (s.is_terminus) {
-      return `
-        <li class="upcoming-stop-gap" aria-hidden="true">···</li>
-        <li class="upcoming-stop upcoming-stop--terminus">
-          <span class="upcoming-stop-marker" aria-hidden="true">◉</span>
-          <span class="upcoming-stop-name">${name}</span>
-          <span class="upcoming-stop-time">${escapeHtml(time)}</span>
-        </li>`;
-    }
-    const marker = i === 0 ? "●" : "○";
+  const det = state.busDetails;
+  if (!det) return "";
+  const stops = det.upcoming_stops || [];
+  if (stops.length === 0) {
     return `
-      <li class="upcoming-stop">
-        <span class="upcoming-stop-marker" aria-hidden="true">${marker}</span>
-        <span class="upcoming-stop-name">${name}</span>
-        <span class="upcoming-stop-time">${escapeHtml(time)}</span>
-      </li>`;
-  }).join("");
+      <div class="upcoming-stops">
+        ${title("")}
+        <p class="upcoming-stops-note">We couldn't match this bus to a timetable, so we can't list its stops.</p>
+      </div>`;
+  }
 
-  const sourceNote = state.busDetails?.source === "siri_onward_calls"
-    ? `<p class="upcoming-stops-note">From live vehicle · may be partial</p>`
+  const vehicle   = det.vehicle || {};
+  const estimated = stops.some(s => (s.expected ?? s.expected_departure) && !s.passed)
+    && det.source === "trip";
+  const fromCalls = det.source === "siri_onward_calls";
+  const ref       = state.selectedVehicleRef;
+  const expanded  = !!state.upcomingExpanded[ref];
+
+  const passed = stops.filter(s => s.passed);
+  const ahead  = stops.filter(s => !s.passed);
+  const terminus = ahead.length && ahead[ahead.length - 1].is_terminus ? ahead[ahead.length - 1] : null;
+  let shown = ahead;
+  let hiddenCount = 0;
+  if (!expanded && ahead.length > UPCOMING_COLLAPSED + 1) {
+    shown = ahead.slice(0, UPCOMING_COLLAPSED);
+    hiddenCount = ahead.length - UPCOMING_COLLAPSED - (terminus ? 1 : 0);
+  }
+
+  const row = (s) => {
+    const name = prettifyName(s.stop_name) || s.stop_id;
+    // `aimed_departure`/`expected_departure` are the fields an API from before
+    // api/live_eta.py sends, so the page works whichever is deployed first.
+    const schedIso = s.scheduled ?? s.aimed_departure;
+    const expIso   = s.expected ?? s.expected_departure;
+    const sched = schedIso ? new Date(schedIso) : null;
+    const exp   = expIso ? new Date(expIso) : null;
+    const when  = exp || sched;
+    const time  = when && !isNaN(when) ? formatTimeOfDay(when) : "–";
+    const was   = exp && sched && Math.abs(exp - sched) >= 60_000
+      ? `<span class="upcoming-stop-was">was ${escapeHtml(formatTimeOfDay(sched))}</span>` : "";
+    const chip  = !s.passed && s.lateness_secs != null
+      ? latenessChip(s.lateness_secs, vehicle.report_age_secs) : null;
+    const notes = [];
+    if (s.passed) notes.push("Passed");
+    else if (s.is_next) notes.push("Next stop");
+    if (s.is_terminus) notes.push("End of the journey");
+    if (s.timing_point) notes.push("Timing point");
+    const cls = ["upcoming-stop",
+      s.passed ? "upcoming-stop--passed" : "",
+      s.is_next ? "upcoming-stop--next" : "",
+      s.is_terminus ? "upcoming-stop--terminus" : ""].filter(Boolean).join(" ");
+    return `
+      <li class="${cls}">
+        <span class="upcoming-stop-marker" aria-hidden="true"></span>
+        <button type="button" class="upcoming-stop-open"
+                data-atco="${escapeAttr(s.stop_id || "")}" data-name="${escapeAttr(name)}"
+                data-focus-key="stop-${escapeAttr(String(s.seq ?? s.stop_id))}"
+                aria-label="${escapeAttr(`${name}, ${time}${chip ? `, ${chip.label}` : ""}. Show departures from this stop`)}">
+          <span class="upcoming-stop-name">${escapeHtml(name)}</span>
+          ${notes.length ? `<span class="upcoming-stop-sub">${escapeHtml(notes.join(" · "))}</span>` : ""}
+        </button>
+        <span class="upcoming-stop-when">
+          <span class="upcoming-stop-time">${escapeHtml(time)}</span>
+          ${was}
+          ${chip ? `<span class="status-chip upcoming-stop-status ${chip.cssClass}">${escapeHtml(chip.label)}</span>` : ""}
+        </span>
+      </li>`;
+  };
+
+  const rows = [...passed.slice(-1), ...shown].map(row);
+  const toggle = hiddenCount > 0 || expanded
+    ? `<li class="upcoming-stop-toggle-row"><button type="button" class="upcoming-toggle"
+          data-focus-key="toggle" aria-expanded="${expanded}">${expanded
+            ? "Show fewer stops"
+            : `Show all ${ahead.length} stops (${hiddenCount} more)`}</button></li>`
     : "";
+  const tail = !expanded && hiddenCount > 0 && terminus ? row(terminus) : "";
+
+  let note = "";
+  if (estimated) {
+    const at = vehicle.recorded_at ? new Date(vehicle.recorded_at) : null;
+    const atText = at && !isNaN(at) ? ` at ${formatTimeOfDay(at)}` : "";
+    note = `Estimated from how late the bus was when it last reported${escapeHtml(atText)},
+      assuming it stays that late. Early buses wait at timing points. Buses can
+      make up time, so be at your stop by the timetabled time.
+      <a href="about.html#live-times">How this works</a>`;
+  } else if (fromCalls) {
+    note = "From the bus's own list of stops · may be partial.";
+  } else {
+    note = "This bus doesn't say which journey it's running, so these are timetable times for the journey it's most likely on.";
+  }
 
   return `
     <div class="upcoming-stops">
-      <h3 class="upcoming-stops-title">Upcoming stops</h3>
-      <ol class="upcoming-stops-list">${rows}</ol>
-      ${sourceNote}
+      ${title(estimated ? "estimated times" : "timetable times")}
+      <ol class="upcoming-stops-list">${rows.join("")}${toggle}${tail}</ol>
+      <p class="upcoming-stops-note">${note}</p>
     </div>`;
 }
 
 /** Re-tick the "X ago" line every second without re-rendering the tab. */
 function tickBusInfoUpdated() {
   const el = document.getElementById("bus-info-updated");
-  if (el && state.selectedVehicleLastSeen) {
-    el.textContent = formatAgo(state.selectedVehicleLastSeen);
+  if (!el) return;
+  // When the bus said where it was, not when we heard: the feed runs a
+  // median three minutes behind, and "Updated just now" over a position
+  // three minutes old is the reassurance a stale dot does not deserve.
+  const reported = state.selectedVehicle?.recorded_at
+    ? new Date(state.selectedVehicle.recorded_at) : null;
+  if (reported && !isNaN(reported)) {
+    el.textContent = `Reported ${formatAgo(reported)}`;
+  } else if (state.selectedVehicleLastSeen) {
+    el.textContent = `Received ${formatAgo(state.selectedVehicleLastSeen)}`;
   }
 }
 
@@ -8022,7 +8301,10 @@ function ageDepartureBoard(now = new Date()) {
   // number over an empty table — the board looked broken rather than spent.
   if (removed) {
     const left = before - removed;
-    updateDepartureCount(left, left);
+    // The filter decides what shows and what the count says; a removed row
+    // may let the eleventh one up.
+    if (left > 0 && dom.departuresTbody?.querySelectorAll) applyBoardFilter();
+    else updateDepartureCount(left, left);
     if (left === 0 && dom.departuresTbody) {
       dom.departuresTbody.innerHTML =
         `<tr><td colspan="4" class="no-departures">Nothing further due at this
@@ -8118,6 +8400,24 @@ function bindUIEvents() {
     }
   });
 
+  // Links between views inside the panel's own text ("see Tickets & fares").
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest && e.target.closest("a[data-view-link]");
+    if (!link) return;
+    e.preventDefault();
+    setViewMode(link.dataset.viewLink);
+  });
+
+  // Route filter above the board
+  document.getElementById("board-filter")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("button.board-filter-btn");
+    if (!btn) return;
+    state.boardFilter = btn.dataset.service || null;
+    btn.parentElement.querySelectorAll("button.board-filter-btn").forEach(b =>
+      b.setAttribute("aria-pressed", String((b.dataset.service || null) === state.boardFilter)));
+    applyBoardFilter();
+  });
+
   // Report an issue at this stop
   if (dom.reportStopBtn) {
     dom.reportStopBtn.addEventListener("click", () => toggleReportStopForm());
@@ -8188,11 +8488,6 @@ function bindUIEvents() {
     });
     syncRailToggleUI();
   }
-
-  // Panel error message setter
-  dom.panelRetryBtn.addEventListener("click", () => {
-    if (state.selectedStop) fetchDepartures(state.selectedStop.atcoCode);
-  });
 
   // Section nav dropdown (Live / Improvements / future sections)
   initSectionNav();
@@ -10680,6 +10975,77 @@ function stopSearchMatches(query) {
   return out.slice(0, STOP_SEARCH_LIMIT);
 }
 
+/** Distance in metres between two points, near enough for "the nearest stop". */
+function metresBetween(lat1, lon1, lat2, lon2) {
+  const toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad;
+  const dLon = (lon2 - lon1) * toRad;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Beyond this, the reader is not near any stop the site covers, and a list of
+// "nearest" stops 30 km away would be an answer to a question nobody asked.
+const NEAR_ME_MAX_METRES = 5_000;
+const NEAR_ME_COUNT = 6;
+
+/** The stops closest to a point, as search results, nearest first. */
+function nearestStops(lat, lon, count = NEAR_ME_COUNT) {
+  const out = [];
+  for (const [atco, s] of Object.entries(state.stopData || {})) {
+    if (s.lat == null || s.lon == null) continue;
+    out.push({ atco, s, d: metresBetween(lat, lon, s.lat, s.lon) });
+  }
+  out.sort((a, b) => a.d - b.d);
+  return out.filter(o => o.d <= NEAR_ME_MAX_METRES).slice(0, count).map(({ atco, s, d }) => {
+    const bits = [d < 1000 ? `${Math.round(d / 10) * 10} m` : `${(d / 1000).toFixed(1)} km`];
+    if (s.towards) bits.push(`towards ${prettifyName(s.towards)}`);
+    if (s.services && s.services.length) {
+      bits.push(s.services.slice(0, 4).join(", ") + (s.services.length > 4 ? "…" : ""));
+    }
+    return { kind: "stop", atco, label: s.name, name: s.name, mode: bits.join(" · "), metres: d };
+  });
+}
+
+function bindNearMe() {
+  const btn  = document.getElementById("stop-near-me");
+  const list = document.getElementById("stop-search-results");
+  if (!btn || !list) return;
+  if (!("geolocation" in navigator)) {
+    btn.hidden = true;
+    return;
+  }
+  const say = (text) => {
+    list.innerHTML = `<li class="stop-search-empty" role="status">${escapeHtml(text)}</li>`;
+  };
+  btn.addEventListener("click", () => {
+    btn.disabled = true;
+    say("Finding where you are…");
+    navigator.geolocation.getCurrentPosition((pos) => {
+      btn.disabled = false;
+      const { latitude, longitude } = pos.coords;
+      const found = nearestStops(latitude, longitude);
+      if (!found.length) {
+        say("You look to be outside the area this site covers, so there are no stops near you. Try searching by name.");
+        return;
+      }
+      renderStopSearchResults(list, found, "");
+      track("near-me");
+      if (state.map) {
+        state.map.setView([latitude, longitude], Math.max(state.map.getZoom(), 16),
+                          { animate: !motionReduced() });
+      }
+      list.querySelector("button.stop-search-result")?.focus();
+    }, (err) => {
+      btn.disabled = false;
+      say(err && err.code === 1
+        ? "Location is switched off for this site. You can search by name instead, or tap a stop on the map."
+        : "We couldn't find your location just now. Try again, or search by name.");
+    }, { enableHighAccuracy: true, timeout: 12_000, maximumAge: 60_000 });
+  });
+}
+
 function renderStopSearchResults(listEl, matches, query) {
   if (!listEl) return;
   if (!matches.length) {
@@ -10831,6 +11197,7 @@ function bindRovingTabs() {
 }
 
 function bindStopSearch() {
+  bindNearMe();
   const form  = document.getElementById("stop-search-form");
   const input = document.getElementById("stop-search-input");
   const list  = document.getElementById("stop-search-results");
@@ -16160,40 +16527,40 @@ function syncRailToggleUI() {
 //   url:     string           — link to full fares/tickets page
 // Future: replace or merge with live data from a tickets API.
 // ============================================================
+// The operator's app and fares page. Prices are not typed here: they come from
+// data/ticket_zones.json, which carries sources and checked dates (see
+// buildTicketInfoHtml).
 const OPERATOR_TICKETS = {
   "SCSO": {
     app:     { name: "Stagecoach Bus App", url: "https://www.stagecoachbus.com/app" },
-    dayPass: "Stagecoach South dayrider from £5.50",
     url:     "https://www.stagecoachbus.com/tickets",
   },
   "SCSC": {
     app:     { name: "Stagecoach Bus App", url: "https://www.stagecoachbus.com/app" },
-    dayPass: "Stagecoach South dayrider from £5.50",
     url:     "https://www.stagecoachbus.com/tickets",
   },
   "BHBC": {
     app:     { name: "B&H Buses App", url: "https://www.buses.co.uk/app" },
-    dayPass: "NETWORK Saver day ticket available",
     url:     "https://www.buses.co.uk/tickets",
+  },
+  "METR": {
+    app:     null,
+    url:     "https://www.metrobus.co.uk/tickets",
   },
   "CMPA": {
     app:     null,
-    dayPass: "Day tickets available on bus",
-    url:     "https://www.compass-travel.co.uk/fares.html",
+    url:     "https://compass-travel.co.uk/tickets-fares-details/",
   },
   "COMT": {
     app:     null,
-    dayPass: "Day tickets available on bus",
-    url:     "https://www.compass-travel.co.uk/fares.html",
+    url:     "https://compass-travel.co.uk/tickets-fares-details/",
   },
   "NATX": {
     app:     null,
-    dayPass: "Coach tickets, book in advance online",
     url:     "https://www.nationalexpress.com/en/cheap-coach-tickets",
   },
   "NTXP": {
     app:     null,
-    dayPass: "Coach tickets, book in advance online",
     url:     "https://www.nationalexpress.com/en/cheap-coach-tickets",
   },
 };

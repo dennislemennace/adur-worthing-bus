@@ -450,10 +450,6 @@
           </div>
         </div>
 
-        <!-- When buses actually run here, by day. Filled from /api/stop-span,
-             which is a local timetable read — so it still answers when live
-             predictions are unavailable. See app.js renderStopSpan. -->
-        <div class="stop-span hidden" id="stop-span"></div>
 
         <!-- Loading state for departures -->
         <div class="panel-loading hidden" id="panel-loading" aria-live="polite">
@@ -492,6 +488,13 @@
                      aria-controls="stop-search-results" aria-expanded="false">
               <button class="stop-search-go" type="submit">Search</button>
             </div>
+            <!-- For a visitor who knows where they are standing but not what
+                 the stop is called. Asks for the location once, on a tap,
+                 and finds the stops on this device (app.js nearestStops). -->
+            <button class="stop-near-me" id="stop-near-me" type="button">
+              <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>
+              <span>Stops near me</span>
+            </button>
             <p class="stop-search-hint" id="stop-search-hint">
               Type at least two letters, or tap any stop on the map.
             </p>
@@ -580,12 +583,16 @@
             </div>
           </form>
           <div class="departures-notice hidden" id="departures-notice" role="status" aria-live="polite"></div>
+          <!-- Route buttons, filled by app.js renderBoardFilter where a stop
+               has two or more services. -->
+          <div class="board-filter" id="board-filter" role="group"
+               aria-label="Show departures for one route" hidden></div>
           <table class="departures-table" aria-label="Upcoming departures">
             <thead>
               <tr>
                 <th scope="col">Service</th>
                 <th scope="col">Destination</th>
-                <th scope="col">Due</th>
+                <th scope="col"><span class="live-key"><span class="live-dot" aria-hidden="true"></span>Live</span> Due</th>
                 <th scope="col">Status</th>
               </tr>
             </thead>
@@ -593,13 +600,55 @@
               <!-- Rows injected by app.js -->
             </tbody>
           </table>
-          <p class="departures-footer">Data from Bus Open Data Service (BODS)</p>
+          <!-- The column header is hidden on a phone, so the key is repeated
+               here where everyone can see it. -->
+          <p class="board-key"><span class="live-dot" aria-hidden="true"></span>
+            Live: we can see this bus, and the time is an estimate from where it
+            is. No dot: a timetable time.</p>
+          <details class="board-help" id="board-help">
+            <summary>How to read this board</summary>
+            <ul>
+              <li><strong>Due</strong> means the bus is due within the minute;
+                <strong>5 mins</strong> is how long until it reaches this stop.
+                Times an hour or more away show as a clock time.</li>
+              <li>A <span class="live-dot" aria-hidden="true"></span><strong>live</strong>
+                time is worked out from where the bus is now, or from the operator's
+                own prediction. <strong>Timetable</strong> means we can't see that bus
+                yet, so the time is the published one.</li>
+              <li><strong>On time</strong> is within a minute of the timetable.
+                <strong>3 min late</strong> or <strong>2 min early</strong> say how far
+                off it is running. Buses can make up time, so be at the stop by the
+                timetabled time.</li>
+              <li>Check the <strong>towards</strong> line under the stop name: stops
+                with the same name on either side of the road serve opposite
+                directions.</li>
+              <li>Tap a route number to see that bus on the map and the stops it
+                calls at next.</li>
+              <li>Not listed? The board covers the next two hours. For fares, see
+                <a href="#view=t" data-view-link="tickets">Tickets &amp; fares</a>;
+                for where the data comes from, see <a href="about.html#live-times">how live times work</a>.</li>
+            </ul>
+          </details>
+          <p class="departures-footer"><span id="departures-stop-id"></span>
+            · Timetable and bus locations: Bus Open Data Service. Live times:
+            TransportAPI and the buses' own location reports.</p>
         </div>
 
         <!-- Rail departure board (populated by app.js when a station is selected).
              Kept as a sibling of #departures-container so the existing bus
              elements (loading/error/prompt/departures-container) stay intact. -->
         <div class="rail-board-host hidden" id="rail-board-host"></div>
+
+        <!-- When buses actually run here, by day. Filled from /api/stop-span,
+             which is a local timetable read — so it still answers when live
+             predictions are unavailable. See app.js renderStopSpan.
+
+             Below the board, not above it: on a phone this block is 189px,
+             which put the next departures under the fold of a half-open
+             sheet. What is coming next is the first question; when the
+             service runs, and the last bus home, are the next ones. -->
+        <div class="stop-span hidden" id="stop-span"></div>
+
 
       </div>
 

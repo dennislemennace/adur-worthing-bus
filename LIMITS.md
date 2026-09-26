@@ -136,6 +136,12 @@ lines and timetables are API calls too, and arrive with it.
   it.
 - Per-stop caching is load-bearing — don't remove it. The site must continue
   to work when the daily quota is exhausted (timetable-only fallback exists).
+- The stop board no longer depends on this quota alone. A row whose bus names
+  its journey in GTFS-RT is estimated from that bus's own lateness
+  (`api/live_eta.py`, `_apply_own_feed_estimates`) at no cost, reading the
+  vehicles a recent poll left in the cache and never fetching them. When the
+  300 are spent, those rows stay live; only buses that don't name a journey
+  fall back to timetable times.
 - **Every path that calls upstream must go through the quota gate.**
   `/api/debug/live-raw` did not: it called TransportAPI directly with no cache
   and no counter, so it bypassed `NEXTBUSES_DAILY_LIMIT` *and* spent the real
