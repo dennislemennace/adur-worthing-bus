@@ -995,7 +995,7 @@ async def get_vehicles():
     vehicles = await _live_vehicles()
     # 'calls' and 'trip_id' are internal; strip from the public payload
     # to keep responses small. 'trip_headsign' is what the client needs.
-    hidden = {"calls", "trip_id", "origin_ref", "destination_ref"}
+    hidden = {"calls", "trip_id", "origin_ref", "destination_ref", "identity_flags"}
     public = [{k: val for k, val in v.items() if k not in hidden}
               for v in vehicles]
     return {"vehicles": public, "count": len(public)}
@@ -2467,6 +2467,11 @@ def _delay_to_status(delay_secs: int) -> str:
 
 
 # ── Trip matcher & enrichment ─────────────────────────────────
+# How far off its declared timetable a bus must claim to be before a heading
+# that contradicts the declaration is allowed to overturn it.
+DECLARATION_DOUBT_SECS = 15 * 60
+
+
 def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
     """Use the journey the feed names, where it names one we hold.
 
@@ -2513,7 +2518,34 @@ def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
             lateness -= 86400
         elif lateness < -12 * 3600:
             lateness += 86400
-        v["lateness_secs"] = lateness
+        # A declaration can outlive its journey. On a loop such as the N48 the
+        # ticket machine went on naming the 01:45 outbound while the bus drove
+        # the 02:02 return, past the same stop the other way, and the map
+        # called an on-time bus 44 minutes late. A bus travelling against the
+        # declared journey's direction, by a margin the declaration would need
+        # a long delay to explain, is not on it: drop the claim and let
+        # inference place it, as for a bus that declared nothing.
+        #
+        # Both conditions, because either alone misfires: headings are noisy
+        # at a stop and on a bend, and buses really do run very late. Not at
+        # either end, where a bus on the stand or turning round points
+        # anywhere. Feeds send 0 for "no heading", so 0 is not a heading.
+        heading = v.get("bearing") or None
+        if (abs(lateness) >= DECLARATION_DOUBT_SECS and heading is not None
+                and 0 < idx < len(calls) - 1
+                and not trip_match.heading_agrees(tt, calls, idx, heading)):
+            for key in ("trip_id", "trip_headsign", "trip_source", "journey_start"):
+                v.pop(key, None)
+            v.setdefault("identity_flags", []).append("declared_journey_contradicted_by_heading")
+            continue
+        # Early at the first stop and not yet pulled away: the bus is on the
+        # stand waiting for its time, not running early. The N48 sat at Old
+        # Steine "10 minutes early" for its 02:45. It leaves on time, so
+        # that is the lateness to carry forward, and the map says when.
+        waiting = (idx == 0 and lateness < 0
+                   and not trip_match.past_pole(tt, v, calls, 0))
+        v["waiting_to_start"] = waiting
+        v["lateness_secs"] = 0 if waiting else lateness
         # How old the claim is. A reader looking at a dot on a map assumes it
         # is now; often it is three minutes ago, and on a stale report that is
         # the difference between "on time" and "late". Published so the map can

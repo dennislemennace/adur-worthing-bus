@@ -7272,6 +7272,10 @@ function buildStatusChip(dep) {
   // waiting passenger wanted.
   if (status === "on time")    return { label: "On time",  cssClass: "status-on-time" };
   if (status === "cancelled")  return { label: "Cancelled",cssClass: "status-late"   };
+  // On the stand before its first stop: not early, just not gone yet.
+  if (dep.waiting_to_start && dep.journey_start) {
+    return { label: `Starts ${dep.journey_start}`, cssClass: "status-scheduled" };
+  }
 
   // Lateness measured against the journey the bus itself declared (the
   // feed publishes no Delay field here — 0 of 235 vehicles carried one), or
@@ -7637,6 +7641,8 @@ function updateBusTabLive() {
   // report never fired here, though the chip was written to give it.
   const chip = buildStatusChip({ delay_seconds: v.delay_seconds,
                                  lateness_secs: v.lateness_secs,
+                                 waiting_to_start: v.waiting_to_start,
+                                 journey_start: v.journey_start,
                                  report_age_secs: v.report_age_secs });
   const near = v.nearest_stop_name
     ? `<span class="bus-info-near">near ${escapeHtml(prettifyName(v.nearest_stop_name))}</span>` : "";

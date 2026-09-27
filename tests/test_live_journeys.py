@@ -52,8 +52,10 @@ class FakeTimetable:
 
 
 def a_bus(**over):
+    # Heading north, the way the fake journey's stops run: a bus pointing
+    # against its declared journey is now grounds to doubt the declaration.
     bus = {"vehicle_ref": "BUS-1", "service_ref": "700", "operator_ref": "SCSO",
-           "latitude": 50.832, "longitude": -0.27, "bearing": 256.0,
+           "latitude": 50.832, "longitude": -0.27, "bearing": 0.5,
            "destination": "Worthing"}
     bus.update(over)
     return bus
@@ -185,11 +187,13 @@ def test_a_bus_just_before_midnight_is_not_a_day_late(monkeypatch):
     # The clock reads 23:58 and the bus is due at 00:05 — 86,700 seconds in
     # GTFS, which is seven minutes away and not twenty-three hours ago. The
     # modulo alone does not fix this; the wrap does.
+    # At its second stop, due 00:07: early at the first stop is a bus
+    # waiting on the stand, which is a different claim (tested below).
     tt = FakeTimetable(trip_id="VJ_LATE_NIGHT", start=24 * 3600 + 5 * 60)
     _freeze(monkeypatch, 23, 58)
-    bus = a_bus(declared_trip_id="VJ_LATE_NIGHT", latitude=50.830, longitude=-0.27)
+    bus = a_bus(declared_trip_id="VJ_LATE_NIGHT", latitude=50.831, longitude=-0.27)
     main._attach_declared_journeys([bus], tt)
-    assert bus["lateness_secs"] == -7 * 60, \
+    assert bus["lateness_secs"] == -9 * 60, \
         f'{bus["lateness_secs"] / 3600:.1f} hours out at the midnight boundary'
 
 
@@ -203,6 +207,64 @@ def test_a_bus_running_late_past_midnight_is_not_a_day_early(monkeypatch):
     main._attach_declared_journeys([bus], tt)
     assert bus["lateness_secs"] == 10 * 60, \
         f'{bus["lateness_secs"] / 3600:.1f} hours out at the midnight boundary'
+
+
+def test_a_declaration_the_bus_is_driving_against_is_not_believed(monkeypatch):
+    # The N48, 27 September: the ticket machine still named the 01:45 out
+    # while the bus drove the 02:02 back, past the same stop the other way.
+    # Measured against the journey it named, an on-time bus was 44 minutes
+    # late. Here: the 14:22 runs north, and at 15:10 a bus pointing south sits
+    # at its third stop, 44 minutes after that stop's time.
+    tt = FakeTimetable()
+    _freeze(monkeypatch, 15, 10)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.832, bearing=180.0)
+    main._attach_declared_journeys([bus], tt)
+    assert bus.get("trip_source") != "feed", "a contradicted declaration was taken as fact"
+    assert "lateness_secs" not in bus, "the bus was still given the declared journey's lateness"
+    assert "declared_journey_contradicted_by_heading" in bus["identity_flags"]
+
+
+def test_a_very_late_bus_going_the_right_way_is_still_very_late(monkeypatch):
+    # The same 44 minutes, heading north with its journey: a bus that really
+    # is that late must not be explained away.
+    tt = FakeTimetable()
+    _freeze(monkeypatch, 15, 10)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.832, bearing=2.0)
+    main._attach_declared_journeys([bus], tt)
+    assert bus["trip_source"] == "feed"
+    assert bus["lateness_secs"] == 44 * 60
+
+
+def test_a_slightly_off_heading_does_not_overturn_an_on_time_bus(monkeypatch):
+    # Headings are noisy at a stop. On time, pointing the wrong way, the bus
+    # keeps its journey: only a claim of a long delay invites the doubt.
+    tt = FakeTimetable()
+    _freeze(monkeypatch, 14, 26)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.832, bearing=180.0)
+    main._attach_declared_journeys([bus], tt)
+    assert bus["trip_source"] == "feed"
+    assert bus["lateness_secs"] == 0
+
+
+def test_a_bus_on_the_stand_before_its_start_is_waiting_not_early(monkeypatch):
+    # The N48 sat at Old Steine "10 minutes early" for its 02:45, and the
+    # N25 "22 minutes early" at the Royal Pavilion. Both were on the stand.
+    tt = FakeTimetable()
+    _freeze(monkeypatch, 14, 12)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.8299, bearing=None)
+    main._attach_declared_journeys([bus], tt)
+    assert bus["waiting_to_start"] is True
+    assert bus["lateness_secs"] == 0, "a bus waiting for its time was called early"
+
+
+def test_a_bus_that_has_left_its_first_stop_early_is_early(monkeypatch):
+    # Past the pole and towards the second stop: it went early, and says so.
+    tt = FakeTimetable()
+    _freeze(monkeypatch, 14, 18)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.8304)
+    main._attach_declared_journeys([bus], tt)
+    assert bus["waiting_to_start"] is False
+    assert bus["lateness_secs"] == -4 * 60
 
 
 def test_the_two_live_feeds_are_joined_on_the_vehicle(monkeypatch):
