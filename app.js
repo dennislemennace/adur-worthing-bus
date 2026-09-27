@@ -7423,8 +7423,11 @@ function renderBusTab() {
 
 function buildBusTabShell(v) {
   const operatorName = getOperatorName(v.operator_ref);
-  const iconUrl      = OPERATOR_ICONS[v.operator_ref];
   const service      = v.service_ref || "?";
+  // The same livery the map draws, so the bus in the panel is the bus on the
+  // map. OPERATOR_ICONS alone gave every Brighton & Hove route the generic
+  // red bus while its marker wore the route's own colours.
+  const iconUrl      = iconForService(v.operator_ref, service);
   const colour       = getRouteColour(service, v.operator_ref);
   const badgeTextCls = pickTextOn(colour) === "dark"
     ? "service-badge--dark-text"
@@ -7438,38 +7441,35 @@ function buildBusTabShell(v) {
   dom.panelBusName.textContent = `Service ${service}`;
   dom.panelBusId.textContent   = operatorName;
 
+  // Destination is the panel's heading and the journey's position sits by
+  // its status, so the facts a rider scans for share one block beside the
+  // route badge instead of five rows under it.
   dom.busInfoContainer.innerHTML = `
     <div id="bus-info-lost-host"></div>
     <div class="bus-info-hero">
-      ${iconHtml}
-      <div class="bus-info-hero-text">
-        <span class="service-badge service-badge-large ${badgeTextCls}" style="background:${colour}">${escapeHtml(service)}</span>
-        <p class="bus-info-operator">${escapeHtml(operatorName)}</p>
+      <div class="bus-info-identity">
+        ${iconHtml}
+        <div class="bus-info-hero-text">
+          <span class="service-badge service-badge-large ${badgeTextCls}" style="background:${colour}">${escapeHtml(service)}</span>
+          <p class="bus-info-operator">${escapeHtml(operatorName)}</p>
+          <p class="bus-info-journey" id="bus-info-journey" hidden></p>
+        </div>
       </div>
+      <dl class="bus-info-grid">
+        <div class="bus-info-row">
+          <dt>Status</dt>
+          <dd id="bus-info-status"></dd>
+        </div>
+        <div class="bus-info-row">
+          <dt>Fleet ID</dt>
+          <dd class="bus-info-mono">${escapeHtml(fleetId)}</dd>
+        </div>
+        <div class="bus-info-row">
+          <dt>Updated</dt>
+          <dd id="bus-info-updated"></dd>
+        </div>
+      </dl>
     </div>
-
-    <dl class="bus-info-grid">
-      <div class="bus-info-row">
-        <dt>Destination</dt>
-        <dd id="bus-info-destination"></dd>
-      </div>
-      <div class="bus-info-row" id="bus-info-journey" hidden>
-        <dt>Journey</dt>
-        <dd id="bus-info-journey-text"></dd>
-      </div>
-      <div class="bus-info-row">
-        <dt>Status</dt>
-        <dd id="bus-info-status"></dd>
-      </div>
-      <div class="bus-info-row">
-        <dt>Fleet ID</dt>
-        <dd class="bus-info-mono">${escapeHtml(fleetId)}</dd>
-      </div>
-      <div class="bus-info-row">
-        <dt>Position</dt>
-        <dd id="bus-info-updated"></dd>
-      </div>
-    </dl>
 
     <label class="follow-bus-toggle">
       <input type="checkbox" id="follow-bus-checkbox" ${state.followSelectedBus ? "checked" : ""}>
@@ -7611,23 +7611,26 @@ function updateBusTabLive() {
     ? `<div class="bus-info-lost"><svg class="icon" aria-hidden="true"><use href="#i-signal-off"/></svg><span>Signal lost, last seen ${escapeHtml(formatTimeOfDay(state.selectedVehicleLastSeen))}</span></div>`
     : "");
 
-  const destEl = document.getElementById("bus-info-destination");
-  if (destEl) {
-    destEl.textContent = prettifyName(v.destination || det.trip_headsign || v.trip_headsign) || "Unknown";
-  }
+  // The heading is where the bus is going: the badge beside it already says
+  // which service it is, and "Service N7" above "N7" said it twice.
+  // A screen reader still hears the service first, since the badge it would
+  // otherwise pair the heading with is not read until after it.
+  const dest = prettifyName(v.destination || det.trip_headsign || v.trip_headsign);
+  const svc  = `Service ${v.service_ref || "?"}`;
+  const heading = dest
+    ? `<span class="visually-hidden">${escapeHtml(svc)} to </span>${escapeHtml(dest)}`
+    : escapeHtml(svc);
+  if (dom.panelBusName.innerHTML !== heading) dom.panelBusName.innerHTML = heading;
 
   // Only where the feed named the journey. Inference is right about four
   // times in five, which is fine for putting a bus on a map and not good
   // enough to tell someone which departure they are looking at.
-  const journeyRow = document.getElementById("bus-info-journey");
-  if (journeyRow) {
+  const journey = document.getElementById("bus-info-journey");
+  if (journey) {
     const named = v.trip_source === "feed" && v.journey_start;
-    journeyRow.hidden = !named;
-    const text = document.getElementById("bus-info-journey-text");
-    if (named && text) {
-      text.textContent = `The ${v.journey_start}` +
-        (v.nearest_stop_name ? `, near ${prettifyName(v.nearest_stop_name)}` : "");
-    }
+    journey.hidden = !named;
+    const text = named ? `The ${v.journey_start} journey` : "";
+    if (journey.textContent !== text) journey.textContent = text;
   }
 
   // report_age_secs goes in too: without it the "about" hedge on a stale
@@ -7635,8 +7638,10 @@ function updateBusTabLive() {
   const chip = buildStatusChip({ delay_seconds: v.delay_seconds,
                                  lateness_secs: v.lateness_secs,
                                  report_age_secs: v.report_age_secs });
+  const near = v.nearest_stop_name
+    ? `<span class="bus-info-near">near ${escapeHtml(prettifyName(v.nearest_stop_name))}</span>` : "";
   patchHtml(document.getElementById("bus-info-status"),
-    `<span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span>`);
+    `<span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span>${near}`);
 
   tickBusInfoUpdated();
   patchHtml(document.getElementById("bus-disruptions"),
@@ -7860,8 +7865,13 @@ function buildUpcomingStopsHtml() {
     const exp   = expIso ? new Date(expIso) : null;
     const when  = exp || sched;
     const time  = when && !isNaN(when) ? formatTimeOfDay(when) : "–";
-    const was   = exp && sched && Math.abs(exp - sched) >= 60_000
-      ? `<span class="upcoming-stop-was">was ${escapeHtml(formatTimeOfDay(sched))}</span>` : "";
+    // The estimate is the time to read, so it is the big one and carries the
+    // live dot; the timetabled time it replaces is struck through beside it,
+    // smaller, the way a station board shows a late train. Only when they
+    // differ: an on-time bus with its own time crossed out reads as a change.
+    const live  = !!exp && !isNaN(exp) && !s.passed;
+    const was   = live && sched && !isNaN(sched) && Math.abs(exp - sched) >= 60_000
+      ? `<s class="upcoming-stop-was">${escapeHtml(formatTimeOfDay(sched))}</s>` : "";
     const chip  = !s.passed && s.lateness_secs != null
       ? latenessChip(s.lateness_secs, vehicle.report_age_secs) : null;
     const notes = [];
@@ -7879,14 +7889,15 @@ function buildUpcomingStopsHtml() {
         <button type="button" class="upcoming-stop-open"
                 data-atco="${escapeAttr(s.stop_id || "")}" data-name="${escapeAttr(name)}"
                 data-focus-key="stop-${escapeAttr(String(s.seq ?? s.stop_id))}"
-                aria-label="${escapeAttr(`${name}, ${time}${chip ? `, ${chip.label}` : ""}. Show departures from this stop`)}">
+                aria-label="${escapeAttr(`${name}, ${live ? "estimated " : ""}${time}${chip ? `, ${chip.label}` : ""}${
+                  was ? `, timetabled ${formatTimeOfDay(sched)}` : ""}. Show departures from this stop`)}">
           <span class="upcoming-stop-name">${escapeHtml(name)}</span>
           ${notes.length ? `<span class="upcoming-stop-sub">${escapeHtml(notes.join(" · "))}</span>` : ""}
         </button>
-        <span class="upcoming-stop-when">
-          <span class="upcoming-stop-time">${escapeHtml(time)}</span>
+        <span class="upcoming-stop-when" aria-hidden="true">
           ${was}
-          ${chip ? `<span class="status-chip upcoming-stop-status ${chip.cssClass}">${escapeHtml(chip.label)}</span>` : ""}
+          <span class="upcoming-stop-time${live ? " upcoming-stop-time--live" : ""}">${live
+            ? `<span class="live-dot"></span>` : ""}${escapeHtml(time)}</span>
         </span>
       </li>`;
   };
@@ -7904,8 +7915,9 @@ function buildUpcomingStopsHtml() {
   if (estimated) {
     const at = vehicle.recorded_at ? new Date(vehicle.recorded_at) : null;
     const atText = at && !isNaN(at) ? ` at ${formatTimeOfDay(at)}` : "";
-    note = `Estimated from how late the bus was when it last reported${escapeHtml(atText)},
-      assuming it stays that late. Early buses wait at timing points. Buses can
+    note = `<span class="live-dot" aria-hidden="true"></span> Estimated from how late
+      the bus was when it last reported${escapeHtml(atText)}, assuming it stays
+      that late; a crossed-out time is the timetabled one it replaces. Early buses wait at timing points. Buses can
       make up time, so be at your stop by the timetabled time.
       <a href="about.html#live-times">How this works</a>`;
   } else if (fromCalls) {
@@ -7931,11 +7943,9 @@ function tickBusInfoUpdated() {
   // three minutes old is the reassurance a stale dot does not deserve.
   const reported = state.selectedVehicle?.recorded_at
     ? new Date(state.selectedVehicle.recorded_at) : null;
-  if (reported && !isNaN(reported)) {
-    el.textContent = `Reported ${formatAgo(reported)}`;
-  } else if (state.selectedVehicleLastSeen) {
-    el.textContent = `Received ${formatAgo(state.selectedVehicleLastSeen)}`;
-  }
+  const text = reported && !isNaN(reported) ? formatAgo(reported)
+    : state.selectedVehicleLastSeen ? formatAgo(state.selectedVehicleLastSeen) : "";
+  if (text && el.textContent !== text) el.textContent = text;
 }
 
 function startBusInfoTicker() {

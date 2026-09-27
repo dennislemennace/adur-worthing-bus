@@ -1752,8 +1752,8 @@ async function checkUpcomingStops(page, where) {
     setViewMode("live");
     const at = (m) => new Date(Date.now() + m * 60000).toISOString();
     const bus = {
-      vehicle_ref: "CHECK-UPCOMING", service_ref: "700", operator_ref: "SCSO",
-      latitude: 50.832, longitude: -0.27, destination: "Brighton",
+      vehicle_ref: "CHECK-UPCOMING", service_ref: "N7", operator_ref: "BHBC",
+      latitude: 50.822, longitude: -0.137, destination: "Brighton Marina",
       trip_source: "feed", journey_start: "14:22", lateness_secs: 240,
       report_age_secs: 40, recorded_at: at(-1),
     };
@@ -1772,31 +1772,47 @@ async function checkUpcomingStops(page, where) {
     state.upcomingExpanded = {};
     setActiveTab("bus");
     renderBusTab();
+    // A report half-written, then attention back on the stop list: the
+    // refresh below has to leave both exactly as they were.
+    document.getElementById("report-bus-btn").click();
+    const report = document.getElementById("rb-details");
+    if (report) report.value = "half-typed";
     const folded = document.querySelectorAll("#bus-upcoming .upcoming-stop").length;
     const toggle = document.querySelector("#bus-upcoming .upcoming-toggle");
     toggle.click();
     const expanded = document.querySelectorAll("#bus-upcoming .upcoming-stop").length;
     document.querySelector("#bus-upcoming .upcoming-toggle").focus();
-    const report = document.getElementById("rb-details");
-    if (report) report.value = "half-typed";
     // What the 20-second poll does to the selected bus.
     state.selectedVehicle = { ...bus, recorded_at: at(0) };
     renderBusTab();
     const after = document.querySelectorAll("#bus-upcoming .upcoming-stop").length;
     const focusKept = document.activeElement && document.activeElement.dataset.focusKey === "toggle";
-    const reportKept = (document.getElementById("rb-details") || {}).value === "half-typed";
-    const text = document.getElementById("bus-upcoming").textContent.replace(/\\s+/g, " ");
+    const reportKept = (document.getElementById("rb-details") || {}).value === "half-typed"
+      && !document.getElementById("report-bus-form").classList.contains("hidden");
+    const host = document.getElementById("bus-upcoming");
+    const text = host.textContent.replace(/\\s+/g, " ");
+    const labels = [...host.querySelectorAll(".upcoming-stop-open")].map(b => b.getAttribute("aria-label")).join(" ");
     const said = {
-      passed: /Passed/.test(text), next: /Next stop/.test(text), late: /4 min late/.test(text),
+      passed: /Passed/.test(text), next: /Next stop/.test(text), late: /4 min late/.test(labels),
+      struck: host.querySelectorAll("s.upcoming-stop-was").length > 0,
+      liveMain: host.querySelectorAll(".upcoming-stop-time--live .live-dot").length > 0,
       advice: /be at your stop by the timetabled time/.test(text),
     };
+    const hero = document.querySelector(".bus-info-hero").textContent;
+    const icon = document.querySelector(".bus-info-icon").getAttribute("src");
+    said.heading = /Brighton Marina$/.test(document.getElementById("panel-bus-name").textContent.trim());
+    said.noDestRow = !/Destination|Journey/.test(document.getElementById("bus-info-container").textContent);
+    // The N7 wears the 7's purple on the map; the panel once showed the
+    // generic Brighton & Hove bus beside it.
+    said.livery = icon === ROUTE_ICONS["BHBC:7"] && icon !== OPERATOR_ICONS.BHBC;
+    document.getElementById("rb-cancel").click();
     return JSON.stringify({ folded, expanded, after, focusKept, reportKept, said });
   })()`));
   check(`upcoming stops fold, then show every stop — ${where}`,
     r.folded === 8 && r.expanded === 22, `folded ${r.folded}, expanded ${r.expanded}`);
-  check(`stops ahead say late or on time, with the method — ${where}`,
+  check(`stops ahead show the estimate over a struck timetable time, with the method — ${where}`,
     Object.values(r.said).every(Boolean), JSON.stringify(r.said));
-  check(`a refresh keeps the list open, focus, and a half-typed report — ${where}`,
+  check(`a refresh keeps the list open, focus, and an open half-typed report — ${where}`,
     r.after === 22 && r.focusKept && r.reportKept,
     JSON.stringify({ after: r.after, focusKept: r.focusKept, reportKept: r.reportKept }));
   await checkLayout(page, `bus tab stops — ${where}`);

@@ -103,7 +103,12 @@ test("the list shows where the bus is: the stop passed, then the next", () => {
   assert.match(html, /upcoming-stop--passed[\s\S]*Passed/);
   assert.match(html, /upcoming-stop--next[\s\S]*Next stop/);
   assert.match(html, /3 min late/, "the stops ahead do not say how late the bus will be");
-  assert.match(html, /was \d\d:\d\d/, "the timetabled time was not shown beside the estimate");
+  assert.match(html, /<s class="upcoming-stop-was">\d\d:\d\d<\/s>/,
+    "the timetabled time was not struck through beside the estimate");
+  assert.match(html, /upcoming-stop-time--live"><span class="live-dot"><\/span>\d\d:\d\d/,
+    "the estimate is not the main time, or lost its live dot");
+  assert.match(html, /timetabled \d\d:\d\d\. Show departures/,
+    "a screen reader never hears the time the estimate replaced");
   assert.match(html, /be at your stop by the timetabled time/,
     "an estimate that errs late went out without the advice that makes it safe");
 });
@@ -127,6 +132,8 @@ test("a bus that doesn't name its journey gets timetable times, labelled", () =>
   assert.match(html, /timetable times/);
   assert.match(html, /doesn't say which journey it's running/);
   assert.doesNotMatch(html, /min late|On time/, "an inferred journey was given a punctuality");
+  assert.doesNotMatch(html, /upcoming-stop-time--live|<s class/,
+    "a timetable time was dressed as a live one");
 });
 
 test("an unmatched bus says so instead of losing the section", () => {
@@ -222,4 +229,19 @@ test("an affected row points at the notice, and a cancelled one says so", () => 
   assert.match(cancelled, /departure-row--cancelled/);
   assert.match(cancelled, />Cancelled</);
   assert.match(cancelled, /data-vehicle="15621"/, "the named bus was not kept for the row's click");
+});
+
+test("an on-time stop keeps its one time, uncrossed", () => {
+  const stops = [stopRow(1, { is_next: true, expected: at(2), lateness_secs: 0 })];
+  const html = upcoming({ source: "trip", upcoming_stops: stops, vehicle: { trip_source: "feed" } });
+  assert.match(html, /upcoming-stop-time--live/);
+  assert.doesNotMatch(html, /<s class/, "an on-time bus had its own time crossed out");
+});
+
+test("the Bus tab heading is the destination, and the icon is the route's livery", () => {
+  const shell = APP.slice(APP.indexOf("function buildBusTabShell"), APP.indexOf("function patchHtml"));
+  assert.match(shell, /iconForService\(v\.operator_ref, service\)/,
+    "the panel drew the operator's generic bus, not the livery on the map");
+  assert.doesNotMatch(shell, /<dt>(Destination|Journey)<\/dt>/,
+    "the destination and journey rows came back; they moved to the heading and under the operator");
 });

@@ -2784,12 +2784,47 @@ html.dark-mode .stop-cluster-icon {
   flex: 1;
 }
 
+/* Identity on the left, the three facts that change on the right. Wraps to
+   two rows on a phone rather than squeezing the status into a sliver. */
 .bus-info-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-lg);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+.bus-info-identity {
   display: flex;
   align-items: center;
   gap: var(--space-md);
-  padding-bottom: var(--space-md);
-  border-bottom: 1px solid var(--color-border);
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.bus-info-hero .bus-info-grid {
+  flex: 1 1 230px;
+  min-width: 0;
+  padding: 0;
+  border-bottom: 0;
+  gap: var(--space-2xs);
+}
+.bus-info-hero .bus-info-row { min-height: 28px; }
+.bus-info-hero .bus-info-row dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px var(--space-xs);
+  min-width: 0;
+}
+.bus-info-journey {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.bus-info-near {
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .bus-info-icon {
@@ -3042,9 +3077,9 @@ html.dark-mode .stop-cluster-icon {
 
 .upcoming-stop-when {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
   padding: 4px 0;
 }
 .upcoming-stop-time {
@@ -3059,13 +3094,16 @@ html.dark-mode .stop-cluster-icon {
   font-weight: 400;
   color: var(--color-text-muted);
 }
+.upcoming-stop-time--live .live-dot { margin-right: 5px; transform: translateY(-1px); }
 .upcoming-stop-was {
   font-family: var(--font-mono);
   font-size: var(--font-size-2xs);
+  font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
+  text-decoration: line-through;
   white-space: nowrap;
 }
-.upcoming-stop-status { padding: 1px 6px; }
+.upcoming-stops-note .live-dot { margin-right: 2px; }
 
 .upcoming-stop-toggle-row {
   list-style: none;
