@@ -83,6 +83,7 @@
           <Consequences><Consequence><Affects><Networks><AffectedNetwork><AffectedLine><AffectedOperator><OperatorRef>SCSO</OperatorRef></AffectedOperator><LineRef>700</LineRef></AffectedLine></AffectedNetwork></Networks></Affects></Consequence></Consequences>
         </PtSituationElement>
         <PtSituationElement>
+          <ParticipantRef>WestSussexCC</ParticipantRef>
           <SituationNumber>EXPIRED-9</SituationNumber>
           <Progress>open</Progress>
           <ValidityPeriod><StartTime>2026-09-01T00:00:00Z</StartTime><EndTime>2026-09-20T00:00:00Z</EndTime></ValidityPeriod>
@@ -95,6 +96,30 @@
           <ValidityPeriod><StartTime>2026-09-28T00:30:00Z</StartTime><EndTime>2026-09-28T05:00:00Z</EndTime></ValidityPeriod>
           <Summary>N700 not calling at Shoreham tonight</Summary>
           <Consequences><Consequence><Affects><Networks><AffectedNetwork><AffectedLine><AffectedOperator><OperatorRef>SCSO</OperatorRef></AffectedOperator><LineRef>N700</LineRef></AffectedLine></AffectedNetwork></Networks></Affects></Consequence></Consequences>
+        </PtSituationElement>
+        <PtSituationElement>
+          <ParticipantRef>Hampshire</ParticipantRef>
+          <SituationNumber>ALDERSHOT-9</SituationNumber>
+          <Progress>open</Progress>
+          <Summary>Road Closure - Station Road, Aldershot</Summary>
+          <Description>Station Road will be closed each night for roadworks.</Description>
+          <Consequences><Consequence><Affects><Networks><AffectedNetwork>
+            <AffectedLine><AffectedOperator><OperatorRef>SCSO</OperatorRef></AffectedOperator><LineRef>3</LineRef></AffectedLine>
+            <AffectedLine><AffectedOperator><OperatorRef>SCSO</OperatorRef></AffectedOperator><LineRef>9</LineRef></AffectedLine>
+          </AffectedNetwork></Networks></Affects></Consequence></Consequences>
+        </PtSituationElement>
+        <PtSituationElement>
+          <SituationNumber>WORTHING-6</SituationNumber>
+          <Progress>open</Progress>
+          <Summary>6 diverted in Worthing town centre</Summary>
+          <Consequences><Consequence><Affects><Networks><AffectedNetwork><AffectedLine><AffectedOperator><OperatorRef>SCSO</OperatorRef></AffectedOperator><LineRef>6</LineRef></AffectedLine></AffectedNetwork></Networks></Affects></Consequence></Consequences>
+        </PtSituationElement>
+        <PtSituationElement>
+          <ParticipantRef>Hampshire</ParticipantRef>
+          <SituationNumber>SOUTHWICK-9</SituationNumber>
+          <Progress>open</Progress>
+          <Summary>9 diverted near Southwick</Summary>
+          <Consequences><Consequence><Affects><Networks><AffectedNetwork><AffectedLine><AffectedOperator><OperatorRef>SCSO</OperatorRef></AffectedOperator><LineRef>9</LineRef></AffectedLine></AffectedNetwork></Networks></Affects></Consequence></Consequences>
         </PtSituationElement>
         <PtSituationElement>
           <SituationNumber>COACH-ALL</SituationNumber>

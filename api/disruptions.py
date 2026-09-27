@@ -17,6 +17,7 @@ sit in memory as a tree.
 """
 
 import io
+import re
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -30,6 +31,21 @@ UPCOMING_WINDOW = timedelta(hours=36)
 # for; an operator-wide notice from National Express would sit on every board
 # a coach happens to serve. (The same list as trip_match.COACH_NOCS.)
 COACH_NOCS = frozenset({"NATX", "FLIX", "OXBC", "GHOP", "BMCS", "UNTM"})
+
+# Operator codes that cover more than this area. Stagecoach South runs from
+# Hampshire to Sussex under one code and reuses its route numbers; Metrobus
+# runs in Surrey and Kent too. A notice that reaches us only through one of
+# these codes, a line number or the whole operator, and names no stop, says
+# nothing about *where*: a Hampshire road closure in Aldershot on Stagecoach
+# lines 3, 7 and 15 matched Worthing's Stagecoach 7 (live feed, 27 Sep 2026).
+REGIONAL_NOCS = frozenset({"SCSO", "SCSC", "METR"})
+
+# Publishers taken as local, compared with case and punctuation removed, so
+# "West Sussex", "WestSussexCC" and "west-sussex" all count.
+LOCAL_PUBLISHERS = ("westsussex", "brighton")
+
+# Always counted as naming the area, beside the towns our stops are in.
+AREA_WORDS = ("West Sussex",)
 
 
 def _local(tag: str) -> str:
@@ -153,16 +169,45 @@ def service_key(name: str) -> str:
     return k[1:] if len(k) > 1 and k[0] == "N" and k[1:].isdigit() else k
 
 
-def area_filter(stop_ids: Iterable[str], routes: Iterable[tuple]):
+def town_pattern(towns: Iterable[str]):
+    """Whole-word, case-blind match for any of `towns` (and AREA_WORDS).
+
+    "Shoreham-by-Sea" is also matched as "Shoreham", the way notices write
+    it. Only towns, not every locality: the full list holds Compton, Sutton
+    and Westbourne, which are also in Hampshire.
+    """
+    names = set(AREA_WORDS)
+    for t in towns:
+        t = (t or "").strip()
+        if len(t) < 4:
+            continue
+        names.add(t)
+        if "-by-" in t:
+            names.add(t.split("-by-")[0])
+    alternation = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    return re.compile(rf"\b(?:{alternation})\b", re.IGNORECASE)
+
+
+def area_filter(stop_ids: Iterable[str], routes: Iterable[tuple], towns: Iterable[str] = ()):
     """A `keep` for parse_feed: situations touching our stops, lines or operators.
 
     `routes` is `(operator NOC, line name)` for every route we hold. An
     operator-wide situation is kept only for an operator that runs one of them,
-    and never for a coach operator.
+    and never for a coach operator. `towns` are the towns our stops are in;
+    see REGIONAL_NOCS for why a notice needs them.
     """
     stops = set(stop_ids)
     lines = {(noc, service_key(name)) for noc, name in routes}
     nocs = {noc for noc, _ in lines} - COACH_NOCS
+    towns_re = town_pattern(towns)
+
+    def local_evidence(sit: dict) -> bool:
+        publisher = re.sub(r"[^a-z]", "", (sit.get("publisher") or "").lower())
+        if any(p in publisher for p in LOCAL_PUBLISHERS):
+            return True
+        text = " ".join((sit.get("summary") or "", sit.get("description") or "",
+                         sit.get("advice") or ""))
+        return bool(towns_re.search(text))
 
     def keep(sit: dict) -> bool:
         if sit["progress"].lower() == "closed":
@@ -174,11 +219,17 @@ def area_filter(stop_ids: Iterable[str], routes: Iterable[tuple]):
         # feed on 26 Sep 2026: six such notices, all 1900HA stops.
         if sit["stops"]:
             return any(s in stops for s in sit["stops"])
-        if any((l["operator"], service_key(l["line"])) in lines
-               or (l["operator"], service_key(l["line_ref"])) in lines
-               for l in sit["lines"]):
+        matched = {l["operator"] for l in sit["lines"]
+                   if (l["operator"], service_key(l["line"])) in lines
+                   or (l["operator"], service_key(l["line_ref"])) in lines}
+        matched |= {o["operator"] for o in sit["operators"] if o["operator"] in nocs}
+        if not matched:
+            return False
+        # An operator that runs only here places the notice by itself; a
+        # regional one needs the notice to say it is about here.
+        if matched - REGIONAL_NOCS:
             return True
-        return any(o["operator"] in nocs for o in sit["operators"])
+        return local_evidence(sit)
     return keep
 
 

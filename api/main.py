@@ -1520,6 +1520,8 @@ async def get_disruptions():
         # Published notices from our operators that the area filter did not
         # keep, so a match that has stopped fitting the feed can be seen.
         "local_unmatched_sample": (state or {}).get("local_unmatched_sample"),
+        # Situations per publisher across the whole national feed.
+        "publishers": (state or {}).get("publishers"),
         "source": "Bus Open Data Service (SIRI-SX), as published by operators and councils",
         "disruptions": _disruptions_now(state),
     }
@@ -1939,6 +1941,18 @@ def _route_index(tt: Timetable) -> set:
     return cached
 
 
+def _area_towns(tt: Timetable) -> set:
+    """The towns our stops are in (NaPTAN locality parents), worked out once."""
+    cached = getattr(tt, "_sx_towns", None)
+    if cached is None:
+        cached = {(s or {}).get("locality_parent") or "" for s in tt.stops.values()} - {""}
+        try:
+            tt._sx_towns = cached
+        except AttributeError:
+            pass
+    return cached
+
+
 async def _fetch_disruptions() -> dict:
     """The area's situations from BODS, or an explanation of why there are none.
 
@@ -1954,14 +1968,20 @@ async def _fetch_disruptions() -> dict:
             resp = await client.get(f"{BODS_BASE}/siri-sx/", params={"api_key": BODS_API_KEY})
             resp.raise_for_status()
         tt = await _get_timetable()
-        area = sx.area_filter(tt.stops.keys(), _route_index(tt))
+        area = sx.area_filter(tt.stops.keys(), _route_index(tt), _area_towns(tt))
         seen = [0]
+        # Who publishes at all, nationally. Whether our councils or local
+        # operators ever appear here is what decides if this feed is worth
+        # having for this area.
+        publishers: dict = {}
         local_nocs = {noc for noc, _ in _route_index(tt)} - sx.COACH_NOCS
         mentions: dict = {}
         unmatched: list = []
 
         def keep(sit):
             seen[0] += 1
+            who = sit.get("publisher") or "(unstated)"
+            publishers[who] = publishers.get(who, 0) + 1
             # Any mention of a local operator, matched or not: if these are
             # non-zero while the area's list is empty, the match is wrong.
             touched = ({l["operator"] for l in sit["lines"]}
@@ -1989,7 +2009,8 @@ async def _fetch_disruptions() -> dict:
     # zero, and an honest quiet day returns zero of several hundred.
     return {"available": True, "situations": situations, "fetched_at": fetched_at,
             "national_count": seen[0], "local_operator_mentions": mentions,
-            "local_unmatched_sample": unmatched}
+            "local_unmatched_sample": unmatched,
+            "publishers": dict(sorted(publishers.items(), key=lambda kv: -kv[1])[:25])}
 
 
 async def _disruptions_state(wait: bool) -> Optional[dict]:

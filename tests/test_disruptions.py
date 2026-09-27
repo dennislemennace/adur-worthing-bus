@@ -20,17 +20,20 @@ from api import disruptions as sx                                # noqa: E402
 FEED = (ROOT / "tests" / "fixtures" / "siri_sx_sample.xml").read_bytes()
 NOW = datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc)
 OUR_STOPS = {"1490WESTBV", "4400AD0204", "4400AD0063"}
-OUR_ROUTES = {("SCSO", "700"), ("SCSO", "N700"), ("SCSO", "9"), ("BHBC", "2"),
-              ("NATX", "025")}
+OUR_ROUTES = {("SCSO", "700"), ("SCSO", "N700"), ("SCSO", "9"), ("SCSO", "6"),
+              ("BHBC", "2"), ("NATX", "025")}
+
+
+OUR_TOWNS = {"Worthing", "Lancing", "Shoreham-by-Sea", "Brighton", "Hove"}
 
 
 def area():
-    return sx.parse_feed(FEED, sx.area_filter(OUR_STOPS, OUR_ROUTES))
+    return sx.parse_feed(FEED, sx.area_filter(OUR_STOPS, OUR_ROUTES, OUR_TOWNS))
 
 
 def test_every_situation_is_read():
     ids = [s["id"] for s in sx.parse_feed(FEED)]
-    assert len(ids) == 9 and "DIVERSION-700" in ids
+    assert len(ids) == 12 and "DIVERSION-700" in ids
 
 
 def test_only_situations_touching_this_area_are_kept():
@@ -41,6 +44,28 @@ def test_only_situations_touching_this_area_are_kept():
     assert "HAMPSHIRE-9" not in ids, \
         "a Hampshire stop suspension on Stagecoach's 9 reached our Stagecoach 9"
     assert {"DIVERSION-700", "STOP-CLOSED", "BHBC-ALL", "EXPIRED-9", "TOMORROW-N700"} <= ids
+
+
+def test_a_regional_operator_line_number_alone_does_not_place_a_notice_here():
+    # Stagecoach South is one operator code from Hampshire to Sussex and
+    # reuses route numbers. Live, 27 Sep 2026: Hampshire's road closure in
+    # Aldershot on Stagecoach 3, 7 and 15 named no stops and matched
+    # Worthing's Stagecoach 7. A notice that reaches us only through a
+    # regional operator needs a local publisher or one of our towns.
+    ids = {s["id"] for s in area()}
+    assert "ALDERSHOT-9" not in ids, "an Aldershot road closure reached a Worthing board"
+    assert "WORTHING-6" in ids, "a notice that names Worthing was dropped"
+    assert "EXPIRED-9" in ids, "a West Sussex council notice needs no town named"
+    assert "SOUTHWICK-9" not in ids, (
+        "Southwick is also in Hampshire; only towns our stops are in count, "
+        "and Southwick is not one of them")
+    assert "TOMORROW-N700" in ids, "'Shoreham' did not count as Shoreham-by-Sea"
+
+
+def test_a_local_only_operator_needs_no_town():
+    # Brighton & Hove Buses runs only here, so its operator code places the
+    # notice by itself.
+    assert "BHBC-ALL" in {s["id"] for s in area()}
 
 
 def test_only_those_in_force_or_starting_soon_are_published():
@@ -66,7 +91,7 @@ def test_a_zipped_delivery_is_read_the_same():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("sirisx.xml", FEED)
-    assert len(sx.parse_feed(buf.getvalue())) == 9
+    assert len(sx.parse_feed(buf.getvalue())) == 12
 
 
 def test_a_night_n_matches_the_day_number_either_way():
