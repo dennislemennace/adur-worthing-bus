@@ -6,17 +6,17 @@
     "east": "Brighton & Hove"
   },
   "headline": "Bus service is measurably thinner on the West Sussex side of the Brighton & Hove boundary.",
-  "as_of": "2026-09-21",
-  "computed_at": "2026-09-21T16:40:46+00:00",
+  "as_of": "2026-09-27",
+  "computed_at": "2026-09-27T09:05:50+00:00",
   "data_version": {
     "source": "Bus Open Data Service, South East regional GTFS bundle",
     "artefact": "data/timetable.sqlite",
-    "sha256": "c4a758f1abfd1d1fa6276ce58fea4fb7e19ccd7c0060391d210c3995c485e8f3"
+    "sha256": "9a8f4d521d1710ed5445a5cdeff90836036a0d263e8693c93e2c0cbe91a14cd0"
   },
   "measured_week": {
-    "monday": "2026-09-21",
-    "saturday": "2026-09-26",
-    "sunday": "2026-09-27"
+    "monday": "2026-09-28",
+    "saturday": "2026-10-03",
+    "sunday": "2026-10-04"
   },
   "method": {
     "summary": "Stops in a 4 km band either side of the council boundary, along the same coastal strip, bucketed east or west of the line and compared per stop.",
@@ -130,8 +130,8 @@
       },
       "east": {
         "stops": 320,
-        "departures": 27940,
-        "departures_per_stop": 87.3,
+        "departures": 27982,
+        "departures_per_stop": 87.4,
         "routes": 19,
         "departures_after_2300": 1269,
         "route_list": [
@@ -157,7 +157,7 @@
         ]
       },
       "ratio": {
-        "departures_per_stop": 0.738,
+        "departures_per_stop": 0.737,
         "routes": 0.789
       }
     },
@@ -355,7 +355,7 @@
       "monday": {
         "west": {
           "stops": 65,
-          "departures": 2132,
+          "departures": 2135,
           "departures_per_stop": 32.8,
           "routes": 9,
           "departures_after_2300": 95,
