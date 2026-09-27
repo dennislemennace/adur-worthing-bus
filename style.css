@@ -967,13 +967,28 @@ html.dark-mode .map-loading {
   color: var(--color-text-muted);
 }
 
-/* The place panel measures a different geography from the two above it — ONS
-   ward and division polygons rather than a distance band — so it is marked as
-   a different kind of thing rather than read as a third day. The rule is
-   structural, not decorative: remove the panel and the rule goes with it. */
+/* The two highlighted charts: named places either side of the line, by day
+   and at night. The rule marks each as a comparison of real places. */
 .evidence-day--place {
   border-left: 3px solid var(--color-accent);
   background: var(--color-surface);
+}
+.evidence-day--place .evidence-axis { margin-top: 2px; }
+
+/* The plain-language method sits in the open, not behind a disclosure: it is
+   the part a reader needs to trust the charts, and it is short. */
+.evidence-explain { margin-top: var(--space-md); }
+.evidence-explain-title {
+  margin: var(--space-sm) 0 var(--space-2xs);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text);
+}
+.evidence-explain p {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+  color: var(--color-text-muted);
 }
 .evidence-place-eyebrow {
   margin: 0 0 2px;

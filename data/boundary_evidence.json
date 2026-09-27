@@ -7,7 +7,7 @@
   },
   "headline": "Bus service is measurably thinner on the West Sussex side of the Brighton & Hove boundary.",
   "as_of": "2026-09-27",
-  "computed_at": "2026-09-27T09:05:50+00:00",
+  "computed_at": "2026-09-27T21:13:04+00:00",
   "data_version": {
     "source": "Bus Open Data Service, South East regional GTFS bundle",
     "artefact": "data/timetable.sqlite",
@@ -34,7 +34,8 @@
       "Count departures and distinct route short_names per bucket.",
       "Divide by the number of stops in that bucket.",
       "Report Saturday and Sunday as one weekend figure: departures over both days divided by stops x 2, so the unit stays departures per stop per day. Both days' route counts are kept and shown, because Saturday and Sunday are different services.",
-      "Repeat the whole count for two named places either side of the line, Lancing and South Portslade, selecting stops by whether their coordinates fall inside the published ONS boundary polygon rather than by a distance band."
+      "Repeat the whole count for two named places either side of the line, Lancing and South Portslade, selecting stops by whether their coordinates fall inside the published ONS boundary polygon rather than by a distance band.",
+      "For the night comparison, count departures between 23:00 and 05:00 at the stops inside Lancing, North Portslade and South Portslade. A night is named by its evening: departures from 23:00 on that day's timetable (GTFS writes the small hours as 24:00-28:59) plus those before 05:00 on the next day's. Divide by each area's stop count."
     ],
     "denominator": "Departures are divided by the number of stops in the same bucket, so the figure is departures per stop per day, not a total, which would only restate that one side has more stops.",
     "places": {
@@ -70,6 +71,16 @@
           "ons_code": "E05015414",
           "ons_name": "South Portslade",
           "ons_type": "ward"
+        },
+        {
+          "id": "north-portslade",
+          "side": "east",
+          "name": "North Portslade",
+          "council": "Brighton & Hove",
+          "ons_code": "E05015407",
+          "ons_name": "North Portslade",
+          "ons_type": "ward",
+          "night_only": true
         }
       ]
     },
@@ -79,27 +90,62 @@
     {
       "text": "scripts/build_timetable.py keeps a route only if it touches a West Sussex (ATCO 4400) stop or appears on a hand-maintained allowlist of cross-boundary services. Routes running purely inside Brighton & Hove are therefore missing from this database.",
       "direction": "understates",
-      "effect": "The east side of every comparison is under-counted, so the real gap is wider than these figures show."
+      "effect": "The east side of every comparison is under-counted, so the real gap is wider than these figures show.",
+      "applies_to": [
+        "band",
+        "places",
+        "night"
+      ]
     },
     {
       "text": "Departures counted are scheduled, not operated. Cancellations and short-workings are not visible in a timetable feed.",
       "direction": "unknown",
-      "effect": "Could move the comparison either way."
+      "effect": "Could move the comparison either way.",
+      "applies_to": [
+        "band",
+        "places",
+        "night"
+      ]
     },
     {
       "text": "South Portslade sits on a trunk corridor where routes 1, 1X, 2, 2B, 46, 49 and 6 all pass. Part of the gap is that Lancing has no corridor of that kind, which is geography as much as it is council policy.",
       "direction": "overstates",
-      "effect": "Some of the Lancing/Portslade difference would exist whoever ran the buses. It is the point being made, but it should be said rather than left implied."
+      "effect": "Some of the Lancing/Portslade difference would exist whoever ran the buses. It is the point being made, but it should be said rather than left implied. North Portslade, which is inland of that corridor, is in the night comparison to test it.",
+      "applies_to": [
+        "places"
+      ]
     },
     {
       "text": "The weekend figure averages Saturday and Sunday, which are different services on both sides of the line. The panel gives each day's route count for that reason.",
       "direction": "unknown",
-      "effect": "The averaged ratio sits between the two days' ratios, which are close; the route counts are what the average would otherwise flatten."
+      "effect": "The averaged ratio sits between the two days' ratios, which are close; the route counts are what the average would otherwise flatten.",
+      "applies_to": [
+        "band"
+      ]
     },
     {
       "text": "A band drawn at a different width would give different figures. 4 km was chosen to keep the strip comparable in character; widening it folds in Brighton city centre.",
       "direction": "unknown",
-      "effect": "Widening the band favours the east; narrowing it makes the two sides more alike."
+      "effect": "Widening the band favours the east; narrowing it makes the two sides more alike.",
+      "applies_to": [
+        "band"
+      ]
+    },
+    {
+      "text": "Lancing's night count includes National Express coach 025 to London, which needs a booked ticket and is not a local bus.",
+      "direction": "understates",
+      "effect": "Lancing is credited with night buses a local passenger cannot simply board, so its figure is higher than the service they can use.",
+      "applies_to": [
+        "night"
+      ]
+    },
+    {
+      "text": "The figure covers the whole night, 23:00 to 05:00. Most of the difference comes before 01:00, while Portslade's daytime routes are still finishing; after that the N700 through Lancing and the N1 through Portslade run at more similar rates.",
+      "direction": "unknown",
+      "effect": "Someone travelling in the small hours sees a smaller gap than the whole-night figure suggests; someone travelling at 11pm, a larger one.",
+      "applies_to": [
+        "night"
+      ]
     }
   ],
   "days": {
@@ -527,5 +573,148 @@
         "denominator": "Departures across both weekend days divided by stops x 2, so the figure is departures per stop per day and is comparable with the weekday one. Route counts are given for each day separately, because Saturday and Sunday are different services and an average would hide the thinner of the two."
       }
     }
+  },
+  "night": {
+    "id": "night-lancing-vs-portslade",
+    "headline": "After 11pm, Lancing's stops see a fraction of the buses either half of Portslade gets.",
+    "window": {
+      "from": "23:00",
+      "to": "05:00"
+    },
+    "west": "lancing",
+    "east": [
+      "south-portslade",
+      "north-portslade"
+    ],
+    "areas": {
+      "lancing": {
+        "name": "Lancing",
+        "side": "west",
+        "council": "West Sussex",
+        "ons_code": "E58001636",
+        "ons_name": "Lancing ED",
+        "ons_type": "county electoral division"
+      },
+      "south-portslade": {
+        "name": "South Portslade",
+        "side": "east",
+        "council": "Brighton & Hove",
+        "ons_code": "E05015414",
+        "ons_name": "South Portslade",
+        "ons_type": "ward"
+      },
+      "north-portslade": {
+        "name": "North Portslade",
+        "side": "east",
+        "council": "Brighton & Hove",
+        "ons_code": "E05015407",
+        "ons_name": "North Portslade",
+        "ons_type": "ward"
+      }
+    },
+    "nights": {
+      "weeknight": {
+        "evening": "2026-09-28",
+        "morning": "2026-09-29",
+        "by_area": {
+          "lancing": {
+            "stops": 65,
+            "departures": 108,
+            "departures_per_stop": 1.7,
+            "departures_before_0100": 60,
+            "routes": 4,
+            "route_list": [
+              "025",
+              "700",
+              "701",
+              "N700"
+            ]
+          },
+          "south-portslade": {
+            "stops": 43,
+            "departures": 300,
+            "departures_per_stop": 7.0,
+            "departures_before_0100": 258,
+            "routes": 10,
+            "route_list": [
+              "1",
+              "1X",
+              "2",
+              "2B",
+              "46",
+              "49",
+              "6",
+              "700",
+              "N1",
+              "N700"
+            ]
+          },
+          "north-portslade": {
+            "stops": 41,
+            "departures": 259,
+            "departures_per_stop": 6.3,
+            "departures_before_0100": 208,
+            "routes": 4,
+            "route_list": [
+              "1",
+              "1X",
+              "6",
+              "N1"
+            ]
+          }
+        }
+      },
+      "saturday": {
+        "evening": "2026-10-03",
+        "morning": "2026-10-04",
+        "by_area": {
+          "lancing": {
+            "stops": 65,
+            "departures": 103,
+            "departures_per_stop": 1.6,
+            "departures_before_0100": 60,
+            "routes": 4,
+            "route_list": [
+              "025",
+              "700",
+              "701",
+              "N700"
+            ]
+          },
+          "south-portslade": {
+            "stops": 43,
+            "departures": 269,
+            "departures_per_stop": 6.3,
+            "departures_before_0100": 232,
+            "routes": 9,
+            "route_list": [
+              "1",
+              "1X",
+              "2",
+              "46",
+              "49",
+              "6",
+              "700",
+              "N1",
+              "N700"
+            ]
+          },
+          "north-portslade": {
+            "stops": 41,
+            "departures": 227,
+            "departures_per_stop": 5.5,
+            "departures_before_0100": 188,
+            "routes": 4,
+            "route_list": [
+              "1",
+              "1X",
+              "6",
+              "N1"
+            ]
+          }
+        }
+      }
+    },
+    "denominator": "Departures between 23:00 and 05:00 divided by the number of stops inside each area, so the figure is buses per stop per night."
   }
 }

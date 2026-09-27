@@ -784,7 +784,7 @@ def test_place_comparison_is_traceable_to_published_boundaries():
         "effect of the line, and this is what it means somewhere specific")
 
     areas = _load("comparison_areas.json")
-    by_side = {a["side"]: a for a in areas["areas"]}
+    by_side = {a["side"]: a for a in areas["areas"] if not a.get("night_only")}
     assert _nonempty_str(areas.get("source", {}).get("attribution")), (
         "comparison_areas.json: ONS boundary data is OGL v3.0 and carries an "
         "attribution requirement")
@@ -809,6 +809,47 @@ def test_place_comparison_is_traceable_to_published_boundaries():
         "method needs a 'places' section saying how a stop was assigned to an "
         "area — point-in-polygon is not the only defensible choice, so it has "
         "to be the stated one")
+
+
+def test_night_comparison_names_its_window_areas_and_denominator():
+    """The night chart: Lancing against both Portslade wards, 23:00-05:00.
+
+    Checked for schema, not values, like the rest of this file: every area it
+    measures has to be one of the published polygons, and every figure has to
+    be per stop, since a total would only say which area has more stops.
+    """
+    data = _load("boundary_evidence.json")
+    night = data.get("night")
+    assert isinstance(night, dict), (
+        "boundary_evidence.json needs 'night' — the dialog's night chart reads it")
+    assert night.get("window") == {"from": "23:00", "to": "05:00"}
+    assert _nonempty_str(night.get("denominator"))
+
+    polygons = {a["id"]: a for a in _load("comparison_areas.json")["areas"]}
+    measured = [night["west"], *night["east"]]
+    assert len(night["east"]) >= 1
+    for aid in measured:
+        assert aid in polygons, f"night: {aid} has no polygon in comparison_areas.json"
+        assert night["areas"][aid]["ons_code"] == polygons[aid]["ons_code"]
+
+    assert set(night.get("nights", {})) >= {"weeknight", "saturday"}
+    for name, block in night["nights"].items():
+        date.fromisoformat(block["evening"])
+        date.fromisoformat(block["morning"])
+        for aid in measured:
+            area = block["by_area"][aid]
+            assert area["stops"] > 0, f"night/{name}/{aid}: no stops"
+            assert area["departures_per_stop"] == round(area["departures"] / area["stops"], 1)
+            assert 0 <= area["departures_before_0100"] <= area["departures"]
+
+    # An area used only at night must stay out of the daytime pairing, or the
+    # "east" of Lancing against South Portslade quietly becomes two wards.
+    for a in polygons.values():
+        if a.get("night_only"):
+            assert data["places"]["east"]["ons_code"] != a["ons_code"]
+
+    caveats = [c for c in data["caveats"] if "night" in c.get("applies_to", ["night"])]
+    assert caveats, "the night chart shows no caveat of its own"
 
 
 # ── Served map icons ────────────────────────────────────────

@@ -2084,53 +2084,52 @@ async function checkInteractiveSurfaces(page) {
       await screenshot(page, "evidence-dialog");
       await checkLayout(page, "evidence dialog");
       await checkContrastBothThemes(page, "evidence dialog");
-      // The figure has to arrive with its provenance, or it is just a number.
+      // The figure has to arrive with its provenance, or it is just a number,
+      // and with a method a reader can follow without knowing what GTFS is.
       const shown = await page.evaluate(
         `document.getElementById("evidence-body").textContent`);
-      check("the evidence states its method and its caveats",
-        /How this was worked out/.test(shown) && /What would make this wrong/.test(shown),
+      check("the evidence explains its method plainly, and its caveats",
+        /How we worked this out/.test(shown) && /What the border has to do with it/.test(shown)
+          && /What would make this wrong/.test(shown),
         "a derived statistic published without either is not checkable");
+      check("the evidence no longer talks in distance bands",
+        !/\bband\b|4 km|Weekend|Weekday\b/.test(shown),
+        "the band panels and the text explaining them were meant to go");
 
-      // Three panels: a weekday, a merged weekend, and one named place either
-      // side of the line. Two weekend panels used to sit here saying much the
-      // same thing, and the place comparison is the one a resident recognises.
-      const panels = await page.evaluate(`
+      // Two highlighted charts: the named places by day, then at night with
+      // both Portslade wards, North Portslade being the one off the coast road.
+      const panels = JSON.parse(await page.evaluate(`
         (() => {
           const secs = [...document.querySelectorAll("#evidence-body .evidence-day")];
-          return JSON.stringify({
-            titles: secs.map(s => s.querySelector(".evidence-day-title").textContent
-                                   .replace(/\\s+/g, " ").trim()),
-            places: secs.filter(s => s.classList.contains("evidence-day--place")).length,
-          });
-        })()`);
-      const { titles, places } = JSON.parse(panels);
-      check("the evidence shows a weekday and a merged weekend panel",
-        titles.length === 3 && /^Weekday/.test(titles[0]) && /^Weekend/.test(titles[1]),
-        `panels are ${JSON.stringify(titles)}`);
-      check("the weekend panel still names each day's routes",
-        /on Sunday alone/.test(shown),
-        "averaging Saturday with Sunday hides Sunday being the thinner day");
-      check("the evidence compares two named places either side of the line",
-        places === 1 && /Lancing against South Portslade/.test(shown),
-        "the band gives the average effect; this is what it means somewhere specific");
+          return JSON.stringify(secs.map(s => ({
+            title: s.querySelector(".evidence-day-title").textContent.replace(/\\s+/g, " ").trim(),
+            place: s.classList.contains("evidence-day--place"),
+            labels: [...s.querySelectorAll(".evidence-bar-label")].map(l => l.textContent),
+          })));
+        })()`));
+      check("the evidence shows a day chart and a night chart, both highlighted",
+        panels.length === 2 && panels.every(p => p.place)
+          && /^Lancing against South Portslade/.test(panels[0].title)
+          && /^Lancing against Portslade/.test(panels[1].title),
+        JSON.stringify(panels.map(p => p.title)));
+      check("the night chart sets Lancing against both Portslade wards",
+        panels[1] && panels[1].labels.length === 3
+          && panels[1].labels.includes("North Portslade") && panels[1].labels.includes("South Portslade"),
+        JSON.stringify(panels[1] && panels[1].labels));
 
-      // One axis across every panel. A per-panel scale would draw Lancing's
-      // 32.8 the same length as the band's 64.4 and quietly halve the gap.
-      const scale = await page.evaluate(`
-        (() => {
-          const body = document.getElementById("evidence-body");
-          const w = [...body.querySelectorAll(".evidence-bar")]
-                      .map(b => parseFloat(b.style.width));
-          const v = [...body.querySelectorAll(".evidence-bar-value")]
-                      .map(el => parseFloat(el.textContent));
+      // Each chart on its own zero-based scale. The night figures are a
+      // twentieth of the daytime ones; on a shared axis they were slivers.
+      const scales = JSON.parse(await page.evaluate(`
+        (() => JSON.stringify([...document.querySelectorAll("#evidence-body .evidence-day")].map(sec => {
+          const w = [...sec.querySelectorAll(".evidence-bar")].map(b => parseFloat(b.style.width));
+          const v = [...sec.querySelectorAll(".evidence-bar-value")].map(el => parseFloat(el.textContent));
           const k = w.map((x, i) => x / v[i]);
-          return JSON.stringify({ widest: Math.max(...w), bars: w.length,
-                                  spread: Math.max(...k) - Math.min(...k) });
-        })()`);
-      const s = JSON.parse(scale);
-      check("every bar is drawn on the same scale",
-        s.bars === 6 && s.spread < 0.01 && Math.abs(s.widest - 100) < 0.6,
-        `${s.bars} bars, widest ${s.widest}%, scale spread ${s.spread}`);
+          return { widest: Math.max(...w), spread: Math.max(...k) - Math.min(...k),
+                   axis: /start at zero/.test(sec.textContent) };
+        })))()`));
+      check("each chart is drawn from zero on one scale, and says so",
+        scales.length === 2 && scales.every(c => c.spread < 0.02 && Math.abs(c.widest - 100) < 0.6 && c.axis),
+        JSON.stringify(scales));
 
       // The place panel is the last thing in a dialog that is taller than its
       // max-height. Network Objectives once grew past its container and simply

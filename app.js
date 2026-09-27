@@ -1314,16 +1314,6 @@ function loadBoundaryEvidence() {
   return state._boundaryEvidencePromise;
 }
 
-// Saturday and Sunday are published separately in data/boundary_evidence.json
-// and shown as one panel here. Two weekend panels said much the same thing
-// twice and left no room for the comparison that makes the case concrete; the
-// weekend note carries both days' route counts, which is the part an average
-// would have flattened.
-const EVIDENCE_DAYS = [
-  ["monday",  "Weekday"],
-  ["weekend", "Weekend"],
-];
-
 async function openBoundaryEvidence() {
   const dialog = document.getElementById("evidence-dialog");
   const body   = document.getElementById("evidence-body");
@@ -1400,106 +1390,122 @@ function showLiveBusesAtBoundary() {
 }
 
 /**
- * Render the comparison.
+ * Render the comparison: one named place either side of the council line by
+ * day, then the same places at night.
  *
  * Bars are drawn from zero and carry their own number, because a truncated axis
  * turns "two thirds" into a visual wipeout and would overstate a case that does
- * not need overstating. Nothing here is conveyed by colour alone.
+ * not need overstating. Each chart has its own scale, said under it: the night
+ * figures are a twentieth of the daytime ones, and on a shared axis they would
+ * be slivers nobody could compare. Nothing here is conveyed by colour alone.
+ *
+ * The 4 km band figures are still built and published (objectives quote them),
+ * but not shown here: an average over a strip of coast is harder to picture
+ * than two places a reader can name, and it needed a paragraph of its own to
+ * explain before it said anything.
  */
 function renderBoundaryEvidence(data) {
-  const days = data.days || {};
-  const west = (data.sides && data.sides.west) || "West Sussex";
-  const east = (data.sides && data.sides.east) || "Brighton & Hove";
+  const places   = data.places || null;
+  const placeDay = places && places.days ? places.days.monday : null;
+  const night    = data.night || null;
+  const nightOf  = night && night.nights ? night.nights.weeknight : null;
+  const pct      = r => `${Math.round(r * 100)}%`;
+  const fmt      = v => (v >= 10 ? v.toFixed(0) : v.toFixed(1));
 
-  // One scale across every row, so bars are comparable between days as well as
-  // between sides.
-  const places    = data.places || null;
-  const placeDay  = places && places.days ? places.days.monday : null;
-
-  let max = 0;
-  const scaleAgainst = d => {
-    if (!d) return;
-    max = Math.max(max, d.west.departures_per_stop, d.east.departures_per_stop);
-  };
-  for (const [key] of EVIDENCE_DAYS) scaleAgainst(days[key]);
-  scaleAgainst(placeDay);
-  if (!max) max = 1;
-
-  const bar = (label, value, cls) => {
-    const pct = Math.max(2, (value / max) * 100);
-    return `
+  const chart = (rows, unit) => {
+    const max = Math.max(1e-9, ...rows.map(r => r.value));
+    return rows.map(({ label, value, cls }) => `
       <div class="evidence-bar-row">
         <span class="evidence-bar-label">${escapeHtml(label)}</span>
         <span class="evidence-bar-track">
-          <span class="evidence-bar ${cls}" style="width:${pct.toFixed(1)}%"></span>
+          <span class="evidence-bar ${cls}" style="width:${Math.max(2, (value / max) * 100).toFixed(1)}%"></span>
         </span>
         <span class="evidence-bar-value">${value.toFixed(1)}</span>
-      </div>`;
+      </div>`).join("") + `
+      <p class="evidence-axis">${escapeHtml(unit)}. Bars start at zero; the longest is ${fmt(max)}.</p>`;
   };
 
-  const rows = EVIDENCE_DAYS.map(([key, label]) => {
-    const d = days[key];
-    if (!d) return "";
-    const ratio = d.ratio && d.ratio.departures_per_stop;
-    return `
-      <section class="evidence-day">
-        <h3 class="evidence-day-title">
-          ${escapeHtml(label)}
-          ${ratio != null ? `<span class="evidence-day-ratio">${Math.round(ratio * 100)}% of the Brighton side</span>` : ""}
-        </h3>
-        ${bar(west, d.west.departures_per_stop, "evidence-bar--west")}
-        ${bar(east, d.east.departures_per_stop, "evidence-bar--east")}
-        <p class="evidence-day-note">
-          <strong>${d.west.routes}</strong> routes west of the line against
-          <strong>${d.east.routes}</strong> east${
-            // An averaged weekend would hide Sunday being the thinner day, so
-            // the panel that averages it says what it averaged.
-            d.west.routes_sunday != null
-              ? `, and on Sunday alone, <strong>${d.west.routes_sunday}</strong> against <strong>${d.east.routes_sunday}</strong>`
-              : ""}
-          ${d.west.departures_after_2300 != null
-            ? ` · after 23:00, <strong>${d.west.departures_after_2300}</strong> departures against <strong>${d.east.departures_after_2300}</strong>`
-            : ""}.
-        </p>
-      </section>`;
-  }).join("");
-
-  // The band measures the line's average effect; this measures what it means
-  // in one place, which is the form the argument takes when it reaches a
-  // resident. Boundaries are ONS ward and division polygons, not a distance
-  // band, so the two are different geographies and the panel says so.
-  const placeSection = (() => {
+  // By day: Lancing against South Portslade, weekday.
+  const daySection = (() => {
     if (!places || !placeDay) return "";
-    const sunday = places.days.sunday;
     const ratio  = placeDay.ratio && placeDay.ratio.departures_per_stop;
+    const shared = (placeDay.west.route_list || [])
+      .filter(r => (placeDay.east.route_list || []).includes(r));
     return `
       <section class="evidence-day evidence-day--place">
-        <p class="evidence-place-eyebrow">One place either side of the line</p>
+        <p class="evidence-place-eyebrow">By day</p>
         <h3 class="evidence-day-title">
           ${escapeHtml(places.west.name)} against ${escapeHtml(places.east.name)}
-          ${ratio != null ? `<span class="evidence-day-ratio">${Math.round(ratio * 100)}% of ${escapeHtml(places.east.name)}</span>` : ""}
+          ${ratio != null ? `<span class="evidence-day-ratio">${pct(ratio)} of ${escapeHtml(places.east.name)}</span>` : ""}
         </h3>
-        ${bar(places.west.name, placeDay.west.departures_per_stop, "evidence-bar--west")}
-        ${bar(places.east.name, placeDay.east.departures_per_stop, "evidence-bar--east")}
+        ${chart([
+          { label: places.west.name, value: placeDay.west.departures_per_stop, cls: "evidence-bar--west" },
+          { label: places.east.name, value: placeDay.east.departures_per_stop, cls: "evidence-bar--east" },
+        ], "Buses per stop, per weekday")}
         <p class="evidence-day-note">
-          Weekday departures per stop, six miles apart along the same coast road.
-          ${escapeHtml(places.west.name)} has <strong>${placeDay.west.routes}</strong>
-          routes across <strong>${places.west.stops}</strong> stops against
-          <strong>${placeDay.east.routes}</strong> across
-          <strong>${places.east.stops}</strong>${
-            // The point is frequency, not choice — but only while the two route
-            // counts really are close. If a rebuild pulls them apart the clause
-            // drops out rather than becoming a claim the figures contradict.
-            placeDay.ratio && placeDay.ratio.routes >= 0.8
-              ? ", much the same choice of route" : ""}${
-            ratio != null ? `, and <strong>${Math.round(ratio * 100)}%</strong> of the buses` : ""}${sunday
-            ? `. On a Sunday it is <strong>${sunday.west.routes}</strong> routes against <strong>${sunday.east.routes}</strong>`
-            : ""}.
+          A bus stop in ${escapeHtml(places.west.name)} sees
+          <strong>${placeDay.west.departures_per_stop.toFixed(0)}</strong> buses on a
+          weekday; one in ${escapeHtml(places.east.name)} sees
+          <strong>${placeDay.east.departures_per_stop.toFixed(0)}</strong>.${
+            shared.length && shared.length < (placeDay.east.route_list || []).length
+              ? ` Of ${escapeHtml(places.east.name)}'s <strong>${placeDay.east.routes}</strong>
+                 routes, only <strong>${escapeHtml(shared.join(" and "))}</strong>
+                 ${shared.length === 1 ? "also serves" : "also serve"} ${escapeHtml(places.west.name)}.`
+              : ""}
         </p>
       </section>`;
   })();
 
-  const caveats = (data.caveats || []).map(c => `
+  // At night: Lancing against both Portslade wards, 23:00-05:00. North
+  // Portslade is inland of the A259, so it answers "that's just the coast
+  // road" — the objection the daytime pairing invites.
+  const nightSection = (() => {
+    if (!night || !nightOf) return "";
+    const by   = nightOf.by_area || {};
+    const west = by[night.west];
+    const name = id => (night.areas[id] || {}).name || id;
+    // North before South, the way they sit on the map.
+    const east = (night.east || []).map(id => ({ id, ...by[id] })).filter(e => e.stops)
+      .sort((x, y) => name(x.id).localeCompare(name(y.id)));
+    if (!west || !east.length) return "";
+    const ratios = east.filter(e => e.departures_per_stop)
+      .map(e => west.departures_per_stop / e.departures_per_stop).sort((x, y) => x - y);
+    const range = !ratios.length ? ""
+      : pct(ratios[0]) === pct(ratios[ratios.length - 1]) ? pct(ratios[0])
+      : `${Math.round(ratios[0] * 100)}–${pct(ratios[ratios.length - 1])}`;
+    const sat  = night.nights.saturday && night.nights.saturday.by_area;
+    const list = arr => arr.length > 1 ? `${arr.slice(0, -1).join(", ")} and ${arr[arr.length - 1]}` : arr[0];
+    const early = e => (e.departures_before_0100 / e.stops);
+    return `
+      <section class="evidence-day evidence-day--place evidence-day--night">
+        <p class="evidence-place-eyebrow">At night, ${escapeHtml(night.window.from)} to ${escapeHtml(night.window.to)}</p>
+        <h3 class="evidence-day-title">
+          ${escapeHtml(name(night.west))} against Portslade
+          ${range ? `<span class="evidence-day-ratio">${range} of Portslade</span>` : ""}
+        </h3>
+        ${chart([
+          { label: name(night.west), value: west.departures_per_stop, cls: "evidence-bar--west" },
+          ...east.map(e => ({ label: name(e.id), value: e.departures_per_stop, cls: "evidence-bar--east" })),
+        ], "Buses per stop on a weeknight, 11pm to 5am")}
+        <p class="evidence-day-note">
+          Between 11pm and 5am a stop in ${escapeHtml(name(night.west))} sees
+          <strong>${west.departures_per_stop.toFixed(1)}</strong> buses, against
+          ${list(east.map(e => `<strong>${e.departures_per_stop.toFixed(1)}</strong> in ${escapeHtml(name(e.id))}`))}.${
+            sat && sat[night.west]
+              ? ` On a Saturday night it is <strong>${sat[night.west].departures_per_stop.toFixed(1)}</strong>
+                 against ${list(east.filter(e => sat[e.id]).map(e =>
+                   `<strong>${sat[e.id].departures_per_stop.toFixed(1)}</strong>`))}.`
+              : ""}
+          The gap is widest before 1am, about <strong>${early(west).toFixed(1)}</strong>
+          buses a stop against <strong>${Math.min(...east.map(early)).toFixed(1)}</strong> or more,
+          while Portslade's daytime routes are still running.
+        </p>
+      </section>`;
+  })();
+
+  const shownIn = c => !Array.isArray(c.applies_to)
+    || c.applies_to.includes("places") || c.applies_to.includes("night");
+  const caveats = (data.caveats || []).filter(shownIn).map(c => `
     <li class="evidence-caveat evidence-caveat--${escapeAttr(c.direction || "unknown")}">
       <span class="evidence-caveat-tag">${escapeHtml(
         c.direction === "understates" ? "Understates the gap"
@@ -1508,18 +1514,20 @@ function renderBoundaryEvidence(data) {
       ${escapeHtml(c.text)} ${c.effect ? `<em>${escapeHtml(c.effect)}</em>` : ""}
     </li>`).join("");
 
-  const method = data.method || {};
+  const method  = data.method || {};
+  const week    = data.measured_week || {};
+  const weekDay = week.monday ? formatCheckedDate(week.monday) : "";
+  const bounds  = (method.places && method.places.boundaries) || {};
+  const westName = places ? places.west.name : "Lancing";
   return `
     <button type="button" class="evidence-close" data-close-evidence aria-label="Close">&times;</button>
     <p class="evidence-eyebrow">Council boundary</p>
     <h2 class="evidence-title" id="evidence-title">${escapeHtml(
       data.headline || "Bus service either side of the boundary")}</h2>
     <p class="evidence-standfirst">
-      Scheduled departures <strong>per stop</strong>, in a
-      ${escapeHtml(String((method.band && method.band.approx_half_width_km) || 4))} km band
-      either side of the line along the same coastal strip, so the two sides are
-      the same kind of place. The last panel leaves the band behind and compares
-      two named places, one each side.
+      ${escapeHtml(westName)}, in West Sussex, and Portslade, in Brighton &amp; Hove,
+      sit a few miles apart on the same stretch of coast. These charts count the
+      buses the timetable sends past their stops.
     </p>
     <div class="evidence-live">
       <p>
@@ -1532,17 +1540,26 @@ function renderBoundaryEvidence(data) {
         <span>Show the live buses here</span>
       </button>
     </div>
-    <div class="evidence-days">${rows}${placeSection}</div>
-    <p class="evidence-axis">
-      Bars start at zero and share one scale across every panel,
-      0 to ${max.toFixed(1)} departures per stop, per day.
-    </p>
+    <div class="evidence-days">${daySection}${nightSection}</div>
+    <section class="evidence-explain">
+      <h3 class="evidence-explain-title">How we worked this out</h3>
+      <p>We took the published bus timetable for one real week${weekDay
+        ? `, starting ${escapeHtml(weekDay)},` : ""} and, for every bus stop inside
+        each area, counted how many times a bus is due to leave it. Then we divided
+        by the number of stops, so a bigger place doesn't come out ahead just for
+        having more of them. The areas are the official ward and division
+        boundaries, not lines we drew. The night chart counts only buses between
+        11pm and 5am.</p>
+      <h3 class="evidence-explain-title">What the border has to do with it</h3>
+      <p>The line between West Sussex County Council and Brighton &amp; Hove City
+        Council runs through Portslade. Each council plans the buses on its own
+        side, in its own Bus Service Improvement Plan, and nothing is planned
+        across the line. So Portslade gets Brighton's frequent, late-running
+        network, and a few miles west ${escapeHtml(westName)} gets a thinner one,
+        though people travel along this coast as if the line weren't there.</p>
+    </section>
     <details class="evidence-method">
-      <summary>How this was worked out</summary>
-      <p>${escapeHtml(method.summary || "")}</p>
-      ${method.denominator ? `<p>${escapeHtml(method.denominator)}</p>` : ""}
-      ${Array.isArray(method.steps) ? `<ol>${method.steps.map(x =>
-        `<li>${escapeHtml(x)}</li>`).join("")}</ol>` : ""}
+      <summary>Sources, and what would make this wrong</summary>
       ${caveats ? `<p class="evidence-caveats-title">What would make this wrong</p>
         <ul class="evidence-caveats">${caveats}</ul>` : ""}
       <p class="evidence-provenance">
@@ -1552,7 +1569,8 @@ function renderBoundaryEvidence(data) {
           (data.data_version || {}).sha256
             ? ` · data <span class="mono">${escapeHtml(data.data_version.sha256.slice(0, 12))}</span>` : ""}.
         Recomputed by <span class="mono">${escapeHtml(method.script || "scripts/build_evidence.py")}</span>
-        on every timetable rebuild.
+        on every timetable rebuild.${bounds.attribution
+          ? ` Area boundaries: ${escapeHtml(bounds.name || "ONS")}, ${escapeHtml(bounds.licence || "")}. ${escapeHtml(bounds.attribution)}` : ""}
       </p>
     </details>`;
 }

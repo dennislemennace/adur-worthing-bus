@@ -98,6 +98,33 @@ pass. Part of the gap is that Lancing has no corridor of that kind — which is
 the argument being made, but it is geography as much as it is council policy,
 and some of the difference would exist whoever ran the buses.
 
+### At night: Lancing against both halves of Portslade
+
+The same per-stop count, restricted to departures between **23:00 and 05:00**.
+A night is named by its evening: departures from 23:00 on that day's timetable
+(the small hours are written 24:00–28:59) plus those before 05:00 on the next
+day's. North Portslade ward (`E05015407`) is added here because it is inland
+of the A259, so it tests the trunk-corridor objection above: if the gap were
+only the coast road, North Portslade would look like Lancing. It does not.
+Measured on the nights of Monday 28 September and Saturday 3 October 2026, from the timetable rebuilt on 27 September; the week before gave the same figures.
+
+| Buses per stop, 23:00–05:00 | Lancing (WSCC) | North Portslade (BHCC) | South Portslade (BHCC) |
+|---|---:|---:|---:|
+| Stops | 65 | 41 | 43 |
+| Weeknight | **1.7** | **6.3** | **7.0** |
+| Saturday night | 1.6 | 5.5 | 6.3 |
+
+Lancing gets **24–27 %** of Portslade's night service. Most of the gap falls
+before 01:00, while Portslade's daytime routes are still finishing: about 0.9
+buses a stop in Lancing against 5.1–6.0 in Portslade. After 01:00 the N700 and
+the N1 run at closer rates (0.7 against 1.0–1.2). Lancing's count also includes
+National Express coach 025, which needs a booked ticket, so its figure flatters
+the service a local passenger can actually use.
+
+Recomputed with everything else by `scripts/build_evidence.py` into the `night`
+block of `data/boundary_evidence.json`, which is what the map's boundary dialog
+draws.
+
 ### An important caveat, and which way it cuts
 
 `scripts/build_timetable.py` keeps a route if it touches a West Sussex (ATCO

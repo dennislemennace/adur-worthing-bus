@@ -1,5 +1,5 @@
 {
-  "_comment": "Two administrative areas the site compares directly, one either side of the council boundary. Polygons are stored rather than fetched so the evidence build is reproducible offline and the figures cannot silently move when a remote service changes. Rings follow the ArcGIS convention; membership is decided by the even-odd rule across all rings, so an enclosed hole counts as outside. See scripts/build_evidence.py and .claude/skills/evidence-provenance.",
+  "_comment": "Administrative areas the site compares directly either side of the council boundary. An area marked night_only is used by the night comparison and nowhere else. Polygons are stored rather than fetched so the evidence build is reproducible offline and the figures cannot silently move when a remote service changes. Rings follow the ArcGIS convention; membership is decided by the even-odd rule across all rings, so an enclosed hole counts as outside. See scripts/build_evidence.py and .claude/skills/evidence-provenance.",
   "source": {
     "name": "ONS Open Geography Portal",
     "datasets": [
@@ -388,6 +388,162 @@
           [
             -0.205845,
             50.835687
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "north-portslade",
+      "side": "east",
+      "name": "North Portslade",
+      "council": "Brighton & Hove",
+      "ons_code": "E05015407",
+      "ons_name": "North Portslade",
+      "ons_type": "ward",
+      "night_only": true,
+      "retrieved": "2026-09-27",
+      "why": "Measured at night only. It is inland of the A259, so it tests whether the gap follows the council line or only the coast-road corridor that South Portslade sits on.",
+      "rings": [
+        [
+          [
+            -0.213882,
+            50.870465
+          ],
+          [
+            -0.211939,
+            50.860996
+          ],
+          [
+            -0.210657,
+            50.857228
+          ],
+          [
+            -0.211693,
+            50.855618
+          ],
+          [
+            -0.211654,
+            50.854155
+          ],
+          [
+            -0.209716,
+            50.849279
+          ],
+          [
+            -0.20833,
+            50.847052
+          ],
+          [
+            -0.21656,
+            50.845155
+          ],
+          [
+            -0.218387,
+            50.844032
+          ],
+          [
+            -0.223173,
+            50.842985
+          ],
+          [
+            -0.226001,
+            50.842875
+          ],
+          [
+            -0.228403,
+            50.845634
+          ],
+          [
+            -0.229324,
+            50.845734
+          ],
+          [
+            -0.230616,
+            50.848318
+          ],
+          [
+            -0.234333,
+            50.85111
+          ],
+          [
+            -0.235383,
+            50.852412
+          ],
+          [
+            -0.236382,
+            50.857522
+          ],
+          [
+            -0.238994,
+            50.858722
+          ],
+          [
+            -0.239753,
+            50.861952
+          ],
+          [
+            -0.241505,
+            50.862876
+          ],
+          [
+            -0.244716,
+            50.863435
+          ],
+          [
+            -0.244971,
+            50.863809
+          ],
+          [
+            -0.240576,
+            50.865202
+          ],
+          [
+            -0.239798,
+            50.866048
+          ],
+          [
+            -0.239238,
+            50.867886
+          ],
+          [
+            -0.238754,
+            50.869719
+          ],
+          [
+            -0.237551,
+            50.87179
+          ],
+          [
+            -0.23382,
+            50.875158
+          ],
+          [
+            -0.232671,
+            50.875939
+          ],
+          [
+            -0.226719,
+            50.878181
+          ],
+          [
+            -0.225522,
+            50.878068
+          ],
+          [
+            -0.224647,
+            50.877239
+          ],
+          [
+            -0.224555,
+            50.876292
+          ],
+          [
+            -0.214147,
+            50.875179
+          ],
+          [
+            -0.213882,
+            50.870465
           ]
         ]
       ]

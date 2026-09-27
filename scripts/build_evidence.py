@@ -43,6 +43,12 @@ BAND_LON   = 0.057           # ~4 km at this latitude
 LAT_MIN    = 50.818
 LAT_MAX    = 50.855
 NIGHT_FROM = 23 * 3600       # "late" for the late-service comparison
+NIGHT_TO   = 5 * 3600        # ...and when the night ends, the next morning
+
+# The two nights the night comparison measures: an ordinary weeknight, and the
+# one people most need a bus home from. A night is named by the evening it
+# starts on and runs to five the next morning.
+NIGHTS = (("weeknight", "monday"), ("saturday", "saturday"))
 
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday",
             "friday", "saturday", "sunday")
@@ -56,6 +62,12 @@ DAYS = ("monday", "saturday", "sunday")
 # average cannot hide Sunday being the thinner of the two.
 WEEKEND = ("saturday", "sunday")
 
+# `--week-of YYYY-MM-DD` measures the week starting on or after that date
+# instead of the coming one. For re-running against a timetable fetched some
+# days ago, whose coming week can run past the end of what it covers: the
+# figures then fall off a cliff that is the file's horizon, not the service.
+WEEK_OF = None
+
 
 def sample_week(from_day: date = None) -> dict:
     """A concrete week to measure, so a figure can be quoted with its date.
@@ -64,7 +76,7 @@ def sample_week(from_day: date = None) -> dict:
     picking one, and saying which.
     """
     from datetime import timedelta
-    base = from_day or date.today()
+    base = from_day or WEEK_OF or date.today()
     monday = base + timedelta(days=(0 - base.weekday()) % 7)
     return {name: monday + timedelta(days=i) for i, name in enumerate(WEEKDAYS)}
 
@@ -136,6 +148,8 @@ def bucket_stops(con: sqlite3.Connection, areas: dict) -> tuple:
             found.append(("band", side))
             counts["band"][side] += 1
         for area in areas["areas"]:
+            if area.get("night_only"):
+                continue
             x0, y0, x1, y1 = boxes[area["id"]]
             if not (x0 <= lon <= x1 and y0 <= lat <= y1):
                 continue
@@ -154,9 +168,8 @@ def bucket_stops(con: sqlite3.Connection, areas: dict) -> tuple:
     return members, counts
 
 
-def measure(con: sqlite3.Connection, areas: dict) -> tuple:
-    members, counts = bucket_stops(con, areas)
-
+def service_runner(con: sqlite3.Connection, week: dict):
+    """runs(service_id, day) for the dated week being measured."""
     # Calendars carry their validity window, because "does this row mention
     # Monday" is not the same question as "does this bus run on that Monday".
     # This feed describes one real service with several calendars covering term
@@ -178,8 +191,6 @@ def measure(con: sqlite3.Connection, areas: dict) -> tuple:
     ):
         exceptions.setdefault(service_id, {})[date_str] = str(exc)
 
-    week = sample_week()
-
     def runs(service_id, day):
         stamp = week[day].strftime("%Y%m%d")
         ex = exceptions.get(service_id, {})
@@ -193,6 +204,21 @@ def measure(con: sqlite3.Connection, areas: dict) -> tuple:
         if cal["end_date"] and stamp > cal["end_date"]:
             return False
         return cal.get(day) == "1"
+
+    memo = {}
+
+    def cached(service_id, day):
+        key = (service_id, day)
+        if key not in memo:
+            memo[key] = runs(service_id, day)
+        return memo[key]
+    return cached
+
+
+def measure(con: sqlite3.Connection, areas: dict) -> tuple:
+    members, counts = bucket_stops(con, areas)
+    runs = service_runner(con, sample_week())
+
     trip_service = {}
     trip_route = {}
     for tid, rid, service_id in con.execute("SELECT tid, rid, service_id FROM trips"):
@@ -205,7 +231,6 @@ def measure(con: sqlite3.Connection, areas: dict) -> tuple:
                        "routes": defaultdict(set)} for d in DAYS}
                for g in ("band", "places")}
 
-    runs_memo = {}
     for sid, tid, dep in con.execute("SELECT sid, tid, dep_secs FROM stop_times"):
         where = members.get(sid)
         if not where:
@@ -214,10 +239,7 @@ def measure(con: sqlite3.Connection, areas: dict) -> tuple:
         short = routes.get(trip_route.get(tid), "")
         late = dep is not None and dep >= NIGHT_FROM
         for day in DAYS:
-            key = (service_id, day)
-            if key not in runs_memo:
-                runs_memo[key] = runs(service_id, day)
-            if not runs_memo[key]:
+            if not runs(service_id, day):
                 continue
             for group, side in where:
                 slot = per_day[group][day]
@@ -246,6 +268,88 @@ def measure(con: sqlite3.Connection, areas: dict) -> tuple:
     for g in out:
         out[g]["weekend"] = weekend_block(out[g])
     return out, counts
+
+
+def measure_night(con: sqlite3.Connection, areas: dict) -> dict:
+    """Buses between 23:00 and 05:00 in each named place, per stop.
+
+    A night is the evening it starts on: departures from 23:00 on that day's
+    timetable (GTFS writes the small hours as 24:xx and later, up to 29:00),
+    plus departures before 05:00 on the next day's. Counting one service day's
+    23:00-05:00 instead would add the *previous* night's small hours to this
+    one's evening and describe no night that anybody travels on.
+
+    Every named area is measured, including those used only here: North
+    Portslade is not on the coast road, so it answers the objection that the
+    daytime gap is the A259 corridor rather than the council line.
+    """
+    week = sample_week()
+    runs = service_runner(con, week)
+    boxes = {a["id"]: bbox(a["rings"]) for a in areas["areas"]}
+    member, stops = {}, Counter()
+    for sid, lat, lon in con.execute("SELECT sid, lat, lon FROM stops"):
+        if lat is None or lon is None:
+            continue
+        for area in areas["areas"]:
+            x0, y0, x1, y1 = boxes[area["id"]]
+            if x0 <= lon <= x1 and y0 <= lat <= y1 and in_rings(area["rings"], lon, lat):
+                member[sid] = area["id"]
+                stops[area["id"]] += 1
+                break
+    for area in areas["areas"]:
+        if not stops[area["id"]]:
+            sys.exit(f"No stops inside {area['name']} — check its polygon.")
+
+    trips = {tid: (rid, service_id) for tid, rid, service_id in
+             con.execute("SELECT tid, rid, service_id FROM trips")}
+    routes = {rid: short for rid, short in con.execute(
+        "SELECT rid, short_name FROM routes")}
+    count = {n: Counter() for n, _ in NIGHTS}
+    early = {n: Counter() for n, _ in NIGHTS}
+    lines = {n: defaultdict(set) for n, _ in NIGHTS}
+    for sid, tid, dep in con.execute("SELECT sid, tid, dep_secs FROM stop_times"):
+        area = member.get(sid)
+        if not area or dep is None or tid not in trips:
+            continue
+        rid, service_id = trips[tid]
+        for name, evening in NIGHTS:
+            morning = WEEKDAYS[(WEEKDAYS.index(evening) + 1) % 7]
+            if NIGHT_FROM <= dep < 86400 + NIGHT_TO:
+                if not runs(service_id, evening):
+                    continue
+            elif dep < NIGHT_TO:
+                if not runs(service_id, morning):
+                    continue
+            else:
+                continue
+            count[name][area] += 1
+            # Before 01:00 whichever day's timetable the trip is filed under:
+            # 24:30 on the evening's, or 00:30 on the morning's.
+            if dep % 86400 >= NIGHT_FROM or dep % 86400 < 3600:
+                early[name][area] += 1
+            if routes.get(rid):
+                lines[name][area].add(routes[rid])
+
+    out = {}
+    for name, evening in NIGHTS:
+        by_area = {}
+        for area in areas["areas"]:
+            aid = area["id"]
+            by_area[aid] = {
+                "stops": stops[aid],
+                "departures": count[name][aid],
+                "departures_per_stop": round(count[name][aid] / stops[aid], 1),
+                # Where in the night the service is: the late evening, while
+                # day routes are still finishing, or the small hours.
+                "departures_before_0100": early[name][aid],
+                "routes": len(lines[name][aid]),
+                "route_list": sorted(lines[name][aid]),
+            }
+        morning = WEEKDAYS[(WEEKDAYS.index(evening) + 1) % 7]
+        out[name] = {"evening": week[evening].isoformat(),
+                     "morning": week[morning].isoformat(),
+                     "by_area": by_area}
+    return out
 
 
 def with_ratio(out: dict) -> dict:
@@ -298,14 +402,50 @@ def weekend_block(days_out: dict) -> dict:
     return out
 
 
+def night_caveats(night: dict) -> list:
+    """Caveats that depend on what the night count found, so they are
+    worked out from it rather than written in advance and left to go wrong."""
+    out = []
+    lancing = [n["by_area"]["lancing"] for n in night.values()]
+    if any("025" in n["route_list"] for n in lancing):
+        out.append({
+            "text": (
+                "Lancing's night count includes National Express coach 025 to "
+                "London, which needs a booked ticket and is not a local bus."),
+            "direction": "understates",
+            "effect": (
+                "Lancing is credited with night buses a local passenger cannot "
+                "simply board, so its figure is higher than the service they "
+                "can use."),
+            "applies_to": ["night"],
+        })
+    out.append({
+        "text": (
+            "The figure covers the whole night, 23:00 to 05:00. Most of the "
+            "difference comes before 01:00, while Portslade's daytime routes "
+            "are still finishing; after that the N700 through Lancing and the "
+            "N1 through Portslade run at more similar rates."),
+        "direction": "unknown",
+        "effect": (
+            "Someone travelling in the small hours sees a smaller gap than the "
+            "whole-night figure suggests; someone travelling at 11pm, a larger one."),
+        "applies_to": ["night"],
+    })
+    return out
+
+
 def main() -> None:
+    global WEEK_OF
+    if "--week-of" in sys.argv:
+        WEEK_OF = date.fromisoformat(sys.argv[sys.argv.index("--week-of") + 1])
     if not DB.exists():
         sys.exit(f"{DB} is missing. Run scripts/json_to_sqlite.py first.")
     con = sqlite3.connect(DB)
     areas = load_areas()
     measured, counts = measure(con, areas)
     days = measured["band"]
-    by_side = {a["side"]: a for a in areas["areas"]}
+    by_side = {a["side"]: a for a in areas["areas"] if not a.get("night_only")}
+    night = measure_night(con, areas)
 
     doc = {
         "_comment": (
@@ -358,6 +498,12 @@ def main() -> None:
                 "line, Lancing and South Portslade, selecting stops by whether "
                 "their coordinates fall inside the published ONS boundary "
                 "polygon rather than by a distance band.",
+                "For the night comparison, count departures between 23:00 and "
+                "05:00 at the stops inside Lancing, North Portslade and South "
+                "Portslade. A night is named by its evening: departures from "
+                "23:00 on that day's timetable (GTFS writes the small hours as "
+                "24:00-28:59) plus those before 05:00 on the next day's. Divide "
+                "by each area's stop count.",
             ],
             "denominator": (
                 "Departures are divided by the number of stops in the same bucket, "
@@ -376,8 +522,9 @@ def main() -> None:
                     "enclosed holes count as outside."),
                 "boundaries": areas.get("source", {}),
                 "areas": [
-                    {k: a[k] for k in
-                     ("id", "side", "name", "council", "ons_code", "ons_name", "ons_type")}
+                    {**{k: a[k] for k in
+                        ("id", "side", "name", "council", "ons_code", "ons_name", "ons_type")},
+                     **({"night_only": True} if a.get("night_only") else {})}
                     for a in areas["areas"]
                 ],
             },
@@ -395,6 +542,7 @@ def main() -> None:
                 "effect": (
                     "The east side of every comparison is under-counted, so the "
                     "real gap is wider than these figures show."),
+                "applies_to": ["band", "places", "night"],
             },
             {
                 "text": (
@@ -402,6 +550,7 @@ def main() -> None:
                     "and short-workings are not visible in a timetable feed."),
                 "direction": "unknown",
                 "effect": "Could move the comparison either way.",
+                "applies_to": ["band", "places", "night"],
             },
             {
                 "text": (
@@ -413,7 +562,10 @@ def main() -> None:
                 "effect": (
                     "Some of the Lancing/Portslade difference would exist "
                     "whoever ran the buses. It is the point being made, but it "
-                    "should be said rather than left implied."),
+                    "should be said rather than left implied. North Portslade, "
+                    "which is inland of that corridor, is in the night "
+                    "comparison to test it."),
+                "applies_to": ["places"],
             },
             {
                 "text": (
@@ -425,6 +577,7 @@ def main() -> None:
                     "The averaged ratio sits between the two days' ratios, which "
                     "are close; the route counts are what the average would "
                     "otherwise flatten."),
+                "applies_to": ["band"],
             },
             {
                 "text": (
@@ -435,7 +588,9 @@ def main() -> None:
                 "effect": (
                     "Widening the band favours the east; narrowing it makes the "
                     "two sides more alike."),
+                "applies_to": ["band"],
             },
+            *night_caveats(night),
         ],
         "days": days,
         "places": {
@@ -451,6 +606,23 @@ def main() -> None:
                      "stops": counts["places"]["east"]},
             "days": measured["places"],
         },
+        "night": {
+            "id": "night-lancing-vs-portslade",
+            "headline": (
+                "After 11pm, Lancing's stops see a fraction of the buses either "
+                "half of Portslade gets."),
+            "window": {"from": "23:00", "to": "05:00"},
+            "west": "lancing",
+            "east": [a["id"] for a in areas["areas"] if a["side"] == "east"],
+            "areas": {a["id"]: {k: a[k] for k in
+                                ("name", "side", "council", "ons_code", "ons_name", "ons_type")}
+                      for a in areas["areas"]},
+            "nights": night,
+            "denominator": (
+                "Departures between 23:00 and 05:00 divided by the number of "
+                "stops inside each area, so the figure is buses per stop per "
+                "night."),
+        },
     }
 
     OUT.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -460,6 +632,9 @@ def main() -> None:
               f"vs east {block['east']['departures_per_stop']} per stop "
               f"({block['ratio']['departures_per_stop']:.0%}), "
               f"{block['west']['routes']} routes vs {block['east']['routes']}")
+    for name, block in night.items():
+        print(f"  {name} night 23:00-05:00 per stop: " + ", ".join(
+            f"{aid} {v['departures_per_stop']}" for aid, v in block["by_area"].items()))
     pl = measured["places"]["monday"]
     print(f"  Lancing ({counts['places']['west']} stops) vs South Portslade "
           f"({counts['places']['east']} stops), weekday: "
