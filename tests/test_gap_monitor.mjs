@@ -75,7 +75,6 @@ function freshApp() {
                    setAttribute(k, v) { this.attrs[k] = v; } };
   dom.gapMonitor = host;
   dom.gapMonitorLive = { set textContent(v) { said.push(v); }, get textContent() { return said.at(-1) || ""; } };
-  dom.gapAlertBtn = button;
   state.viewMode = "live";
   return { app, dom, state, host, said, button };
 }
@@ -179,14 +178,16 @@ test("pausing live positions hides the monitor", async () => {
 
 // ── What it says ────────────────────────────────────────────
 
-test("a normal service is one line for the corridor, with the detail folded away", () => {
+// Since 28 Sep 2026 the monitor is a circle over the map: its state in the
+// colour, the icon and the label, with the detail in a card it opens.
+test("a normal service is a green circle with a tick, the detail folded away", () => {
   const { app } = freshApp();
   const html = app.gapMonitorHtml(NORMAL);
-  const summaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)]
-    .map(m => m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
-  assert.deepEqual(summaries, ["A259 Coast Rd: no confirmed long gaps"]);
+  assert.match(html, /class="gap-fab gap-fab--ok"/);
+  assert.match(html, /href="#i-check"/, "the state is carried by colour alone");
+  assert.match(html, /aria-label="A259 Coast Rd: no confirmed long gaps\. Show details"/);
   assert.doesNotMatch(html, /gap-monitor--alert/);
-  assert.doesNotMatch(html, /<details[^>]*\bopen\b/, "the detail should start closed");
+  assert.match(html, /id="gap-pop"[^>]*\shidden>/, "the detail should start closed");
   assert.match(html, /700 in 4 min/);
   assert.match(html, /700 in 14 min \(timetable\)/);
   assert.match(html, /2 due now/);
@@ -211,7 +212,9 @@ test("each line reads stop, direction, then times, with a stop's directions toge
 test("an alert names the direction, the stop, the times, the timetable's gap and the missing buses", () => {
   const { app } = freshApp();
   const html = app.gapMonitorHtml(brightonAlert());
-  assert.match(html, /<summary>[\s\S]*A259 Coast Rd: long gap towards Brighton/);
+  assert.match(html, /class="gap-fab gap-fab--alert"[\s\S]*href="#i-alert"/);
+  assert.match(html, /aria-label="A259 Coast Rd: long gap towards Brighton\. Show details"/);
+  assert.match(html, /gap-monitor-text">A259 Coast Rd: long gap towards Brighton/);
   assert.match(html, /No bus towards Brighton is expected at Shoreham High Street between 12:31 and 13:03, a gap of 32 minutes/);
   assert.match(html, /timetable's own gap there is 10 minutes/);
   assert.match(html, /2 scheduled buses in that time are not sending their positions/);
@@ -255,29 +258,24 @@ test("a new alert is announced once, not on every refresh", () => {
 });
 
 test("an open tracker stays open across a refresh", () => {
-  const { app, host } = freshApp();
+  const { app, host, state } = freshApp();
   app.renderGapMonitor(NORMAL);
-  host.querySelector = (sel) => sel === "details" ? { open: true, contains: () => false } : null;
+  state.gapPopOpen = true;
   app.renderGapMonitor(NORMAL);
-  assert.match(host.innerHTML, /<details[^>]*\bopen\b/);
+  assert.match(host.innerHTML, /aria-expanded="true"/);
+  assert.doesNotMatch(host.innerHTML, /id="gap-pop"[^>]*\shidden>/, "the minute's refresh closed the card");
 });
 
-// ── The way in on a phone ───────────────────────────────────
-// At the resting sheet height the monitor is below the fold, so an alert with
-// no other sign would go unseen. The status-pill button is that sign, and it
-// must exist only while there is an alert: in normal service it costs the map
-// nothing.
-
-test("the status-pill alert button appears only during an alert, naming the direction", () => {
-  const { app, button } = freshApp();
-  app.renderGapMonitor(NORMAL);
-  assert.equal(button.hidden, true, "a normal service put a button over the map");
-  app.renderGapMonitor(brightonAlert());
-  assert.equal(button.hidden, false);
-  assert.match(button.attrs["aria-label"],
-    /A259 Coast Rd: long gap at Shoreham High Street towards Brighton/);
-  app.renderGapMonitor(null);
-  assert.equal(button.hidden, true, "the alert button outlived the alert");
+test("a gap awaiting confirmation is an amber circle with a clock", () => {
+  const { app } = freshApp();
+  const held = direction("worthing");
+  held.stops[0].longest_gap = { minutes: 30, from: "12:00", to: "12:30",
+                                timetable_minutes: 12, not_reporting: 0,
+                                alert: false, pending: true };
+  const html = app.gapMonitorHtml({ ...NORMAL, directions: [held] });
+  assert.match(html, /checking a possible long gap/);
+  assert.match(html, /gap-fab--pending/);
+  assert.match(html, /href="#i-clock"/);
 });
 
 // ── The waking banner ───────────────────────────────────────

@@ -243,7 +243,8 @@ test("the Bus tab heading is the destination, and the icon is the route's livery
   assert.match(shell, /iconForService\(v\.operator_ref, service\)/,
     "the panel drew the operator's generic bus, not the livery on the map");
   assert.doesNotMatch(shell, /<dt>(Destination|Journey)<\/dt>/,
-    "the destination and journey rows came back; they moved to the heading and under the operator");
+    "the destination and journey rows came back");
+  assert.doesNotMatch(shell, /bus-info-journey/, "the journey start time came back under the operator");
 });
 
 // ── Closed stops and diversions, recorded by hand ───────────

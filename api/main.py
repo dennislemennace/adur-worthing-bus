@@ -43,6 +43,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api import corridor_gaps
 from api import disruptions as sx
 from api import local_disruptions
+from api import journey_planner as planner
 from api import gtfs_rt, live_eta, trip_match
 from api.timetable_db import (NIGHT_ENDS_SECS, Timetable,
                               path_has_time_gap, service_runs_on)
@@ -1539,6 +1540,107 @@ async def get_disruptions():
         "source": "Bus Open Data Service (SIRI-SX), as published by operators and councils",
         "disruptions": _disruptions_now(state),
     }
+
+
+# ── /api/fares-coverage ─────────────────────────────────────
+# What this area's operators publish to the BODS fares API, as metadata only
+# (dataset names, dates, counts of products and zones). Added to answer "can
+# the site use BODS fares?" with evidence, and kept as the check to repeat:
+# the fares on this site are copied by hand from operators' own pages, and
+# this says whether a machine-readable source has caught up with them.
+FARES_NOCS = ("BHBC", "SCSO", "SCSC", "CMPA", "COMT", "METR")
+FARES_COVERAGE_TTL = 24 * 3600
+FARES_FIELDS = ("id", "name", "description", "operatorName", "noc", "status",
+                "created", "modified", "startDate", "endDate", "extension",
+                "numOfLines", "numOfFareZones", "numOfSalesOfferPackages",
+                "numOfFareProducts", "numOfUserTypes", "url")
+
+
+async def _fetch_fares_coverage() -> dict:
+    fetched_at = datetime.now(timezone.utc).isoformat()
+    try:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            resp = await client.get(f"{BODS_BASE}/fares/dataset/", params={
+                "api_key": BODS_API_KEY, "noc": ",".join(FARES_NOCS),
+                "status": "published", "limit": 100})
+        resp.raise_for_status()
+        body = resp.json()
+    except Exception as exc:                       # noqa: BLE001
+        # The type only: an httpx error's text includes the request URL, and
+        # the URL carries the key.
+        log.warning("BODS fares unavailable: %s", type(exc).__name__)
+        return {"available": False, "reason": "upstream", "fetched_at": fetched_at}
+    results = body.get("results") if isinstance(body, dict) else None
+    datasets = [{k: d.get(k) for k in FARES_FIELDS if k in d}
+                for d in (results or []) if isinstance(d, dict)]
+    return {"available": True, "fetched_at": fetched_at, "nocs": list(FARES_NOCS),
+            "count": body.get("count", len(datasets)) if isinstance(body, dict) else len(datasets),
+            "datasets": datasets,
+            "source": "Bus Open Data Service fares API, dataset metadata only"}
+
+
+@app.get("/api/fares-coverage")
+async def get_fares_coverage():
+    """Which fares datasets this area's operators publish to BODS (metadata)."""
+    if not BODS_API_KEY:
+        return {"available": False, "reason": "not_configured"}
+    return await cache_single_flight_async("fares-coverage", _fetch_fares_coverage,
+                                           FARES_COVERAGE_TTL)
+
+
+_plan_quota = planner.DailyQuota(TIMETABLE_PATH.parent / ".bat_quota.json",
+                                 planner.BAT_DAILY_LIMIT)
+
+
+@app.get("/api/plan")
+async def get_plan(
+    from_lat: float = Query(...), from_lon: float = Query(...),
+    to_lat: float = Query(...), to_lon: float = Query(...),
+    when: Optional[str] = Query(None, pattern=r"^\d{2}:\d{2}$"),
+    day: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+):
+    """Door-to-door plans from the Buses & Trains API (preview; see
+    api/journey_planner.py). Never raises for an upstream failure: the reason
+    comes back so the page can say it, rather than an error it cannot."""
+    pad = 0.15   # a journey may start or end just outside the live-map box
+    for lat, lon in ((from_lat, from_lon), (to_lat, to_lon)):
+        if not (BBOX_MIN_LAT - pad <= lat <= BBOX_MAX_LAT + pad
+                and BBOX_MIN_LON - pad <= lon <= BBOX_MAX_LON + pad):
+            raise HTTPException(status_code=400, detail="Outside the area this site covers.")
+    if not planner.BAT_API_KEY:
+        return {"available": False, "reason": "not_configured", "options": []}
+
+    now = datetime.now(UK_TZ)
+    day = day or now.date().isoformat()
+    if not when:
+        # "Now", held still for five minutes so the same question hits the cache.
+        when = f"{now.hour:02d}:{now.minute - now.minute % 5:02d}"
+    key = "plan:" + ":".join(f"{x:.4f}" for x in (from_lat, from_lon, to_lat, to_lon)) + f":{day}:{when}"
+    hit = cache_get(key)
+    if hit is not None:
+        return hit
+    if _plan_quota.remaining() <= 0:
+        return {"available": False, "reason": "quota", "options": []}
+
+    _plan_quota.bump(1)
+    params = {"from_lat": from_lat, "from_lon": from_lon, "to_lat": to_lat, "to_lon": to_lon,
+              "date": day, "time": when, "mode": "TRANSIT,WALK"}
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            resp = await client.get(f"{planner.BAT_BASE_URL}/v1/journey/plan", params=params,
+                                    headers={"Authorization": f"Bearer {planner.BAT_API_KEY}"})
+        if resp.status_code == 429:
+            return {"available": False, "reason": "quota", "options": []}
+        resp.raise_for_status()
+        data = planner.normalise(resp.json())
+    except Exception as exc:                       # noqa: BLE001 — see docstring
+        _plan_quota.bump(-1)   # an unreachable planner does not spend the day's allowance
+        log.warning("Journey planner unavailable: %s", exc)
+        return {"available": False, "reason": "upstream", "options": []}
+    result = {"available": True, "source": "Buses & Trains API (OpenTripPlanner)",
+              "day": day, "time": when, **data}
+    cache_set(key, result, planner.PLAN_CACHE_TTL)
+    return result
 
 
 @app.get("/api/stop-span")

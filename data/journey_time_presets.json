@@ -1,6 +1,6 @@
 {
-  "_comment": "Worked examples for the journey-times view (How long it really takes), grouped by area. Separate from journey_presets.json, which holds the Ticket view's campaign cases: these are everyday trips, chosen so that Brighton and Hove and Worthing are represented as well as the coast road between them. `from`/`to` are NaPTAN ATCO codes, checked against data/timetable.sqlite by pytest. At runtime a preset is shown only if a published service calls at both ends, so a stale one hides itself rather than leading to 'no journeys found'. Journey counts in `why` are from the published build of 23 September 2026 (seven days, 16 to 22 September).",
-  "checked_on": "2026-09-24",
+  "_comment": "Worked examples for the journey-times view (How long it really takes), grouped by area. Separate from journey_presets.json, which holds the Ticket view's campaign cases: these are everyday trips, chosen so that Brighton and Hove and Worthing are represented as well as the coast road between them. `from`/`to` are NaPTAN ATCO codes, checked against data/timetable.sqlite by pytest. At runtime a preset is shown only if a published service calls at both ends, so a stale one hides itself rather than leading to 'no journeys found'. Journey counts in `why` are from the published build of 23 September 2026 (seven days, 16 to 22 September). Reverse journeys (Brighton to Shoreham, Worthing, Lancing, Portslade and Southwick) added 28 September 2026, their stop pairs checked against the 27 September timetable for services connecting them in that order.",
+  "checked_on": "2026-09-28",
   "areas": [
     { "id": "brighton-hove", "label": "Brighton & Hove" },
     { "id": "worthing", "label": "Worthing" },
@@ -129,12 +129,28 @@
       "why": "From Southwick into the city on the 46 (248 journeys)."
     },
     {
+      "id": "brighton-to-southwick",
+      "area": "shoreham-lancing",
+      "label": "Brighton → Southwick",
+      "from": "149000007991", "from_name": "Churchill Square",
+      "to": "4400AD0259", "to_name": "Southwick Square",
+      "why": "The way home from Brighton: the 46 from Churchill Square stop C6 to Southwick Square."
+    },
+    {
       "id": "shoreham-to-brighton",
       "area": "between-towns",
       "label": "Shoreham → Brighton",
       "from": "4400AD0204", "from_name": "High Street",
       "to": "149000006992", "to_name": "Churchill Square",
       "why": "The clearest service comparison: the 700 usually takes 32 min and the 2 usually 58 (455 and 278 journeys)."
+    },
+    {
+      "id": "brighton-to-shoreham",
+      "area": "between-towns",
+      "label": "Brighton → Shoreham",
+      "from": "149000007990", "from_name": "Churchill Square",
+      "to": "4400AD0203", "to_name": "High Street",
+      "why": "The westbound Coastliner: the 700 from Churchill Square stop C5 to Shoreham High Street, the reverse of Shoreham → Brighton."
     },
     {
       "id": "worthing-to-brighton",
@@ -145,6 +161,14 @@
       "why": "End to end on the Coastliner 700 (106 journeys, usually 61 min)."
     },
     {
+      "id": "brighton-to-worthing",
+      "area": "between-towns",
+      "label": "Brighton → Worthing",
+      "from": "149000007828", "from_name": "Old Steine",
+      "to": "4400WO0255", "to_name": "Marine Parade",
+      "why": "The whole coast road westbound on the 700, Old Steine to Worthing seafront: the reverse of Worthing → Brighton."
+    },
+    {
       "id": "lancing-to-brighton",
       "area": "between-towns",
       "label": "Lancing → Brighton",
@@ -153,12 +177,28 @@
       "why": "The 700 from Lancing (106 journeys, usually 51 min), across the Worthing and Brighton fare boundary."
     },
     {
+      "id": "brighton-to-lancing",
+      "area": "between-towns",
+      "label": "Brighton → Lancing",
+      "from": "149000007828", "from_name": "Old Steine",
+      "to": "4400AD0061", "to_name": "Lancing Park",
+      "why": "Westbound on the 700 across the council boundary: the reverse of Lancing → Brighton."
+    },
+    {
       "id": "portslade-to-brighton",
       "area": "between-towns",
       "label": "Portslade → Brighton",
       "from": "149000006450", "from_name": "Portslade Railway Station",
       "to": "149000006991", "to_name": "Churchill Square",
       "why": "Four Brighton & Hove services from Portslade into the centre (6, 46, 49 and 25), a useful multi-service comparison."
+    },
+    {
+      "id": "brighton-to-portslade",
+      "area": "between-towns",
+      "label": "Brighton → Portslade",
+      "from": "149000007991", "from_name": "Churchill Square",
+      "to": "149000006450", "to_name": "Portslade Railway Station",
+      "why": "The 25, 46 and 49 from Churchill Square stop C6 to Portslade Station: the reverse of Portslade → Brighton."
     }
   ]
 }

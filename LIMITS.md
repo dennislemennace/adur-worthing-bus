@@ -157,6 +157,12 @@ lines and timetables are API calls too, and arrive with it.
   upstream allowance, unauthenticated. It now shares the cache and gate. A
   diagnostic is still a caller.
 
+## BODS fares (dataset metadata)
+
+- `GET /api/fares-coverage` lists the fares datasets this area's operators
+  publish to BODS: metadata only, one call a day (cached for 24 hours), on the
+  same free `BODS_API_KEY`. The key never appears in the response or the logs.
+
 ## BODS disruptions (SIRI-SX)
 
 - `GET {BODS_BASE}/siri-sx/` with the same BODS key: the national feed,
@@ -164,6 +170,24 @@ lines and timetables are API calls too, and arrive with it.
 - Fetched at most once every 10 minutes (`DISRUPTIONS_TTL`), by whichever
   request finds the cache empty; the board never waits on it. No key, or an
   unreachable feed, means no notices and `/api/disruptions` says why.
+
+## Buses & Trains API — journey planner (preview)
+
+- `GET /api/plan` proxies `https://api.busesandtrains.co.uk/v1/journey/plan`
+  (OpenTripPlanner behind it). It is shown only with `?preview=1`.
+- Free tier: **300 requests / day**. Paid tiers are £29/month for 10,000 a day
+  and £99/month for 100,000.
+- `BAT_API_KEY` (Render env var) enables it. With no key, `/api/plan` answers
+  `not_configured` and makes no call. The key is sent as a header, never in a
+  URL.
+- Capped at `BAT_DAILY_LIMIT` (default **250**, below the free tier), counted
+  in `.bat_quota.json` so a restart does not reset it. A failed call is
+  refunded.
+- The same question is cached for 5 minutes: "now" is rounded down to the
+  five minutes. Coordinates more than about 15 km outside the live-map box
+  are refused before any call.
+- Its terms of use were not found when this was added (28 Sep 2026). Read
+  them before the planner leaves preview.
 
 ## NaPTAN — stop letters, streets, landmarks
 

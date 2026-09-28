@@ -100,3 +100,17 @@ test("a night 27 keeps the Coaster livery", () => {
   // The night fallback strips the N and retries, so N27 should land on 27.
   assert.equal(app.iconForService("BHBC", "N27"), app.iconForService("BHBC", "27"));
 });
+
+// Route numbers are not unique. Stagecoach runs a 1, a 5 and a 7 in Worthing,
+// and keyed by number alone they wore Brighton & Hove's pink, orange and
+// purple (reported 28 Sep 2026).
+test("a route's livery colour belongs to its own operator", () => {
+  const app = loadApp();
+  assert.equal(app.getRouteColour("1", "BHBC"), "#E5007E");
+  assert.notEqual(app.getRouteColour("1", "SCSO"), "#E5007E", "Stagecoach's 1 wore Brighton & Hove pink");
+  assert.equal(app.getRouteColour("1", "SCSO"), app.getOperatorColour("SCSO"));
+  assert.notEqual(app.getRouteColour("7", "SCSC"), "#622aa9");
+  assert.equal(app.getRouteColour("700", "SCSO"), "#005EB8");
+  assert.notEqual(app.getLineColour("5", "SCSO"), "#F39200");
+  assert.equal(app.getRouteColour("N1", "BHBC"), "#E5007E", "night variants keep their day colour");
+});

@@ -1661,8 +1661,10 @@ async function checkBusJourney(page, where) {
     return JSON.stringify({ withFeed, withGuess });
   })()`));
 
-  check(`a declared journey is named on the bus panel — ${where}`,
-    /The 14:22/.test(r.withFeed) && /4 min late/.test(r.withFeed),
+  // The start time was taken off the panel on request (28 Sep 2026); what a
+  // declared journey still earns is its measured lateness.
+  check(`a declared journey's lateness shows on the bus panel — ${where}`,
+    /4 min late/.test(r.withFeed) && !/The 14:22/.test(r.withFeed),
     r.withFeed.slice(0, 160));
   check(`a guessed journey is not named as though it were stated — ${where}`,
     !/The 14:32/.test(r.withGuess),
@@ -1898,72 +1900,67 @@ async function checkGapMonitor(page, where) {
   await page.evaluate(`(() => { stopGapMonitor(); return ""; })()`);
   await waitFor(page, "!state.gapMonitorInFlight", 60000);
 
+  // A status circle over the map (asked for 28 Sep 2026, replacing the
+  // in-panel row and the status-pill alert button): green tick, amber clock or
+  // red warning, and a card with the detail when tapped.
   const r = JSON.parse(await page.evaluate(`(() => {
     stopGapMonitor();
     if (isSheetLayout()) setSheetDetent(defaultDetentForViewport());
-    const map = document.getElementById("map").getBoundingClientRect();
-    const sheetBefore = sheetOverlapPx();
+    state.gapPopOpen = false;
     renderGapMonitor(${JSON.stringify(GAP_ALERT)});
-    const host = document.getElementById("gap-monitor");
-    const heights = [...host.querySelectorAll("summary")].map(x => Math.round(x.getBoundingClientRect().height));
-    const panel = document.getElementById("departure-panel").getBoundingClientRect();
-    const mapAfter = document.getElementById("map").getBoundingClientRect();
-    const b = host.getBoundingClientRect();
+    const map = document.getElementById("map").getBoundingClientRect();
+    const fab = document.getElementById("gap-fab");
+    const b = fab.getBoundingClientRect();
+    const visible = el => { const r = el.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      return document.elementFromPoint(x, y) && el.contains(document.elementFromPoint(x, y)); };
     return JSON.stringify({
-      shown: !host.hidden && b.height > 0,
-      inPanel: b.left >= panel.left - 1 && b.right <= panel.right + 1 && b.top >= panel.top - 1,
-      mapSame: Math.round(map.width) === Math.round(mapAfter.width)
-            && Math.round(map.height) === Math.round(mapAfter.height),
-      sheetBefore, detentBefore: state.sheetDetent,
-      rows: heights.length, heights,
-      sheet: isSheetLayout(), vh: window.innerHeight,
+      alert: fab.classList.contains("gap-fab--alert"),
+      icon: fab.querySelector("use").getAttribute("href"),
+      said: /long gap/.test(fab.getAttribute("aria-label")),
+      size: [Math.round(b.width), Math.round(b.height)],
+      overMap: b.left >= map.left && b.right <= map.right && b.top >= map.top && b.bottom <= map.bottom,
+      onTop: visible(fab),
+      closed: document.getElementById("gap-pop").hidden,
     });
   })()`));
-  // The sheet animates between heights, so a measurement taken in the same
-  // tick as the render cannot see it grow. Look again once it has settled.
-  await sleep(600);
-  Object.assign(r, JSON.parse(await page.evaluate(
-    `JSON.stringify({ sheetAfter: sheetOverlapPx(), detentAfter: state.sheetDetent })`)));
-  check(`the gap monitor sits in the panel, not over the map — ${where}`,
-    r.shown && r.inPanel && r.mapSame, JSON.stringify(r));
-  check(`showing the gap monitor does not grow the sheet — ${where}`,
-    r.sheetBefore === r.sheetAfter && r.detentBefore === r.detentAfter, JSON.stringify(r));
-  // Both directions share one row: one line, two at most when it wraps on a phone.
-  check(`the gap monitor is one short row for the corridor — ${where}`,
-    r.rows === 1 && r.heights.every(h => h >= 44 && h <= 72), JSON.stringify(r));
+  check(`the gap monitor is a circle over the map, red with a warning on a gap — ${where}`,
+    r.alert && r.icon === "#i-alert" && r.said && r.size[0] >= 44 && r.size[1] >= 44
+      && r.overMap && r.onTop && r.closed, JSON.stringify(r));
 
-  // At the resting sheet height the monitor is below the fold on a phone, so
-  // an alert is only seen through the status-pill button. Press it and look.
-  const btn = JSON.parse(await page.evaluate(`(() => {
-    const b = document.getElementById("gap-alert-btn");
-    const r = b.getBoundingClientRect();
-    const out = { shown: !b.hidden && r.width >= 44 && r.height >= 44,
-                  inView: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight };
-    b.click();
-    return JSON.stringify(out);
+  const opened = JSON.parse(await page.evaluate(`(() => {
+    document.getElementById("gap-fab").click();
+    const pop = document.getElementById("gap-pop");
+    const p = pop.getBoundingClientRect();
+    // What the minute's refresh does: it must not close the card.
+    renderGapMonitor(${JSON.stringify(GAP_ALERT)});
+    const after = document.getElementById("gap-pop");
+    return JSON.stringify({ open: !pop.hidden, lines: after.querySelectorAll("li").length,
+      inView: p.left >= 0 && p.right <= innerWidth + 1 && p.top >= 0 && p.bottom <= innerHeight + 1,
+      stillOpen: !after.hidden, expanded: document.getElementById("gap-fab").getAttribute("aria-expanded") });
   })()`));
-  await sleep(800);
-  const seen = JSON.parse(await page.evaluate(`(() => {
-    const d = document.querySelector("#gap-monitor details");
-    const s = d.querySelector("summary").getBoundingClientRect();
-    const panel = document.getElementById("departure-panel").getBoundingClientRect();
-    return JSON.stringify({ open: d.open, lines: d.querySelectorAll("li").length,
-      focused: document.activeElement === d.querySelector("summary"),
-      top: Math.round(s.top), bottom: Math.round(s.bottom), panelTop: Math.round(panel.top),
-      vh: innerHeight, detent: state.sheetDetent });
-  })()`));
-  check(`the alert button brings the gap monitor into view — ${where}`,
-    btn.shown && btn.inView && seen.open && seen.lines === 6 && seen.focused
-      && seen.top >= seen.panelTop && seen.bottom <= seen.vh,
-    JSON.stringify({ ...btn, ...seen }));
-
+  check(`tapping the circle opens the detail, and a refresh keeps it open — ${where}`,
+    opened.open && opened.stillOpen && opened.lines === 6 && opened.inView && opened.expanded === "true",
+    JSON.stringify(opened));
   await checkLayout(page, `gap monitor alert, open — ${where}`);
   await checkContrastBothThemes(page, `gap monitor alert, open — ${where}`);
-  const normalBtn = await page.evaluate(`(() => {
+
+  const closed = JSON.parse(await page.evaluate(`(() => {
+    document.querySelector("#gap-pop [data-gap-close]").focus();
+    document.getElementById("gap-monitor").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    return JSON.stringify({ hidden: document.getElementById("gap-pop").hidden,
+      focus: document.activeElement && document.activeElement.id });
+  })()`));
+  check(`Escape closes the detail and returns to the circle — ${where}`,
+    closed.hidden && closed.focus === "gap-fab", JSON.stringify(closed));
+
+  const normal = JSON.parse(await page.evaluate(`(() => {
     renderGapMonitor(${JSON.stringify(GAP_NORMAL)});
-    return String(document.getElementById("gap-alert-btn").hidden); })()`);
-  check(`in normal service nothing is added over the map — ${where}`, normalBtn === "true",
-    `alert button hidden=${normalBtn}`);
+    const fab = document.getElementById("gap-fab");
+    return JSON.stringify({ ok: fab.classList.contains("gap-fab--ok"),
+      icon: fab.querySelector("use").getAttribute("href"), label: fab.getAttribute("aria-label") });
+  })()`));
+  check(`in normal service the circle is green with a tick — ${where}`,
+    normal.ok && normal.icon === "#i-check" && /no confirmed long gaps/.test(normal.label), JSON.stringify(normal));
   await checkContrastBothThemes(page, `gap monitor normal — ${where}`);
 
   await page.evaluate(`(() => {
@@ -2292,7 +2289,7 @@ async function checkViews(page) {
     ["live", "Live Bus Tracking"], ["improvements", "Route view"],
     ["tickets", "Tickets & fares"], ["network", "Better buses"],
     ["updates", "News & notes"],
-    ["journeytimes", "How long it really takes"],
+    ["journeytimes", "Bus Performance"],
   ]) {
     await page.evaluate(`setViewMode('${mode}')`);
     await sleep(1500);

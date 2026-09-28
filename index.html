@@ -131,6 +131,9 @@
         <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
         <path d="M21 3v5h-5"/>
       </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 6 9 17l-5-5"/>
+      </symbol>
       <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
         <path d="M12 9v4"/><path d="M12 17h.01"/>
@@ -237,7 +240,7 @@
             <li role="option" data-mode="improvements" aria-selected="false" tabindex="-1">Route view</li>
             <li role="option" data-mode="tickets" aria-selected="false" tabindex="-1">Tickets &amp; fares</li>
             <li role="option" data-mode="network" aria-selected="false" tabindex="-1">Better buses</li>
-            <li role="option" data-mode="journeytimes" aria-selected="false" tabindex="-1">How long it really takes</li>
+            <li role="option" data-mode="journeytimes" aria-selected="false" tabindex="-1">Bus Performance</li>
             <li role="option" data-mode="updates" aria-selected="false" tabindex="-1">News &amp; notes</li>
           </ul>
         </div>
@@ -247,14 +250,6 @@
             <span class="status-pill-label">Connecting</span>
             <span class="loading-dots" aria-hidden="true"></span>
           </span>
-          <!-- Shown only while the A259 gap monitor has an alert. On a phone the
-               monitor itself sits below the fold of the resting sheet, so this is
-               how an alert is seen at all, and it costs the map one icon only
-               while there is something to say. -->
-          <button class="btn-icon status-pill-toggle status-pill-gap" id="gap-alert-btn"
-                  type="button" hidden aria-controls="gap-monitor">
-            <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
-          </button>
           <button class="btn-icon status-pill-toggle" id="toggle-buses-btn"
                   title="Filter buses" aria-label="Filter buses"
                   aria-expanded="false" aria-controls="bus-filter">
@@ -314,6 +309,14 @@
     <!-- ── Left: Map ── -->
     <section class="map-section" aria-label="Live bus map">
       <div id="map"></div>
+
+      <!-- A259 Coast Rd gap monitor, filled by app.js renderGapMonitor: a small
+           status circle over the map (tick, clock or warning, green, amber or
+           red), which opens the detail. Live view only; hidden when the answer
+           is unknown and from 23:30 to 04:30. The live region is separate so a
+           minute's tick is not read out again. -->
+      <div class="gap-fab-host" id="gap-monitor" hidden></div>
+      <p class="visually-hidden" id="gap-monitor-live" role="status" aria-live="polite"></p>
 
       <!-- What the council boundary means, opened from the label on the map.
            A native <dialog> so Escape, focus trapping and the backdrop come
@@ -502,13 +505,29 @@
             <ul class="stop-search-results" id="stop-search-results"
                 aria-label="Matching stops and stations"></ul>
           </form>
-          <!-- A259 gap monitor, filled by app.js renderGapMonitor. In the panel,
-               under the search, and not over the map: the map is the scarcest
-               space on a phone, and a normal service needs one line. Hidden when
-               the answer is unknown and from 23:30 to 04:30. The live region
-               beside it is separate so a minute's tick is not read out again. -->
-          <div class="gap-monitor-host" id="gap-monitor" hidden></div>
-          <p class="visually-hidden" id="gap-monitor-live" role="status" aria-live="polite"></p>
+
+          <!-- Journey planner, preview only (?preview=1): door-to-door plans
+               from the Buses & Trains API via /api/plan. Filled by app.js
+               initJourneyPlanner. -->
+          <section class="plan-journey" id="plan-journey" hidden aria-labelledby="plan-title">
+            <h3 class="proposals-section-title" id="plan-title">Plan a journey
+              <span class="plan-preview-tag">Preview</span></h3>
+            <form class="plan-form" id="plan-form" autocomplete="off" novalidate>
+              <label class="plan-label" for="plan-from">From</label>
+              <div class="plan-row">
+                <input class="stop-search-input" id="plan-from" type="text" list="plan-stops"
+                       placeholder="A stop, or your location">
+                <button type="button" class="plan-here" id="plan-here" aria-label="Start from my location">
+                  <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>
+                </button>
+              </div>
+              <label class="plan-label" for="plan-to">To</label>
+              <input class="stop-search-input" id="plan-to" type="text" list="plan-stops" placeholder="A stop">
+              <datalist id="plan-stops"></datalist>
+              <button type="submit" class="editor-action-btn primary plan-go">Plan journey</button>
+            </form>
+            <div class="plan-results" id="plan-results" aria-live="polite"></div>
+          </section>
         </div>
 
         <!-- Departure list populated by JS -->
@@ -948,8 +967,20 @@
            from R2 through the Worker, not from this repository: it is a few
            megabytes and changes nightly. -->
       <div class="panel-mode" data-mode="journeytimes">
+        <!-- The same single-view strip as Tickets: it names the view where
+             every other view names itself, and carries the collapse button,
+             without which a collapsed panel here could not be reopened. -->
+        <div class="panel-tabs-bar">
+          <div class="panel-tabs">
+            <span class="panel-tab panel-tab-static active">
+              <span class="panel-tab-label">Bus Performance</span>
+            </span>
+          </div>
+          <button class="btn-collapse-panel" type="button" aria-label="Hide panel" aria-pressed="false">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </button>
+        </div>
         <div class="panel-tab-content" id="tab-content-journey-times" role="tabpanel">
-          <h2 class="panel-heading">How long it really takes</h2>
           <!-- Two switches, each hidden until its half may be shown: the delay
                map and the Detailed view have their own flags in CONFIG. -->
           <div class="jt-topbar">

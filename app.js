@@ -168,6 +168,7 @@ const state = {
   // a stale answer on screen with nothing refreshing it.
   gapMonitorGeneration: 0,
   gapMonitorKey:      "",     // last announced state, so a minute's tick is not re-read aloud
+  gapPopOpen:         false,  // the gap circle's detail is open
   // Has the backend answered anything yet this session? Until it has, calls
   // get the cold-start budget and the "waking up" banner (see apiFetch).
   apiEverResponded: false,
@@ -318,7 +319,6 @@ const dom = {
   wakingText:         document.getElementById("waking-text"),
   gapMonitor:         document.getElementById("gap-monitor"),
   gapMonitorLive:     document.getElementById("gap-monitor-live"),
-  gapAlertBtn:        document.getElementById("gap-alert-btn"),
   toggleRailBtn:      document.getElementById("toggle-rail-btn"),
   railBoardHost:      document.getElementById("rail-board-host"),
 
@@ -2716,9 +2716,16 @@ function renderJourneyTimesIntro(opts = {}) {
   } else if (!jtEntry.a && jtEntry.b) {
     lead = `<p class="jt-verdict">Now choose where you are starting from.</p>`;
   } else if (jtView() === "simple") {
+    // The first thing a visitor reads here, so it says what the tool is for
+    // and how to drive it, in three short steps and no jargon.
     lead = `<p class="jt-verdict"><strong>How long will my bus really take?</strong></p>
-      <p>Type two stops above, or tap them on the map. You will see how long buses
-        really took between them, against what the timetable says.</p>`;
+      <ol class="jt-howto">
+        <li>Choose where you get on and off: type the stops above, tap two stops
+          on the map, or pick a popular journey below.</li>
+        <li>See how long the buses we tracked actually took between them,
+          next to the time the timetable promises.</li>
+        <li>Use it to know how much time to allow, and which times of day run late.</li>
+      </ol>`;
   } else {
     lead = `<p class="jt-verdict"><strong>Pick any two stops</strong> above or on the map
       to see every journey we tracked between them, against the timetable.</p>
@@ -2744,7 +2751,8 @@ function renderJourneyTimesIntro(opts = {}) {
         if (!areas.some(x => x.id === area)) area = areas[0].id;
       }
       const draw = () => {
-        const shown = usable.filter(p => p.area === area).slice(0, JT_PRESETS_PER_AREA);
+        const shown = usable.filter(p => p.area === area)
+          .slice(0, JT_PRESETS_PER_AREA_OVERRIDE[area] || JT_PRESETS_PER_AREA);
         box.innerHTML = `<p class="jc-presets-label" id="jt-popular-label">Or try a popular journey</p>
           <div class="jt-areas" role="group" aria-label="Area">${areas.map(x =>
             `<button type="button" class="jt-area" data-jt-area="${escapeAttr(x.id)}"
@@ -4448,7 +4456,10 @@ function jtPresetAreaFor(center, zoom) {
 }
 
 // At most this many examples per area: a row of chips, not a directory.
+// Between towns shows its pairs both ways (Shoreham → Brighton and back), so
+// it has room for four there-and-backs.
 const JT_PRESETS_PER_AREA = 5;
+const JT_PRESETS_PER_AREA_OVERRIDE = { "between-towns": 8 };
 
 // ── The journey bar: two stops, typed or tapped ─────────────────
 //
@@ -5970,14 +5981,29 @@ function gapMonitorHtml(data, { open = false } = {}) {
       : pending
         ? `${corridor}: checking a possible long gap`
         : `${corridor}: no confirmed long gaps`;
+  // The circle's state is carried three ways: colour, the icon in it (tick,
+  // clock, warning), and the words in its label. Colour alone would fail a
+  // colour-blind reader and anyone in bright sun.
+  const status = alerts.length ? "alert" : pending ? "pending" : "ok";
+  const icon = { alert: "i-alert", pending: "i-clock", ok: "i-check" }[status];
+  const plain = summary.replace(/<[^>]+>/g, "");
   const asOf = typeof data.as_of === "string" ? data.as_of.slice(11, 16) : "";
   return `
-    <details class="gap-monitor${alerts.length ? " gap-monitor--alert" : ""}"${open ? " open" : ""}>
-      <summary>
-        <svg class="icon gap-monitor-icon" aria-hidden="true"><use href="#${alerts.length ? "i-alert" : "i-clock"}"/></svg>
-        <span class="gap-monitor-text">${summary}</span>
-        <svg class="icon gap-monitor-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-      </summary>
+    <button type="button" class="gap-fab gap-fab--${status}" id="gap-fab"
+            aria-expanded="${open ? "true" : "false"}" aria-controls="gap-pop"
+            aria-label="${escapeAttr(`${plain}. ${open ? "Hide" : "Show"} details`)}"
+            title="${escapeAttr(plain)}">
+      <svg class="icon" aria-hidden="true"><use href="#${icon}"/></svg>
+    </button>
+    <div class="gap-pop gap-monitor${alerts.length ? " gap-monitor--alert" : ""}" id="gap-pop"
+         role="region" aria-label="${escapeAttr(GAP_CORRIDOR_NAME)} gaps"${open ? "" : " hidden"}>
+      <div class="gap-pop-head">
+        <svg class="icon gap-monitor-icon" aria-hidden="true"><use href="#${icon}"/></svg>
+        <p class="gap-monitor-text">${summary}</p>
+        <button type="button" class="gap-pop-close" data-gap-close aria-label="Close">
+          <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
+      </div>
       <div class="gap-monitor-body">
         ${alerts.map(d => gapAlertHtml(d.alert, d.towards || "")).join("")}
         <ul class="gap-monitor-stops" aria-label="Next buses at each stop">${gapStopRows(shown)}</ul>
@@ -5985,33 +6011,25 @@ function gapMonitorHtml(data, { open = false } = {}) {
           from live bus positions and scheduled running times. Coaches are not
           counted, and nothing is shown between ${GAP_QUIET_FROM} and ${GAP_QUIET_TO}.</p>
       </div>
-    </details>`;
+    </div>`;
 }
 
 function renderGapMonitor(data) {
   const host = dom.gapMonitor;
   if (!host) return;
-  const details = host.querySelector("details");
-  const hadFocus = !!details && details.contains(document.activeElement);
-  const html = gapMonitorHtml(data, { open: !!details && details.open });
+  bindGapMonitor(host);
+  // Rebuilt every minute: keep it open if it was, and keep keyboard focus on
+  // the circle or the close button rather than dropping it to the page.
+  const focused = host.contains && host.contains(document.activeElement)
+    ? (document.activeElement.id === "gap-fab" ? "fab" : "pop") : null;
+  const html = gapMonitorHtml(data, { open: state.gapPopOpen });
   host.innerHTML = html;
   host.hidden = !html;
-  // Rebuilt every minute, so a keyboard user sitting on it would otherwise be
-  // dropped back to the top of the page each time the numbers move.
-  if (hadFocus && html) host.querySelector("summary")?.focus();
+  if (!html) state.gapPopOpen = false;
+  if (focused === "fab") host.querySelector("#gap-fab")?.focus();
+  else if (focused === "pop") host.querySelector("[data-gap-close]")?.focus();
 
-  // The way in on a phone, where the monitor is below the resting sheet.
   const alerts = html ? gapShownDirections(data).filter(d => d.status === "alert") : [];
-  if (dom.gapAlertBtn) {
-    dom.gapAlertBtn.hidden = !alerts.length;
-    if (alerts.length) {
-      const first = alerts[0];
-      const label = `${GAP_CORRIDOR_NAME}: long gap at ${first.alert.name} ${first.towards || ""}. Show details`
-        .replace(/\s+\./, ".");
-      dom.gapAlertBtn.setAttribute("aria-label", label);
-      dom.gapAlertBtn.title = label;
-    }
-  }
 
   // Announced only when something changes, not on every tick.
   const key = html ? ["shown", ...alerts.map(d => `${d.id}:${d.alert.atco}`)].join("|") : "";
@@ -6052,18 +6070,47 @@ async function fetchGapMonitor() {
   }
 }
 
-/** The status-pill alert button: bring the monitor into view, open. */
+/** Open or close the circle's detail, without waiting for the next tick. */
+function setGapPopOpen(open, { focus = false } = {}) {
+  const host = dom.gapMonitor;
+  state.gapPopOpen = !!open;
+  const pop = host && host.querySelector("#gap-pop");
+  const fab = host && host.querySelector("#gap-fab");
+  if (!pop || !fab) return;
+  pop.hidden = !open;
+  fab.setAttribute("aria-expanded", open ? "true" : "false");
+  const label = fab.getAttribute("aria-label") || "";
+  fab.setAttribute("aria-label", label.replace(/(Show|Hide) details$/, open ? "Hide details" : "Show details"));
+  if (focus) (open ? pop.querySelector("[data-gap-close]") : fab)?.focus();
+}
+
+/** Bring the monitor's detail into view, open. Kept for anything that links to it. */
 function revealGapMonitor() {
-  // It lives on the stop search screen. A stop or bus left open would hide it,
-  // and pressing the alert is the reader choosing the alert over that.
-  if (state.selectedStop || state.selectedVehicleRef) closePanel();
-  setActiveTab("stop");
-  if (isSheetLayout() && state.sheetDetent === "peek") setSheetDetent("half");
-  const details = dom.gapMonitor && dom.gapMonitor.querySelector("details");
-  if (!details) return;
-  details.open = true;
-  scrollPanelTo(details, 8);
-  details.querySelector("summary")?.focus({ preventScroll: true });
+  if (dom.gapMonitor && !dom.gapMonitor.hidden) setGapPopOpen(true, { focus: true });
+}
+
+/** One set of listeners on the host, which outlives every minute's rebuild. */
+function bindGapMonitor(host) {
+  if (!host.addEventListener || !host.dataset || host.dataset.bound) return;
+  host.dataset.bound = "1";
+  host.addEventListener("click", (e) => {
+    if (e.target.closest("#gap-fab")) {
+      setGapPopOpen(!state.gapPopOpen);
+      if (state.gapPopOpen) track("gap-monitor-open");
+    } else if (e.target.closest("[data-gap-close]")) {
+      setGapPopOpen(false, { focus: true });
+    }
+  });
+  host.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.gapPopOpen) {
+      e.stopPropagation();
+      setGapPopOpen(false, { focus: true });
+    }
+  });
+  // A tap on the map elsewhere closes it, as a popup would.
+  document.addEventListener("pointerdown", (e) => {
+    if (state.gapPopOpen && !host.contains(e.target)) setGapPopOpen(false);
+  });
 }
 
 function startGapMonitor() {
@@ -7573,7 +7620,6 @@ function buildBusTabShell(v) {
         <div class="bus-info-hero-text">
           <span class="service-badge service-badge-large ${badgeTextCls}" style="background:${colour}">${escapeHtml(service)}</span>
           <p class="bus-info-operator">${escapeHtml(operatorName)}</p>
-          <p class="bus-info-journey" id="bus-info-journey" hidden></p>
         </div>
       </div>
       <dl class="bus-info-grid">
@@ -7742,17 +7788,6 @@ function updateBusTabLive() {
     ? `<span class="visually-hidden">${escapeHtml(svc)} to </span>${escapeHtml(dest)}`
     : escapeHtml(svc);
   if (dom.panelBusName.innerHTML !== heading) dom.panelBusName.innerHTML = heading;
-
-  // Only where the feed named the journey. Inference is right about four
-  // times in five, which is fine for putting a bus on a map and not good
-  // enough to tell someone which departure they are looking at.
-  const journey = document.getElementById("bus-info-journey");
-  if (journey) {
-    const named = v.trip_source === "feed" && v.journey_start;
-    journey.hidden = !named;
-    const text = named ? `The ${v.journey_start} journey` : "";
-    if (journey.textContent !== text) journey.textContent = text;
-  }
 
   // report_age_secs goes in too: without it the "about" hedge on a stale
   // report never fired here, though the chip was written to give it.
@@ -8807,9 +8842,6 @@ function bindUIEvents() {
     });
   }
 
-  if (dom.gapAlertBtn) {
-    dom.gapAlertBtn.addEventListener("click", revealGapMonitor);
-  }
 
   // Toggle showing trains (rail stations + tracked train markers).
   if (dom.toggleRailBtn) {
@@ -9825,11 +9857,9 @@ function updateRouteFilterCount() {
     ? [...dom.routeFilterChips.querySelectorAll(".route-chip")] : [];
   if (!chips.length) { dom.routeFiltersCount.textContent = ""; return; }
   const on = chips.filter(c => c.getAttribute("aria-pressed") === "true").length;
-  // "18 of 24 on the map" rather than a bare number: the figure that matters
-  // is how much of the network you are looking at.
-  dom.routeFiltersCount.textContent = on === chips.length
-    ? `all ${chips.length}`
-    : `${on} of ${chips.length}`;
+  // "18 selected": the chips below already show the whole set, so the count
+  // only has to say how many are on (asked for 28 Sep 2026, over "18 of 24").
+  dom.routeFiltersCount.textContent = `${on} selected`;
 }
 
 /**
@@ -10319,7 +10349,7 @@ function renderProposalsList() {
     </section>`;
 
   dom.proposalsList.innerHTML =
-    section("Maintained routes",
+    section("Proposed routes",
             "Shown on the map by default, curated by the project.",
             official) +
     section("Community submissions",
@@ -11347,6 +11377,145 @@ function nearestStops(lat, lon, count = NEAR_ME_COUNT) {
   });
 }
 
+// ── Journey planner (preview) ─────────────────────────────────
+//
+// Door-to-door plans from the Buses & Trains API (api/journey_planner.py,
+// /api/plan), shown only with ?preview=1 while its quality is judged against
+// this site's own direct and one-change answers.
+
+const PLAN_AGENCY_NOCS = [[/stagecoach/i, "SCSO"], [/brighton\s*&?\s*(and\s*)?hove/i, "BHBC"],
+                          [/compass/i, "CMPA"], [/metrobus/i, "METR"], [/national express/i, "NATX"]];
+
+/** "Churchill Square, Brighton" → the middle of that name's poles. */
+function planStopChoices() {
+  if (state._planChoices) return state._planChoices;
+  const byLabel = new Map();
+  for (const [atco, s] of Object.entries(state.stopData || {})) {
+    if (s.lat == null || !s.name) continue;
+    const label = s.locality ? `${prettifyName(s.name)}, ${s.locality}` : prettifyName(s.name);
+    const slot = byLabel.get(label) || { lat: 0, lon: 0, n: 0, atco };
+    slot.lat += s.lat; slot.lon += s.lon; slot.n += 1;
+    byLabel.set(label, slot);
+  }
+  state._planChoices = new Map([...byLabel].map(([label, x]) =>
+    [label, { lat: x.lat / x.n, lon: x.lon / x.n, atco: x.atco }]));
+  return state._planChoices;
+}
+
+function planClock(iso) {
+  const t = new Date(iso);
+  return isNaN(t) ? "" : londonClock(t);
+}
+
+function planLegHtml(leg) {
+  const mins = Math.max(1, Math.round((leg.duration_seconds || 0) / 60));
+  if ((leg.mode || "").toUpperCase() === "WALK") {
+    return `<li class="plan-leg plan-leg--walk">Walk ${mins} min${
+      leg.to_name ? ` to ${escapeHtml(prettifyName(leg.to_name))}` : ""}</li>`;
+  }
+  const noc = (PLAN_AGENCY_NOCS.find(([re]) => re.test(leg.agency || "")) || [])[1] || "";
+  const route = leg.route || leg.mode || "";
+  const colour = getRouteColour(route, noc);
+  const text = pickTextOn(colour) === "dark" ? "service-badge--dark-text" : "service-badge--light-text";
+  const from = prettifyName(leg.from_name || "");
+  const board = state.stopData[leg.from_stop_id]
+    ? `<button type="button" class="plan-stop" data-atco="${escapeAttr(leg.from_stop_id)}"
+         data-name="${escapeAttr(from)}">${escapeHtml(from)}</button>`
+    : escapeHtml(from);
+  return `<li class="plan-leg">
+      <span class="service-badge ${text}" style="background:${colour}">${escapeHtml(route)}</span>
+      <span>${escapeHtml(planClock(leg.departure_time))} from ${board}
+        to ${escapeHtml(prettifyName(leg.to_name || ""))}, ${escapeHtml(planClock(leg.arrival_time))}
+        <span class="plan-meta">${mins} min${leg.num_stops ? ` · ${leg.num_stops} stops` : ""}</span></span>
+    </li>`;
+}
+
+function planResultsHtml(data) {
+  if (!data || !data.available) {
+    const why = {
+      not_configured: "The journey planner is not switched on yet: it needs its API key on the server.",
+      quota: "Today's journey-planning allowance is used up. Please try again tomorrow.",
+      upstream: "The journey planner did not answer. Please try again in a minute.",
+    }[data && data.reason] || "The journey planner is not available right now.";
+    return `<p class="plan-note">${escapeHtml(why)}</p>`;
+  }
+  if (!(data.options || []).length) {
+    return `<p class="plan-note">No journeys found at that time. Try a nearby stop, or a later time.</p>`;
+  }
+  const cards = data.options.slice(0, 4).map(o => {
+    const mins = Math.round((o.duration_seconds || 0) / 60);
+    const changes = o.num_transfers ? `${o.num_transfers} change${o.num_transfers > 1 ? "s" : ""}` : "Direct";
+    return `<li class="plan-option">
+        <p class="plan-option-head"><strong>${escapeHtml(planClock(o.departure_time))} → ${
+          escapeHtml(planClock(o.arrival_time))}</strong> · ${mins} min · ${changes}</p>
+        <ol class="plan-legs">${(o.legs || []).map(planLegHtml).join("")}</ol>
+      </li>`;
+  }).join("");
+  return `<ol class="plan-options">${cards}</ol>
+    <p class="plan-note">Planned by the Buses &amp; Trains API (OpenTripPlanner), from
+      timetables. Check the stop's board for live times.</p>`;
+}
+
+function initJourneyPlanner() {
+  const section = document.getElementById("plan-journey");
+  if (!section || !previewEnabled()) return;
+  section.hidden = false;
+  const form = document.getElementById("plan-form");
+  const fromIn = document.getElementById("plan-from");
+  const toIn = document.getElementById("plan-to");
+  const list = document.getElementById("plan-stops");
+  const out = document.getElementById("plan-results");
+  let here = null;
+
+  const fill = () => {
+    if (list.childElementCount) return;
+    list.innerHTML = [...planStopChoices().keys()].sort()
+      .map(label => `<option value="${escapeAttr(label)}"></option>`).join("");
+  };
+  fromIn.addEventListener("focus", fill);
+  toIn.addEventListener("focus", fill);
+  fromIn.addEventListener("input", () => { if (fromIn.value !== "My location") here = null; });
+
+  const hereBtn = document.getElementById("plan-here");
+  if (!("geolocation" in navigator)) hereBtn.hidden = true;
+  hereBtn.addEventListener("click", () => {
+    out.innerHTML = `<p class="plan-note">Finding where you are…</p>`;
+    navigator.geolocation.getCurrentPosition(pos => {
+      here = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      fromIn.value = "My location";
+      out.innerHTML = "";
+    }, () => {
+      out.innerHTML = `<p class="plan-note">Your location was not available. Type a stop instead.</p>`;
+    }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const choices = planStopChoices();
+    const a = fromIn.value === "My location" && here ? here : choices.get(fromIn.value.trim());
+    const b = choices.get(toIn.value.trim());
+    if (!a || !b) {
+      out.innerHTML = `<p class="plan-note">Choose both stops from the list as you type.</p>`;
+      (a ? toIn : fromIn).focus();
+      return;
+    }
+    out.innerHTML = `<p class="plan-note">Planning…</p>`;
+    track("journey-plan");
+    try {
+      const q = new URLSearchParams({ from_lat: a.lat.toFixed(5), from_lon: a.lon.toFixed(5),
+                                      to_lat: b.lat.toFixed(5), to_lon: b.lon.toFixed(5) });
+      out.innerHTML = planResultsHtml(await apiFetch(`/api/plan?${q}`));
+    } catch {
+      out.innerHTML = planResultsHtml({ available: false, reason: "upstream" });
+    }
+  });
+
+  out.addEventListener("click", (e) => {
+    const stop = e.target.closest("button.plan-stop");
+    if (stop) openDepartures(stop.dataset.atco, stop.dataset.name || stop.dataset.atco);
+  });
+}
+
 function bindNearMe() {
   const btn  = document.getElementById("stop-near-me");
   const list = document.getElementById("stop-search-results");
@@ -11539,6 +11708,7 @@ function bindRovingTabs() {
 
 function bindStopSearch() {
   bindNearMe();
+  initJourneyPlanner();
   const form  = document.getElementById("stop-search-form");
   const input = document.getElementById("stop-search-input");
   const list  = document.getElementById("stop-search-results");
@@ -15975,15 +16145,32 @@ const ROUTE_COLOURS = {
   "270": "#6D6E71",
 };
 
+// Whose livery each ROUTE_COLOURS entry is. Route numbers are not unique:
+// Stagecoach runs a 1, a 5 and a 7 in Worthing, and keyed by number alone
+// they wore Brighton & Hove's pink, orange and purple. Everything in the
+// table is Brighton & Hove's unless listed here.
+const ROUTE_COLOUR_OWNERS = { "700": "SCSO", "700X": "SCSO", "N700": "SCSO" };
+const ROUTE_COLOUR_FAMILY = { SCSC: "SCSO", BHBC: "BHBC" };
+
+/** A route's own livery colour, but only on the operator whose livery it is.
+ *  With no operator known (some Improvements data), the number decides, as
+ *  it always did. Night variants inherit the day route's colour — see
+ *  iconForService. */
+function brandedRouteColour(key, operatorRef) {
+  const op = operatorRef ? (ROUTE_COLOUR_FAMILY[operatorRef] || operatorRef) : "";
+  for (const k of [key, stripNightPrefix(key)]) {
+    const colour = ROUTE_COLOURS[k];
+    if (!colour) continue;
+    if (op && op !== (ROUTE_COLOUR_OWNERS[k] || "BHBC")) return null;
+    return colour;
+  }
+  return null;
+}
+
 function getRouteColour(service, operatorRef) {
   if (!service) return getOperatorColour(operatorRef);
   const key = String(service).trim().toUpperCase();
-  // Night variants inherit the day route's colour — see iconForService. The
-  // table lists N1, N5, N7, N25 and N700 but not N12, N14, N29 or N48, so
-  // those four were drawing in the operator's colour instead of their own.
-  return ROUTE_COLOURS[key]
-      || ROUTE_COLOURS[stripNightPrefix(key)]
-      || getOperatorColour(operatorRef);
+  return brandedRouteColour(key, operatorRef) || getOperatorColour(operatorRef);
 }
 
 /**
@@ -15995,9 +16182,9 @@ function getRouteColour(service, operatorRef) {
 function getLineColour(service, operator) {
   if (!service) return "#888";
   const key = String(service).trim().toUpperCase();
-  if (ROUTE_COLOURS[key]) return ROUTE_COLOURS[key];
-  // Night variant of a branded route — the N14 is the 14 after dark.
-  if (ROUTE_COLOURS[stripNightPrefix(key)]) return ROUTE_COLOURS[stripNightPrefix(key)];
+  // A branded route, on its own operator; the N14 is the 14 after dark.
+  const branded = brandedRouteColour(key, operator);
+  if (branded) return branded;
   // Fall back to the operator's brand colour before the hash. Lets every
   // Compass route render burgundy, Stagecoach blue, B&H red, etc., without
   // needing a per-route entry in ROUTE_COLOURS.

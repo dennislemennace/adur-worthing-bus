@@ -50,6 +50,7 @@
   --color-on-time:        #1c7844;
   --color-early:          #1a70b5;
   --color-late:           #bc3220;
+  --gap-pending:          #9a6700;   /* amber: a gap being confirmed */
   --color-unknown:        #6a5e58;
 
   /* Status chip fills. Light mode uses hand-picked opaque tints, dark mode
@@ -190,6 +191,7 @@ html.dark-mode {
   --color-on-time:        #34c06a;
   --color-early:          #28b4c4;
   --color-late:           #ee5f4d;   /* was #e84e3c — 4.36:1 on its own tint */
+  --gap-pending:          #e0a93b;
   --color-unknown:        #748ca2;   /* was #5a7488 — 3.40:1 on the scheduled chip */
 
   --tint-on-time-bg:       rgba(52, 192, 106, 0.12);
@@ -2816,11 +2818,6 @@ html.dark-mode .stop-cluster-icon {
   justify-content: flex-end;
   gap: 2px var(--space-xs);
   min-width: 0;
-}
-.bus-info-journey {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
 }
 .bus-info-near {
   font-weight: 600;
@@ -6558,32 +6555,159 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
    One line under the stop search, in the panel rather than over the map, and
    the same disclosure pattern as the stop's service span. The state is in the
    words and the icon; the coloured edge repeats it, it does not carry it. */
-.gap-monitor-host {
+/* ---- Journey planner (preview) ---- */
+.plan-journey {
   width: 100%;
   max-width: 34rem;
-  margin: 0 auto;
+  margin: var(--space-md) auto 0;
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
   text-align: left;
 }
+.plan-preview-tag {
+  margin-left: var(--space-2xs);
+  padding: 1px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: var(--font-size-2xs);
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  vertical-align: middle;
+}
+.plan-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2xs); }
+.plan-form .stop-search-input { width: 100%; box-sizing: border-box; }
+.plan-label { font-size: var(--font-size-xs); font-weight: 700; color: var(--color-text-muted); }
+.plan-row { display: flex; gap: var(--space-2xs); }
+.plan-row .stop-search-input { flex: 1 1 auto; min-width: 0; }
+.plan-here {
+  flex: none;
+  width: var(--target-min);
+  min-height: var(--target-min);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  cursor: pointer;
+}
+.plan-here:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.plan-go { justify-self: start; margin-top: var(--space-2xs); }
+.plan-results { margin-top: var(--space-sm); }
+.plan-note { margin: 0 0 var(--space-xs); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.plan-options { list-style: none; margin: 0 0 var(--space-xs); padding: 0; display: grid; gap: var(--space-xs); }
+.plan-option {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  font-size: var(--font-size-sm);
+}
+.plan-option-head { margin: 0 0 var(--space-2xs); }
+.plan-legs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.plan-leg { display: flex; align-items: flex-start; gap: var(--space-xs); line-height: 1.4; }
+.plan-leg--walk { color: var(--color-text-muted); padding-left: 2px; }
+.plan-meta { display: block; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.plan-stop {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-link);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---- A259 gap monitor: a status circle over the map ----
+   Under the zoom buttons, in Live view only. The circle is the whole signal:
+   green with a tick, amber with a clock while a gap is being confirmed, red
+   with a warning for a confirmed one. Tapping it opens the detail beside it. */
+.gap-fab-host {
+  position: absolute;
+  top: 112px;
+  left: 10px;
+  z-index: 800;                 /* above the map panes, level with its controls */
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  pointer-events: none;         /* only the circle and the card take taps */
+}
+.gap-fab-host[hidden] { display: none; }
+body:not([data-view="live"]) .gap-fab-host { display: none; }
+.gap-fab {
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--target-min);
+  height: var(--target-min);
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  color: #ffffff;
+  background: var(--color-on-time);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.gap-fab .icon { width: 20px; height: 20px; }
+.gap-fab--pending { background: var(--gap-pending); }
+.gap-fab--alert { background: var(--color-late); }
+.gap-fab:focus-visible { outline: 3px solid var(--color-link); outline-offset: 2px; }
+/* A confirmed gap draws the eye once a few seconds, and never for anyone who
+   has asked the page to keep still. */
+@media (prefers-reduced-motion: no-preference) {
+  .gap-fab--alert { animation: gap-fab-ring 2.4s ease-out infinite; }
+}
+@keyframes gap-fab-ring {
+  0%   { box-shadow: 0 2px 8px rgba(0,0,0,.35), 0 0 0 0 rgba(188, 50, 32, .55); }
+  70%  { box-shadow: 0 2px 8px rgba(0,0,0,.35), 0 0 0 14px rgba(188, 50, 32, 0); }
+  100% { box-shadow: 0 2px 8px rgba(0,0,0,.35), 0 0 0 0 rgba(188, 50, 32, 0); }
+}
+html.dark-mode .gap-fab { color: #0f1726; border-color: #0f1726; }
+/* A short landscape phone: the resting sheet covers the map almost to the
+   header, zoom buttons and all. The circle moves up into the free left end of
+   the sheet's handle strip, above the sheet, because an alert that only shows
+   once the sheet is dragged away is an alert nobody sees. */
+@media (max-width: 900px) and (max-height: 480px) {
+  .gap-fab-host { top: 6px; z-index: 1002; }
+  .gap-pop { max-height: calc(100vh - 90px); }
+}
+
+.gap-pop {
+  pointer-events: auto;
+  width: min(22rem, calc(100vw - 80px));
+  max-height: min(60vh, 26rem);
+  overflow-y: auto;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+.gap-pop[hidden] { display: none; }
+.gap-pop-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-xs) var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+}
+.gap-pop-head .gap-monitor-text { margin: 0; padding-top: 10px; }
+.gap-pop-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--target-min);
+  height: var(--target-min);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.gap-pop-close:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
 .gap-monitor {
   border: 1px solid var(--color-border);
   border-left: 4px solid var(--color-on-time);
   border-radius: var(--radius-md);
-  background: var(--color-surface-2);
-  overflow: hidden;
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 .gap-monitor--alert { border-left-color: var(--color-late); }
-.gap-monitor summary {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  min-height: var(--target-min);
-  padding: var(--space-xs) var(--space-sm);
-  cursor: pointer;
-  list-style: none;
-  font-size: var(--font-size-sm);
-  user-select: none;
-}
-.gap-monitor summary::-webkit-details-marker { display: none; }
 .gap-monitor-icon {
   flex-shrink: 0;
   color: var(--color-on-time);
@@ -6595,12 +6719,6 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   font-weight: 600;
   line-height: 1.3;
 }
-.gap-monitor-chevron {
-  flex-shrink: 0;
-  transition: transform var(--transition);
-}
-.gap-monitor[open] .gap-monitor-chevron { transform: rotate(180deg); }
-.gap-monitor[open] summary { border-bottom: 1px solid var(--color-border); }
 .gap-monitor-body {
   padding: var(--space-xs) var(--space-sm) var(--space-sm);
   font-size: var(--font-size-sm);
@@ -7046,6 +7164,15 @@ html.dark-mode {
   --delay-casing: rgba(0, 0, 0, 0.72);
 }
 
+/* The how-to on the opening screen: three steps, read before anything is
+   chosen. Numbered, because the order is the instruction. */
+.jt-howto {
+  margin: 0 0 var(--space-sm);
+  padding-left: 1.3rem;
+  line-height: 1.5;
+}
+.jt-howto li + li { margin-top: 2px; }
+
 .jt-topbar {
   display: flex;
   flex-wrap: wrap;
@@ -7197,6 +7324,16 @@ html.a11y-reduce-motion .jt-swap:active { transform: none; }
   cursor: pointer;
 }
 .jt-area[aria-pressed="true"] { color: var(--color-text); border-bottom-color: var(--color-link); }
+/* On a phone the four areas do not fit one row, and wrapping left "Between
+   towns" alone on a second line. An even two-by-two grid reads as one control. */
+@media (max-width: 560px) {
+  .jt-areas {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .15rem .5rem;
+  }
+  .jt-area { text-align: left; }
+}
 
 /* ── The journey bar: From and To, typed or tapped ── */
 .jt-journey {
