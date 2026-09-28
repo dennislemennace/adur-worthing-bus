@@ -2716,16 +2716,11 @@ function renderJourneyTimesIntro(opts = {}) {
   } else if (!jtEntry.a && jtEntry.b) {
     lead = `<p class="jt-verdict">Now choose where you are starting from.</p>`;
   } else if (jtView() === "simple") {
-    // The first thing a visitor reads here, so it says what the tool is for
-    // and how to drive it, in three short steps and no jargon.
+    // The first thing a visitor reads: what it is for and how to start, in
+    // one line, so the popular journeys below still fit on the first screen.
     lead = `<p class="jt-verdict"><strong>How long will my bus really take?</strong></p>
-      <ol class="jt-howto">
-        <li>Choose where you get on and off: type the stops above, tap two stops
-          on the map, or pick a popular journey below.</li>
-        <li>See how long the buses we tracked actually took between them,
-          next to the time the timetable promises.</li>
-        <li>Use it to know how much time to allow, and which times of day run late.</li>
-      </ol>`;
+      <p class="jt-lead">Pick two stops, or a popular journey, to see how long
+        buses really took against the timetable.</p>`;
   } else {
     lead = `<p class="jt-verdict"><strong>Pick any two stops</strong> above or on the map
       to see every journey we tracked between them, against the timetable.</p>
@@ -7091,7 +7086,11 @@ function renderDepartures(data) {
   // more existed — and a second, earlier assignment of the same element sat
   // just above, immediately overwritten and long dead.
   state.departuresAsOf = new Date();
-  renderBoardFilter(departures.map(d => d.service || "?"));
+  renderBoardFilter(departures.map(d => d.service || "?"),
+    // The first bus of each number decides its chip's colour, so it matches
+    // the top row with that number.
+    Object.fromEntries([...departures].reverse()
+      .map(d => [d.service || "?", d.operator || d.operator_ref || ""])));
   applyBoardFilter();
 
   startDepartureTicker();
@@ -7104,7 +7103,7 @@ function renderDepartures(data) {
  *  pretending to be a control. The filter belongs to the stop, so opening a
  *  different stop starts from All again (see openDepartures).
  */
-function renderBoardFilter(services) {
+function renderBoardFilter(services, operators = {}) {
   const host = document.getElementById("board-filter");
   if (!host) return;
   const seen = [];
@@ -7117,10 +7116,19 @@ function renderBoardFilter(services) {
     return;
   }
   const active = state.boardFilter;
-  const button = (value, text) => `<button type="button" class="board-filter-btn"
+  // Each route's chip wears its own colour, like its badge on the rows, so
+  // the chip and the buses it picks out read as the same thing. Once one is
+  // chosen the others grey out (the container's data-filtered does that).
+  const button = (value, text) => {
+    const colour = value ? getRouteColour(value, operators[value]) : "";
+    const style = colour
+      ? ` style="--chip-bg:${colour};--chip-fg:${pickTextOn(colour) === "dark" ? "#000000" : "#ffffff"}"` : "";
+    return `<button type="button" class="board-filter-btn${value ? " board-filter-btn--route" : ""}"${style}
       data-service="${escapeAttr(value)}" aria-pressed="${active === (value || null) ? "true" : "false"}"
       >${escapeHtml(text)}</button>`;
+  };
   host.innerHTML = button("", "All") + seen.map(svc => button(svc, svc)).join("");
+  host.dataset.filtered = active ? "1" : "";
   host.hidden = false;
 }
 
@@ -8775,6 +8783,7 @@ function bindUIEvents() {
     const btn = e.target.closest("button.board-filter-btn");
     if (!btn) return;
     state.boardFilter = btn.dataset.service || null;
+    btn.parentElement.dataset.filtered = state.boardFilter ? "1" : "";
     btn.parentElement.querySelectorAll("button.board-filter-btn").forEach(b =>
       b.setAttribute("aria-pressed", String((b.dataset.service || null) === state.boardFilter)));
     applyBoardFilter();
@@ -11410,12 +11419,19 @@ function planClock(iso) {
 function planLegHtml(leg) {
   const mins = Math.max(1, Math.round((leg.duration_seconds || 0) / 60));
   if ((leg.mode || "").toUpperCase() === "WALK") {
-    return `<li class="plan-leg plan-leg--walk">Walk ${mins} min${
-      leg.to_name ? ` to ${escapeHtml(prettifyName(leg.to_name))}` : ""}</li>`;
+    // The planner calls the two ends "Origin" and "Destination".
+    const to = /^destination$/i.test(leg.to_name || "") ? "your destination" : prettifyName(leg.to_name || "");
+    return `<li class="plan-leg plan-leg--walk">Walk ${mins} min${to ? ` to ${escapeHtml(to)}` : ""}</li>`;
   }
+  // A train's "route" is a sentence ("Train from Southampton Central to
+  // Brighton"), not a number: it goes under the leg, and the badge says
+  // Train in the operator's colour, as the rail markers on the map do.
+  const rail = /RAIL|TRAIN/i.test(leg.mode || "");
+  const railCode = rail ? (Object.entries(RAIL_OPERATOR_NAMES)
+    .find(([, name]) => new RegExp(name, "i").test(leg.agency || "")) || [])[0] : "";
   const noc = (PLAN_AGENCY_NOCS.find(([re]) => re.test(leg.agency || "")) || [])[1] || "";
-  const route = leg.route || leg.mode || "";
-  const colour = getRouteColour(route, noc);
+  const route = rail ? "Train" : (leg.route || leg.mode || "");
+  const colour = rail ? railOperatorColour(railCode) : getRouteColour(route, noc);
   const text = pickTextOn(colour) === "dark" ? "service-badge--dark-text" : "service-badge--light-text";
   const from = prettifyName(leg.from_name || "");
   const board = state.stopData[leg.from_stop_id]
@@ -11426,7 +11442,8 @@ function planLegHtml(leg) {
       <span class="service-badge ${text}" style="background:${colour}">${escapeHtml(route)}</span>
       <span>${escapeHtml(planClock(leg.departure_time))} from ${board}
         to ${escapeHtml(prettifyName(leg.to_name || ""))}, ${escapeHtml(planClock(leg.arrival_time))}
-        <span class="plan-meta">${mins} min${leg.num_stops ? ` · ${leg.num_stops} stops` : ""}</span></span>
+        <span class="plan-meta">${rail && leg.agency ? `${escapeHtml(leg.agency)} · ` : ""}${mins} min${
+          leg.num_stops ? ` · ${leg.num_stops} stop${leg.num_stops === 1 ? "" : "s"}` : ""}</span></span>
     </li>`;
 }
 

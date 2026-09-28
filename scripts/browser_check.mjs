@@ -1715,13 +1715,19 @@ async function checkStopBoardPolish(page, where) {
     const btn700 = buttons.find(b => b.dataset.service === "700");
     btn700 && btn700.click();
     const shownAfter = rows.filter(tr => !tr.hidden).map(tr => tr.dataset.service);
+    // Route chips wear the route's colour; once one is chosen the rest grey.
+    const bg = b => getComputedStyle(b).backgroundColor;
+    const hex = h => { const n = parseInt(h.slice(1), 16); return \`rgb(\${n >> 16}, \${(n >> 8) & 255}, \${n & 255})\`; };
+    const chip9 = buttons.find(b => b.dataset.service === "9");
+    const chipColours = { chosen: btn700 && bg(btn700) === hex(getRouteColour("700", "SCSO")),
+      othersGrey: !!chip9 && bg(chip9) !== hex(getRouteColour("9", "SCSO")) };
     const count = document.getElementById("departures-count").textContent;
     return JSON.stringify({
       liveRows: liveRows.length, lateLabel,
       buttons: buttons.map(b => b.textContent.trim()),
       keyShown: !!key && vis(key), helpShown: !!help && vis(help),
       pressed: btn700 && btn700.getAttribute("aria-pressed"),
-      shownAfter, count, noticeShown, rowTag,
+      shownAfter, count, noticeShown, rowTag, chipColours,
     });
   })()`));
   if (r.skip) { skip(`stop board shows live and timetable apart — ${where}`, r.skip); return; }
@@ -1729,6 +1735,8 @@ async function checkStopBoardPolish(page, where) {
   check(`a late bus says by how much — ${where}`, /3 min late/i.test(r.lateLabel), r.lateLabel.replace(/\s+/g, " ").slice(0, 80));
   check(`a published disruption shows, and its row points at it — ${where}`,
     r.noticeShown && r.rowTag, `notice ${r.noticeShown}, row tag ${r.rowTag}`);
+  check(`route chips wear their route colour, the unchosen greyed — ${where}`,
+    r.chipColours.chosen && r.chipColours.othersGrey, JSON.stringify(r.chipColours));
   check(`the board key and help are on screen — ${where}`, r.keyShown && r.helpShown,
     `key ${r.keyShown}, help ${r.helpShown}`);
   check(`route buttons filter the board — ${where}`,

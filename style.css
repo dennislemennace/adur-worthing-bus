@@ -3894,6 +3894,22 @@ html.dark-mode .departures-table tr.departure-row:hover td {
   outline: 2px solid var(--color-link);
   outline-offset: 2px;
 }
+/* A route chip in the route's own colour, the same as its badge on the rows. */
+.board-filter-btn--route,
+.board-filter-btn--route[aria-pressed="true"] {
+  background: var(--chip-bg);
+  border-color: var(--chip-bg);
+  color: var(--chip-fg);
+}
+/* The chosen one is ringed; the rest go grey, so what is on is obvious. */
+.board-filter-btn--route[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-text);
+}
+.board-filter[data-filtered="1"] .board-filter-btn--route[aria-pressed="false"] {
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
 
 /* ---- "How to read this board" ---- */
 .board-help {
@@ -7164,14 +7180,7 @@ html.dark-mode {
   --delay-casing: rgba(0, 0, 0, 0.72);
 }
 
-/* The how-to on the opening screen: three steps, read before anything is
-   chosen. Numbered, because the order is the instruction. */
-.jt-howto {
-  margin: 0 0 var(--space-sm);
-  padding-left: 1.3rem;
-  line-height: 1.5;
-}
-.jt-howto li + li { margin-top: 2px; }
+.jt-lead { margin: 0 0 var(--space-xs); line-height: 1.45; }
 
 .jt-topbar {
   display: flex;
@@ -7310,29 +7319,45 @@ html.a11y-reduce-motion .jt-swap:active { transform: none; }
 
 /* The areas above the worked examples: tabs rather than chips, so they read
    as "which list" and not as one more journey to press. */
-.jt-areas { display: flex; flex-wrap: wrap; gap: .5rem .75rem; margin: .1rem 0 .4rem; }
+/* The areas as one segmented control: a tray with the chosen area raised out
+   of it. They read as buttons to press, where underlined words floating on
+   the page did not. */
+.jt-areas {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+  margin: .1rem 0 .6rem;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
 .jt-area {
   min-height: var(--target-min);
-  padding: .3rem .2rem;
-  border: 0;
-  border-bottom: 3px solid transparent;
+  padding: .3rem .4rem;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-md) - 3px);
   background: none;
   color: var(--color-text-muted);
   font: inherit;
   font-size: var(--font-size-sm);
   font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
   cursor: pointer;
 }
-.jt-area[aria-pressed="true"] { color: var(--color-text); border-bottom-color: var(--color-link); }
-/* On a phone the four areas do not fit one row, and wrapping left "Between
-   towns" alone on a second line. An even two-by-two grid reads as one control. */
+.jt-area[aria-pressed="true"] {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+@media (hover: hover) {
+  .jt-area:not([aria-pressed="true"]):hover { background: var(--color-border); color: var(--color-text); }
+}
+/* On a phone four across is too narrow for "Shoreham & Lancing": two by two. */
 @media (max-width: 560px) {
-  .jt-areas {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: .15rem .5rem;
-  }
-  .jt-area { text-align: left; }
+  .jt-areas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* ── The journey bar: From and To, typed or tapped ── */
