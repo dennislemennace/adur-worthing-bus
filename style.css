@@ -3661,7 +3661,10 @@ body.editor-mode-add-stop .leaflet-marker-icon.stop-marker-icon {
   border: 1px solid rgba(0,0,0,0.1);
 }
 .service-badge--light-text { color: var(--color-on-fill); }
-.service-badge--dark-text  { color: #0f1726; }
+/* Pure black, the colour pickTextOn() chose it against. The navy this used to
+   be read 3.96:1 on the 1's magenta, where black is 4.6 and white 4.5: the
+   picker's guarantee only holds for the colour it actually compared. */
+.service-badge--dark-text  { color: #000000; }
 
 /* ---- Departure board: editorial upgrade ---- */
 .departures-table { border-collapse: separate; border-spacing: 0; }
