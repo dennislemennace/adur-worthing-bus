@@ -2755,6 +2755,35 @@ async function checkJourneySimple(page, viewport) {
 }
 
 /** The delay map against a fixture: two stretches, one with enough evidence. */
+/**
+ * The published delay map, fetched the way a reader's browser fetches it.
+ *
+ * checkDelayMap fills the cache with fixtures, which skips the fetch and the
+ * integrity check on it, so it stayed green for days while every real map
+ * was refused ("Measurement build mismatch": the maps are published byte
+ * for byte with a manifest hash, not a build_id). This one goes to the
+ * network. Unreachable is a skip; a refusal is a failure.
+ */
+async function checkPublishedDelayMap(page, where) {
+  const r = JSON.parse(await page.evaluate(`(async () => {
+    journeyTimesCache.clear();
+    try {
+      const { index, mapIndex } = await loadDelayMapIndex();
+      if (!mapIndex) return JSON.stringify({ skip: "no delay map published yet" });
+      const svc = mapIndex.services[0];
+      const entry = index.artifacts[svc.file];
+      const doc = await loadJourneyTimes(entry.file, entry.sha256 || "");
+      return JSON.stringify({ services: mapIndex.services.length, stretches: (doc.stretches || []).length });
+    } catch (err) {
+      const msg = String(err && err.message || err);
+      return JSON.stringify(/Failed to fetch|NetworkError|Load failed/.test(msg) ? { skip: msg } : { error: msg });
+    }
+  })()`));
+  if (r.skip) { skip(`the published delay map loads — ${where}`, r.skip); return; }
+  check(`the published delay map loads — ${where}`, !r.error && r.services > 0 && r.stretches > 0,
+    r.error || `${r.services} services, ${r.stretches} stretches in the first`);
+}
+
 async function checkDelayMap(page, viewport) {
   const result = JSON.parse(await page.evaluate(`(async () => {
     const build = "d".repeat(64), day = "2026-09-21";
@@ -3578,6 +3607,7 @@ if (process.argv.includes("--journey-review")) {
   await checkSelectedFareRoute(page);
   await checkJourneySimple(page, VIEWPORTS[0].name);
   await checkDelayMap(page, VIEWPORTS[0].name);
+await checkPublishedDelayMap(page, VIEWPORTS[0].name);
   for (const vp of VIEWPORTS.slice(1)) {
     const p = await openPage(vp);
     await checkJourneyPairService(p, vp.name);
@@ -3637,6 +3667,7 @@ await checkJourneyKept(page, VIEWPORTS[0].name);
 await checkJourneyReview(page, VIEWPORTS[0].name);
 await checkJourneySimple(page, VIEWPORTS[0].name);
 await checkDelayMap(page, VIEWPORTS[0].name);
+await checkPublishedDelayMap(page, VIEWPORTS[0].name);
 await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
 await checkDeepLinkIndependence();   // own page + request interception; keep it apart

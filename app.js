@@ -3106,20 +3106,47 @@ function jtExpandDocument(doc) {
   return out;
 }
 
-/** Fetch the exact path named in the manifest; never guess or rewrite it. */
-async function loadJourneyTimes(file) {
+/** Fetch the exact path named in the manifest; never guess or rewrite it.
+ *
+ *  Two kinds of document live under a build, checked two ways. Journey-time
+ *  documents are re-encoded by the publisher with the build's id inside
+ *  them, so that id must match the folder. Artifacts (the delay map's files)
+ *  are published byte for byte and carry no id: the manifest records their
+ *  SHA-256 instead, and that is what they are checked against. Asking an
+ *  artifact for a build_id it was never given refused every delay map from
+ *  the day the maps moved under builds/. */
+async function loadJourneyTimes(file, sha256 = "") {
   if (!/^(?:builds\/[a-f0-9]{64}\/)?[A-Za-z0-9_-]{1,100}\.json$/.test(String(file))) {
     throw new Error("Invalid measurement document path");
   }
   if (!journeyTimesCache.has(file)) {
     const res = await fetch(`${CONFIG.JOURNEY_TIMES_BASE}/${file}`);
     if (!res.ok) throw new Error(`${file} ${res.status}`);
-    const doc = jtExpandDocument(await res.json());
-    const build = file.startsWith("builds/") ? file.split("/")[1] : "";
-    if (build && doc.build_id !== build) throw new Error("Measurement build mismatch");
+    let doc;
+    if (sha256) {
+      const raw = await res.arrayBuffer();
+      const actual = await sha256Hex(raw);
+      // No SubtleCrypto outside a secure context (a phone previewing over
+      // plain http on the LAN). The path is an immutable build path either
+      // way; the hash is the extra check, not the only one.
+      if (actual && actual !== sha256) throw new Error("Measurement artifact hash mismatch");
+      doc = jtExpandDocument(JSON.parse(new TextDecoder().decode(raw)));
+    } else {
+      doc = jtExpandDocument(await res.json());
+      const build = file.startsWith("builds/") ? file.split("/")[1] : "";
+      if (build && doc.build_id !== build) throw new Error("Measurement build mismatch");
+    }
     journeyTimesCache.set(file, doc);
   }
   return journeyTimesCache.get(file);
+}
+
+/** Lower-case hex SHA-256 of some bytes, or "" where the browser cannot. */
+async function sha256Hex(bytes) {
+  const subtle = globalThis.crypto && globalThis.crypto.subtle;
+  if (!subtle) return "";
+  const digest = new Uint8Array(await subtle.digest("SHA-256", bytes));
+  return Array.from(digest, b => b.toString(16).padStart(2, "0")).join("");
 }
 
 /** How a service is named to a reader: the number, and whose bus it is.
@@ -4837,7 +4864,7 @@ async function loadDelayMapIndex() {
   const index = await loadJourneyTimesIndex();
   const entry = index && index.artifacts && index.artifacts["hotspot-map-index.json"];
   if (!entry) return { index, mapIndex: null };
-  return { index, mapIndex: await loadJourneyTimes(entry.file) };
+  return { index, mapIndex: await loadJourneyTimes(entry.file, entry.sha256 || "") };
 }
 
 function clearDelayMap() {
@@ -5035,7 +5062,7 @@ async function renderDelayMapPanel() {
   const entry = index.artifacts[jtDelay.service];
   let doc;
   try {
-    doc = entry ? await loadJourneyTimes(entry.file) : null;
+    doc = entry ? await loadJourneyTimes(entry.file, entry.sha256 || "") : null;
   } catch { doc = null; }
   if (!owns()) return;
   if (!doc) {

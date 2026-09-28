@@ -57,6 +57,42 @@ test("immutable document paths are preserved and unexpected paths rejected", asy
   assert.equal(asked.length, 1);
 });
 
+// The delay map's files are published byte for byte, with their SHA-256 in
+// the manifest and no build_id inside. Asking them for one refused every map
+// from the day they moved under builds/ (found 28 Sep 2026: "Measurement
+// build mismatch" on the live site, while the browser check, which filled
+// the cache directly, stayed green).
+async function artifactApp(bytes) {
+  const { createHash, webcrypto } = await import("node:crypto");
+  const app = loadApp();
+  app.crypto = webcrypto;
+  app.TextDecoder = TextDecoder;
+  app.fetch = async () => ({ ok: true, arrayBuffer: async () => bytes.buffer.slice(0),
+                             json: async () => JSON.parse(new TextDecoder().decode(bytes)) });
+  return { app, sha: createHash("sha256").update(bytes).digest("hex") };
+}
+
+test("a delay-map artifact with no build_id loads when its bytes match the manifest", async () => {
+  const bytes = new TextEncoder().encode(JSON.stringify({ schema_version: 1, services: [{ service: "700" }] }));
+  const { app, sha } = await artifactApp(bytes);
+  const file = `builds/${"c".repeat(64)}/hotspot-map-index.json`;
+  const doc = await app.loadJourneyTimes(file, sha);
+  assert.equal(doc.services[0].service, "700");
+});
+
+test("a delay-map artifact whose bytes differ from the manifest is refused", async () => {
+  const bytes = new TextEncoder().encode(JSON.stringify({ schema_version: 1, services: [] }));
+  const { app } = await artifactApp(bytes);
+  await assert.rejects(app.loadJourneyTimes(`builds/${"c".repeat(64)}/hotspot-map-index.json`, "0".repeat(64)),
+    /hash mismatch/);
+});
+
+test("a journey-time document still has to name its own build", async () => {
+  const app = loadApp();
+  app.fetch = async () => ({ ok: true, json: async () => ({ build_id: "a".repeat(64) }) });
+  await assert.rejects(app.loadJourneyTimes(`builds/${"b".repeat(64)}/700-SCSO.json`), /build mismatch/);
+});
+
 test("evidence filters and midnight time windows keep the same exported cohort", () => {
   const app = loadApp();
   const rows = [
