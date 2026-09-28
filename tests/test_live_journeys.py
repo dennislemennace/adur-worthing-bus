@@ -224,6 +224,38 @@ def test_a_declaration_the_bus_is_driving_against_is_not_believed(monkeypatch):
     assert "declared_journey_contradicted_by_heading" in bus["identity_flags"]
 
 
+def test_a_diverted_bus_off_its_route_keeps_its_journey(monkeypatch):
+    # The Western Road closure, 28 Sep 2026: a 5B 650 m off its route on the
+    # diversion, 21 minutes late, pointing the "wrong" way along a side
+    # street. Its heading says nothing about the journey there, and the rule
+    # meant for stale declarations threw a true one away.
+    tt = FakeTimetable()
+    _freeze(monkeypatch, 15, 10)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.832, longitude=-0.261, bearing=180.0)
+    main._attach_declared_journeys([bus], tt)
+    assert bus["trip_source"] == "feed", "a diverted bus lost the journey it named"
+    assert bus["lateness_secs"] == 44 * 60
+
+
+def test_a_bus_nearest_a_closed_stop_is_on_diversion(tmp_path, monkeypatch):
+    # "near Brunswick Place" of a bus two streets away on Lansdowne Road
+    # sends a reader to the one stop it will not call at.
+    import json
+    from api import local_disruptions as ld
+    path = tmp_path / "disruptions.json"
+    path.write_text(json.dumps({"disruptions": [{
+        "id": "x-closure", "starts": "2026-09-01T00:00:00+01:00",
+        "ends": "2026-12-01T00:00:00+00:00",
+        "stops_not_served": [{"atco": "STOP2"}]}]}))
+    monkeypatch.setattr(ld, "PATH", path)
+    tt = FakeTimetable()
+    _freeze(monkeypatch, 14, 27)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.832)
+    main._attach_declared_journeys([bus], tt)
+    assert bus.get("on_diversion") is True
+    assert bus["nearest_stop_name"] == ""
+
+
 def test_a_very_late_bus_going_the_right_way_is_still_very_late(monkeypatch):
     # The same 44 minutes, heading north with its journey: a bus that really
     # is that late must not be explained away.

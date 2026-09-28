@@ -42,6 +42,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api import corridor_gaps
 from api import disruptions as sx
+from api import local_disruptions
 from api import gtfs_rt, live_eta, trip_match
 from api.timetable_db import (NIGHT_ENDS_SECS, Timetable,
                               path_has_time_gap, service_runs_on)
@@ -1225,6 +1226,17 @@ async def get_vehicle(vehicleRef: str = Query(...)):
     if not upcoming:
         upcoming = _upcoming_stops_from_calls(vehicle, tt)
         source   = "siri_onward_calls" if upcoming else "none"
+    # Stops the bus will go round, not call at: kept in the list so the route
+    # still reads as the route, marked, and with no time promised.
+    closed = local_disruptions.closures_now(datetime.now(timezone.utc))
+    if closed:
+        upcoming = [{**row, "not_served": True, "expected": None, "lateness_secs": None,
+                     "is_next": False}
+                    if row.get("stop_id") in closed else row for row in upcoming]
+        if upcoming and not any(r.get("is_next") for r in upcoming):
+            nxt = next((r for r in upcoming if not r.get("passed") and not r.get("not_served")), None)
+            if nxt is not None:
+                nxt["is_next"] = True
 
     return {
         "vehicle": {
@@ -1240,6 +1252,7 @@ async def get_vehicle(vehicleRef: str = Query(...)):
             "trip_source":   "feed" if declared else ("inferred" if trip_id else None),
             "journey_start": vehicle.get("journey_start") if declared else None,
             "lateness_secs": vehicle.get("lateness_secs") if declared else None,
+            "on_diversion":  bool(vehicle.get("on_diversion")),
         },
         "upcoming_stops": upcoming,
         "source":         source,
@@ -1445,6 +1458,7 @@ async def get_departures(
     if "live" not in result and not (NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY):
         # Say so rather than letting scheduled times pass as live ones.
         result = {**result, "live": False, "live_reason": "not_configured"}
+    result = await off_loop(_apply_stop_closure, result, tt, resolved)
     result = _attach_disruptions(result, resolved,
                                  _disruptions_now(await _disruptions_state(wait=False)))
     # Cached `base` can be up to a minute old, and the grace window deliberately
@@ -2030,9 +2044,41 @@ _background_tasks: set = set()
 
 
 def _disruptions_now(state: Optional[dict]) -> list:
-    if not state:
-        return []
-    return sx.current(state.get("situations") or [], datetime.now(timezone.utc))
+    """Notices in force or starting soon: ours first, then the feed's.
+
+    Ours (data/disruptions.json) do not wait on the feed, so a closure still
+    shows when BODS is down or has not been fetched yet.
+    """
+    now = datetime.now(timezone.utc)
+    ours = sx.current(local_disruptions.as_situations(local_disruptions.load()), now)
+    feed = sx.current(state.get("situations") or [], now) if state else []
+    return ours + feed
+
+
+def _apply_stop_closure(payload: dict, tt, stop_id: str) -> dict:
+    """A stop no bus calls at says so, and stops promising departures.
+
+    The timetable still lists them, and a live estimate would be worked out
+    for a bus that is on a diversion two streets away. Rows stay, marked, so
+    a reader sees which services normally stop here; the board carries where
+    to go instead.
+    """
+    now = datetime.now(timezone.utc)
+    if not local_disruptions.closures_now(now).get(stop_id):
+        return payload
+    key = f"closure:{stop_id}"
+    closure = cache_get(key)
+    if closure is None:
+        closure = local_disruptions.closure_for(tt, stop_id, now)
+        cache_set(key, closure, 600)
+    if not closure:
+        return payload
+    rows = []
+    for dep in payload.get("departures") or []:
+        row = {k: v for k, v in dep.items()
+               if k not in ("expected_departure", "delay_seconds", "live_source")}
+        rows.append({**row, "status": "Not served", "not_served": True})
+    return {**payload, "departures": rows, "stop_closure": closure}
 
 
 def _attach_disruptions(payload: dict, stop_id: str, disruptions: list) -> dict:
@@ -2491,6 +2537,9 @@ def _delay_to_status(delay_secs: int) -> str:
 # How far off its declared timetable a bus must claim to be before a heading
 # that contradicts the declaration is allowed to overturn it.
 DECLARATION_DOUBT_SECS = 15 * 60
+# ...and how close to its nearest stop the bus must be, so that it is on the
+# declared journey's road rather than on a diversion.
+DECLARATION_DOUBT_KM = 0.1
 
 
 def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
@@ -2552,8 +2601,17 @@ def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
         # either end, where a bus on the stand or turning round points
         # anywhere. Feeds send 0 for "no heading", so 0 is not a heading.
         heading = v.get("bearing") or None
+        # And only on the route. A stale declaration has the bus driving the
+        # declared road the wrong way; a diversion has it off the road
+        # altogether, where its heading says nothing about the journey. The
+        # Western Road closure (28 Sep 2026) had a 5B 650 m off its route,
+        # 21 minutes late and truly on the journey it named.
+        stop = tt.stops.get(calls[idx][1]) or {}
+        on_route = (stop.get("lat") is not None and v.get("latitude") is not None
+                    and trip_match.km(v["latitude"], v["longitude"],
+                                      stop["lat"], stop["lon"]) <= DECLARATION_DOUBT_KM)
         if (abs(lateness) >= DECLARATION_DOUBT_SECS and heading is not None
-                and 0 < idx < len(calls) - 1
+                and on_route and 0 < idx < len(calls) - 1
                 and not trip_match.heading_agrees(tt, calls, idx, heading)):
             for key in ("trip_id", "trip_headsign", "trip_source", "journey_start"):
                 v.pop(key, None)
@@ -2573,7 +2631,14 @@ def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
         # hedge rather than quietly assert.
         v["report_age_secs"] = (
             max(0, round((now_local - reported).total_seconds())) if reported else None)
-        v["nearest_stop_name"] = (tt.stops.get(calls[idx][1]) or {}).get("name", "")
+        # Near a stop no bus calls at, the bus is on a diversion around it:
+        # "near Brunswick Place" said of a bus two streets away on Lansdowne
+        # Road points a reader at the one place it will not stop.
+        if calls[idx][1] in local_disruptions.closures_now(datetime.now(timezone.utc)):
+            v["nearest_stop_name"] = ""
+            v["on_diversion"] = True
+        else:
+            v["nearest_stop_name"] = (tt.stops.get(calls[idx][1]) or {}).get("name", "")
 
 
 def _enrich_vehicles_with_trip_match(vehicles: list, tt: Timetable) -> None:

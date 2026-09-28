@@ -59,6 +59,35 @@ it from the submission, close the issue and clear its `unverified` label.
 Both say "approved for publication", not "published": committing and
 deploying is still a separate step you have to take.
 
+**Adding a disruption.** No council or operator here publishes to the BODS
+disruptions feed, so a closure the site should know about is copied in from the
+operator's own page into `data/disruptions.json`:
+
+1. Find the notice. For Brighton & Hove Buses, it is the service-updates page or
+   any affected stop's `buses.co.uk/stops/<ATCO>/updates` page. Copy its body
+   verbatim into a text file.
+2. Find the stop codes it names, with the direction each pole faces:
+   `python scripts/add_disruption.py --find "Norfolk Square"`. Take only the
+   stops the notice itself lists as not served.
+3. Add the entry:
+   `python scripts/add_disruption.py --id ... --summary ... --publisher ...
+   --source-url ... --starts 2026-09-28T07:00+01:00 --ends ...
+   --lines BHBC:1,BHBC:2 --not-served <codes> --diversion
+   "towards|routes|street;street|rejoins" --description-file notice.txt`.
+   It refuses unknown stops, times without a UTC offset, and entries with no
+   source.
+4. Run `pytest tests/test_local_disruptions.py`, commit the file and push. The
+   API reads it on redeploy.
+
+What it does on the site:
+- The entry shows as a notice on every board and Bus tab for its lines and stops.
+- A stop not served says so instead of promising departures. Its live
+  estimates are withdrawn, and the nearest stops still served on each side are
+  offered. These are worked out from the timetable, with distance, direction
+  and routes.
+- A bus nearest a closed stop reads "on diversion".
+- Entries stop showing after their end time, and `--prune` removes them.
+
 **Rebuild the councillor data.** `python scripts/build_representatives.py`.
 It refuses to write if coverage falls more than 10% below the existing file;
 `--force` if the loss is genuine, which it will be after boundary changes.

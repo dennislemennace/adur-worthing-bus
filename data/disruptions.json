@@ -1,0 +1,65 @@
+{
+  "_comment": "Disruptions recorded by hand from an operator's or council's own notice, because none of this area's operators or councils publish to the BODS disruptions feed. Each entry keeps the author's words, the page it came from and the date it was checked. Add one with scripts/add_disruption.py; see docs/RUNBOOK.md, 'Adding a disruption'. Entries past their end date stop showing on their own; `add_disruption.py --prune` removes them.",
+  "disruptions": [
+    {
+      "id": "bhbc-western-road-hove-2026-09-28",
+      "summary": "Western Road closed between Holland Road and Montpelier Road",
+      "description": "Due to roadworks on Western Road, we will be unable to serve all stops between Waitrose and Palmeira Square. All Routes except 1X, 2 and 46 towards Hove will be on diversion via Montpelier Road, Davigdor Road and Holland Road to resume full route from Palmeira Square. Routes 1X, 2 and 46 will be on diversion via Montpelier Road, Montpelier Place and Holland Road to resume full route from Palmeira Square. Route 71A, is only affected in 1 direction towards Mile Oak. All routes towards Brighton will be on diversion via Holland Road, Lansdowne Road and Montpelier Road to resume full route from Waitrose. All stops on the diversion routes will be served.",
+      "advice": "Please allow extra time for travelling during these times.",
+      "reason": "roadworks",
+      "severity": "severe",
+      "starts": "2026-09-28T07:00:00+01:00",
+      "ends": "2026-11-06T23:59:00+00:00",
+      "publisher": "Brighton & Hove Buses",
+      "source_url": "https://www.buses.co.uk/service-updates",
+      "checked_on": "2026-09-28",
+      "lines": [
+        {"operator": "BHBC", "line": "1"},
+        {"operator": "BHBC", "line": "1X"},
+        {"operator": "BHBC", "line": "2"},
+        {"operator": "BHBC", "line": "5"},
+        {"operator": "BHBC", "line": "5A"},
+        {"operator": "BHBC", "line": "5B"},
+        {"operator": "BHBC", "line": "6"},
+        {"operator": "BHBC", "line": "21"},
+        {"operator": "BHBC", "line": "25"},
+        {"operator": "BHBC", "line": "46"},
+        {"operator": "BHBC", "line": "49"},
+        {"operator": "BHBC", "line": "60"},
+        {"operator": "BHBC", "line": "71"},
+        {"operator": "BHBC", "line": "71A"},
+        {"operator": "BHBC", "line": "N1"},
+        {"operator": "BHBC", "line": "N5"}
+      ],
+      "stops_not_served": [
+        {"atco": "149000006101", "as_named": "Brunswick Place"},
+        {"atco": "149000007101", "as_named": "Brunswick Place"},
+        {"atco": "149000006946", "as_named": "Norfolk Square"},
+        {"atco": "149000007945", "as_named": "Norfolk Square"},
+        {"atco": "149000007100", "as_named": "Montpelier Road (Waitrose)"}
+      ],
+      "diversion_stops": [],
+      "diversions": [
+        {
+          "towards": "Hove",
+          "routes": "All routes except 1X, 2 and 46",
+          "via": ["Montpelier Road", "Davigdor Road", "Holland Road"],
+          "rejoins": "Palmeira Square"
+        },
+        {
+          "towards": "Hove",
+          "routes": "Routes 1X, 2 and 46",
+          "via": ["Montpelier Road", "Montpelier Place", "Holland Road"],
+          "rejoins": "Palmeira Square"
+        },
+        {
+          "towards": "Brighton",
+          "routes": "All routes",
+          "via": ["Holland Road", "Lansdowne Road", "Montpelier Road"],
+          "rejoins": "Waitrose"
+        }
+      ],
+      "notes": "Stagecoach's Coastliner 700 and N700 also use this stretch and are timetabled at Brunswick Place and Norfolk Square. They are not in this Brighton & Hove Buses notice, but the stops are on the closed road, so no bus can call at them."
+    }
+  ]
+}

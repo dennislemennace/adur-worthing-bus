@@ -245,3 +245,57 @@ test("the Bus tab heading is the destination, and the icon is the route's livery
   assert.doesNotMatch(shell, /<dt>(Destination|Journey)<\/dt>/,
     "the destination and journey rows came back; they moved to the heading and under the operator");
 });
+
+// ── Closed stops and diversions, recorded by hand ───────────
+
+const closure = {
+  id: "c1", summary: "Western Road closed between Holland Road and Montpelier Road",
+  until: "2026-11-06T23:59:00+00:00", publisher: "Brighton & Hove Buses",
+  source_url: "https://www.buses.co.uk/service-updates", checked_on: "2026-09-28",
+  diversions: [{ towards: "Hove", routes: "All routes except 1X, 2 and 46",
+                 via: ["Montpelier Road", "Davigdor Road", "Holland Road"], rejoins: "Palmeira Square" }],
+  still_served: [{ atco: "149000007948", name: "Palmeira Square", metres: 340, direction: "west",
+                   routes: ["1", "2", "5"], side: "after" }],
+};
+
+test("a closed stop says so, until when, and where to go instead", () => {
+  const html = app.buildStopClosureHtml(closure);
+  assert.match(html, /No buses stop here until Fri 6 Nov/);
+  assert.match(html, /class="stop-closure-alt" data-atco="149000007948"/,
+    "the nearest stop still served is not a way into its own board");
+  assert.match(html, /340 m west · 1, 2, 5/);
+  assert.match(html, /Towards Hove<\/strong>: All routes except 1X, 2 and 46 go via Montpelier Road, Davigdor Road and Holland Road, back on the usual route at Palmeira Square/);
+  assert.match(html, /From Brighton &amp; Hove Buses&#39; own notice, checked 28 Sept? 2026|From Brighton &amp; Hove Buses' own notice, checked 28 Sept? 2026/);
+  assert.equal(app.buildStopClosureHtml(null), "");
+});
+
+test("a row at a closed stop is not served, and promises no live time", () => {
+  const html = row({ not_served: true, status: "Not served" });
+  assert.match(html, /departure-row--cancelled/);
+  assert.match(html, />Not served</);
+  assert.match(html, /Not stopping here, see above/);
+  assert.doesNotMatch(html, /class="live-dot"/);
+});
+
+test("a notice we recorded says whose words and when we checked", () => {
+  const html = app.buildDisruptionsHtml([{ id: "c1", summary: "Western Road closed", source: "curated",
+    publisher: "Brighton & Hove Buses", checked_on: "2026-09-28", link: "https://www.buses.co.uk/service-updates",
+    lines: [{ operator: "BHBC", line: "1" }], operators: [], diversions: closure.diversions }]);
+  assert.match(html, /own notice, checked/);
+  assert.doesNotMatch(html, /through the Bus Open Data Service/, "a hand-copied notice claimed to come from BODS");
+  assert.match(html, /disruption-diversions/);
+});
+
+test("a stop the bus goes round is marked, with no time promised", () => {
+  const html = upcoming({ source: "trip", vehicle: { trip_source: "feed" }, upcoming_stops: [
+    stopRow(1, { not_served: true, expected: null, lateness_secs: null }),
+    stopRow(2, { is_next: true })] });
+  assert.match(html, /upcoming-stop--not-served[\s\S]*Not served: on diversion/);
+  const closedRow = html.split("upcoming-stop--next")[0];
+  assert.match(closedRow, /aria-label="Stop 1, not served, the bus is on a diversion/,
+    "a screen reader was read the closed stop's timetabled time as if the bus would call");
+  assert.doesNotMatch(closedRow, /upcoming-stop-time[^>]*>\d\d:\d\d/,
+    "the closed stop still shows a time, which reads as a promise");
+  assert.doesNotMatch(html.split("upcoming-stop--next")[0], /upcoming-stop-time--live/,
+    "the stop not served was given a live estimate");
+});

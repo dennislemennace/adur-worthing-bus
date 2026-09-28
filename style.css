@@ -3068,6 +3068,13 @@ html.dark-mode .stop-cluster-icon {
   overflow-wrap: anywhere;
 }
 .upcoming-stop--next .upcoming-stop-name { font-weight: 700; }
+/* A stop the bus goes round. Struck like a cancelled stop on a station
+   board; the words under it say why, since a line-through alone is neither
+   read out nor always noticed. */
+.upcoming-stop--not-served .upcoming-stop-name,
+.upcoming-stop--not-served .upcoming-stop-open:hover .upcoming-stop-name {
+  text-decoration: line-through;
+}
 .upcoming-stop--passed .upcoming-stop-name { color: var(--color-text-muted); }
 
 .upcoming-stop-sub {
@@ -3791,6 +3798,73 @@ html.dark-mode .departures-table tr.departure-row:hover td {
   color: var(--color-late);
 }
 .row-disruption .icon { width: 12px; height: 12px; }
+
+/* Which way the buses go instead: the operator's streets, one line each. */
+.disruption-diversions {
+  margin: 0 0 var(--space-xs);
+  padding-left: 1.1rem;
+  line-height: 1.45;
+}
+.disruption-diversions li { margin-bottom: 2px; }
+
+/* A stop no bus calls at. Open, not a disclosure: where to go instead is the
+   one thing on this board worth reading. */
+.stop-closure {
+  margin-bottom: var(--space-xs);
+  padding: var(--space-sm);
+  border: 1px solid var(--tint-late-border);
+  border-left: 4px solid var(--color-late);
+  border-radius: var(--radius-sm);
+  background: var(--tint-late-bg);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+.stop-closure p { margin: 0 0 var(--space-2xs); }
+.stop-closure-title {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  font-weight: 700;
+  font-size: var(--font-size-base);
+}
+.stop-closure-title .icon { flex: none; margin-top: 3px; color: var(--color-late); }
+.stop-closure-sub {
+  margin-top: var(--space-xs) !important;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+.stop-closure-alts {
+  display: grid;
+  gap: var(--space-2xs);
+  margin: 0 0 var(--space-xs);
+  padding: 0;
+  list-style: none;
+}
+.stop-closure-alt {
+  display: grid;
+  gap: 1px;
+  width: 100%;
+  min-height: var(--target-min);
+  padding: var(--space-2xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.stop-closure-alt:hover .stop-closure-alt-name { text-decoration: underline; }
+.stop-closure-alt:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.stop-closure-alt-name { font-weight: 700; color: var(--color-link); }
+.stop-closure-alt-letter { font-weight: 600; color: var(--color-text-muted); }
+.stop-closure-alt-meta { font-size: var(--font-size-xs); color: var(--color-text-muted); overflow-wrap: anywhere; }
+.stop-closure-note { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.stop-closure .disruption-source a { color: var(--color-link); }
 
 /* ---- Route filter above the board ---- */
 .board-filter {

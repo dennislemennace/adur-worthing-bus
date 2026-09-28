@@ -6960,7 +6960,9 @@ function renderDepartures(data) {
     not_configured: "Showing timetable times only \u2014 no bus on this board is reporting live just now",
   };
   const reason = data?.live_reason;
-  if (data?.live === false && reason && reason !== "too_far" && liveNoticeMessages[reason]) {
+  // At a closed stop there is nothing live to be missing; the closure says why.
+  if (!data?.stop_closure && data?.live === false && reason && reason !== "too_far"
+      && liveNoticeMessages[reason]) {
     dom.departuresNotice.textContent = liveNoticeMessages[reason];
     dom.departuresNotice.classList.remove("hidden");
   } else {
@@ -6981,9 +6983,21 @@ function renderDepartures(data) {
 
   const noticesHost = document.getElementById("board-disruptions");
   if (noticesHost) {
-    const html = buildDisruptionsHtml(data?.disruptions || []);
+    // The closure first: at a stop no bus calls at, where to go instead is
+    // the only thing on the board that matters.
+    // The notice the closure came from is already said in full above.
+    const closureId = data?.stop_closure?.id;
+    const html = buildStopClosureHtml(data?.stop_closure)
+      + buildDisruptionsHtml((data?.disruptions || []).filter(d => d.id !== closureId));
     noticesHost.innerHTML = html;
     noticesHost.hidden = !html;
+    if (!noticesHost.dataset.bound) {
+      noticesHost.dataset.bound = "1";
+      noticesHost.addEventListener("click", (e) => {
+        const alt = e.target.closest("button.stop-closure-alt");
+        if (alt && alt.dataset.atco) openDepartures(alt.dataset.atco, alt.dataset.name || alt.dataset.atco);
+      });
+    }
   }
 
   if (departures.length === 0) {
@@ -7095,6 +7109,68 @@ function disruptionWhen(d) {
   return "Until further notice";
 }
 
+/** "Brighton & Hove Buses'", "Compass Travel's": a name made possessive. */
+function possessive(name) {
+  return /s$/i.test(name) ? `${name}'` : `${name}'s`;
+}
+
+/** Which way the buses go instead, one line per diversion, in the notice's
+ *  own terms: the routes it covers, the streets, and where they rejoin. */
+function buildDiversionsHtml(diversions) {
+  if (!Array.isArray(diversions) || !diversions.length) return "";
+  const items = diversions.map(v => {
+    const via = Array.isArray(v.via) ? v.via : [v.via].filter(Boolean);
+    const streets = via.length > 1
+      ? `${via.slice(0, -1).join(", ")} and ${via[via.length - 1]}` : (via[0] || "");
+    return `<li>${v.towards ? `<strong>Towards ${escapeHtml(v.towards)}</strong>: ` : ""}${
+      escapeHtml(v.routes || "Buses")} go via ${escapeHtml(streets)}${
+      v.rejoins ? `, back on the usual route at ${escapeHtml(v.rejoins)}` : ""}.</li>`;
+  }).join("");
+  return `<ul class="disruption-diversions">${items}</ul>`;
+}
+
+/**
+ * A stop no bus calls at, and where to go instead.
+ *
+ * The nearest stops still served are worked out from the timetable (api/
+ * local_disruptions.py), so each is a real stop on the same routes, with its
+ * own board a tap away. The diversion's streets are the operator's words;
+ * its stops are not in any timetable, so they are named, not listed.
+ */
+function buildStopClosureHtml(c) {
+  if (!c) return "";
+  const until = c.until ? new Date(c.until) : null;
+  const untilText = until && !isNaN(until)
+    ? until.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" })
+    : "";
+  const alts = (c.still_served || []).map(a => `
+      <li><button type="button" class="stop-closure-alt" data-atco="${escapeAttr(a.atco)}"
+                  data-name="${escapeAttr(a.name)}"
+                  aria-label="${escapeAttr(`${a.name}, ${a.metres} metres ${a.direction}. Show departures`)}">
+        <span class="stop-closure-alt-name">${escapeHtml(prettifyName(a.name) || a.name)}${
+          typeof stopLetter === "function" && stopLetter(a.atco) ? ` <span class="stop-closure-alt-letter">${escapeHtml(stopLetter(a.atco))}</span>` : ""}</span>
+        <span class="stop-closure-alt-meta">${escapeHtml(`${a.metres} m ${a.direction}`)} · ${
+          escapeHtml((a.routes || []).join(", "))}</span>
+      </button></li>`).join("");
+  const link = c.source_url && safeUrl(c.source_url)
+    ? ` <a href="${escapeAttr(safeUrl(c.source_url))}" target="_blank" rel="noopener">Their notice</a>` : "";
+  return `
+    <section class="stop-closure" role="region" aria-label="This stop is not in use">
+      <p class="stop-closure-title">
+        <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+        <span>No buses stop here${untilText ? ` until ${escapeHtml(untilText)}` : " at the moment"}</span>
+      </p>
+      ${c.summary ? `<p class="stop-closure-why">${escapeHtml(c.summary)}.</p>` : ""}
+      ${alts ? `<p class="stop-closure-sub">Nearest stops still served</p>
+        <ul class="stop-closure-alts">${alts}</ul>` : ""}
+      ${(c.diversions || []).length ? `<p class="stop-closure-sub">Where the buses go instead</p>
+        ${buildDiversionsHtml(c.diversions)}
+        <p class="stop-closure-note">The operator says all stops on the diversion are served.</p>` : ""}
+      <p class="disruption-source">From ${escapeHtml(possessive(c.publisher || "the operator"))} own notice${
+        c.checked_on ? `, checked ${escapeHtml(formatCheckedDate(c.checked_on))}` : ""}.${link}</p>
+    </section>`;
+}
+
 /**
  * Published disruptions, in their authors' words.
  *
@@ -7111,7 +7187,8 @@ function buildDisruptionsHtml(list) {
     const scope = lines.length ? `Service${lines.length > 1 ? "s" : ""} ${[...new Set(lines)].join(", ")}`
       : who.length ? `All ${who.join(", ")} services` : "This stop";
     const link = d.link && safeUrl(d.link)
-      ? ` <a href="${escapeAttr(safeUrl(d.link))}" target="_blank" rel="noopener">More details</a>` : "";
+      ? ` <a href="${escapeAttr(safeUrl(d.link))}" target="_blank" rel="noopener">${
+          d.source === "curated" ? "Their notice" : "More details"}</a>` : "";
     return `
       <details class="disruption">
         <summary>
@@ -7122,9 +7199,15 @@ function buildDisruptionsHtml(list) {
           </span>
         </summary>
         <div class="disruption-body">
+          ${buildDiversionsHtml(d.diversions)}
           ${d.description && d.description !== d.summary ? `<p>${escapeHtml(d.description)}</p>` : ""}
           ${d.advice ? `<p><strong>Advice:</strong> ${escapeHtml(d.advice)}</p>` : ""}
-          <p class="disruption-source">Published${d.publisher ? ` by ${escapeHtml(d.publisher)}` : ""} through the Bus Open Data Service.${link}</p>
+          <p class="disruption-source">${d.source === "curated"
+            // Copied by hand from the operator's own page, because nobody
+            // here publishes to BODS: say whose words, and when we looked.
+            ? `From ${escapeHtml(possessive(d.publisher || "the operator"))} own notice${
+                d.checked_on ? `, checked ${escapeHtml(formatCheckedDate(d.checked_on))}` : ""}.`
+            : `Published${d.publisher ? ` by ${escapeHtml(d.publisher)}` : ""} through the Bus Open Data Service.`}${link}</p>
         </div>
       </details>`;
   }).join("");
@@ -7151,7 +7234,12 @@ function buildDepartureRow(dep) {
   // key under the board says what it means.
   const live = !!expected;
   const cancelled = (dep.status || "").toLowerCase() === "cancelled";
-  const { label, cssClass } = live || cancelled
+  // The stop is closed: the row says which bus would have called, and that
+  // it will not. See the closure notice above the board.
+  const notServed = !!dep.not_served;
+  const { label, cssClass } = notServed
+    ? { label: "Not served", cssClass: "status-late" }
+    : live || cancelled
     ? buildStatusChip(dep)
     : { label: "Timetable", cssClass: "status-scheduled" };
 
@@ -7163,14 +7251,16 @@ function buildDepartureRow(dep) {
     : "service-badge--light-text";
 
   return `
-    <tr class="departure-row${cancelled ? " departure-row--cancelled" : ""}" data-service="${escapeHtml(service)}"
+    <tr class="departure-row${cancelled || notServed ? " departure-row--cancelled" : ""}" data-service="${escapeHtml(service)}"
         ${dep.vehicle_ref ? `data-vehicle="${escapeAttr(dep.vehicle_ref)}"` : ""} title="Show this bus on the map">
       <td><button type="button" class="service-badge-btn"
                   data-service="${escapeAttr(service)}"
                   aria-label="Show service ${escapeAttr(service)} on the map"
           ><span class="service-badge ${badgeTextCls}" style="background:${badgeColour}">${escapeHtml(service)}</span></button></td>
       <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span>${
-        (dep.disruption_ids || []).length
+        notServed
+          ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Not stopping here, see above for where to catch it</span>`
+          : (dep.disruption_ids || []).length
           ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Disruption, see notice above</span>`
           : ""}</td>
       <td><span class="due-cell"><span class="due-time ${isImminent ? "due-imminent" : ""}"
@@ -7644,7 +7734,9 @@ function updateBusTabLive() {
                                  waiting_to_start: v.waiting_to_start,
                                  journey_start: v.journey_start,
                                  report_age_secs: v.report_age_secs });
-  const near = v.nearest_stop_name
+  const near = v.on_diversion || det.on_diversion
+    ? `<span class="bus-info-near">on diversion</span>`
+    : v.nearest_stop_name
     ? `<span class="bus-info-near">near ${escapeHtml(prettifyName(v.nearest_stop_name))}</span>` : "";
   patchHtml(document.getElementById("bus-info-status"),
     `<span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span>${near}`);
@@ -7870,23 +7962,27 @@ function buildUpcomingStopsHtml() {
     const sched = schedIso ? new Date(schedIso) : null;
     const exp   = expIso ? new Date(expIso) : null;
     const when  = exp || sched;
-    const time  = when && !isNaN(when) ? formatTimeOfDay(when) : "–";
+    // A stop the bus goes round has no time to give: a timetabled time there
+    // still reads as a promise. The name is struck instead (style.css).
+    const time  = s.not_served ? "" : when && !isNaN(when) ? formatTimeOfDay(when) : "–";
     // The estimate is the time to read, so it is the big one and carries the
     // live dot; the timetabled time it replaces is struck through beside it,
     // smaller, the way a station board shows a late train. Only when they
     // differ: an on-time bus with its own time crossed out reads as a change.
-    const live  = !!exp && !isNaN(exp) && !s.passed;
+    const live  = !!exp && !isNaN(exp) && !s.passed && !s.not_served;
     const was   = live && sched && !isNaN(sched) && Math.abs(exp - sched) >= 60_000
       ? `<s class="upcoming-stop-was">${escapeHtml(formatTimeOfDay(sched))}</s>` : "";
     const chip  = !s.passed && s.lateness_secs != null
       ? latenessChip(s.lateness_secs, vehicle.report_age_secs) : null;
     const notes = [];
-    if (s.passed) notes.push("Passed");
+    if (s.not_served) notes.push("Not served: on diversion");
+    else if (s.passed) notes.push("Passed");
     else if (s.is_next) notes.push("Next stop");
     if (s.is_terminus) notes.push("End of the journey");
     if (s.timing_point) notes.push("Timing point");
     const cls = ["upcoming-stop",
-      s.passed ? "upcoming-stop--passed" : "",
+      s.passed || s.not_served ? "upcoming-stop--passed" : "",
+      s.not_served ? "upcoming-stop--not-served" : "",
       s.is_next ? "upcoming-stop--next" : "",
       s.is_terminus ? "upcoming-stop--terminus" : ""].filter(Boolean).join(" ");
     return `
@@ -7895,7 +7991,9 @@ function buildUpcomingStopsHtml() {
         <button type="button" class="upcoming-stop-open"
                 data-atco="${escapeAttr(s.stop_id || "")}" data-name="${escapeAttr(name)}"
                 data-focus-key="stop-${escapeAttr(String(s.seq ?? s.stop_id))}"
-                aria-label="${escapeAttr(`${name}, ${live ? "estimated " : ""}${time}${chip ? `, ${chip.label}` : ""}${
+                aria-label="${escapeAttr(s.not_served
+                  ? `${name}, not served, the bus is on a diversion. Show this stop's board for where to catch it instead`
+                  : `${name}, ${live ? "estimated " : ""}${time}${chip ? `, ${chip.label}` : ""}${
                   was ? `, timetabled ${formatTimeOfDay(sched)}` : ""}. Show departures from this stop`)}">
           <span class="upcoming-stop-name">${escapeHtml(name)}</span>
           ${notes.length ? `<span class="upcoming-stop-sub">${escapeHtml(notes.join(" · "))}</span>` : ""}

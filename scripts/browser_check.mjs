@@ -1740,6 +1740,63 @@ async function checkStopBoardPolish(page, where) {
 }
 
 /**
+ * A stop no bus calls at: the board says so first, offers the nearest stops
+ * still served as ways into their own boards, and marks every row. Fixture
+ * data in the shape /api/departures sends for a closed stop.
+ */
+async function checkStopClosure(page, where) {
+  const r = JSON.parse(await page.evaluate(`(async () => {
+    setViewMode("live");
+    const atco = Object.keys(state.stopData || {})[0];
+    if (!atco) return JSON.stringify({ skip: "no stops loaded" });
+    await openDepartures(atco, (state.stopData[atco] || {}).name || atco);
+    const soon = (m) => new Date(Date.now() + m * 60000).toISOString();
+    const other = Object.keys(state.stopData)[1];
+    renderDepartures({
+      stop_name: "Fixture Closed Stop", live: false, live_reason: "not_configured",
+      stop_closure: { id: "C1", summary: "Western Road closed between Holland Road and Montpelier Road",
+        until: soon(60 * 24 * 30), publisher: "Brighton & Hove Buses",
+        source_url: "https://example.org/", checked_on: "2026-09-28",
+        diversions: [{ towards: "Hove", routes: "All routes except 1X, 2 and 46",
+          via: ["Montpelier Road", "Davigdor Road", "Holland Road"], rejoins: "Palmeira Square" }],
+        still_served: [{ atco: other, name: "Palmeira Square", metres: 340, direction: "west",
+                         routes: ["1", "2", "5", "5B", "6", "25", "46", "49", "700", "N1", "N5", "N700"], side: "after" },
+                       { atco: other, name: "Waitrose", metres: 470, direction: "east", routes: ["1", "2"], side: "before" }] },
+      departures: [
+        { service: "1", operator: "BHBC", destination: "Portslade", aimed_departure: soon(4),
+          status: "Not served", not_served: true },
+        { service: "5", operator: "BHBC", destination: "Hangleton", aimed_departure: soon(9),
+          status: "Not served", not_served: true },
+      ],
+    });
+    const vis = ${VISIBLE_FN};
+    const banner = document.querySelector("#board-disruptions .stop-closure");
+    const alts = [...document.querySelectorAll("#board-disruptions .stop-closure-alt")];
+    const rows = [...document.querySelectorAll("tr.departure-row")];
+    const first = document.getElementById("board-disruptions").firstElementChild;
+    return JSON.stringify({
+      shown: !!banner && vis(banner), first: first === banner,
+      text: banner ? banner.textContent.replace(/\\s+/g, " ") : "",
+      alts: alts.filter(vis).length,
+      altTall: alts.every(a => a.getBoundingClientRect().height >= 44),
+      rowsMarked: rows.length === 2 && rows.every(tr => /Not served/.test(tr.textContent)
+                                              && !tr.querySelector(".live-dot")),
+      liveNoticeHidden: document.getElementById("departures-notice")?.classList.contains("hidden") ?? true,
+    });
+  })()`));
+  if (r.skip) { skip(`a closed stop says where to go instead — ${where}`, r.skip); return; }
+  check(`a closed stop says so first, and where to go instead — ${where}`,
+    r.shown && r.first && /No buses stop here until/.test(r.text) && r.alts === 2
+      && /Where the buses go instead/.test(r.text),
+    JSON.stringify({ shown: r.shown, first: r.first, alts: r.alts, text: r.text.slice(0, 120) }));
+  check(`the stops still served are buttons big enough to tap — ${where}`, r.altTall);
+  check(`every row at a closed stop says it is not served — ${where}`, r.rowsMarked);
+  check(`a closed stop does not also apologise for missing live times — ${where}`, r.liveNoticeHidden);
+  await checkLayout(page, `closed stop — ${where}`);
+  await checkContrastBothThemes(page, `closed stop — ${where}`);
+}
+
+/**
  * The Bus tab's stops ahead, and the refresh that used to wipe the tab.
  *
  * Every 20 seconds the map's poll re-renders the selected bus. That rebuilt
@@ -3558,6 +3615,7 @@ await checkLastBusHome(page, VIEWPORTS[0].name);
 await checkGapMonitor(page, VIEWPORTS[0].name);
 await checkBusJourney(page, VIEWPORTS[0].name);
 await checkStopBoardPolish(page, VIEWPORTS[0].name);
+await checkStopClosure(page, VIEWPORTS[0].name);
 await checkUpcomingStops(page, VIEWPORTS[0].name);
 await checkA11yMenu(page, VIEWPORTS[0].name, { desktop: false });
 await checkLargestText(page, VIEWPORTS[0].name);
@@ -3597,6 +3655,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkWakingBanner(p, vp.name);
   await checkGapMonitor(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
+  await checkStopClosure(p, vp.name);
   await checkUpcomingStops(p, vp.name);
   await checkContrastBothThemes(p, vp.name);
   await checkLargestText(p, vp.name);

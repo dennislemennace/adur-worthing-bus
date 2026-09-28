@@ -267,6 +267,9 @@ def current(situations: list, now: datetime) -> list:
                       for l in sit["lines"]],
             "stops": sit["stops"],
             "operators": sit["operators"],
+            # Entries we record by hand (api/local_disruptions.py) carry their
+            # source, the stops no bus calls at, and the diversions.
+            **sit.get("extra", {}),
         })
     return out
 
