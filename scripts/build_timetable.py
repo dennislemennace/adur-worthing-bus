@@ -62,69 +62,25 @@ NAPTAN_URL = ("https://naptan.api.dft.gov.uk/v1/access-nodes"
 # for Adur, "4400WO..." for Worthing, etc.
 WEST_SUSSEX_ATCO_PREFIX = "4400"
 
-# Brighton & Hove routes to include in the timetable even though their
-# stops use prefix 1490 (East Sussex) rather than 4400.  These are
-# services that connect into or are relevant to Adur & Worthing.
-EXTRA_ROUTES = {
-    # Brighton & Hove day routes crossing into the bbox
-    "1", "1A", "1B", "2", "2A", "2B", "5", "5B", "7", "7A",
-    "1X", "3X", "6", "13X", "21", "23X", "25X", "29X",
-    "37", "37B", "46", "47", "49",
-    # The 25 runs Brighton to the universities, and it is here because leaving
-    # it out was an omission rather than a decision: 25X and N25 were both on
-    # this list, so its absence looked deliberate and was not. Without it the
-    # Shoreham-to-universities journey could only be answered with a 700 and a
-    # 5B — Stagecoach then Brighton & Hove, two tickets — when the journey
-    # people actually make is a 2 and a 25, both Brighton & Hove, both inside
-    # citySAVER.
-    #
-    # It does change a published statistic, and the first version of this
-    # comment said it could not. That was wrong, from assuming the 25 was a
-    # Brighton-centre-to-universities route. It is not: its western terminus is
-    # Boundary Road in Portslade, and seven of its stops fall inside South
-    # Portslade, which is the eastern half of the place comparison. Adding it
-    # took that ward from 5,024 Monday departures to 5,030, from ten routes to
-    # eleven, and from 116.8 departures per stop to 117.0.
-    #
-    # The measured gap therefore widens slightly — 3.57 times the service per
-    # stop against 3.56 — because this corrects an under-count on the
-    # *Brighton* side, which is the direction the standing caveat has always
-    # predicted: routes running purely inside Brighton & Hove are missing, so
-    # the east is under-counted and the real gap is wider than measured. A
-    # correction that happens to help the argument is worth saying out loud
-    # rather than leaving it to look accidental.
-    #
-    # Its eastern end is outside the ingest bbox, so the route is kept only as
-    # far as Coldean.
-    "25",
-    # Brighton & Hove night routes — N12/N14/N29/N48 head out of
-    # Brighton westward/northward and otherwise wouldn't survive the
-    # 4400-or-EXTRA_ROUTES filter since their stops are all 1490 prefix.
-    "N1", "N5", "N7", "N12", "N14", "N25", "N29", "N48",
-    # Stagecoach Coastliner — runs all the way to Brighton Old Steine
-    # (1490 prefix); without this the polyline truncates at Mill Road.
-    "700", "N700",
-    # FlixBus into Brighton. Two of its thirty routes in this feed call in
-    # Sussex at all: UK066 (Brighton, Gatwick, Stratford, Cambridge) and UK998
-    # (Brighton, Gatwick, Heathrow, Luton, Nottingham). Both are here for the
-    # same reason as the Coastliner above — their Brighton calls are at stops
-    # this filter would otherwise drop. Brighton Railway Station
-    # (9000F22A3795) and Preston Park (9100PRSPBUS) are inside the bbox but
-    # coded 9000/9100 rather than 4400, so they survive only for a route named
-    # on this list. Without them the feed's 969 FlixBus trips reached our data
-    # with a single Gatwick call each and nothing at the Brighton end.
-    #
-    # Neither route stops anywhere in Adur or Worthing, so this adds a coach
-    # corridor out of Brighton, not a local travel option: no journey this site
-    # answers can be made on one. They move no published statistic either —
-    # both stops are east of the place comparison's longitude band.
-    #
-    # FlixBus numbers two of its own routes "700" and "N700", the same strings
-    # the Coastliner is matched by. Neither goes near Sussex in this feed, but
-    # this list matches on route_short_name alone, so one that did would be
-    # ingested as though it were the Coastliner.
-    "UK066", "UK998",
-}
+# Every route that calls at a stop inside the map box is kept, at all its stops
+# inside it, whoever runs it and whether or not it reaches West Sussex.
+#
+# Until 29 September 2026 a stop outside West Sussex (ATCO 1490 Brighton & Hove,
+# 9000/9100 rail-linked) kept only the routes on a hand-kept list of names. That
+# left out every route running only inside Brighton & Hove (65 of 185 Brighton &
+# Hove buses on the road one evening were on journeys we did not hold) and cut
+# cross-boundary routes off at the county line: Stagecoach's 17, Brighton to
+# Horsham, existed here only north of the line. Buses on missing routes can
+# never get a live time from our own feed, and TransportAPI has none inside
+# Brighton & Hove to fall back on (NextBuses marks every Old Steine departure
+# "Scheduled"), so Brighton boards were mostly timetable. It also under-counted
+# the Brighton side of every boundary figure, the direction the standing caveat
+# always said.
+#
+# Measured on the 29 September feed: 193 routes, 46,692 trips and 78 MB became
+# 233 routes, 65,172 trips and 101 MB (38 MB gzipped), and the API's timetable
+# memory went from 34 MB to 42 MB. Matching by route_id also retires the list's
+# name collisions (FlixBus numbers two of its routes "700" and "N700").
 
 BBOX_MIN_LAT, BBOX_MAX_LAT =  50.78,  50.87
 BBOX_MIN_LON, BBOX_MAX_LON = -0.42,  -0.10
@@ -349,10 +305,9 @@ def parse_gtfs(zip_path: str) -> dict:
                     agency_noc[aid] = noc.strip()
             log.info("  %d agencies indexed", len(agency_noc))
 
-        # ── Phase 2b: routes.txt (need this early to identify EXTRA_ROUTES)
+        # ── Phase 2b: routes.txt
         log.info("Parsing routes.txt…")
         all_routes = {}
-        extra_route_ids = set()
         with zf.open("routes.txt") as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
             for row in reader:
@@ -364,29 +319,23 @@ def parse_gtfs(zip_path: str) -> dict:
                     "long_name":  row.get("route_long_name") or "",
                     "noc":        agency_noc.get(aid, aid),
                 }
-                if short_name in EXTRA_ROUTES:
-                    extra_route_ids.add(route_id)
-        log.info("  %d EXTRA_ROUTES matched by short_name", len(extra_route_ids))
+        log.info("  %d routes indexed", len(all_routes))
 
-        # ── Phase 3: trips.txt (need this to know which trips are EXTRA)
+        # ── Phase 3: trips.txt
         log.info("Parsing trips.txt (first pass — index all)…")
         all_trips = {}
-        extra_trip_ids = set()
         with zf.open("trips.txt") as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
             for row in reader:
                 trip_id = row.get("trip_id", "")
                 route_id = row.get("route_id", "")
                 all_trips[trip_id] = row
-                if route_id in extra_route_ids:
-                    extra_trip_ids.add(trip_id)
-        log.info("  %d total trips, %d belong to EXTRA_ROUTES",
-                 len(all_trips), len(extra_trip_ids))
+        log.info("  %d total trips", len(all_trips))
 
         # ── Phase 4: stop_times.txt ──────────────────────────────
         # Keep entries for:
         #   • any stop in ws_stop_ids (4400 prefix) — all routes
-        #   • any stop in bbox_stop_ids — only EXTRA_ROUTES trips
+        #   • any stop in bbox_stop_ids (inside the map box) — all routes
         log.info("Parsing stop_times.txt (this is the big one)…")
         needed_trip_ids = set()
         row_count = 0
@@ -402,11 +351,7 @@ def parse_gtfs(zip_path: str) -> dict:
                     )
                 stop_id = row.get("stop_id", "")
                 trip_id = row.get("trip_id", "")
-                if stop_id in ws_stop_ids:
-                    pass  # always keep
-                elif stop_id in bbox_stop_ids and trip_id in extra_trip_ids:
-                    pass  # keep for curated Brighton routes
-                else:
+                if stop_id not in ws_stop_ids and stop_id not in bbox_stop_ids:
                     continue
                 dep_time = (row.get("departure_time")
                             or row.get("arrival_time", ""))

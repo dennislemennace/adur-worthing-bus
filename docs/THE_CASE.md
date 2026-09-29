@@ -111,8 +111,8 @@ Measured on the nights of Monday 28 September and Saturday 3 October 2026, from 
 | Buses per stop, 23:00–05:00 | Lancing (WSCC) | North Portslade (BHCC) | South Portslade (BHCC) |
 |---|---:|---:|---:|
 | Stops | 65 | 41 | 43 |
-| Weeknight | **1.7** | **6.3** | **7.0** |
-| Saturday night | 1.6 | 5.5 | 6.3 |
+| Weeknight | **1.7** | **6.3** | **7.2** |
+| Saturday night | 1.6 | 5.5 | 6.4 |
 
 Lancing gets **24–27 %** of Portslade's night service. Most of the gap falls
 before 01:00, while Portslade's daytime routes are still finishing: about 0.9
@@ -124,6 +124,23 @@ the service a local passenger can actually use.
 Recomputed with everything else by `scripts/build_evidence.py` into the `night`
 block of `data/boundary_evidence.json`, which is what the map's boundary dialog
 draws.
+
+### Every route held, from 29 September 2026
+
+The caveat below described the build until 29 September 2026. Since then
+`scripts/build_timetable.py` holds every route calling inside the map area, so
+the Brighton-only routes it describes as missing are counted. The generated
+figures moved the way the caveat predicted, all on the Brighton side:
+
+- the band's weekday departures per stop east of the line went from 87.4 to 100.0,
+  and west as a share of east from 74% to **65%**;
+- South Portslade went from 117.0 to **121.8** departures per stop against
+  Lancing's unchanged 32.8, and on a weeknight from 7.0 to 7.2 buses per stop.
+
+The tables above are as first measured and are kept for the record;
+`data/boundary_evidence.json` has the current figures. Route counts now include
+school-day routes and coaches, so the departures per stop are the steadier
+comparison.
 
 ### An important caveat, and which way it cuts
 

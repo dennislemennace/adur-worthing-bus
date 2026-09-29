@@ -63,6 +63,8 @@ STOPS = [
                                               50.8459, -0.1515),
     ("4400CY0365",   "South Terminal Coach Station",
                                               51.1537, -0.1821),
+    # Victoria Coach Station: neither West Sussex nor inside the map box.
+    ("490000272P", "Victoria Coach Station", 51.4953, -0.1473),
 ]
 
 # (trip, route, headsign, [(seq, stop, time), ...])
@@ -87,7 +89,8 @@ TRIPS = [
      [(1, "9000F22A3795", "08:15:00"), (2, "9100PRSPBUS", "08:20:00"),
       (3, "4400CY0365", "09:05:00")]),
     ("T_FLIX_UNNAMED",  "RUK940", "Brighton Railway Station - Stroudley Road - Somewhere",
-     [(1, "9000F22A3795", "08:30:00"), (2, "4400CY0365", "09:20:00")]),
+     [(1, "9000F22A3795", "08:30:00"), (2, "4400CY0365", "09:20:00"),
+      (3, "490000272P", "10:40:00")]),
 ]
 
 ROUTES = [
@@ -172,22 +175,24 @@ def _services_at(tt, stop_id):
 # ── Ingest ───────────────────────────────────────────────────
 
 def test_a_coach_calling_in_brighton_is_kept(tt):
-    # 9000/9100 are rail and coach codes. Neither is the West Sussex prefix
-    # that keeps a stop for every operator, so these calls survive only
-    # because UK066 and UK998 are named in EXTRA_ROUTES.
-    assert "9000F22A3795" in tt.stops, \
-        "Brighton Station lost — is UK066 still in build_timetable.EXTRA_ROUTES?"
+    # 9000/9100 are rail and coach codes, not the West Sussex prefix. Since
+    # 29 Sep 2026 every route is kept at every stop inside the map box, so
+    # these calls survive because Brighton is in the box, not by name.
+    assert "9000F22A3795" in tt.stops, "Brighton Station lost from the ingest"
     assert "9100PRSPBUS" in tt.stops, "Preston Park lost from the ingest"
     services = _services_at(tt, "9000F22A3795")
     assert {BRIGHTON_COACH, AIRPORT_COACH} <= services, services
 
 
-def test_a_coach_that_does_not_come_here_is_not_kept_for_its_brighton_call(tt):
-    # The mechanism, stated as a negative: an unnamed route's bbox-only calls
-    # are dropped. Without this the previous test would pass for the wrong
-    # reason — every coach, rather than the two that were chosen.
-    assert ELSEWHERE_COACH not in _services_at(tt, "9000F22A3795"), \
-        "an unnamed route kept a stop the West Sussex rule does not cover"
+def test_any_route_calling_in_the_box_is_kept_there_and_nowhere_beyond(tt):
+    # The rule since 29 Sep 2026, both halves. Any route calling inside the
+    # map box is kept at those calls, named or not: the old name list left
+    # Brighton-only routes out and cut cross-boundary ones at the county line.
+    # And a stop neither in West Sussex nor in the box is still not kept, or
+    # the database would swell with the rest of the South East.
+    assert ELSEWHERE_COACH in _services_at(tt, "9000F22A3795"), \
+        "a route calling in the map box was dropped there"
+    assert "490000272P" not in tt.stops, "a stop outside the box and West Sussex was kept"
 
 
 def test_gatwick_keeps_every_coach_because_it_is_a_west_sussex_stop(tt):

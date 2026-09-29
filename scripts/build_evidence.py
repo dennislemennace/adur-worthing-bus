@@ -533,16 +533,27 @@ def main() -> None:
         "caveats": [
             {
                 "text": (
-                    "scripts/build_timetable.py keeps a route only if it touches a "
-                    "West Sussex (ATCO 4400) stop or appears on a hand-maintained "
-                    "allowlist of cross-boundary services. Routes running purely "
-                    "inside Brighton & Hove are therefore missing from this "
-                    "database."),
+                    "Until 29 September 2026 the timetable kept only routes that "
+                    "touch a West Sussex stop, plus a hand-kept list, so routes "
+                    "running purely inside Brighton & Hove were missing. Since then "
+                    "every route calling inside the map area is held, and these "
+                    "figures include them."),
                 "direction": "understates",
                 "effect": (
-                    "The east side of every comparison is under-counted, so the "
-                    "real gap is wider than these figures show."),
+                    "Figures published before that date under-counted the Brighton "
+                    "side, so the gap they showed was smaller than the real one."),
                 "applies_to": ["band", "places", "night"],
+            },
+            {
+                "text": (
+                    "Route counts include every service in the timetable: school-day "
+                    "routes, coaches such as National Express 025, and routes that "
+                    "call only a few times a day, each counted as one route."),
+                "direction": "unknown",
+                "effect": (
+                    "The route counts say how many services exist, not how usable "
+                    "they are. Departures per stop is the steadier comparison."),
+                "applies_to": ["band", "places"],
             },
             {
                 "text": (
