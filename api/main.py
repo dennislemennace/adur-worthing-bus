@@ -1592,6 +1592,44 @@ _plan_quota = planner.DailyQuota(TIMETABLE_PATH.parent / ".bat_quota.json",
                                  planner.BAT_DAILY_LIMIT)
 
 
+# How much live data Buses & Trains has at one stop: counts only. Added to
+# find out whether it has live Brighton times, which TransportAPI and
+# NextBuses do not (29 Sep 2026: every Old Steine departure is "Scheduled"
+# on Traveline's own page). Capped hard so it cannot eat the planner's
+# allowance; the upstream rows themselves are never passed on.
+_bat_check = planner.DailyQuota(TIMETABLE_PATH.parent / ".bat_check.json", 10)
+
+
+@app.get("/api/live-coverage-check")
+async def live_coverage_check(stopId: str = Query(..., pattern=r"^[0-9A-Za-z]{6,14}$")):
+    if not planner.BAT_API_KEY:
+        return {"available": False, "reason": "not_configured"}
+    key = f"batcheck:{stopId}"
+    hit = cache_get(key)
+    if hit is not None:
+        return hit
+    if _bat_check.remaining() <= 0 or _plan_quota.remaining() <= 0:
+        return {"available": False, "reason": "quota"}
+    _bat_check.bump(1)
+    _plan_quota.bump(1)
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            resp = await client.get(f"{planner.BAT_BASE_URL}/v1/stops/{stopId}/departures",
+                                    headers={"Authorization": f"Bearer {planner.BAT_API_KEY}"})
+        resp.raise_for_status()
+        rows = (resp.json() or {}).get("departures") or []
+    except Exception as exc:                       # noqa: BLE001
+        log.warning("Buses & Trains departures unavailable: %s", type(exc).__name__)
+        return {"available": False, "reason": "upstream"}
+    live = [r for r in rows if r.get("expected")]
+    result = {"available": True, "stop": stopId, "departures": len(rows),
+              "with_expected": len(live),
+              "expected_differs": sum(1 for r in live if r.get("expected") != r.get("scheduled")),
+              "operators": sorted({str(r.get("operator_code") or r.get("operator") or "") for r in rows})}
+    cache_set(key, result, 600)
+    return result
+
+
 @app.get("/api/plan")
 async def get_plan(
     from_lat: float = Query(...), from_lon: float = Query(...),

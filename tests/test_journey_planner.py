@@ -143,3 +143,27 @@ def test_fares_coverage_keeps_metadata_and_never_the_key(monkeypatch):
     assert "bods-key-not-real" not in str(out), "the key came back in the response"
     url, params, _ = FakeClient.calls[0]
     assert url.endswith("/fares/dataset/") and params["noc"].startswith("BHBC")
+
+
+# ── /api/live-coverage-check (Buses & Trains departures, counts only) ──
+
+def test_coverage_check_counts_live_rows_and_passes_nothing_else_on(setup, monkeypatch):
+    class DepClient(FakeClient):
+        async def get(self, url, params=None, headers=None):
+            FakeClient.calls.append((url, dict(params or {}), dict(headers or {})))
+
+            class R:
+                status_code = 200
+                def raise_for_status(self): pass
+                def json(self): return {"departures": [
+                    {"line": "7", "operator_code": "BHBC", "scheduled": "a", "expected": "b"},
+                    {"line": "1", "operator_code": "BHBC", "scheduled": "c", "expected": None}]}
+            return R()
+    monkeypatch.setattr(main.httpx, "AsyncClient", DepClient)
+    monkeypatch.setattr(main, "_bat_check", planner.DailyQuota(Path(main._plan_quota.path).with_name("c.json"), 1))
+    out = asyncio.run(main.live_coverage_check(stopId="149000007830"))
+    assert out == {"available": True, "stop": "149000007830", "departures": 2,
+                   "with_expected": 1, "expected_differs": 1, "operators": ["BHBC"]}
+    assert FakeClient.calls[0][0].endswith("/v1/stops/149000007830/departures")
+    assert asyncio.run(main.live_coverage_check(stopId="4400AD0062"))["reason"] == "quota", \
+        "the check's own cap was not kept"
