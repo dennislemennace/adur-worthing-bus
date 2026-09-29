@@ -403,6 +403,13 @@ def parse_gtfs(zip_path: str) -> dict:
                 "headsign":   row.get("trip_headsign") or "",
                 "shape_id":   shape_id,
             }
+            # The vehicle's day of work, where the operator publishes it
+            # (Stagecoach and Compass do; Brighton & Hove do not): which
+            # journey the same bus runs next. Left out when empty, which is
+            # most trips, to keep the file small.
+            block_id = (row.get("block_id") or "").strip()
+            if block_id:
+                timetable["trips"][trip_id]["block_id"] = block_id
             needed_route_ids.add(route_id)
             needed_service_ids.add(service_id)
             if shape_id:

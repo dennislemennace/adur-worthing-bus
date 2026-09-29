@@ -483,8 +483,12 @@ class Timetable:
 
         trips: dict = {}
         tid_to_trip: dict = {}
-        for tid, trip_id, rid, service_id, headsign in con.execute(
-            "SELECT tid, trip_id, rid, service_id, headsign FROM trips"
+        # block_id arrived in the 2026-09-29 build; a database from before it
+        # has no such column, and reads as having no blocks.
+        cols = {row[1] for row in con.execute("PRAGMA table_info(trips)")}
+        block_col = "block_id" if "block_id" in cols else "''"
+        for tid, trip_id, rid, service_id, headsign, block_id in con.execute(
+            f"SELECT tid, trip_id, rid, service_id, headsign, {block_col} FROM trips"
         ):
             trips[trip_id] = {
                 "route_id":   rid_to_route.get(rid, ""),
@@ -492,6 +496,8 @@ class Timetable:
                 "headsign":   headsign,
                 "_tid": tid,
             }
+            if block_id:
+                trips[trip_id]["block_id"] = block_id
             tid_to_trip[tid] = trip_id
 
         calendar: dict = {}
@@ -624,6 +630,53 @@ class Timetable:
                 cols = set()
             self._timepoint_column = "timepoint" in cols
         return self._timepoint_column
+
+    def next_in_block(self, trip_id: str, day) -> Optional[dict]:
+        """The journey the same bus runs next on `day`, or None.
+
+        From the operator's block (its vehicle working), which Stagecoach and
+        Compass publish and Brighton & Hove do not: the block's first journey
+        running that day that sets off after this one ends. A timetable
+        statement, not a promise: an operator can swap a bus mid-day.
+        """
+        block = (self.trips.get(trip_id) or {}).get("block_id")
+        if not block:
+            return None
+        index = getattr(self, "_blocks", None)
+        if index is None:
+            index = {}
+            for tid, t in self.trips.items():
+                if t.get("block_id"):
+                    index.setdefault(t["block_id"], []).append(tid)
+            self._blocks = index
+        calls = [c for c in self.trip_stops_for(trip_id) if c[0] is not None]
+        if not calls:
+            return None
+        ends = calls[-1][0]
+        best = None
+        for other in index.get(block, ()):
+            if other == trip_id:
+                continue
+            t = self.trips.get(other) or {}
+            if not self.runs_on(t.get("service_id", ""), day):
+                continue
+            first = next((c for c in self.trip_stops_for(other) if c[0] is not None), None)
+            if first is None or first[0] < ends:
+                continue
+            if best is None or first[0] < best[0]:
+                best = (first[0], other, first[1])
+        if best is None:
+            return None
+        secs, other, stop = best
+        trip = self.trips[other]
+        return {
+            "trip_id": other,
+            "service": (self.routes.get(trip.get("route_id", "")) or {}).get("short_name", ""),
+            "headsign": trip.get("headsign", ""),
+            "depart_secs": secs,
+            "from_stop": stop,
+            "from_name": (self.stops.get(stop) or {}).get("name", ""),
+        }
 
     def trip_stops_for(self, trip_id: str) -> list:
         """Return [(dep_secs, stop_id), ...] in trip sequence order."""

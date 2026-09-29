@@ -382,3 +382,49 @@ def past_pole(tt, vehicle, calls, p) -> bool:
         return False
     return (km(vehicle["latitude"], vehicle["longitude"], nxt["lat"], nxt["lon"])
             < km(pole["lat"], pole["lon"], nxt["lat"], nxt["lon"]))
+
+
+# A bus this close to a stop is at it: stood at the pole, not approaching.
+AT_STOP_KM = 0.03
+
+
+def scheduled_at_position(tt, calls, i, vehicle) -> float:
+    """When the timetable has a bus where this one is, in GTFS seconds.
+
+    Between the stop it last passed and the one it is making for, in
+    proportion to how far along that stretch it is, as bustimes.org measures
+    it. Judged at the nearest stop instead, a bus just short of a stop always
+    read early and one just past it late, by up to half the time between them.
+
+    `i` is the journey's call nearest the bus. The stretch is measured as the
+    crow flies, which is fair where stops are close together, as they are here.
+    """
+    if past_pole(tt, vehicle, calls, i):
+        a, b = i, i + 1
+    elif i > 0:
+        a, b = i - 1, i
+    else:
+        return calls[0][0]
+    sa = tt.stops.get(calls[a][1]) or {}
+    sb = tt.stops.get(calls[b][1]) or {}
+    lat, lon = vehicle.get("latitude"), vehicle.get("longitude")
+    if None in (sa.get("lat"), sb.get("lat"), lat, lon):
+        return calls[i][0]
+    cos = math.cos(math.radians(sa["lat"]))
+    bx, by = (sb["lon"] - sa["lon"]) * cos, sb["lat"] - sa["lat"]
+    px, py = (lon - sa["lon"]) * cos, lat - sa["lat"]
+    length2 = bx * bx + by * by
+    if length2 * 111.0 ** 2 < 0.02 ** 2:
+        return calls[b][0]
+    t = min(1.0, max(0.0, (px * bx + py * by) / length2))
+    return calls[a][0] + t * (calls[b][0] - calls[a][0])
+
+
+def waiting_at_timing_point(tt, calls, i, vehicle, timing_points) -> bool:
+    """Stood at a timing point: a bus there early waits for its time."""
+    if not timing_points or i >= len(timing_points) or timing_points[i] != 1:
+        return False
+    stop = tt.stops.get(calls[i][1]) or {}
+    if stop.get("lat") is None or vehicle.get("latitude") is None:
+        return False
+    return km(vehicle["latitude"], vehicle["longitude"], stop["lat"], stop["lon"]) <= AT_STOP_KM

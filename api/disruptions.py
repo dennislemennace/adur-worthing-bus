@@ -109,6 +109,30 @@ def situation_from_element(el) -> Optional[dict]:
             if ref and (all_lines or not _children(consequence, "AffectedLine")):
                 operators.append({"operator": ref, "name": _text(op, "OperatorName")})
 
+    # Single journeys: what BODS carries cancellations as. Each names its
+    # operator, line and when it was due to leave its first stop, which is
+    # enough to find it on a board; its calls, when given, say where it runs.
+    journeys = []
+    for avj in _children(el, "AffectedVehicleJourney"):
+        op = _text(avj, "OperatorRef")
+        if not op:
+            for o in _children(avj, "Operator"):
+                op = _text(o, "OperatorRef")
+                break
+        journeys.append({
+            "operator": op,
+            "line": _text(avj, "PublishedLineName") or _text(avj, "LineRef"),
+            "origin_aimed": _parse_time(_text(avj, "OriginAimedDepartureTime")),
+            "journey_ref": _text(avj, "DatedVehicleJourneyRef") or _text(avj, "VehicleJourneyRef"),
+            "stops": [_text(c, "StopPointRef") for c in _children(avj, "Call")
+                      if _text(c, "StopPointRef")],
+        })
+    condition = ""
+    for consequence in _children(el, "Consequence"):
+        condition = _text(consequence, "Condition").lower()
+        if condition:
+            break
+
     reason = ""
     for child in el:
         if _local(child.tag).endswith("Reason") and child.text and child.text.strip():
@@ -138,6 +162,8 @@ def situation_from_element(el) -> Optional[dict]:
         "lines": lines,
         "stops": stops,
         "operators": operators,
+        "journeys": journeys,
+        "condition": condition,
     }
 
 
@@ -217,11 +243,14 @@ def area_filter(stop_ids: Iterable[str], routes: Iterable[tuple], towns: Iterabl
         # route numbers, so a stop suspension on Hampshire's 3 would otherwise
         # land on any board here that shows a Stagecoach 3. Seen in the live
         # feed on 26 Sep 2026: six such notices, all 1900HA stops.
-        if sit["stops"]:
-            return any(s in stops for s in sit["stops"])
+        journey_stops = [s for j in sit.get("journeys") or [] for s in j["stops"]]
+        if sit["stops"] or journey_stops:
+            return any(s in stops for s in sit["stops"] + journey_stops)
         matched = {l["operator"] for l in sit["lines"]
                    if (l["operator"], service_key(l["line"])) in lines
                    or (l["operator"], service_key(l["line_ref"])) in lines}
+        matched |= {j["operator"] for j in sit.get("journeys") or []
+                    if (j["operator"], service_key(j["line"])) in lines}
         matched |= {o["operator"] for o in sit["operators"] if o["operator"] in nocs}
         if not matched:
             return False
@@ -267,6 +296,10 @@ def current(situations: list, now: datetime) -> list:
                       for l in sit["lines"]],
             "stops": sit["stops"],
             "operators": sit["operators"],
+            "condition": sit.get("condition") or "",
+            "journeys": [{"operator": j["operator"], "line": j["line"],
+                          "origin_aimed": j["origin_aimed"].isoformat() if j["origin_aimed"] else None}
+                         for j in sit.get("journeys") or []],
             # Entries we record by hand (api/local_disruptions.py) carry their
             # source, the stops no bus calls at, and the diversions.
             **sit.get("extra", {}),
@@ -286,7 +319,16 @@ def affecting(disruptions: list, *, stop_id: str = "", services: Iterable[tuple]
             out.append(d)
         elif any(o["operator"] in wanted_ops for o in d["operators"]):
             out.append(d)
+        elif any((j["operator"], service_key(j["line"])) in wanted for j in d.get("journeys") or []):
+            out.append(d)
     return out
+
+
+def cancelled_journeys(disruptions: list) -> list:
+    """`(operator, line key, origin departure)` for each journey called off."""
+    return [(j["operator"], service_key(j["line"]), j["origin_aimed"])
+            for d in disruptions if d.get("condition") == "cancelled"
+            for j in d.get("journeys") or [] if j.get("origin_aimed")]
 
 
 def row_matches(d: dict, operator: str, service: str) -> bool:

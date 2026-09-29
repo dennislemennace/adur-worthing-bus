@@ -3157,6 +3157,30 @@ html.dark-mode .stop-cluster-icon {
   gap: var(--space-2xs);
 }
 
+/* What the bus runs next, from the operator's published working. */
+.bus-next-journey {
+  display: flex; gap: var(--space-2xs); align-items: flex-start; margin: 0;
+  font-size: var(--font-size-xs); color: var(--color-text);
+}
+.bus-next-journey .icon { flex: none; margin-top: 2px; color: var(--color-text-muted); }
+
+/* The route's registration, in the ticket box's clothes. */
+.registration-info .ticket-row { grid-template-columns: 72px 1fr; }
+.registration-as { color: var(--color-text-muted); }
+.registration-sep { border: 0; border-top: 1px solid var(--color-border); margin: var(--space-2xs) 0; width: 100%; }
+.registration-history { font-size: var(--font-size-xs); color: var(--color-text); }
+.registration-history summary { cursor: pointer; color: var(--color-link); padding: 2px 0; }
+.registration-history ul { margin: 4px 0 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 4px; }
+.registration-date { color: var(--color-text-muted); font-variant-numeric: tabular-nums; margin-right: 4px; }
+.registration-short {
+  font-size: var(--font-size-2xs);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0 6px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
 .ticket-info-title {
   font-family: var(--font-mono);
   font-size: var(--font-size-2xs);
@@ -4920,6 +4944,24 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   width: 100%;
 }
 .journey-calc .editor-status.is-error { color: var(--color-late); }
+/* The fare lookup's route and stage pickers. The native arrow is kept: a
+   select with its arrow removed reads as a text box. */
+.journey-calc .editor-field select {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  width: 100%;
+  max-width: 100%;
+  min-height: 44px;   /* a touch target, like every other control here */
+}
+.journey-calc .editor-field select:disabled { opacity: 0.6; }
+.fare-lookup-result:empty { display: none; }
+.fare-lookup-result { margin: 0; font-size: var(--font-size-md); color: var(--color-text); }
+.fare-lookup-since { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 
 .journey-result:empty { display: none; }
 .journey-result {
@@ -6775,6 +6817,7 @@ html.dark-mode .gap-fab { color: #0f1726; border-color: #0f1726; }
      so it wins on specificity whatever the source order — it has to be named
      here or the fare fields keep their 14.4px. */
   .journey-calc .editor-field input[type="text"],
+  .journey-calc .editor-field select,
   .suggest-form .editor-field select,
   .report-stop-form .editor-field select {
     font-size: 16px;

@@ -340,3 +340,60 @@ test("a weekly is compared against the singles this journey really needs", () =>
   assert.equal(m[1], "60.00",
     "the weekly was compared against a one-bus-each-way week");
 });
+
+// ── Published fare tables (data/fare_tables.json) ───────────
+
+// A cut-down fare triangle: from stage 0, £1.80 to stage 1 and £3.40 to stage
+// 2. £3.40 is above the cap on purpose: the cap applies on top of whatever a
+// table says, and the site must never quote past it.
+const FARE_TABLES = { sources: [{ operator: "SCSO", dataset_id: 5354,
+  source_url: "https://data.bus-data.dft.gov.uk/fares/dataset/5354/" }],
+  tables: [{ line: "700", operator: "SCSO", dataset_id: 5354, valid_from: "2026-09-04",
+    direction: "Worthing to Brighton",
+    stages: [{ name: "Worthing Centre", board: ["A"], alight: ["A"] },
+             { name: "Shoreham",        board: ["G"], alight: ["G"] },
+             { name: "Brighton Centre", board: ["B"], alight: ["B"] }],
+    prices: [[0, 1, 180], [0, 2, 340], [1, 2, 250]] }] };
+
+function renderWithFares(journey, fromAtco, toAtco) {
+  const app = loadApp();
+  const state = vm.runInContext("state", app);
+  const dom   = vm.runInContext("dom", app);
+  state.ticketZones     = JSON.parse(JSON.stringify(TZ.zones));
+  state.ticketFaresMeta = TZ.fares_meta;
+  state.stopData        = {};
+  state.fareTables      = JSON.parse(JSON.stringify(FARE_TABLES));
+  let html = "";
+  dom.jcResult = { set innerHTML(v) { html = v; }, get innerHTML() { return html; } };
+  app.drawJourneyOnMap = () => {};
+  app.renderJourneyResult(journey, fromAtco, toAtco);
+  return { html, app };
+}
+
+test("a short hop is costed at the operator's published single, not the cap", () => {
+  const { html } = renderWithFares(direct(MARINE_PARADE, SHOREHAM_HIGH), "A", "G");
+  assert.equal(headlinePence(html), 360,
+    "two £1.80 singles make the return; the cap's £6.00 overstated it");
+  assert.match(html, /the 700 from Worthing Centre to Shoreham is £1\.80/,
+    "the published fare was used without saying where it came from");
+  assert.match(html, /data\/fare_tables|bus-data\.dft\.gov\.uk\/fares\/dataset\/5354/);
+});
+
+test("a published fare above the cap is still quoted at the cap", () => {
+  const { app } = renderWithFares(direct(MARINE_PARADE, CHURCHILL_SQ), "A", "B");
+  const fare = app.publishedSingleFare("700", "SCSO", "A", "B");
+  assert.equal(fare.pence, 340);
+  const s = app.singlesBaseline(TZ.fares_meta, 1, true, false, [fare]);
+  assert.equal(s.total, 2 * TZ.fares_meta.single_fare.price_pence,
+    "a table's price above the national cap was passed on to the reader");
+});
+
+test("no published fare, or another operator's route, falls back to the cap", () => {
+  const { app } = renderWithFares(direct(MARINE_PARADE, SHOREHAM_HIGH), "A", "G");
+  assert.equal(app.publishedSingleFare("700", "BHBC", "A", "G"), null,
+    "one operator's fare was applied to another's bus of the same number");
+  assert.equal(app.publishedSingleFare("700", "SCSO", "A", "ZZZ"), null);
+  const s = app.singlesBaseline(TZ.fares_meta, 2, true, false, [{ pence: 180 }, null]);
+  assert.equal(s.total, 2 * (180 + TZ.fares_meta.single_fare.price_pence),
+    "a leg without a published fare must be counted at the cap");
+});

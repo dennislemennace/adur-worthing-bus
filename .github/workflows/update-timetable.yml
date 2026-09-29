@@ -64,6 +64,8 @@ jobs:
           python -m py_compile scripts/build_evidence.py
           python -m py_compile scripts/build_stops_json.py
           python -m py_compile scripts/build_stop_details.py
+          python -m py_compile scripts/build_fares.py
+          python -m py_compile scripts/build_registrations.py
 
       - name: Build timetable JSON
         run: python -u scripts/build_timetable.py
@@ -92,6 +94,22 @@ jobs:
         run: |
           python -u scripts/build_stop_details.py \
             || echo "::warning::NaPTAN unavailable; keeping the previous data/stop_details.json"
+
+      # Each route's published adult single fares, from the operators' NeTEx
+      # on BODS (no key needed). Someone else's service again: keep last
+      # week's tables rather than fail the timetable build.
+      - name: Refresh published fare tables
+        run: |
+          python -u scripts/build_fares.py \
+            || echo "::warning::BODS fares unavailable; keeping the previous data/fare_tables.json"
+
+      # Each route's registration with the Traffic Commissioner: where it is
+      # registered to run, any council subsidy, and its registered changes.
+      # DVSA's daily CSV export, no key; last week's file if it is down.
+      - name: Refresh route registrations
+        run: |
+          python -u scripts/build_registrations.py \
+            || echo "::warning::DVSA register unavailable; keeping the previous data/registrations.json"
 
       - name: Recompute published statistics
         run: python -u scripts/build_evidence.py
@@ -148,13 +166,13 @@ jobs:
       # prevent.
       - name: Commit refreshed statistics and stop list
         run: |
-          if git diff --quiet -- data/boundary_evidence.json data/stops.json data/stop_details.json; then
+          if git diff --quiet -- data/boundary_evidence.json data/stops.json data/stop_details.json data/fare_tables.json data/registrations.json; then
             echo "Statistics and stop list unchanged — nothing to commit."
             exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/boundary_evidence.json data/stops.json data/stop_details.json
+          git add data/boundary_evidence.json data/stops.json data/stop_details.json data/fare_tables.json data/registrations.json
           git commit -m "Refresh boundary statistics and stop list from the $(date -u +%Y-%m-%d) timetable"
           git push
 

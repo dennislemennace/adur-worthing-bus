@@ -52,7 +52,8 @@ CREATE TABLE trips (
     rid        INTEGER NOT NULL,
     service_id TEXT NOT NULL,
     headsign   TEXT NOT NULL,
-    shape_id   TEXT NOT NULL DEFAULT ''
+    shape_id   TEXT NOT NULL DEFAULT '',
+    block_id   TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX idx_trips_rid     ON trips(rid);
 CREATE INDEX idx_trips_service ON trips(service_id);
@@ -192,9 +193,9 @@ def convert(tt: dict, db_path: Path) -> None:
         trip_rows.append((
             tid, tid_text, rid,
             t["service_id"], t.get("headsign", ""),
-            t.get("shape_id", ""),
+            t.get("shape_id", ""), t.get("block_id", ""),
         ))
-    con.executemany("INSERT INTO trips VALUES (?,?,?,?,?,?)", trip_rows)
+    con.executemany("INSERT INTO trips VALUES (?,?,?,?,?,?,?)", trip_rows)
     print(f"  trips: {len(trip_rows)}")
 
     # --- stop_times: invert stop-indexed map into per-trip list ---

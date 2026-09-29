@@ -6,7 +6,10 @@ same bus.
 
 **The method.** A bus whose feed names the journey it is running carries its
 lateness, measured where it last reported against that journey's timetable, on
-the bus's own clock (`main._attach_declared_journeys`). Every stop still ahead
+the bus's own clock (`main._attach_declared_journeys`). Where it is between two
+stops, the timetable's time for that point is taken in proportion along the
+stretch between them (`trip_match.scheduled_at_position`); a bus stood at a
+timing point before its time counts as on time, because it will wait there. Every stop still ahead
 is estimated at its timetabled time plus that lateness:
 
 * a late bus is assumed to stay exactly as late;

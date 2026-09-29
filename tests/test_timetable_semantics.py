@@ -425,6 +425,21 @@ def test_rows_in_utc_and_uk_time_sort_as_moments():
         "13:09 BST, written in UTC, sorted ahead of 13:00 BST"
 
 
+def test_the_board_runs_soonest_first_by_live_time():
+    import api.main as main
+    board = main._public_departures({"departures": [
+        {"service": "5", "aimed_departure": "2026-09-29T14:42:00+01:00",
+         "expected_departure": "2026-09-29T15:00:12+01:00"},
+        {"service": "1", "aimed_departure": "2026-09-29T15:00:00+01:00",
+         "expected_departure": "2026-09-29T15:00:00+01:00"},
+        {"service": "7", "aimed_departure": "2026-09-29T14:59:00+01:00"},
+        {"service": "700", "aimed_departure": "2026-09-29T14:58:00+01:00",
+         "expected_departure": "2026-09-29T13:57:00+00:00"},
+    ]})
+    assert [d["service"] for d in board["departures"]] == ["700", "7", "1", "5"], \
+        "a late bus sat above the ones leaving before it"
+
+
 def test_a_prediction_for_a_held_line_is_not_added_as_a_stranger(monkeypatch):
     # The 46 is in our timetable here, just not in the rows that made the
     # board. Its prediction must not be appended as a line we do not hold,

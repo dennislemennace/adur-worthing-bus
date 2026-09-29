@@ -125,3 +125,62 @@ def test_no_key_means_no_fetch_and_says_so(monkeypatch):
     monkeypatch.setattr(main, "BODS_API_KEY", "")
     state = asyncio.run(main._fetch_disruptions())
     assert state["available"] is False and state["reason"] == "not_configured"
+
+
+# ── Cancelled journeys ──────────────────────────────────────
+
+CANCELLATION = b"""<?xml version="1.0" encoding="utf-8"?>
+<Siri version="2.0" xmlns="http://www.siri.org.uk/siri"><ServiceDelivery><SituationExchangeDelivery><Situations>
+  <PtSituationElement>
+    <ParticipantRef>SCSO</ParticipantRef><SituationNumber>CANCEL-700-1405</SituationNumber>
+    <Progress>open</Progress>
+    <ValidityPeriod><StartTime>2026-09-27T06:00:00Z</StartTime><EndTime>2026-09-27T23:00:00Z</EndTime></ValidityPeriod>
+    <MiscellaneousReason>staffShortage</MiscellaneousReason>
+    <Summary>Journey cancelled</Summary>
+    <Affects><VehicleJourneys><AffectedVehicleJourney>
+      <Operator><OperatorRef>SCSO</OperatorRef></Operator>
+      <PublishedLineName>700</PublishedLineName>
+      <DatedVehicleJourneyRef>4012</DatedVehicleJourneyRef>
+      <OriginAimedDepartureTime>2026-09-27T13:05:00+01:00</OriginAimedDepartureTime>
+      <Calls><Call><StopPointRef>4400AD0063</StopPointRef></Call></Calls>
+    </AffectedVehicleJourney></VehicleJourneys></Affects>
+    <Consequences><Consequence><Condition>cancelled</Condition></Consequence></Consequences>
+  </PtSituationElement>
+  <PtSituationElement>
+    <ParticipantRef>SCSO</ParticipantRef><SituationNumber>CANCEL-HAMPSHIRE</SituationNumber>
+    <Progress>open</Progress>
+    <Summary>Journey cancelled</Summary>
+    <Affects><VehicleJourneys><AffectedVehicleJourney>
+      <Operator><OperatorRef>SCSO</OperatorRef></Operator>
+      <PublishedLineName>700</PublishedLineName>
+      <OriginAimedDepartureTime>2026-09-27T13:20:00+01:00</OriginAimedDepartureTime>
+      <Calls><Call><StopPointRef>1900HA000001</StopPointRef></Call></Calls>
+    </AffectedVehicleJourney></VehicleJourneys></Affects>
+    <Consequences><Consequence><Condition>cancelled</Condition></Consequence></Consequences>
+  </PtSituationElement>
+</Situations></SituationExchangeDelivery></ServiceDelivery></Siri>"""
+
+
+class JourneyTimetable:
+    """Two 700 journeys, starting 13:05 and 13:20, at the same board."""
+    def trip_stops_for(self, trip_id):
+        start = {"T1305": 13 * 3600 + 5 * 60, "T1320": 13 * 3600 + 20 * 60}[trip_id]
+        return [(start, "ORIGIN"), (start + 1200, "4400AD0063")]
+
+
+def test_a_cancelled_journey_is_marked_on_its_own_row_only():
+    kept = sx.parse_feed(CANCELLATION, sx.area_filter(OUR_STOPS, OUR_ROUTES, OUR_TOWNS))
+    assert [s["id"] for s in kept] == ["CANCEL-700-1405"], \
+        "a Hampshire 700's cancellation was placed here by its line number"
+    notices = sx.current(kept, NOW)
+    board = {"departures": [
+        {"service": "700", "operator": "SCSO", "_trip_id": "T1305", "status": "Scheduled",
+         "aimed_departure": "2026-09-27T13:25:00+01:00"},
+        {"service": "700", "operator": "SCSO", "_trip_id": "T1320", "status": "Scheduled",
+         "aimed_departure": "2026-09-27T13:40:00+01:00"},
+    ]}
+    out = main._attach_disruptions(board, "4400AD0063", notices, JourneyTimetable())
+    first, second = out["departures"]
+    assert first["status"] == "Cancelled" and first["disruption_ids"] == ["CANCEL-700-1405"]
+    assert second["status"] == "Scheduled" and "disruption_ids" not in second, \
+        "every 700 was marked, not the one journey called off"

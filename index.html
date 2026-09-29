@@ -941,6 +941,30 @@
             </div>
           </section>
 
+          <!-- Published fare tables (data/fare_tables.json): a route, two
+               fare stages, the adult single. Hidden until the data loads. -->
+          <section class="journey-calc fare-lookup" id="fare-lookup" aria-labelledby="fare-lookup-title" hidden>
+            <h3 class="proposals-section-title" id="fare-lookup-title">Single fares by route</h3>
+            <p class="proposals-section-blurb">
+              The adult single each operator publishes between the fare stages
+              on a route: the table in the timetable leaflet.
+            </p>
+            <div class="editor-field">
+              <label for="fl-route">Route</label>
+              <select id="fl-route"></select>
+            </div>
+            <div class="editor-field">
+              <label for="fl-from">From</label>
+              <select id="fl-from" disabled></select>
+            </div>
+            <div class="editor-field">
+              <label for="fl-to">To</label>
+              <select id="fl-to" disabled></select>
+            </div>
+            <p class="fare-lookup-result" id="fl-result" aria-live="polite"></p>
+            <p class="journey-basis" id="fl-basis"></p>
+          </section>
+
           <div class="improvements-intro">
             <h2 class="improvements-title">Ticket zones</h2>
             <p>

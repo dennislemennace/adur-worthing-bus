@@ -5861,7 +5861,7 @@ const LONDON_CLOCK_SECONDS = new Intl.DateTimeFormat("en-GB", {
 });
 
 /** "HH:MM:SS" in London. See `londonClock` for why the zone is pinned. */
-function londonClockSeconds(date = new Date()) {
+function londonClockSeconds(date = clockNow()) {
   return LONDON_CLOCK_SECONDS.format(date);
 }
 
@@ -5872,13 +5872,13 @@ function londonClockSeconds(date = new Date()) {
  *  in the device's own zone put two zones in one line — "next bus 21:15 · as
  *  of 16:07" for a reader abroad, or on a device whose clock is set wrong. It
  *  also broke CI, which runs in UTC while this machine is on BST. */
-function londonClock(date = new Date()) {
+function londonClock(date = clockNow()) {
   return LONDON_CLOCK.format(date);
 }
 
 /** Tested as outside the day, not inside the night: the night crosses midnight,
  *  and a from < now < to test across midnight is never true. */
-function isGapQuietHours(date = new Date()) {
+function isGapQuietHours(date = clockNow()) {
   const now = londonClock(date);
   return !(now >= GAP_QUIET_TO && now < GAP_QUIET_FROM);
 }
@@ -7016,6 +7016,18 @@ async function fetchDepartures(atcoCode) {
   }
 }
 
+/** Soonest first: the live time where there is one, the timetable's otherwise.
+ *  The API sends them in this order; sorting again here keeps a board served
+ *  from an older cache, or one whose estimates moved, from showing a late bus
+ *  above the one that will actually come first. */
+function sortBySoonest(departures) {
+  const at = (iso) => { const t = new Date(iso || "").getTime(); return isNaN(t) ? Infinity : t; };
+  const cmp = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
+  return [...departures].sort((a, b) =>
+    cmp(at(a.expected_departure || a.aimed_departure), at(b.expected_departure || b.aimed_departure))
+    || cmp(at(a.aimed_departure), at(b.aimed_departure)));
+}
+
 function renderDepartures(data) {
   // data: { stop_name, departures: [...], live?: bool, live_reason?: string }
   const raw = data?.departures ?? [];
@@ -7042,13 +7054,13 @@ function renderDepartures(data) {
   // 30 seconds in the past. The backend already filters past trips,
   // but cached responses can briefly contain entries that have just
   // departed.
-  const now = Date.now();
-  const departures = raw.filter(d => {
+  const now = nowMs();
+  const departures = sortBySoonest(raw.filter(d => {
     const iso = d.expected_departure || d.aimed_departure;
     if (!iso) return true;
     const t = new Date(iso).getTime();
     return isNaN(t) || (t - now) > -30_000;
-  });
+  }));
 
   const noticesHost = document.getElementById("board-disruptions");
   if (noticesHost) {
@@ -7468,7 +7480,7 @@ function buildStatusChip(dep) {
  * left open kept saying "5 mins" indefinitely, which is worse than saying
  * nothing.
  */
-function formatDueTime(isoString, now = new Date()) {
+function formatDueTime(isoString, now = clockNow()) {
   try {
     const d = new Date(isoString);
     if (isNaN(d.getTime())) return isoString; // Return as-is if not parseable
@@ -7491,7 +7503,7 @@ function formatDueTime(isoString, now = new Date()) {
 function isWithinMinutes(isoString, minutes) {
   try {
     const d = new Date(isoString);
-    const diff = (d - new Date()) / 60_000;
+    const diff = (d - clockNow()) / 60_000;
     return diff >= 0 && diff <= minutes;
   } catch {
     return false;
@@ -7529,6 +7541,7 @@ function openBusInfo(vehicle) {
   // Clear notify-on-move state when switching buses (latch + baseline are
   // per-vehicle; a stale baseline against a new bus would fire instantly).
   if (state.selectedVehicleRef !== vehicle.vehicle_ref) {
+    clearBusTrail();
     state.notifyOnMove = false;
     state.notifyBaseline = null;
     state.notifyOverThresholdCount = 0;
@@ -7562,6 +7575,7 @@ async function fetchBusDetails(vehicleRef) {
     if (state.selectedVehicleRef !== vehicleRef) return;   // user moved on
     state.busDetails        = data;
     state.busDetailsLoading = false;
+    drawBusTrail(data && data.trail);
     renderBusTab();
   } catch (err) {
     if (state.selectedVehicleRef !== vehicleRef) return;
@@ -7569,6 +7583,43 @@ async function fetchBusDetails(vehicleRef) {
     state.busDetailsLoading = false;
     renderBusTab();
   }
+}
+
+/** "Then it runs the 14:32 700 to Brighton, from Worthing Pier." From the
+ *  operator's published vehicle working, so it is the plan, not a promise. */
+function buildNextJourneyHtml(next) {
+  if (!next || !next.depart) return "";
+  const svc = next.service ? `${escapeHtml(next.service)} ` : "";
+  const to = next.headsign ? ` to ${escapeHtml(prettifyName(next.headsign))}` : "";
+  const from = next.from_name ? `, from ${escapeHtml(prettifyName(next.from_name))}` : "";
+  return `<p class="bus-next-journey">
+    <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
+    <span>After this journey, the operator plans for this bus to run the
+      <strong>${escapeHtml(next.depart)} ${svc}</strong>${to}${from}.</span></p>`;
+}
+
+/** Where the selected bus has come from on this journey: its last reported
+ *  positions, as a faded dashed line in the route's colour. The API keeps
+ *  them only while someone is watching, so a short or gappy line is honest,
+ *  not broken. Replaced on every refresh; removed with the selection. */
+function drawBusTrail(points) {
+  clearBusTrail();
+  const v = state.selectedVehicle;
+  if (!state.map || !v || !Array.isArray(points) || points.length < 2) return;
+  const latlngs = points.filter(p => Array.isArray(p) && isFinite(p[0]) && isFinite(p[1]))
+    .map(p => [p[0], p[1]]);
+  // The last report is where the marker is drawn; join the line to it.
+  if (isFinite(v.latitude) && isFinite(v.longitude)) latlngs.push([v.latitude, v.longitude]);
+  if (latlngs.length < 2) return;
+  state.busTrailLayer = L.polyline(latlngs, {
+    color: getRouteColour(v.service_ref || "", v.operator_ref),
+    weight: 4, opacity: 0.55, dashArray: "6 8", interactive: false,
+  }).addTo(state.map);
+}
+
+function clearBusTrail() {
+  if (state.busTrailLayer && state.map) state.map.removeLayer(state.busTrailLayer);
+  state.busTrailLayer = null;
 }
 
 /** Build the Bus tab body from the latest selected vehicle.
@@ -7662,7 +7713,11 @@ function buildBusTabShell(v) {
 
     <div id="bus-upcoming"></div>
 
+    <div id="bus-next-journey"></div>
+
     <div id="bus-tickets"></div>
+
+    <div id="bus-registration"></div>
 
     <div class="departures-meta bus-report-meta">
       <button class="btn-text" id="report-bus-btn" type="button" aria-expanded="false"
@@ -7763,6 +7818,11 @@ function buildBusTabShell(v) {
       if (state.busTabShellRef === v.vehicle_ref) updateBusTabLive();
     }).catch(() => {});
   }
+  if (state.registrations == null) {
+    loadRegistrations().then(() => {
+      if (state.busTabShellRef === v.vehicle_ref) updateBusTabLive();
+    });
+  }
 }
 
 /** Replace a host's markup only when it has changed, keeping keyboard focus
@@ -7815,8 +7875,90 @@ function updateBusTabLive() {
   patchHtml(document.getElementById("bus-disruptions"),
     buildDisruptionsHtml(state.busDetails?.disruptions || []));
   patchHtml(document.getElementById("bus-upcoming"), buildUpcomingStopsHtml());
+  patchHtml(document.getElementById("bus-next-journey"),
+    buildNextJourneyHtml(state.busDetails && state.busDetails.next_journey));
   patchHtml(document.getElementById("bus-tickets"),
     buildTicketInfoHtml(v.operator_ref, null, v.service_ref || ""));
+  patchHtml(document.getElementById("bus-registration"),
+    buildRegistrationHtml(v.operator_ref, v.service_ref || ""));
+}
+
+// ── The route's registration (data/registrations.json) ─────────
+//
+// The Traffic Commissioner's register, as DVSA publishes it: where the route
+// is registered to run, whether a council pays towards it, and each change
+// registered since 2019 (scripts/build_registrations.py).
+
+// Metrobus runs under Brighton & Hove's licence; the others under their own.
+const REGISTRATION_NOC = { METR: "BHBC", SCSC: "SCSO", CMPA: "COMT" };
+
+function loadRegistrations() {
+  if (!state._registrationsPromise) {
+    state._registrationsPromise = fetch("data/registrations.json")
+      .then(res => (res.ok ? res.json() : null))
+      .catch(err => { console.warn("Registrations load failed:", err); return null; })
+      .then(data => {
+        state.registrations = data && Array.isArray(data.services) ? data : { services: [] };
+        return state.registrations;
+      });
+  }
+  return state._registrationsPromise;
+}
+
+function registrationsFor(operatorRef, service, data = state.registrations) {
+  if (!data || !Array.isArray(data.services) || !service) return [];
+  const noc = REGISTRATION_NOC[operatorRef] || operatorRef;
+  const svc = String(service).toUpperCase();
+  return data.services.filter(r => r.operator === noc && String(r.service).toUpperCase() === svc);
+}
+
+/** What a council's part in a route is, in words. */
+function subsidyText(reg) {
+  const who = (reg.subsidised_by || []).join(" and ") || "a council";
+  if (reg.subsidy === "Yes") return `Paid for by ${who}`;
+  if (reg.subsidy === "In Part") return `Partly paid for by ${who}`;
+  if (reg.subsidy === "No") return "None: the operator runs it commercially";
+  return "Not stated";
+}
+
+function buildRegistrationHtml(operatorRef, service) {
+  const data = state.registrations;
+  const regs = registrationsFor(operatorRef, service, data);
+  if (!regs.length) return "";
+  const svc = String(service).toUpperCase();
+  const clip = (t, n = 160) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t);
+  const row = (label, value) => `
+      <div class="ticket-row">
+        <span class="ticket-label">${escapeHtml(label)}</span>
+        <span class="ticket-value">${value}</span>
+      </div>`;
+  const blocks = regs.map(reg => {
+    const rows = [];
+    const as = reg.registered_as ? ` <span class="registration-as">(registered with the ${escapeHtml(reg.registered_as)})</span>` : "";
+    rows.push(row("Route", `${escapeHtml(reg.start)} to ${escapeHtml(reg.finish)}${as}`));
+    rows.push(row("Council", escapeHtml(subsidyText(reg))));
+    const latest = (reg.changes || [])[0];
+    if (latest) {
+      rows.push(row("Changed", `${escapeHtml(formatCheckedDate(latest.effective))}: ${escapeHtml(clip(latest.change || "registered change"))}`));
+    }
+    const history = (reg.changes || []).slice(1);
+    const list = history.length ? `
+      <details class="registration-history">
+        <summary>${history.length} earlier change${history.length === 1 ? "" : "s"} since 2019</summary>
+        <ul>${history.map(c => `<li><span class="registration-date">${escapeHtml(formatCheckedDate(c.effective))}</span>
+          ${escapeHtml(clip(c.change || "registered change", 220))}${c.short_notice ? ` <span class="registration-short">short notice</span>` : ""}</li>`).join("")}</ul>
+      </details>` : "";
+    return `<div class="ticket-rows">${rows.join("")}</div>${list}`;
+  });
+  const src = data.source_url
+    ? `<a href="${escapeAttr(safeUrl(data.source_url))}" target="_blank" rel="noopener noreferrer">Traffic Commissioner's register</a>`
+    : "Traffic Commissioner's register";
+  return `
+    <div class="ticket-info registration-info">
+      <h3 class="ticket-info-title">About the ${escapeHtml(svc)}</h3>
+      ${blocks.join(`<hr class="registration-sep">`)}
+      <p class="ticket-checked">From the ${src} (DVSA)${data.as_of ? `, as of ${escapeHtml(formatCheckedDate(data.as_of))}` : ""}.</p>
+    </div>`;
 }
 
 /** One listener for the stop list, on its host, which outlives every refresh. */
@@ -8648,7 +8790,7 @@ function initSheet() {
  */
 const DEPARTURE_TICK_MS = 30_000;
 
-function ageDepartureBoard(now = new Date()) {
+function ageDepartureBoard(now = clockNow()) {
   const cells = document.querySelectorAll(".due-time[data-due-at]");
   if (!cells || !cells.length) return 0;
   const before = cells.length;
@@ -8717,6 +8859,7 @@ function closePanel() {
   dom.panelStopId.textContent   = "";
 
   // Clear bus selection
+  clearBusTrail();
   state.selectedVehicleRef      = null;
   state.selectedVehicle         = null;
   state.selectedVehicleLastSeen = null;
@@ -9531,6 +9674,7 @@ async function applyViewMode() {
       if (!mine()) return;
       showTicketZones();
       renderJourneyPresets();     // examples for the checker; failure is silent
+      loadFareTables().then(() => { if (mine()) renderFareLookup(); });
     } catch (err) {
       console.warn("Ticket view data fetch failed:", err);
       if (!mine()) return;
@@ -11946,6 +12090,9 @@ async function checkJourney() {
   setJourneyStatus("Checking…");
   clearJourneyLayers();
   await loadTicketZones();
+  // Published fares make a short hop cheaper than the cap. Never fails: without
+  // them every single is costed at the cap, as before.
+  await loadFareTables();
   // Ticket zones can take a moment on a cold load; the reader may already
   // have asked for a different journey, or left the view entirely.
   if (!mine()) return;
@@ -12024,26 +12171,212 @@ function journeyLegServices(journey) {
  * interchange costs what it does, and why quoting only day tickets overstates
  * what a careful passenger pays.
  */
-function singlesBaseline(meta, legs, returnTrip = true, shortHop = false) {
+function singlesBaseline(meta, legs, returnTrip = true, shortHop = false, legFares = null) {
   const sf = meta && meta.single_fare;
   if (!sf || typeof sf.price_pence !== "number" || !legs) return null;
   // The cap has a lower rung for a single-stop hop, and nothing read it — the
   // field has sat in the data unused, so two stops down the road was quoted at
   // the full £3. Over-charging in a figure meant to show what travel costs is
   // the wrong direction to be wrong in.
-  const each = (shortHop && typeof sf.short_hop_pence === "number")
+  const capped = (shortHop && typeof sf.short_hop_pence === "number")
     ? sf.short_hop_pence : sf.price_pence;
-  const total = each * legs * (returnTrip ? 2 : 1);
+  // Where the operator publishes the fare for a leg, that is what it costs,
+  // and a short hop is often well under the cap. Never above the cap, which
+  // applies on top whatever the table says.
+  const published = Array.from({ length: legs }, (_, i) => {
+    const f = Array.isArray(legFares) ? legFares[i] : null;
+    return f && typeof f.pence === "number" ? f : null;
+  });
+  const perLeg = published.map(f => (f ? Math.min(f.pence, sf.price_pence) : capped));
+  const oneWay = perLeg.reduce((a, b) => a + b, 0);
+  const total = oneWay * (returnTrip ? 2 : 1);
+  const uniform = perLeg.every(x => x === perLeg[0]);
   return {
     kind: "singles",
     total,
     legs,
-    each,
+    each: uniform ? perLeg[0] : null,
+    perLeg,
+    published: published.some(Boolean) ? published : null,
     returnTrip,
-    shortHop: each !== sf.price_pence,
+    shortHop: !published.some(Boolean) && capped !== sf.price_pence,
     source_url: sf.source_url || "",
     label: sf.label || "Single fare",
   };
+}
+
+// ── Published single fares (data/fare_tables.json) ───────────
+//
+// Each route's fare stages and the adult single between each pair, from the
+// operators' NeTEx on the Bus Open Data Service (scripts/build_fares.py).
+// Optional everywhere: without it, singles are costed at the national cap.
+
+const FARE_NOC_FAMILY = { SCSC: "SCSO", CMPA: "COMT" };
+
+function loadFareTables() {
+  if (!state._fareTablesPromise) {
+    state._fareTablesPromise = fetch("data/fare_tables.json")
+      .then(res => (res.ok ? res.json() : null))
+      .catch(err => { console.warn("Fare tables load failed:", err); return null; })
+      .then(data => {
+        state.fareTables = data && Array.isArray(data.tables) ? data : { tables: [] };
+        return state.fareTables;
+      });
+  }
+  return state._fareTablesPromise;
+}
+
+/** The operator's published adult single from one stop to another on a route.
+ *
+ *  Fares are set between fare stages, and a stop can sit in more than one (a
+ *  loop, or a stage boundary drawn through it), so every pairing is tried and
+ *  the cheapest kept: quoting the dearer of two published fares for the same
+ *  ride is the wrong way to be wrong. Null when the route or either stop is
+ *  not in a published table.
+ */
+function publishedSingleFare(service, operator, fromAtco, toAtco,
+                             tables = state.fareTables && state.fareTables.tables) {
+  if (!Array.isArray(tables) || !service || !fromAtco || !toAtco) return null;
+  const family = n => FARE_NOC_FAMILY[n] || n;
+  const svc = String(service).toUpperCase();
+  let best = null;
+  for (const t of tables) {
+    if (String(t.line || "").toUpperCase() !== svc) continue;
+    if (operator && t.operator && family(t.operator) !== family(operator)) continue;
+    if (!t._price) t._price = new Map((t.prices || []).map(([i, j, p]) => [`${i}-${j}`, p]));
+    (t.stages || []).forEach((from, i) => {
+      if (!(from.board || []).includes(fromAtco)) return;
+      (t.stages || []).forEach((to, j) => {
+        if (!(to.alight || []).includes(toAtco)) return;
+        const pence = t._price.get(`${i}-${j}`);
+        if (typeof pence === "number" && (!best || pence < best.pence)) {
+          best = { pence, from: from.name, to: to.name, line: t.line,
+                   operator: t.operator, valid_from: t.valid_from || null,
+                   dataset_id: t.dataset_id || null };
+        }
+      });
+    });
+  }
+  return best;
+}
+
+/** The published fare for each bus a route takes, or null per leg. */
+function routeLegFares(legs) {
+  return (legs || []).map(leg => {
+    const stops = (leg && leg.stops) || [];
+    if (stops.length < 2) return null;
+    return publishedSingleFare(leg.service, leg.operator,
+                               stops[0].atco, stops[stops.length - 1].atco);
+  });
+}
+
+/** Where a published single came from, said beside the price. */
+function fareSourceUrl(dataset_id) {
+  const sources = (state.fareTables && state.fareTables.sources) || [];
+  const src = sources.find(x => x.dataset_id === dataset_id);
+  return src ? safeUrl(src.source_url) : "";
+}
+
+function publishedFareBasisHtml(published) {
+  const rows = (published || []).filter(Boolean);
+  if (!rows.length) return "";
+  const items = rows.map(f =>
+    `the ${escapeHtml(f.line)} from ${escapeHtml(f.from)} to ${escapeHtml(f.to)} is ${formatGbp(f.pence)}`);
+  const url = fareSourceUrl(rows[0].dataset_id);
+  const where = url
+    ? `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">Bus Open Data Service</a>`
+    : "Bus Open Data Service";
+  const since = rows[0].valid_from ? `, in force from ${escapeHtml(formatCheckedDate(rows[0].valid_from))}` : "";
+  const rest = rows.length < (published || []).length
+    ? " Legs with no published fare are counted at the cap." : "";
+  return `<p class="journey-basis">Published adult singles, as the operator
+    publishes them on the ${where}${since}: ${items.join("; ")}. That is the
+    on-bus price; app fares can be lower.${rest}</p>`;
+}
+
+/** The fare-table lookup in Tickets & fares: a route, two stages, a price. */
+function renderFareLookup() {
+  const host = document.getElementById("fare-lookup");
+  const data = state.fareTables;
+  if (!host || !data || !Array.isArray(data.tables) || !data.tables.length) return;
+  const routeSel = document.getElementById("fl-route");
+  const fromSel = document.getElementById("fl-from");
+  const toSel = document.getElementById("fl-to");
+  const result = document.getElementById("fl-result");
+  const basis = document.getElementById("fl-basis");
+  if (!routeSel || !fromSel || !toSel || !result) return;
+  host.hidden = false;
+
+  if (!routeSel.dataset.filled) {
+    routeSel.dataset.filled = "1";
+    const byOp = new Map();
+    data.tables.forEach((t, i) => {
+      const op = getOperatorName(t.operator) || t.operator;
+      if (!byOp.has(op)) byOp.set(op, []);
+      byOp.get(op).push(`<option value="${i}">${escapeHtml(t.line)}: ${escapeHtml(t.direction)}</option>`);
+    });
+    routeSel.innerHTML = `<option value="">Choose a route…</option>` +
+      [...byOp].map(([op, opts]) => `<optgroup label="${escapeAttr(op)}">${opts.join("")}</optgroup>`).join("");
+    routeSel.addEventListener("change", () => fillFareStages(true));
+    fromSel.addEventListener("change", () => fillFareStages(false));
+    toSel.addEventListener("change", showFareLookupResult);
+    const missing = data.services_without_tables || [];
+    if (basis) {
+      const list = (data.sources || []).map(src =>
+        `<a href="${escapeAttr(safeUrl(src.source_url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(getOperatorName(src.operator) || src.operator)}</a>`).join(", ");
+      basis.innerHTML = `From the operators' fare tables on the Bus Open Data
+        Service (${list}), as of ${escapeHtml(formatCheckedDate(data.as_of || ""))}.
+        On-bus adult prices; app fares can be lower, and the national cap
+        applies on top.` + (missing.length
+        ? ` No fare table is published for ${escapeHtml(missing.join(", "))}.` : "");
+    }
+  }
+}
+
+function fillFareStages(routeChanged) {
+  const t = state.fareTables && state.fareTables.tables[Number(document.getElementById("fl-route").value)];
+  const fromSel = document.getElementById("fl-from");
+  const toSel = document.getElementById("fl-to");
+  if (!t) {
+    fromSel.innerHTML = toSel.innerHTML = "";
+    fromSel.disabled = toSel.disabled = true;
+    showFareLookupResult();
+    return;
+  }
+  const from = new Set((t.prices || []).map(([i]) => i));
+  if (routeChanged) {
+    fromSel.innerHTML = t.stages.map((st, i) => from.has(i)
+      ? `<option value="${i}">${escapeHtml(st.name)}</option>` : "").join("");
+    fromSel.disabled = false;
+  }
+  const i = Number(fromSel.value);
+  const to = (t.prices || []).filter(([a, b]) => a === i && b !== i).map(([, b]) => b);
+  toSel.innerHTML = to.map(j => `<option value="${j}">${escapeHtml(t.stages[j].name)}</option>`).join("");
+  toSel.disabled = !to.length;
+  showFareLookupResult();
+}
+
+function showFareLookupResult() {
+  const result = document.getElementById("fl-result");
+  const t = state.fareTables && state.fareTables.tables[Number(document.getElementById("fl-route").value)];
+  if (!t) { result.textContent = ""; return; }
+  const i = Number(document.getElementById("fl-from").value);
+  const j = Number(document.getElementById("fl-to").value);
+  const hit = (t.prices || []).find(([a, b]) => a === i && b === j);
+  const cap = state.ticketFaresMeta && state.ticketFaresMeta.single_fare
+    && state.ticketFaresMeta.single_fare.price_pence;
+  if (!hit) { result.textContent = ""; return; }
+  const pence = typeof cap === "number" ? Math.min(hit[2], cap) : hit[2];
+  result.innerHTML = `<strong>${formatGbp(pence)}</strong> adult single on the ${escapeHtml(t.line)},
+    ${escapeHtml(t.stages[i].name)} to ${escapeHtml(t.stages[j].name)}` +
+    (t.valid_from ? ` <span class="fare-lookup-since">· in force from ${escapeHtml(formatCheckedDate(t.valid_from))}</span>` : "");
+}
+
+/** "£1.80", or "£1.80 and £3.00", or "£1.80, £2.90 and £3.00". */
+function formatFareList(pence) {
+  const parts = pence.map(formatGbp);
+  return parts.length < 2 ? parts.join("")
+    : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 }
 
 /** Every zone touching any stop on the path, de-duped. */
@@ -12435,7 +12768,9 @@ function costRoute(route, ctx) {
   const unifiedOption = route.services.every(s => unifiedTicketOption(meta, s))
     ? unifiedTicketOption(meta, route.services[0] || "") : null;
   const singlesOption = singlesBaseline(meta, route.legs, true,
-                                        route.stopCount === 2);
+                                        route.stopCount === 2,
+                                        routeLegFares(route.option ? [route.option]
+                                          : (route.itinerary && route.itinerary.legs) || []));
   const cheapest = cheapestRealOption(best, networkOption, supplement,
                                       unifiedOption, singlesOption);
   // Singles excluded: the reforms asked for replace a day ticket, so this is
@@ -12800,7 +13135,8 @@ function renderJourneyResult(journey, fromAtco, toAtco, selectedChoice = "cheape
   // costed as two understated what singles would cost by a third.
   const legs = option ? 1 : (interchange && Array.isArray(interchange.legs) && interchange.legs.length
     ? interchange.legs.length : 2);
-  const singlesOption = singlesBaseline(meta, legs);
+  const singlesOption = singlesBaseline(meta, legs, true, false,
+    routeLegFares(option ? [option] : (interchange && interchange.legs) || []));
   // What an unlimited day costs today, with singles deliberately excluded:
   // the reform asks replace a day ticket, so this is the like-for-like
   // baseline for "what would change". The null is written out rather than
@@ -13136,11 +13472,17 @@ function penaltyMoneyHtml(cheapest, meta, service) {
     const why = cheapest.noSpanningTicket
       ? ", because no day ticket is valid on every operator that serves these stops"
       : ", cheaper here than any day ticket covering the journey";
+    const at = cheapest.each != null
+      ? formatGbp(cheapest.each) + (legs > 1 ? " each" : "")
+      : formatFareList(cheapest.perLeg || []);
     parts.push(`<p class="journey-headline">
       The cheapest way to make this journey is
       <strong>${formatGbp(cheapest.total)}</strong> in single fares,
       ${legs} bus${legs === 1 ? "" : "es"} each way at
-      ${formatGbp(cheapest.each)}${why}.</p>`);
+      ${at}${why}.</p>`);
+    if (cheapest.published) {
+      parts.push(publishedFareBasisHtml(cheapest.published));
+    }
     if (cheapest.source_url) {
       parts.push(`<p class="journey-basis">Single fares are capped nationally:
         <a href="${escapeAttr(safeUrl(cheapest.source_url))}" target="_blank"
@@ -13351,7 +13693,7 @@ function weeklyOptionHtml(allZones, operators, meta, singlesOption) {
   // break-even look like a saving.
   const versus = (days && singlesOption)
     ? ` For a ${days}-day week that is ${formatGbp(w.price_pence)} against
-        ${formatGbp(singlesOption.total * days)} in capped singles
+        ${formatGbp(singlesOption.total * days)} in ${singlesOption.published ? "" : "capped "}singles
         (${singlesOption.legs} bus${singlesOption.legs === 1 ? "" : "es"} each way).`
     : "";
   return `<p class="journey-basis">Travelling this route regularly, the
@@ -15780,6 +16122,32 @@ let _wakingCalls = 0;
 
 /** One HTTP call with a deadline. Split out of apiFetch so the cold-start
  *  handling above has something to wrap. */
+// ── The device's clock ──────────────────────────────────────
+//
+// Every countdown compares a time from the API with this device's clock, so a
+// phone or PC whose clock is three minutes out shows every bus three minutes
+// wrong, and drops rows as "departed" while the bus is still coming. Each API
+// response carries the server's time in its Date header; the difference is
+// measured against the middle of the request, since the header was stamped
+// somewhere between sending and receiving, and truncated to the second.
+// Anything under 20 seconds is latency and rounding, and left alone.
+// (bustimes.org does the same for slow clocks; this also corrects fast ones.)
+// Kept on `state`, not a module `let`: helpers above call nowMs() and a `let`
+// declared this far down the file is unreadable until the script reaches it.
+const CLOCK_SKEW_MIN_MS = 20_000;
+
+function recordClockSkew(sentAt, receivedAt, dateHeader) {
+  const server = Date.parse(dateHeader || "");
+  if (isNaN(server)) return state.clockSkewMs || 0;
+  const skew = server + 500 - (sentAt + receivedAt) / 2;
+  state.clockSkewMs = Math.abs(skew) >= CLOCK_SKEW_MIN_MS ? Math.round(skew) : 0;
+  return state.clockSkewMs;
+}
+
+/** Now, by the server's clock where this device's is known to be out. */
+function nowMs() { return Date.now() + ((state && state.clockSkewMs) || 0); }
+function clockNow() { return new Date(nowMs()); }
+
 async function apiRequest(path, timeoutMs) {
   const url = CONFIG.API_BASE_URL.replace(/\/$/, "") + path;
 
@@ -15789,11 +16157,14 @@ async function apiRequest(path, timeoutMs) {
   const timer = setTimeout(() => abort.abort(), timeoutMs);
 
   let response;
+  const sentAt = Date.now();
   try {
     response = await fetch(url, {
       signal: abort.signal,
       headers: { "Accept": "application/json" },
     });
+    recordClockSkew(sentAt, Date.now(), response.headers && response.headers.get
+      ? response.headers.get("Date") : null);
   } catch (err) {
     if (err && err.name === "AbortError") throw new ApiError("timeout", 0);
     throw new ApiError("offline", 0);
@@ -16534,6 +16905,7 @@ async function openRailBoard(crs, name) {
   if (!crs) return;
   // Clear any bus stop / bus selection so the panel's other state is consistent.
   state.selectedStop            = null;
+  clearBusTrail();
   state.selectedVehicleRef      = null;
   state.selectedVehicle         = null;
   state.busDetails              = null;
@@ -16788,7 +17160,7 @@ function wrapRailTimes(tA, tB, now, aActualised) {
 // move the marker each frame — that's tickRailAnimation's job. It just sets
 // entry.target, and creates the marker on first availability.
 function recomputeRailPositions() {
-  const now = Date.now();
+  const now = nowMs();
   for (const uid of Object.keys(state.selectedRailServices)) {
     const entry = state.selectedRailServices[uid];
     const svc = entry.calling;
@@ -16978,7 +17350,7 @@ function startRailAnimationLoop() {
   const loop = () => {
     _railAnimFrame = null;
     if (Object.keys(state.selectedRailServices).length === 0) return;
-    const now = Date.now();
+    const now = nowMs();
     for (const uid of Object.keys(state.selectedRailServices)) {
       const entry = state.selectedRailServices[uid];
       if (!entry || !entry.marker || !entry.target) continue;

@@ -382,6 +382,9 @@ app.add_middleware(
     allow_origin_regex=_ALLOWED_ORIGIN_REGEX,
     allow_methods=["GET"],
     allow_headers=["*"],
+    # The page reads the server's clock from Date to correct a device clock
+    # that is minutes out, and a cross-origin page cannot see it unless told.
+    expose_headers=["Date"],
 )
 
 
@@ -1185,6 +1188,21 @@ async def debug_live_raw(stopId: str = Query(...)):
     }
 
 
+def _next_journey(tt, trip_id: str) -> Optional[dict]:
+    """The timetable's next journey for the same bus, as the Bus tab shows it."""
+    if not hasattr(tt, "next_in_block"):
+        return None
+    today = datetime.now(UK_TZ).date()
+    trip = tt.trips.get(trip_id) or {}
+    # A journey past midnight belongs to yesterday's service day.
+    day = today if tt.runs_on(trip.get("service_id", ""), today) else today - timedelta(days=1)
+    nxt = tt.next_in_block(trip_id, day)
+    if not nxt:
+        return None
+    return {"service": nxt["service"], "headsign": nxt["headsign"],
+            "depart": _secs_to_hhmm(nxt["depart_secs"]), "from_name": nxt["from_name"]}
+
+
 # ── /api/vehicle ──────────────────────────────────────────────
 @app.get("/api/vehicle")
 async def get_vehicle(vehicleRef: str = Query(...)):
@@ -1257,6 +1275,11 @@ async def get_vehicle(vehicleRef: str = Query(...)):
         },
         "upcoming_stops": upcoming,
         "source":         source,
+        "trail":          _trail_for(vehicleRef, trip_id if declared else None),
+        # What this bus does next, where the operator publishes its working.
+        # Only for a journey the bus names: an inferred one is a guess, and
+        # the next journey would be a guess on a guess.
+        "next_journey":   _next_journey(tt, trip_id) if declared else None,
         "disruptions":    sx.affecting(
             _disruptions_now(await _disruptions_state(wait=False)),
             services={(vehicle.get("operator_ref") or "", vehicle.get("service_ref") or "")}),
@@ -1461,7 +1484,7 @@ async def get_departures(
         result = {**result, "live": False, "live_reason": "not_configured"}
     result = await off_loop(_apply_stop_closure, result, tt, resolved)
     result = _attach_disruptions(result, resolved,
-                                 _disruptions_now(await _disruptions_state(wait=False)))
+                                 _disruptions_now(await _disruptions_state(wait=False)), tt)
     # Cached `base` can be up to a minute old, and the grace window deliberately
     # keeps recently-scheduled rows, so the final cut happens per request.
     return _public_departures(_drop_departed(result))
@@ -1515,9 +1538,9 @@ def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime) ->
 
 
 def _public_departures(payload: dict) -> dict:
-    """The board as readers get it: the next `BOARD_ROWS` departures, without
-    the trip ids and service list used to build it."""
-    rows = sorted(payload.get("departures") or [], key=_aimed_key)[:BOARD_ROWS]
+    """The board as readers get it: the next `BOARD_ROWS` departures, soonest
+    first, without the trip ids and service list used to build it."""
+    rows = sorted(payload.get("departures") or [], key=_soonest_key)[:BOARD_ROWS]
     return {**{k: v for k, v in payload.items() if not k.startswith("_")},
             "departures": [{k: v for k, v in dep.items() if not k.startswith("_")}
                            for dep in rows]}
@@ -2067,11 +2090,61 @@ async def _fetch_and_match_vehicles() -> dict:
     # measured at its own report time, so a copy a minute or two old still
     # says how late each bus was, and the estimate handles the staleness.
     cache_set(RECENT_VEHICLES_KEY, {"vehicles": vehicles}, RECENT_VEHICLES_TTL)
+    _record_trails(vehicles, datetime.now(timezone.utc))
     return {"vehicles": vehicles, "count": len(vehicles)}
 
 
 RECENT_VEHICLES_KEY = "vehicles:recent"
 RECENT_VEHICLES_TTL = 120
+
+# ── Where each bus has been ───────────────────────────────────
+# Every poll's reported position, per bus, for the last 45 minutes, so the Bus
+# tab can draw the road a bus has come along on this journey (bustimes.org
+# replays whole journeys from a database; this is the in-memory, recent-only
+# version the free instance can afford). Only while someone is watching: the
+# feed is polled on demand, and the instance sleeps, so a trail can have gaps
+# and starts afresh after a restart. About 230 buses x 180 points is well under
+# a megabyte.
+TRAIL_WINDOW_SECS = 45 * 60
+TRAIL_MAX_POINTS = 180
+_trails: dict = {}
+
+
+def _record_trails(vehicles: list, now: datetime) -> None:
+    for v in vehicles:
+        ref, lat, lon = v.get("vehicle_ref"), v.get("latitude"), v.get("longitude")
+        at = _parse_iso_datetime(v.get("recorded_at"))
+        if not ref or lat is None or lon is None or at is None:
+            continue
+        trail = _trails.setdefault(ref, [])
+        if trail and trail[-1][0] >= at:
+            continue                       # the same report, read again
+        trail.append((at, round(lat, 5), round(lon, 5), v.get("trip_id")))
+        if len(trail) > TRAIL_MAX_POINTS:
+            del trail[: len(trail) - TRAIL_MAX_POINTS]
+    cutoff = now - timedelta(seconds=TRAIL_WINDOW_SECS)
+    for ref in list(_trails):
+        trail = [pt for pt in _trails[ref] if pt[0] >= cutoff]
+        if trail:
+            _trails[ref] = trail
+        else:
+            del _trails[ref]
+
+
+def _trail_for(vehicle_ref: str, trip_id: Optional[str]) -> list:
+    """`[[lat, lon, recorded_at], ...]`, oldest first, on this journey only.
+
+    Where the bus names its journey, positions from an earlier one are left
+    out: the line should show how it got here on this run, not the road back
+    from its last terminus.
+    """
+    trail = _trails.get(vehicle_ref) or []
+    if trip_id:
+        start = len(trail)
+        while start > 0 and trail[start - 1][3] == trip_id:
+            start -= 1
+        trail = trail[start:]
+    return [[lat, lon, at.isoformat()] for at, lat, lon, _trip in trail]
 
 
 # ── Published disruptions (BODS SIRI-SX) ──────────────────────
@@ -2223,8 +2296,14 @@ def _apply_stop_closure(payload: dict, tt, stop_id: str) -> dict:
     return {**payload, "departures": rows, "stop_closure": closure}
 
 
-def _attach_disruptions(payload: dict, stop_id: str, disruptions: list) -> dict:
-    """Notices for this stop and its services, on the board and on each row."""
+def _attach_disruptions(payload: dict, stop_id: str, disruptions: list, tt=None) -> dict:
+    """Notices for this stop and its services, on the board and on each row.
+
+    A notice cancelling single journeys marks just those rows Cancelled: the
+    row whose journey starts when the notice says, on the same operator's
+    line. The row stays, as a prediction's cancellation does, because a
+    departure silently vanishing reads as "already gone".
+    """
     if not disruptions:
         return payload
     rows = payload.get("departures") or []
@@ -2232,12 +2311,36 @@ def _attach_disruptions(payload: dict, stop_id: str, disruptions: list) -> dict:
     here = sx.affecting(disruptions, stop_id=stop_id, services=services)
     if not here:
         return payload
+    cancelled = {}
+    for d in here:
+        for op, line, origin in sx.cancelled_journeys([d]):
+            cancelled.setdefault((_NOC_FAMILIES.get(op, op), line), []).append(
+                (_parse_iso_datetime(origin), d["id"]))
     out = []
     for dep in rows:
         ids = [d["id"] for d in here
                if sx.row_matches(d, dep.get("operator") or "", dep.get("service") or "")]
+        op = dep.get("operator") or ""
+        called_off = cancelled.get((_NOC_FAMILIES.get(op, op), sx.service_key(dep.get("service") or "")))
+        if called_off and tt is not None and dep.get("_trip_id"):
+            start = _journey_origin(tt, dep)
+            for when, sid in called_off:
+                if start and when and abs((start - when).total_seconds()) <= 60:
+                    dep = {**dep, "status": "Cancelled", "expected_departure": None,
+                           "delay_seconds": None, "live_source": "disruption"}
+                    ids.append(sid)
+                    break
         out.append({**dep, "disruption_ids": ids} if ids else dep)
     return {**payload, "departures": out, "disruptions": here}
+
+
+def _journey_origin(tt, dep: dict):
+    """When a board row's journey leaves its first stop, as a moment."""
+    calls = tt.trip_stops_for(dep["_trip_id"]) or []
+    aimed = _parse_iso_datetime(dep.get("aimed_departure"))
+    if not calls or calls[0][0] is None or aimed is None:
+        return None
+    return live_eta.place_on_day(calls[0][0], aimed)
 
 
 async def _live_vehicles() -> list:
@@ -2721,10 +2824,12 @@ def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
         reported = _parse_iso_datetime(v.get("recorded_at"))
         at_local = reported.astimezone(UK_TZ) if reported else now_local
         at_secs = at_local.hour * 3600 + at_local.minute * 60 + at_local.second
+        # Against where the timetable has the bus at this point on the road,
+        # between the stops either side, not against the nearest stop's time.
         # GTFS writes past-midnight times as 24:xx and beyond, so a night bus
         # is compared on the same clock as the one it is running against.
-        due = calls[idx][0] % 86400
-        lateness = at_secs - due
+        due = trip_match.scheduled_at_position(tt, calls, idx, v) % 86400
+        lateness = round(at_secs - due)
         if lateness > 12 * 3600:
             lateness -= 86400
         elif lateness < -12 * 3600:
@@ -2765,7 +2870,13 @@ def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
         waiting = (idx == 0 and lateness < 0
                    and not trip_match.past_pole(tt, v, calls, 0))
         v["waiting_to_start"] = waiting
-        v["lateness_secs"] = 0 if waiting else lateness
+        # The same at any timing point along the way: drivers must not leave
+        # one early, so a bus stood at one before its time will leave on it.
+        tps = (list(tt.timepoints_by_call(trip_id) or [])
+               if hasattr(tt, "timepoints_by_call") else [])
+        held = (lateness < 0 and len(tps) == len(calls)
+                and trip_match.waiting_at_timing_point(tt, calls, idx, v, tps))
+        v["lateness_secs"] = 0 if (waiting or held) else lateness
         # How old the claim is. A reader looking at a dot on a map assumes it
         # is now; often it is three minutes ago, and on a stale report that is
         # the difference between "on time" and "late". Published so the map can
@@ -3135,6 +3246,18 @@ def _aimed_key(dep: dict):
     """
     when = _parse_iso_datetime(dep.get("aimed_departure"))
     return when or datetime.max.replace(tzinfo=timezone.utc)
+
+
+def _soonest_key(dep: dict):
+    """Order a board by when each bus will actually leave.
+
+    The live time where there is one, the timetable's otherwise, and the
+    timetable's again to break a tie. Ordered by timetable alone, a bus due
+    at 14:42 and running eighteen minutes late sat above the one leaving on
+    time at 15:00, and the top row was not the next bus.
+    """
+    return (_parse_iso_datetime(dep.get("expected_departure")) or _aimed_key(dep),
+            _aimed_key(dep))
 
 
 def _drop_departed(payload: dict, now: Optional[datetime] = None) -> dict:

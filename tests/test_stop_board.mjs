@@ -300,3 +300,57 @@ test("a stop the bus goes round is marked, with no time promised", () => {
   assert.doesNotMatch(html.split("upcoming-stop--next")[0], /upcoming-stop-time--live/,
     "the stop not served was given a live estimate");
 });
+
+
+// ── Order ───────────────────────────────────────────────────
+
+test("the board runs soonest first, by live time where there is one", () => {
+  const rows = app.sortBySoonest([
+    { service: "5", aimed_departure: inMinutes(-10), expected_departure: inMinutes(8) },
+    { service: "1", aimed_departure: inMinutes(0), expected_departure: inMinutes(0) },
+    { service: "12", aimed_departure: inMinutes(3), expected_departure: null },
+    { service: "18", aimed_departure: inMinutes(5) },
+  ]);
+  assert.deepEqual(Array.from(rows, r => r.service), ["1", "12", "18", "5"],
+    "a bus running late sat above ones that will come before it");
+});
+
+// ── The route's registration ────────────────────────────────
+
+test("the Bus tab says who pays for a route and when it last changed", () => {
+  state.registrations = { as_of: "2026-09-29", source_url: "https://www.data.gov.uk/dataset/x",
+    services: [
+      { operator: "BHBC", service: "6", registered_as: "1", reg_no: "PK0001213/13",
+        start: "Brighton Station", finish: "Downs Park", subsidy: "No", subsidised_by: [],
+        changes: [{ variation: 66, effective: "2026-04-13", change: "Vary route <b>", short_notice: false },
+                  { variation: 65, effective: "2025-06-08", change: "Timetable", short_notice: true }] },
+      { operator: "SCSO", service: "1", registered_as: null, reg_no: "PK0002571/45",
+        start: "Worthing", finish: "Midhurst", subsidy: "In Part",
+        subsidised_by: ["West Sussex County Council"], changes: [] }] };
+  // Metrobus runs under Brighton & Hove's licence.
+  const html = app.buildRegistrationHtml("METR", "6");
+  assert.match(html, /About the 6/);
+  assert.match(html, /registered with the 1/, "a bundled registration did not say so");
+  assert.match(html, /None: the operator runs it commercially/);
+  assert.match(html, /13 Apr 2026: Vary route &lt;b&gt;/, "register text was not escaped");
+  assert.match(html, /1 earlier change since 2019/);
+  assert.match(html, /short notice/);
+  assert.match(app.buildRegistrationHtml("SCSO", "1"),
+    /Partly paid for by West Sussex County Council/);
+  assert.equal(app.buildRegistrationHtml("BHBC", "1"), "",
+    "Stagecoach's registration was shown on a Brighton & Hove bus of the same number");
+  state.registrations = null;
+});
+
+// ── A device clock that is out ──────────────────────────────
+
+test("a device clock minutes out is corrected from the server's Date", () => {
+  const sent = Date.parse("2026-09-29T12:00:00Z");
+  // The device says 12:00; the server said 12:03 in the middle of the request.
+  const skew = app.recordClockSkew(sent, sent + 400, "Tue, 29 Sep 2026 12:03:00 GMT");
+  assert.ok(Math.abs(skew - 180_300) < 1000, `skew ${skew}`);
+  assert.ok(Math.abs(app.nowMs() - (Date.now() + skew)) < 50);
+  // A few seconds is latency and rounding, and is left alone.
+  assert.equal(app.recordClockSkew(sent, sent + 400, "Tue, 29 Sep 2026 12:00:05 GMT"), 0);
+  assert.equal(app.recordClockSkew(sent, sent + 400, "not a date"), 0);
+});

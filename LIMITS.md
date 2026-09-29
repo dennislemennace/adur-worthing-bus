@@ -162,6 +162,19 @@ lines and timetables are API calls too, and arrive with it.
 - `GET /api/fares-coverage` lists the fares datasets this area's operators
   publish to BODS: metadata only, one call a day (cached for 24 hours), on the
   same free `BODS_API_KEY`. The key never appears in the response or the logs.
+- `scripts/build_fares.py` downloads the four operators' NeTEx fares zips
+  (Brighton & Hove, Stagecoach South, Compass, Metrobus; about 90 MB in all)
+  once a week, in the timetable workflow. The downloads need no key. The result
+  is `data/fare_tables.json`, a static file; nothing is fetched at request
+  time. A failed download keeps last week's file.
+
+## DVSA bus registrations
+
+- `scripts/build_registrations.py` downloads two CSVs from DVSA's open-data
+  export once a week, in the timetable workflow: `Bus_RegisteredOnly_K.csv`
+  (about 1 MB) and `Bus_Variation_K.csv` (about 17 MB). No key, no quota.
+  The result is `data/registrations.json`, a static file; nothing is fetched
+  at request time. A failed download keeps last week's file.
 
 ## BODS disruptions (SIRI-SX)
 

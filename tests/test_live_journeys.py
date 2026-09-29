@@ -296,7 +296,51 @@ def test_a_bus_that_has_left_its_first_stop_early_is_early(monkeypatch):
     bus = a_bus(declared_trip_id="VJ_1422", latitude=50.8304)
     main._attach_declared_journeys([bus], tt)
     assert bus["waiting_to_start"] is False
-    assert bus["lateness_secs"] == -4 * 60
+    # Two fifths of the way to the 14:24 stop, where it was due at 14:22:48.
+    assert bus["lateness_secs"] == -(4 * 60 + 48)
+
+
+# ── Between stops ───────────────────────────────────────────
+
+def test_a_bus_between_stops_is_judged_where_it_is_not_at_the_nearest_stop(monkeypatch):
+    # Three fifths of the way from the 14:24 stop to the 14:26 one, at 14:25:12:
+    # exactly on time. Judged at the nearest stop, due 14:26, it was 48 seconds
+    # early; a bus just short of a stop was always early and one just past it
+    # always late, by up to half the time between them.
+    tt = FakeTimetable()
+    _freeze(monkeypatch, 14, 30)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.8316,
+                recorded_at="2026-09-18T14:25:12+01:00")
+    main._attach_declared_journeys([bus], tt)
+    assert bus["lateness_secs"] == 0, f'{bus["lateness_secs"]}s'
+    assert bus["nearest_stop_name"] == "Stop 2", "the stop named is still the nearest"
+
+
+class TimedTimetable(FakeTimetable):
+    """The same journey, with its third stop a timing point."""
+    def timepoints_by_call(self, _trip_id):
+        return [1, 0, 1, 0, 1]
+
+
+def test_a_bus_waiting_at_a_timing_point_before_its_time_is_on_time(monkeypatch):
+    # Drivers must not leave a timing point early, and wait there. A bus sat
+    # at the 14:26 stop at 14:25 will leave at 14:26.
+    tt = TimedTimetable()
+    _freeze(monkeypatch, 14, 30)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.832,
+                recorded_at="2026-09-18T14:25:00+01:00")
+    main._attach_declared_journeys([bus], tt)
+    assert bus["lateness_secs"] == 0, "a bus waiting for its time was called early"
+
+
+def test_a_bus_early_at_an_ordinary_stop_is_early(monkeypatch):
+    # Nothing holds a bus at a stop that is not a timing point.
+    tt = FakeTimetable()
+    _freeze(monkeypatch, 14, 30)
+    bus = a_bus(declared_trip_id="VJ_1422", latitude=50.832,
+                recorded_at="2026-09-18T14:25:00+01:00")
+    main._attach_declared_journeys([bus], tt)
+    assert bus["lateness_secs"] == -60
 
 
 def test_the_two_live_feeds_are_joined_on_the_vehicle(monkeypatch):
@@ -336,3 +380,28 @@ def _async(fn):
 async def _passthrough(fn, *args, **kwargs):
     """Stand in for off_loop, which would otherwise need a thread pool."""
     return fn(*args, **kwargs)
+
+
+# ── Where a bus has been ────────────────────────────────────
+
+def test_a_trail_keeps_this_journey_once_each_and_forgets_the_old(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    monkeypatch.setattr(main, "_trails", {})
+    t0 = datetime(2026, 9, 29, 12, 0, tzinfo=timezone.utc)
+
+    def poll(minute, lat, trip):
+        bus = {"vehicle_ref": "BUS-1", "latitude": lat, "longitude": -0.27,
+               "recorded_at": (t0 + timedelta(minutes=minute)).isoformat(), "trip_id": trip}
+        main._record_trails([bus], t0 + timedelta(minutes=minute))
+
+    poll(0, 50.830, "VJ_EARLIER")
+    poll(5, 50.831, "VJ_1422")
+    poll(5, 50.831, "VJ_1422")          # the same report read twice
+    poll(6, 50.832, "VJ_1422")
+    trail = main._trail_for("BUS-1", "VJ_1422")
+    assert [p[0] for p in trail] == [50.831, 50.832], \
+        "the earlier journey, or a repeated report, was drawn into this one"
+    assert len(main._trail_for("BUS-1", None)) == 3, "an undeclared bus shows all it has"
+
+    poll(60, 50.840, "VJ_1422")          # 45 minutes on, the old points go
+    assert [p[0] for p in main._trail_for("BUS-1", "VJ_1422")] == [50.840]
