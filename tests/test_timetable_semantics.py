@@ -385,6 +385,68 @@ def test_an_exception_only_service_does_not_run_on_an_unlisted_date(monkeypatch)
     assert len(main._departures_for_stop(tt, "4400B")["departures"]) == 1
 
 
+# ── A busy stop ─────────────────────────────────────────────
+
+class _BusyStop(_FakeTimetable):
+    """A bus a minute, 11:30 to 14:00: Old Steine once every route was held."""
+    def stop_times_for(self, stop_id):
+        return [(secs, "T_NIGHT") for secs in range(11 * 3600 + 1800, 14 * 3600, 60)]
+
+
+def test_a_busy_stop_still_shows_the_buses_to_come(monkeypatch):
+    # 12:13. Fifteen buses were due in the grace window behind now; capping
+    # before dropping the departed ones left the board with none of ours.
+    from datetime import datetime
+    import api.main as main
+    from api.main import UK_TZ
+    when = datetime(2026, 9, 9, 12, 13, tzinfo=UK_TZ)
+
+    class FrozenDatetime(main.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return when if tz is None else when.astimezone(tz)
+
+    monkeypatch.setattr(main, "datetime", FrozenDatetime)
+    base = main._departures_for_stop(_BusyStop(EVERY_DAY, {}), "4400B")
+    board = main._public_departures(main._drop_departed(base, now=when))
+    times = [d["aimed_departure"][11:16] for d in board["departures"]]
+    assert len(times) == main.BOARD_ROWS and times[0] == "12:13", \
+        f"the busy board showed {times}"
+    assert "_services" not in board, "the internal service list reached readers"
+
+
+def test_rows_in_utc_and_uk_time_sort_as_moments():
+    import api.main as main
+    board = main._public_departures({"departures": [
+        {"service": "46", "aimed_departure": "2026-09-29T12:09:00+00:00"},
+        {"service": "21", "aimed_departure": "2026-09-29T13:00:00+01:00"},
+    ]})
+    assert [d["service"] for d in board["departures"]] == ["21", "46"], \
+        "13:09 BST, written in UTC, sorted ahead of 13:00 BST"
+
+
+def test_a_prediction_for_a_held_line_is_not_added_as_a_stranger(monkeypatch):
+    # The 46 is in our timetable here, just not in the rows that made the
+    # board. Its prediction must not be appended as a line we do not hold,
+    # with no operator and no journey behind it.
+    import asyncio
+    import api.main as main
+    monkeypatch.setattr(main, "NEXTBUSES_APP_ID", "id")
+    monkeypatch.setattr(main, "NEXTBUSES_APP_KEY", "key")
+    main._cache.clear()
+    soon = (main.datetime.now(main.timezone.utc) + main.timedelta(minutes=2))
+    later = soon + main.timedelta(minutes=30)
+    main.cache_set("nb:4400B", [
+        {"service": "46", "aimed": later.isoformat(), "expected": later.isoformat()},
+        {"service": "99", "aimed": later.isoformat(), "expected": later.isoformat()},
+    ], 60)
+    base = {"departures": [{"service": "7", "operator": "BHBC",
+                            "aimed_departure": soon.isoformat()}],
+            "_services": ["7", "46"]}
+    out = asyncio.run(main._apply_live_overlay(base, "4400B"))
+    assert [d["service"] for d in out["departures"]] == ["7", "99"]
+
+
 # ── Operator identity ───────────────────────────────────────
 
 def _timetable_over(db_path):

@@ -299,9 +299,19 @@ def test_a_change_can_be_a_short_walk(tt):
 def test_a_stop_only_served_outbound_has_no_arrival(tt):
     """Mile Oak Road Shops sits at seq 3-7 of route 1: buses start near there
     and run outbound to Whitehawk. You can board, not arrive. Reporting no
-    itinerary is correct, and must not be 'fixed' by widening the search."""
+    itinerary is correct, and must not be 'fixed' by widening the search.
+
+    From the autumn 2026 term the school-day 95A does end here, so on a school
+    Monday an itinerary exists. Whatever is found must genuinely call at this
+    stop on its last leg, never at a neighbour the search reached for."""
     week = tt.sample_week()
-    assert tt.interchange_legs("4400AD0259", "149000006479", week["monday"]) is None
+    got = tt.interchange_legs("4400AD0259", "149000006479", week["monday"])
+    if got is None:
+        return
+    last = got["legs"][-1]
+    assert last["stops"][-1]["atco"] == "149000006479", \
+        "the itinerary arrives somewhere else and calls it Mile Oak Road Shops"
+    assert last["service"] != "1", "route 1 only leaves this stop, it never arrives"
 
 
 @needs_db

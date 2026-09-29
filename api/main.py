@@ -1515,10 +1515,12 @@ def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime) ->
 
 
 def _public_departures(payload: dict) -> dict:
-    """The board as readers get it: without the trip ids used to build it."""
-    return {**payload, "departures": [
-        {k: v for k, v in dep.items() if not k.startswith("_")}
-        for dep in payload.get("departures") or []]}
+    """The board as readers get it: the next `BOARD_ROWS` departures, without
+    the trip ids and service list used to build it."""
+    rows = sorted(payload.get("departures") or [], key=_aimed_key)[:BOARD_ROWS]
+    return {**{k: v for k, v in payload.items() if not k.startswith("_")},
+            "departures": [{k: v for k, v in dep.items() if not k.startswith("_")}
+                           for dep in rows]}
 
 
 # ── /api/stop-span ────────────────────────────────────────────
@@ -2455,7 +2457,7 @@ def _transportapi_to_departures(predictions: list) -> list:
             dep["delay_seconds"]      = delay
             dep["status"]             = _delay_to_status(delay)
         departures.append(dep)
-    return sorted(departures, key=lambda d: d["aimed_departure"])
+    return sorted(departures, key=_aimed_key)
 
 
 def _hhmm_to_iso(date_str: Optional[str], time_str: Optional[str]) -> Optional[str]:
@@ -2620,8 +2622,7 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
     # Append Transport API departures for services not in the timetable at all.
     # e.g. a stop served by both 700 (in GTFS) and 2 (not in GTFS) should show both.
     timetable_svcs = set()
-    for dep in departures:
-        svc = dep.get("service") or ""
+    for svc in [dep.get("service") or "" for dep in departures] + list(base.get("_services") or []):
         timetable_svcs.update(_svc_variants(svc))
 
     extra_preds = [p for p in predictions
@@ -2629,7 +2630,7 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
     if extra_preds:
         extra_deps = _transportapi_to_departures(extra_preds)
         overlaid.extend(extra_deps)
-        overlaid.sort(key=lambda d: d.get("aimed_departure") or "")
+        overlaid.sort(key=_aimed_key)
         log.info("NextBuses overlay %s: added %d extra-service departures", stop_id, len(extra_deps))
 
     return {**base, "departures": overlaid, "live": True}
@@ -3123,6 +3124,17 @@ async def _get_timetable() -> Timetable:
 # late-running bus survives to have its prediction applied. Buses more than
 # this far behind are either gone or not coming.
 DELAY_GRACE_SECS = 15 * 60
+BOARD_ROWS = 15
+
+
+def _aimed_key(dep: dict):
+    """Sort key on the scheduled time as a moment, not as text.
+
+    Timetable rows are written in UK time and predictions in UTC, so as strings
+    "12:09+00:00" sorts before "13:00+01:00" although it is nine minutes later.
+    """
+    when = _parse_iso_datetime(dep.get("aimed_departure"))
+    return when or datetime.max.replace(tzinfo=timezone.utc)
 
 
 def _drop_departed(payload: dict, now: Optional[datetime] = None) -> dict:
@@ -3293,7 +3305,21 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
             })
 
     departures.sort(key=lambda d: d["aimed_departure"])
-    return {"stop_name": stop_name, "departures": departures[:15]}
+    # Cap what is still to come, never what is already due. Rows inside the
+    # grace window are kept whole and `_drop_departed` settles them once the
+    # live times are known. Capping the lot at fifteen emptied the busiest
+    # boards: Old Steine sees a bus a minute, so once every Brighton & Hove
+    # route was held all fifteen rows were buses due in the last quarter of an
+    # hour, every one was then dropped as gone, and the board was left to
+    # whatever the predictions supplied.
+    due      = [d for d in departures if _aimed_key(d) < now_local]
+    upcoming = [d for d in departures if _aimed_key(d) >= now_local]
+    return {"stop_name": stop_name,
+            "departures": due + upcoming[:BOARD_ROWS],
+            # Every line the timetable has here in the next two hours, so the
+            # live overlay can tell a line we hold from one we do not, however
+            # few of its rows made the board.
+            "_services": sorted({d["service"] for d in departures})}
 
 
 def _runs_today(service_id: str, today: date, today_str: str,
