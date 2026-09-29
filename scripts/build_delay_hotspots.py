@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from observation_contract import LONDON, row_identity
+import analysis_exclusions as ax                                  # noqa: E402
 
 
 def entry_period(epoch):
@@ -120,7 +121,10 @@ def summarise_cells(traversals, dimensions, min_journeys, min_days, resolution):
         days = sorted({leg["day"] for leg in legs})
         count = len({tuple(leg["journey_id"]) for leg in legs})
         sufficient = count >= min_journeys and len(days) >= min_days
-        cells.append({**dict(zip(dimensions, key)), "resolution": resolution,
+        # Traversals made during a recorded diversion or closure, by entry,
+        # so a cell it distorted says so (data/analysis_exclusions.json).
+        marked = Counter(i for leg in legs for i in leg.get("exclusions") or ())
+        cells.append({**({"excluded_by": dict(sorted(marked.items()))} if marked else {}),**dict(zip(dimensions, key)), "resolution": resolution,
                       "id": hashlib.sha256(json.dumps([resolution, *key]).encode()).hexdigest(),
                       "from_name": legs[0]["from_name"], "to_name": legs[0]["to_name"],
                       "data_versions": sorted({leg["data_version"] for leg in legs}, key=str),
@@ -137,8 +141,12 @@ def summarise_cells(traversals, dimensions, min_journeys, min_days, resolution):
     return cells
 
 
-def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=180):
+def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=180,
+                   exclusions=None, coords=None, drop_excluded=False):
+    """`exclusions` (analysis_exclusions.load()) marks traversals an event
+    touched; `drop_excluded` leaves them out instead."""
     journeys, excluded, traversals = defaultdict(list), Counter(), []
+    exclusions, coords = exclusions or [], coords or {}
     for row in rows:
         if row.get("timepoint") == 1:
             # Keep invalid endpoints in order, so excluding B never invents A→C.
@@ -168,7 +176,19 @@ def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=18
                 excluded["inconsistent_time_origin"] += 1
                 continue
             a, b = first["observed_interval_epoch"], second["observed_interval_epoch"]
+            marks = []
+            if exclusions:
+                ends = [coords.get(first["atco"]), coords.get(second["atco"])]
+                marks = ax.affecting(
+                    exclusions, first.get("operator") or "", first.get("service") or "",
+                    datetime.fromtimestamp(first["observed_epoch"], timezone.utc),
+                    stop_ids=(first["atco"], second["atco"]),
+                    path=ends if all(ends) else None)
+            if marks and drop_excluded:
+                excluded["analysis_exclusion"] += 1
+                continue
             traversals.append({
+                **({"exclusions": marks} if marks else {}),
                 "journey_id": list(identity), "trip_id": first["trip_id"], "day": first["day"],
                 **{k: first.get(k) for k in ("operator", "service", "route_pattern", "direction", "data_version", "method_version", "match")},
                 "from_atco": first["atco"], "to_atco": second["atco"],
@@ -223,7 +243,7 @@ def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=18
 # the whole night's publication. The full cells stay in hotspot-preview.json.
 MAP_CELL_FIELDS = ("resolution", "period", "hour", "day_type", "schedule_era", "data_versions",
                    "median_gained_secs", "p90_gained_secs", "at_least_600s", "traversals",
-                   "journeys", "distinct_days", "sample_sufficient")
+                   "journeys", "distinct_days", "sample_sufficient", "excluded_by")
 
 
 def short_version(version):
@@ -477,9 +497,13 @@ def main(argv=None):
     ap.add_argument("--timetable", help="timetable.sqlite, for stretch geometry (needed with --map-out)")
     ap.add_argument("--map-day", help="the day whose timetable defines the stretches drawn "
                                       "(default: the newest observed day)")
+    ap.add_argument("--exclude", action="store_true",
+                    help="leave out traversals during recorded diversions and closures "
+                         "(data/analysis_exclusions.json) instead of only marking them")
     args = ap.parse_args(argv)
     rows, meta = load_observations(args.observations, row_filter=lambda row: row.get("timepoint") == 1)
-    result = build_hotspots(rows, meta)
+    result = build_hotspots(rows, meta, exclusions=ax.load(), coords=ax.stop_coords(),
+                            drop_excluded=args.exclude)
     out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=1, sort_keys=True) + "\n")
     print(f'{len(result["traversals"])} eligible traversals; {len(result["cells"])} cohorts; '

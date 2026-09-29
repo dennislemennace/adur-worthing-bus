@@ -129,6 +129,9 @@
      lobbying bodies that are themselves legally bound to AA, so arriving
      under the usability numbers is a free reason to dismiss it. */
   --target-min: 44px;
+  /* WCAG 2.2 2.5.8 (AA): the smallest a dense control may be, with 24px of
+     clear space around its centre. Main controls keep --target-min. */
+  --target-dense: 24px;
 
   /* The three header controls — section nav, status pill, theme toggle — were
      52px, 44px and 44px, so a row meant to read as one set of controls was
@@ -1539,7 +1542,9 @@ html.dark-mode .map-loading {
   bottom: 6px;
   padding: 2px 6px;
   border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.55);
+  /* Solid, not see-through: over a pale photo the white text on a 55% veil
+     measured 1.27:1. */
+  background: #1b1b1b;
   color: #fff;
   font-size: 0.66rem;
   letter-spacing: 0.02em;
@@ -2569,6 +2574,9 @@ html.dark-mode.a11y-cvd {
   border: none !important;
 }
 
+/* Only the round middle of a bus takes a tap. The 56px box's transparent
+   corners used to cover the stop the bus was sitting at. */
+.leaflet-marker-icon.bus-marker-divicon { pointer-events: none !important; }
 .bus-marker-wrapper {
   position: relative;
   width: 56px;
@@ -2576,6 +2584,14 @@ html.dark-mode.a11y-cvd {
   display: flex;
   align-items: center;
   justify-content: center;
+  pointer-events: none;
+}
+.bus-marker-wrapper > * { pointer-events: none; }
+.bus-marker-wrapper::before {
+  content: "";
+  position: absolute;
+  inset: 8px;               /* a 40px circle */
+  border-radius: 50%;
   pointer-events: auto;
 }
 
@@ -2770,8 +2786,13 @@ html.dark-mode .stop-cluster-icon {
   left: 50%;
   width: var(--target-min);
   height: var(--target-min);
+  border-radius: 50%;       /* a finger's circle, not a square that reaches the next stop */
   transform: translate(-50%, -50%);
 }
+/* Zoomed in, stops and buses are far apart on screen and the tap area can
+   shrink, never below WCAG 2.5.8's 24px (applyStopDotScale in app.js). */
+.leaflet-container.stops-close .stop-marker-icon::after { width: 32px; height: 32px; }
+.leaflet-container.stops-closest .stop-marker-icon::after { width: var(--target-dense); height: var(--target-dense); }
 
 /* ===== TABBED PANEL ===== */
 /* (tab bar styles already defined above) */
@@ -2922,6 +2943,16 @@ html.dark-mode .stop-cluster-icon {
   accent-color: var(--color-accent);
   cursor: pointer;
 }
+
+/* Follow and notify side by side: two short switches, one row. The hint
+   spans both columns underneath rather than lengthening one of them. */
+.bus-toggles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+.bus-toggles .follow-bus-toggle { padding: var(--space-xs) var(--space-sm); line-height: 1.2; }
+.bus-toggles .follow-bus-hint { grid-column: 1 / -1; margin-top: -4px; }
 
 .follow-bus-hint {
   display: block;
@@ -6689,6 +6720,38 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   pointer-events: none;         /* only the circle and the card take taps */
 }
 .gap-fab-host[hidden] { display: none; }
+
+/* Tickets view: the operator whose zones are drawn, chosen over the map. */
+.map-operator-picker {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 800;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 2px 4px 2px 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  max-width: calc(100% - 140px);
+}
+.map-operator-picker[hidden] { display: none; }
+.map-operator-picker select {
+  min-height: var(--target-min);
+  min-width: 0;
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
 body:not([data-view="live"]) .gap-fab-host { display: none; }
 .gap-fab {
   pointer-events: auto;
@@ -6818,6 +6881,7 @@ html.dark-mode .gap-fab { color: #0f1726; border-color: #0f1726; }
      here or the fare fields keep their 14.4px. */
   .journey-calc .editor-field input[type="text"],
   .journey-calc .editor-field select,
+  .map-operator-picker select,
   .suggest-form .editor-field select,
   .report-stop-form .editor-field select {
     font-size: 16px;
@@ -7821,4 +7885,36 @@ html.dark-mode .delay-map-on .leaflet-tile-pane {
    in the panel, so the floating one steps aside rather than hiding under it. */
 @media (max-width: 900px) {
   .delay-legend-map { display: none; }
+}
+
+/* "Which one?" when a tap lands on a bus and a stop at once. */
+/* A linked photo credit keeps the caption's own colour: the link blue on the
+   dark caption band measured 1.27:1. Underlined, so it still reads as a link. */
+.update-card-credit a { color: inherit; text-decoration: underline; }
+
+.tap-chooser-popup .leaflet-popup-content { margin: 10px 12px; }
+.tap-chooser-title { margin: 0 0 6px; font-weight: 700; font-size: var(--font-size-sm); }
+.tap-chooser { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tap-choice {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: var(--target-min); padding: 6px 10px; text-align: left;
+  font: inherit; font-size: var(--font-size-sm); color: var(--color-text);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); cursor: pointer;
+}
+.tap-choice-kind {
+  flex: none; font-size: var(--font-size-2xs); font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--color-text-muted);
+}
+
+/* Dense controls: rows of short chips (route numbers, filters), where a 44px
+   box around a two-character label made each row a wall of buttons. WCAG 2.2
+   2.5.8 (AA) asks for 24px; these are drawn at 32px, with the gaps between
+   them. Main controls keep --target-min (44px, 2.5.5 AAA). The browser check
+   holds .target-dense to 24px and everything else to 44px. */
+button.target-dense {
+  min-height: 32px;
+  min-width: 32px;
+  padding-left: var(--space-xs);
+  padding-right: var(--space-xs);
 }

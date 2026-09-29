@@ -1,0 +1,20 @@
+{
+  "_comment": "Events that distort what the site measures: diversions, closures, strikes. Kept permanently, unlike data/disruptions.json, whose notices are pruned once they end. Nothing here removes data by itself: the builders mark each journey and delay-map cell an entry touches (`exclusions`, `excluded_by`), and `--exclude` drops them when that is decided. Read by scripts/analysis_exclusions.py; see docs/RUNBOOK.md, 'Adding a disruption'.",
+  "exclusions": [
+    {
+      "id": "bhbc-western-road-hove-2026-09-28",
+      "kind": "diversion",
+      "summary": "Western Road, Hove, closed between Holland Road and Montpelier Road; Brighton & Hove routes diverted via Montpelier Road, Davigdor Road, Holland Road, Montpelier Place and Lansdowne Road.",
+      "from": "2026-09-28T00:00:00+01:00",
+      "to": "2026-11-06T23:59:00+00:00",
+      "operator": "BHBC",
+      "routes": ["1", "1X", "2", "5", "5A", "5B", "6", "21", "25", "46", "49", "60", "71", "71A", "N1", "N5"],
+      "stops_not_served": ["149000006101", "149000007101", "149000006946", "149000007945", "149000007100"],
+      "area": [[50.8240, -0.1622], [50.8315, -0.1622], [50.8315, -0.1518], [50.8240, -0.1518]],
+      "note": "Buses on these routes skip Norfolk Square, Brunswick Place and Montpelier Road (Waitrose) and take longer between Palmeira Square and Waitrose; lateness picked up there carries on down the route. Journey times and delay-map cells through the area during the dates are not typical of the route.",
+      "source_url": "https://www.buses.co.uk/service-updates",
+      "disruption_id": "bhbc-western-road-hove-2026-09-28",
+      "recorded_on": "2026-09-29"
+    }
+  ]
+}

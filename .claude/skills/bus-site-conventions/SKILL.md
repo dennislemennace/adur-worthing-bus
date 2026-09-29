@@ -53,6 +53,17 @@ Do not reintroduce `overflow: hidden` on it in the belief that an inner element
 will absorb the overflow — three views forgot to nominate one, and a view that
 forgets does not scroll awkwardly, it silently clips.
 
+**Tap targets: 44px for controls, 24px for dense chips.** Every button, field,
+tab and summary is at least `--target-min` (44px, WCAG 2.5.5 AAA). Rows of
+short chips (board route filters, Route view's filter and route chips) carry
+`.target-dense` and are drawn at 32px, above the 24px `--target-dense` floor of
+WCAG 2.5.8 (AA). A 44px box around "7" made each row a wall of buttons. The
+browser check holds each to its own floor, so mark a chip dense deliberately
+and never to get a failing control past it. Map pins are separate: a bus takes
+taps only on its round middle, a stop's invisible tap circle shrinks with zoom
+(never below 24px), and a tap within 22px of two markers opens a "Which one?"
+list.
+
 **`[hidden]` loses to an author `display`.** `style.css` carries
 `[hidden] { display: none !important; }` for this reason. Setting `el.hidden` on
 something styled `display: flex` otherwise does nothing at all.

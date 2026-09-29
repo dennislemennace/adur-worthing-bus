@@ -316,6 +316,12 @@
            is unknown and from 23:30 to 04:30. The live region is separate so a
            minute's tick is not read out again. -->
       <div class="gap-fab-host" id="gap-monitor" hidden></div>
+      <!-- Tickets view: whose zones the map shows. Kept in step with the
+           operator cards in the panel (showOperatorZones in app.js). -->
+      <div class="map-operator-picker" id="ticket-operator-picker" hidden>
+        <label for="ticket-operator-select">Zones</label>
+        <select id="ticket-operator-select"></select>
+      </div>
       <p class="visually-hidden" id="gap-monitor-live" role="status" aria-live="polite"></p>
 
       <!-- What the council boundary means, opened from the label on the map.

@@ -354,3 +354,16 @@ test("a device clock minutes out is corrected from the server's Date", () => {
   assert.equal(app.recordClockSkew(sent, sent + 400, "Tue, 29 Sep 2026 12:00:05 GMT"), 0);
   assert.equal(app.recordClockSkew(sent, sent + 400, "not a date"), 0);
 });
+
+// ── A tap that could mean two markers ───────────────────────
+
+test("a tap within reach of a bus and a stop finds both, nearest first", () => {
+  const near = app.markersWithinReach({ x: 100, y: 100 }, [
+    { kind: "stop", id: "S", x: 110, y: 104 },
+    { kind: "bus", id: "B", x: 103, y: 99 },
+    { kind: "stop", id: "FAR", x: 140, y: 100 },
+  ]);
+  assert.deepEqual(Array.from(near, c => c.id), ["B", "S"],
+    "the far stop was offered, or the nearest was not first");
+  assert.equal(app.markersWithinReach({ x: 0, y: 0 }, [{ x: 30, y: 0 }]).length, 0);
+});

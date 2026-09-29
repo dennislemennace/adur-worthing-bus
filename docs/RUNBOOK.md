@@ -88,6 +88,19 @@ What it does on the site:
 - A bus nearest a closed stop reads "on diversion".
 - Entries stop showing after their end time, and `--prune` removes them.
 
+**Recording it for analysis.** A closure that lasts days or weeks, or changes
+the route buses take, distorts the journey times and delay map for as long as it
+runs. Add `--record-for-analysis --area "lat,lon;lat,lon;lat,lon;lat,lon"`, the
+area being a polygon around the closed and diverted streets. This also writes a
+permanent entry to `data/analysis_exclusions.json`, which `--prune` never touches.
+It will also not prune a flagged notice whose permanent entry is missing.
+
+The builders mark every journey (`exclusions`) and delay-map cell (`excluded_by`)
+the entry touches. Nothing is left out until `--exclude` is passed to
+`build_journey_times.py` or `build_delay_hotspots.py`, so deciding to exclude it
+later is one flag on a rebuild. The Western Road diversion (28 Sep to 6 Nov 2026)
+is the first entry.
+
 **Rebuild the councillor data.** `python scripts/build_representatives.py`.
 It refuses to write if coverage falls more than 10% below the existing file;
 `--force` if the loss is genuine, which it will be after boundary changes.

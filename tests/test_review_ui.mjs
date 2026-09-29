@@ -118,3 +118,17 @@ test("chart supports a legible narrow viewport and selectable points", () => {
   assert.match(svg, /data-jt-point="0"/);
   assert.match(svg, /role="button"/);
 });
+
+// ── Photo credits ───────────────────────────────────────────
+
+test("a Creative Commons photo credit links its source and licence", () => {
+  const app = loadApp();
+  const html = app.updateCreditHtml({
+    credit: "88-93, Western Road, Brighton © Simon Carey",
+    credit_url: "https://www.geograph.org.uk/photo/4884023",
+    license: "CC BY-SA 2.0", license_url: "https://creativecommons.org/licenses/by-sa/2.0/" });
+  assert.match(html, /href="https:\/\/www\.geograph\.org\.uk\/photo\/4884023"[^>]*>88-93, Western Road, Brighton © Simon Carey<\/a>/);
+  assert.match(html, /href="https:\/\/creativecommons\.org\/licenses\/by-sa\/2\.0\/"[^>]*>CC BY-SA 2\.0<\/a>/);
+  assert.equal(app.updateCreditHtml({ credit: "A <b>name</b>" }), "A &lt;b&gt;name&lt;/b&gt;",
+    "a credit with no links is still escaped plain text");
+});

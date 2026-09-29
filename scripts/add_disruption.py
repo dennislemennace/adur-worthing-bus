@@ -45,6 +45,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "disruptions.json"
 STOPS = ROOT / "data" / "stops.json"
 DETAILS = ROOT / "data" / "stop_details.json"
+EXCLUSIONS = ROOT / "data" / "analysis_exclusions.json"
 
 REQUIRED = ("id", "summary", "description", "publisher", "source_url",
             "checked_on", "starts", "ends")
@@ -98,6 +99,47 @@ def validate(entry: dict, stops: dict) -> list:
     return problems
 
 
+def prunable(doc: dict, exclusions: dict, now: datetime) -> tuple:
+    """`(kept, removed, held)`: ended notices go, except one flagged
+    `record_for_analysis` whose permanent entry in analysis_exclusions.json is
+    missing. Pruning it would lose the only record of when and where the
+    event distorted the data."""
+    recorded = {e.get("disruption_id") for e in exclusions.get("exclusions", [])}
+    kept, removed, held = [], [], []
+    for e in doc["disruptions"]:
+        if _stamp(e["ends"]) >= now:
+            kept.append(e)
+        elif e.get("record_for_analysis") and e["id"] not in recorded:
+            kept.append(e)
+            held.append(e["id"])
+        else:
+            removed.append(e["id"])
+    return kept, removed, held
+
+
+def exclusion_entries(entry: dict, area: list) -> list:
+    """The permanent record(s) of a notice, one per operator it names."""
+    by_op = {}
+    for line in entry.get("lines", []):
+        by_op.setdefault(line["operator"], []).append(line["line"])
+    out = []
+    for op, routes in by_op.items():
+        out.append({
+            "id": entry["id"] if len(by_op) == 1 else f"{entry['id']}-{op.lower()}",
+            "kind": entry.get("reason") or "disruption",
+            "summary": entry["summary"],
+            "from": entry["starts"], "to": entry["ends"],
+            "operator": op, "routes": routes,
+            "stops_not_served": [s["atco"] for s in entry.get("stops_not_served", [])],
+            "area": area,
+            "note": entry.get("notes") or entry["description"][:300],
+            "source_url": entry["source_url"],
+            "disruption_id": entry["id"],
+            "recorded_on": date.today().isoformat(),
+        })
+    return out
+
+
 def load() -> dict:
     if DATA.exists():
         return json.loads(DATA.read_text(encoding="utf-8"))
@@ -146,6 +188,12 @@ def main() -> None:
     ap.add_argument("--diversion", action="append", default=[],
                     help="towards|routes|street;street;...|rejoins (repeatable)")
     ap.add_argument("--notes", default="")
+    ap.add_argument("--record-for-analysis", action="store_true",
+                    help="also keep a permanent record in data/analysis_exclusions.json, "
+                         "so journey times measured during it can be set apart later")
+    ap.add_argument("--area", default="",
+                    help="with --record-for-analysis: the affected streets as a polygon, "
+                         "'lat,lon;lat,lon;lat,lon;...'")
     args = ap.parse_args()
 
     if args.find:
@@ -161,11 +209,14 @@ def main() -> None:
             print(f"{e['id']}  [{state}]  {e['starts']} to {e['ends']}  {e['summary']}")
         return
     if args.prune:
-        keep = [e for e in doc["disruptions"] if _stamp(e["ends"]) >= now]
-        gone = len(doc["disruptions"]) - len(keep)
+        excl = json.loads(EXCLUSIONS.read_text()) if EXCLUSIONS.exists() else {"exclusions": []}
+        keep, gone, held = prunable(doc, excl, now)
         doc["disruptions"] = keep
         save(doc)
-        print(f"Removed {gone} ended disruption(s).")
+        print(f"Removed {len(gone)} ended disruption(s).")
+        if held:
+            print("Kept, because each is flagged for analysis and has no entry in "
+                  f"data/analysis_exclusions.json yet: {', '.join(held)}")
         return
 
     description = args.description or (
@@ -195,13 +246,30 @@ def main() -> None:
     }
     if args.notes:
         entry["notes"] = args.notes
+    area = []
+    if args.record_for_analysis:
+        entry["record_for_analysis"] = True
+        try:
+            area = [[float(a), float(b)] for a, b in
+                    (pt.split(",") for pt in args.area.split(";") if pt.strip())]
+        except ValueError:
+            area = []
     problems = validate(entry, stops)
+    if args.record_for_analysis and len(area) < 3:
+        problems.append("--record-for-analysis needs --area with at least three 'lat,lon' points")
+    if args.record_for_analysis and not entry["lines"]:
+        problems.append("--record-for-analysis needs --lines, to say which routes it distorts")
     if any(e["id"] == entry["id"] for e in doc["disruptions"]):
         problems.append(f"id {entry['id']!r} is already recorded")
     if problems:
         sys.exit("Not written:\n  " + "\n  ".join(problems))
     doc["disruptions"].append(entry)
     save(doc)
+    if args.record_for_analysis:
+        excl = json.loads(EXCLUSIONS.read_text()) if EXCLUSIONS.exists() else {"exclusions": []}
+        excl["exclusions"].extend(exclusion_entries(entry, area))
+        EXCLUSIONS.write_text(json.dumps(excl, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print("Recorded permanently in data/analysis_exclusions.json; commit it too.")
     print(f"Added {entry['id']}: {len(entry['stops_not_served'])} stop(s) not served, "
           f"{len(entry['lines'])} line(s). Commit data/disruptions.json and push; the "
           f"API picks it up on redeploy.")

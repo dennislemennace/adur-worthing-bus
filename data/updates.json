@@ -70,6 +70,32 @@
         }
       ],
       "status": "published"
+    },
+    {
+      "title": "Western Road closed: Brighton & Hove diversions until 6 November",
+      "summary": "Roadworks close Western Road between Holland Road and Montpelier Road until 6 November. Most Brighton & Hove routes through Hove are diverted, and Norfolk Square, Brunswick Place and Montpelier Road (Waitrose) are not served.",
+      "topic": "Disruption",
+      "author": "Connor R",
+      "body": "Western Road in Hove is closed between Holland Road and Montpelier Road for roadworks until 6 November, and more than a dozen Brighton & Hove routes are on diversion. The map already shows the three stops that are not served, crossed out on every bus's list of stops, with the nearest stops still in use. This is Brighton & Hove's notice in full:\n\n\"Due to roadworks on Western Road, we will be unable to serve all stops between Waitrose and Palmeira Square.\n\nAll Routes except 1X, 2 and 46 towards Hove will be on diversion via Montpelier Road, Davigdor Road and Holland Road to resume full route from Palmeira Square.\n\nRoutes 1X, 2 and 46 will be on diversion via Montpelier Road, Montpelier Place and Holland Road to resume full route from Palmeira Square.\n\nRoute 71A, is only affected in 1 direction towards Mile Oak.\n\nAll routes towards Brighton will be on diversion via Holland Road, Lansdowne Road and Montpelier Road to resume full route from Waitrose.\n\nDuring this time, we will be unable to serve:\n\nNorfolk Square\n\nBrunswick Place\n\nMontpelier Road (Waitrose)\n\nAll stops on the diversion routes will be served.\n\nPlease allow extra time for travelling during these times.\"\n\nJourney times measured on these routes while the diversion runs will be longer than usual, and we have recorded the dates so they can be set apart from the rest of our figures.",
+      "links": [
+        {
+          "label": "Brighton & Hove Buses service updates",
+          "url": "https://www.buses.co.uk/service-updates"
+        }
+      ],
+      "date": "2026-09-29",
+      "status": "published",
+      "id": "western-road-diversions-2026-09-28",
+      "image": {
+        "src": "media/updates/western-road-88-93.jpg",
+        "alt": "Western Road in Brighton on a sunny day: a row of four-storey Victorian terraces with shops on the ground floor, a Shelter charity shop on the corner, and people crossing the road beside a bus lane.",
+        "focus": "50% 60%",
+        "credit": "88-93, Western Road, Brighton © Simon Carey",
+        "credit_url": "https://www.geograph.org.uk/photo/4884023",
+        "license": "CC BY-SA 2.0",
+        "license_url": "https://creativecommons.org/licenses/by-sa/2.0/",
+        "credit_status": "confirmed"
+      }
     }
   ]
 }

@@ -49,8 +49,11 @@ const CONFIG = {
   // Geographic centre of Adur & Worthing
   MAP_CENTER:  [50.818, -0.372],   // [lat, lon] — Worthing town centre area
   MAP_ZOOM:    13,
-  MAP_ZOOM_MIN: 10,
-  MAP_ZOOM_MAX: 18,
+  // 9 so networkSAVER's reach (Devil's Dyke to Lewes) fits a 320px phone.
+  MAP_ZOOM_MIN: 9,
+  // 20 over-zooms OSM's deepest tiles (19), so a bus beside a stop can be
+  // pulled apart on screen without requesting tiles that do not exist.
+  MAP_ZOOM_MAX: 20,
 
   // How often to refresh live bus positions (milliseconds)
   VEHICLE_REFRESH_MS: 20_000,      // 20 seconds
@@ -729,7 +732,8 @@ function initMap() {
   // Tile layer — one source for both themes; dark mode is a CSS filter.
   state.tileLayer = L.tileLayer(TILES.url, {
     attribution: TILES.attribution,
-    maxZoom: TILES.maxZoom,
+    maxNativeZoom: TILES.maxZoom,
+    maxZoom: CONFIG.MAP_ZOOM_MAX,
   }).addTo(state.map);
 
   // Stops are zoom-gated (see applyStopVisibility): below STOP_ZOOM_INDIVIDUAL
@@ -738,6 +742,12 @@ function initMap() {
   const applyStopDotScale = () => {
     state.map.getContainer()
       .classList.toggle("stops-far", state.map.getZoom() <= STOP_ZOOM_INDIVIDUAL);
+    // A stop's invisible tap area shrinks as the map zooms in, where stops
+    // and buses are far enough apart on screen not to need it, and stops
+    // swallowing a tap meant for the bus beside them.
+    const z = state.map.getZoom();
+    state.map.getContainer().classList.toggle("stops-close", z >= 17 && z < 19);
+    state.map.getContainer().classList.toggle("stops-closest", z >= 19);
   };
   // moveend covers panning as well as zooming, which matters because stops
   // are culled to the viewport: pan somewhere new and its stops have to
@@ -895,6 +905,67 @@ function stopsReady() {
   }
 }
 
+// ── Telling apart markers a finger cannot ────────────────────
+//
+// A bus at a stop sits on top of it, and a tap there went to whichever was
+// drawn above. Where a tap lands within reach of two or more markers, a
+// short list asks which was meant. Keyboard users reach each marker on its
+// own, so a key press is never intercepted.
+const TAP_OVERLAP_PX = 22;
+
+/** Candidates within `radius` px of `point`, nearest first. Pure. */
+function markersWithinReach(point, candidates, radius = TAP_OVERLAP_PX) {
+  const d = c => Math.hypot(c.x - point.x, c.y - point.y);
+  return candidates.filter(c => d(c) <= radius).sort((a, b) => d(a) - d(b));
+}
+
+function tapCandidatesAt(point) {
+  const map = state.map;
+  const out = [];
+  const add = (kind, id, marker) => {
+    if (!marker || !map.hasLayer(marker)) return;
+    const p = map.latLngToContainerPoint(marker.getLatLng());
+    out.push({ kind, id, x: p.x, y: p.y, label: marker.options.title || id });
+  };
+  for (const [ref, m] of Object.entries(state.busMarkers || {})) add("bus", ref, m);
+  for (const [atco, m] of Object.entries(state.stopMarkers || {})) add("stop", atco, m);
+  return markersWithinReach(point, out);
+}
+
+/** Open the chooser if this tap could mean more than one marker. */
+function maybeOpenTapChooser(e) {
+  const type = e && e.originalEvent && e.originalEvent.type || "";
+  if (!e || !e.containerPoint || !state.map || type.startsWith("key")) return false;
+  const near = tapCandidatesAt(e.containerPoint);
+  if (near.length < 2) return false;
+  const items = near.slice(0, 6).map(c => `
+    <li><button type="button" class="tap-choice" data-kind="${c.kind}" data-id="${escapeAttr(c.id)}">
+      <span class="tap-choice-kind">${c.kind === "bus" ? "Bus" : "Stop"}</span>
+      <span>${escapeHtml(c.label)}</span></button></li>`).join("");
+  state.map.closePopup();
+  const popup = L.popup({ className: "tap-chooser-popup", maxWidth: 260 })
+    .setLatLng(state.map.containerPointToLatLng(e.containerPoint))
+    .setContent(`<p class="tap-chooser-title">Which one?</p><ul class="tap-chooser">${items}</ul>`)
+    .openOn(state.map);
+  const el = popup.getElement();
+  if (el) {
+    el.addEventListener("click", (ev) => {
+      const b = ev.target.closest("button.tap-choice");
+      if (!b) return;
+      state.map.closePopup(popup);
+      if (b.dataset.kind === "bus") {
+        const m = state.busMarkers[b.dataset.id];
+        if (m && m._vehicle) openBusInfo(m._vehicle);
+      } else {
+        const d = state.stopData[b.dataset.id];
+        openDepartures(b.dataset.id, (d && d.name) || b.dataset.id);
+      }
+    });
+    el.querySelector("button.tap-choice")?.focus({ preventScroll: true });
+  }
+  return true;
+}
+
 function renderStopsInChunks(stops, chunkSize = 150) {
   return new Promise((resolve) => {
     let i = 0;
@@ -932,7 +1003,8 @@ function renderStopMarker(stop) {
 
   // Clicking anywhere on the marker opens the departure panel — unless the
   // journey-time view is open, where a click means "chart from here".
-  marker.on("click", () => {
+  marker.on("click", (e) => {
+    if (maybeOpenTapChooser(e)) return;
     openDepartures(stop.atco_code, stop.name);
   });
 
@@ -6414,8 +6486,9 @@ function updateVehicleMarkers(vehicles) {
                    { maxWidth: 220 })
         .addTo(state.map);
       marker._vehicle = vehicle;
-      marker.on("click", () => {
+      marker.on("click", (e) => {
         state._ignoreNextMapClick = true;
+        if (maybeOpenTapChooser(e)) return;
         if (marker._vehicle) openBusInfo(marker._vehicle);
       });
       state.busMarkers[ref] = marker;
@@ -7135,7 +7208,7 @@ function renderBoardFilter(services, operators = {}) {
     const colour = value ? getRouteColour(value, operators[value]) : "";
     const style = colour
       ? ` style="--chip-bg:${colour};--chip-fg:${pickTextOn(colour) === "dark" ? "#000000" : "#ffffff"}"` : "";
-    return `<button type="button" class="board-filter-btn${value ? " board-filter-btn--route" : ""}"${style}
+    return `<button type="button" class="board-filter-btn target-dense${value ? " board-filter-btn--route" : ""}"${style}
       data-service="${escapeAttr(value)}" aria-pressed="${active === (value || null) ? "true" : "false"}"
       >${escapeHtml(text)}</button>`;
   };
@@ -7697,17 +7770,19 @@ function buildBusTabShell(v) {
       </dl>
     </div>
 
-    <label class="follow-bus-toggle">
-      <input type="checkbox" id="follow-bus-checkbox" ${state.followSelectedBus ? "checked" : ""}>
-      <span>Follow this bus on the map</span>
-    </label>
+    <div class="bus-toggles">
+      <label class="follow-bus-toggle">
+        <input type="checkbox" id="follow-bus-checkbox" ${state.followSelectedBus ? "checked" : ""}>
+        <span>Follow on map</span>
+      </label>
 
-    <label class="follow-bus-toggle">
-      <input type="checkbox" id="notify-move-checkbox" ${state.notifyOnMove ? "checked" : ""}>
-      <span>Notify me when this bus moves
-        <small class="follow-bus-hint">(while this site is open)</small>
-      </span>
-    </label>
+      <label class="follow-bus-toggle">
+        <input type="checkbox" id="notify-move-checkbox" ${state.notifyOnMove ? "checked" : ""}
+               aria-describedby="notify-move-hint">
+        <span>Notify when it moves</span>
+      </label>
+      <small class="follow-bus-hint" id="notify-move-hint">Notifications work while this site is open.</small>
+    </div>
 
     <div id="bus-disruptions"></div>
 
@@ -8636,14 +8711,12 @@ function sheetOverlapPx() {
 }
 
 /**
- * fitBounds, then shift the result clear of the sheet.
+ * fitBoundsAboveSheet (below): fit a shape into the band of map above the
+ * sheet and centre it there.
  *
- * Not fitBounds' own asymmetric padding: passing the sheet height as
- * paddingBottomRight shrinks the box Leaflet fits into, so it picks a much
- * lower zoom — fitting a Brighton zone came out showing Crawley — and the
- * shape ended up under the sheet anyway. Fitting to the whole map and then
- * panning keeps the zoom honest and moves the shape by exactly as much as
- * the sheet covers.
+ * Not fitBounds' own asymmetric padding, which fitted a Brighton zone and
+ * showed Crawley. The zoom is worked out for the visible band directly, and
+ * the view set so the shape's middle is the band's middle.
  */
 /**
  * Fit into the part of the map the sheet is not covering.
@@ -8677,14 +8750,36 @@ function fitBoundsInVisibleMap(bounds, options) {
   });
 }
 
-function fitBoundsAboveSheet(bounds, options) {
-  // animate:false matters. fitBounds animates by default, and an animated fit
-  // finishes *after* the panBy below runs — so the pan was applied and then
-  // immediately overwritten by the settling animation, which is why the shape
-  // kept landing back underneath the sheet.
-  state.map.fitBounds(bounds, { ...options, animate: false });
-  const overlap = sheetOverlapPx();
-  if (overlap > 0) state.map.panBy([0, Math.round(overlap / 2)], { animate: false });
+function fitBoundsAboveSheet(bounds, options = {}) {
+  // animate:false matters: an animated fit settles after anything applied
+  // straight after it, and put the shape back underneath the sheet.
+  let overlap = sheetOverlapPx();
+  const size = state.map.getSize();
+  // On a small phone the half-open sheet leaves a strip of map barely 100px
+  // tall, too little to show a zone in. Lower the sheet first: the reader
+  // asked to see the zone, and pulling the sheet back up is one drag.
+  if (overlap > 0 && size.y - overlap < 150 && state.sheetDetent !== "peek") {
+    setSheetDetent("peek");
+    overlap = sheetOverlapPx();
+  }
+  if (overlap <= 0 || size.y - overlap < 60) {
+    state.map.fitBounds(bounds, { ...options, animate: false });
+    return;
+  }
+  // Fit to the part of the map the sheet leaves showing, then centre the
+  // shape in it. Fitting to the whole map and panning by half the sheet kept
+  // a compact zone's zoom, but a tall one (networkSAVER's reach, Devil's Dyke
+  // to Lewes) filled the whole height and half of it sat under the sheet.
+  // One zoom level further out is the price of seeing all of it.
+  const band = size.y - overlap;
+  const want = options.padding || [20, 20];
+  // Padding in proportion to the strip, or a 30px margin eats a small one.
+  const pad = [Math.min(want[0], size.x / 8), Math.min(want[1], band / 8)];
+  let zoom = state.map.getBoundsZoom(bounds, false,
+    L.point(pad[0] * 2, pad[1] * 2 + overlap));
+  if (typeof options.maxZoom === "number") zoom = Math.min(zoom, options.maxZoom);
+  const centre = state.map.project(bounds.getCenter(), zoom).add([0, overlap / 2]);
+  state.map.setView(state.map.unproject(centre, zoom), zoom, { animate: false });
 }
 
 function cycleSheetDetent() {
@@ -9195,7 +9290,7 @@ function renderFilterStrip(strip) {
     const on = visibleSet ? visibleSet.has(opt.key) : true;
     return `
       <button type="button"
-              class="filter-chip ${on ? "active" : ""}"
+              class="filter-chip target-dense ${on ? "active" : ""}"
               data-filter-key="${escapeAttr(opt.key)}"
               aria-pressed="${on ? "true" : "false"}">
         ${escapeHtml(opt.label)}
@@ -9349,6 +9444,19 @@ function sortUpdates(list) {
  */
 const UPDATE_FOLD_AFTER_PARAGRAPHS = 2;
 
+/** A photo credit, linked where the licence asks for it: Creative Commons
+ *  BY-SA wants the source and the licence reachable from the credit, not
+ *  just named. `credit_url` and `license_url` are optional; plain text
+ *  otherwise, as before. */
+function updateCreditHtml(img) {
+  const link = (url, text) => url
+    ? `<a href="${escapeAttr(safeUrl(url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`
+    : escapeHtml(text);
+  let html = link(img.credit_url, img.credit);
+  if (img.license) html += `, ${link(img.license_url, img.license)}`;
+  return html;
+}
+
 function updateCardHtml(u, opts = {}) {
   const id    = String(u.id || "");
   const date  = u.date
@@ -9375,7 +9483,7 @@ function updateCardHtml(u, opts = {}) {
         <img src="${escapeAttr(safeUrl(img.src))}" alt="${escapeAttr(img.alt || "")}"
              loading="lazy" decoding="async"
              style="object-position:${escapeAttr(img.focus || "50% 50%")}">
-        ${img.credit ? `<figcaption class="update-card-credit">${escapeHtml(img.credit)}</figcaption>` : ""}
+        ${img.credit ? `<figcaption class="update-card-credit">${updateCreditHtml(img)}</figcaption>` : ""}
       </figure>` : "";
 
   const links = Array.isArray(u.links) && u.links.length
@@ -9673,6 +9781,11 @@ async function applyViewMode() {
       await loadTicketZones();
       if (!mine()) return;
       showTicketZones();
+      // Something on the map from the start: Brighton & Hove's zones, the
+      // ones most journeys here touch, unless the reader has already chosen.
+      if (!(state.expandedOperators && state.expandedOperators.size) && !state.selectedZoneId) {
+        showOperatorZones("BHBC");
+      }
       renderJourneyPresets();     // examples for the checker; failure is silent
       loadFareTables().then(() => { if (mine()) renderFareLookup(); });
     } catch (err) {
@@ -9966,7 +10079,7 @@ function renderRouteFilterChips() {
     const name = frequent ? `Service ${label}` : `Service ${label}, limited service`;
     return `
       <button type="button"
-              class="route-chip${frequent ? "" : " route-chip--limited"}"
+              class="route-chip target-dense${frequent ? "" : " route-chip--limited"}"
               data-variants="${escapeAttr(variants.join(","))}"
               aria-pressed="${allOn ? "true" : "false"}"
               aria-label="${escapeAttr(name)}"
@@ -10737,6 +10850,8 @@ function showTicketZones() {
 }
 
 function hideTicketZones() {
+  const picker = document.getElementById("ticket-operator-picker");
+  if (picker) picker.hidden = true;
   for (const layer of Object.values(state.ticketZoneLayers)) {
     if (state.map.hasLayer(layer)) state.map.removeLayer(layer);
   }
@@ -10758,6 +10873,8 @@ function zoneOperator(zoneId) {
 function reconcileTicketDisplay() {
   const expanded = state.expandedOperators || new Set();
   const inTickets = state.viewMode === "tickets";
+  const picker = document.getElementById("ticket-operator-picker");
+  if (picker) picker.hidden = !inTickets;
   for (const [id, layer] of Object.entries(state.ticketZoneLayers)) {
     const show = inTickets && expanded.has(zoneOperator(id));
     if (show) {
@@ -10836,7 +10953,44 @@ function selectZone(id) {
   renderTicketZonesList();
 }
 
+/** Show one operator's zones (or none): the list card, the map and the picker
+ *  over the map all go through here, so they cannot disagree. Exclusive, so
+ *  overlapping operators never pile filled polygons on each other. */
+function showOperatorZones(op) {
+  // An operator switch, not a zone pick: clear the sub-card selection, else
+  // renderTicketZonesList's auto-expand would snap back to its operator.
+  state.selectedZoneId = null;
+  state.expandedOperators = op ? new Set([op]) : new Set();
+  renderTicketZonesList();
+  reconcileTicketDisplay();
+  if (op) {
+    const b = operatorBounds(op);
+    if (b && b.isValid()) fitBoundsAboveSheet(b, { padding: [45, 45], maxZoom: 13 });
+  }
+}
+
+/** The operator picker floating over the map in Tickets view. */
+function syncTicketOperatorPicker() {
+  const host = document.getElementById("ticket-operator-picker");
+  const sel = document.getElementById("ticket-operator-select");
+  if (!host || !sel) return;
+  const ops = [...new Set((state.ticketZones || []).map(z => z.operator))];
+  const want = ops.map(op => `${op}|${getOperatorName(op) || op}`).join(",");
+  if (sel.dataset.ops !== want) {
+    sel.dataset.ops = want;
+    sel.innerHTML = `<option value="">No zones</option>` + ops.map(op =>
+      `<option value="${escapeAttr(op)}">${escapeHtml(getOperatorName(op) || op)}</option>`).join("");
+  }
+  if (!sel.dataset.bound) {
+    sel.dataset.bound = "1";
+    sel.addEventListener("change", () => showOperatorZones(sel.value || null));
+  }
+  const open = [...(state.expandedOperators || [])];
+  sel.value = open.length === 1 ? open[0] : "";
+}
+
 function renderTicketZonesList() {
+  syncTicketOperatorPicker();
   if (!dom.ticketZonesList) return;
   const zones = state.ticketZones || [];
   if (zones.length === 0) {
@@ -10936,20 +11090,7 @@ function renderTicketZonesList() {
   dom.ticketZonesList.querySelectorAll(".ticket-operator-card").forEach(card => {
     const toggle = () => {
       const op = card.dataset.operator;
-      const nowOpen = !state.expandedOperators.has(op);
-      // A header click is an operator switch, not a zone pick — always clear the
-      // sub-card selection, else renderTicketZonesList's auto-expand would snap
-      // expansion back to the previously-selected zone's operator.
-      state.selectedZoneId = null;
-      state.expandedOperators = nowOpen ? new Set([op]) : new Set();
-      renderTicketZonesList();                      // reflect exclusive state
-      reconcileTicketDisplay();
-      if (nowOpen) {
-        const b = operatorBounds(op);
-        if (b && b.isValid()) {
-          fitBoundsAboveSheet(b, { padding: [45, 45], maxZoom: 13 });
-        }
-      }
+      showOperatorZones(state.expandedOperators.has(op) ? null : op);
     };
     card.addEventListener("click", toggle);
     card.addEventListener("keydown", (e) => {

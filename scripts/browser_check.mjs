@@ -269,9 +269,11 @@ const TRUNCATION_SCAN = `(() => {
 })()`;
 
 /**
- * WCAG 2.5.8 sets a 24x24 floor; 44 is Apple's number, the AAA criterion,
- * and what this site targets. Inline links in prose have an explicit
- * exception in the spec and are not selected here.
+ * WCAG 2.5.8 (AA) sets a 24x24 floor; 44 is Apple's number, the AAA criterion
+ * (2.5.5), and what this site targets for its main controls. Rows of short
+ * chips marked `.target-dense` are held to the AA floor instead, since a 44px
+ * box around "7" made each row a wall of buttons. Inline links in prose have
+ * an explicit exception in the spec and are not selected here.
  */
 const TARGET_SCAN = `(() => {
   const visible = ${VISIBLE_FN};
@@ -300,8 +302,10 @@ const TARGET_SCAN = `(() => {
       const lr = label.getBoundingClientRect();
       if (lr.width >= 44 && lr.height >= 44) continue;
     }
-    if (r.width < 44 || r.height < 44) {
-      bad.push(named(el) + " " + Math.round(r.width) + "x" + Math.round(r.height));
+    const floor = el.classList.contains("target-dense") ? 24 : 44;
+    if (r.width < floor || r.height < floor) {
+      bad.push(named(el) + " " + Math.round(r.width) + "x" + Math.round(r.height)
+               + (floor === 24 ? " (dense, needs 24)" : ""));
     }
   }
   return [...new Set(bad)].slice(0, 8);
@@ -1280,6 +1284,130 @@ async function checkProposalFitsAboveSheet(page, where) {
   }
   await page.evaluate('(() => { selectProposal(null); setViewMode("live"); return ""; })()');
   await sleep(600);
+}
+
+/**
+ * Tickets view opens on Brighton & Hove's zones, with a picker over the map
+ * that switches operator and stays in step with the list; a zone chosen from
+ * the list, networkSAVER included, is framed in the part of the map the sheet
+ * leaves showing. networkSAVER has no outline, only reach tags from Devil's
+ * Dyke to Lewes, and half of them used to land under the sheet.
+ */
+async function checkTicketZonesPicker(page, where) {
+  await page.evaluate("setViewMode('tickets')");
+  await waitFor(page, "(state.ticketZones || []).length > 0", 15000);
+  await sleep(800);
+  const r = JSON.parse(await page.evaluate(`
+    (() => {
+      const host = document.getElementById("ticket-operator-picker");
+      const sel = document.getElementById("ticket-operator-select");
+      if (!host || !sel || typeof showOperatorZones !== "function")
+        return JSON.stringify({ hidden: true, missing: "no operator picker" });
+      const hr = host.getBoundingClientRect(), sr = sel.getBoundingClientRect();
+      const bhShown = Object.entries(state.ticketZoneLayers)
+        .filter(([id, l]) => zoneOperator(id) === "BHBC" && state.map.hasLayer(l)).length;
+      selectZone("bh-networksaver");
+      const panel = document.getElementById("departure-panel").getBoundingClientRect();
+      const mapR = state.map.getContainer().getBoundingClientRect();
+      const sheetTop = (isSheetLayout() ? panel.top : mapR.bottom) - mapR.top;
+      const pills = (state.ticketReachLayers["bh-networksaver"] || [])
+        .map(m => state.map.latLngToContainerPoint(m.getLatLng()));
+      const inView = pills.filter(p => p.y >= 0 && p.y <= sheetTop && p.x >= 0 && p.x <= mapR.width).length;
+      const ys = pills.map(p => p.y);
+      const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const centred = Math.abs(midY - sheetTop / 2) <= Math.max(12, sheetTop * 0.1);
+      selectZone("bh-networksaver");                         // deselect
+      sel.value = "SCSO"; sel.dispatchEvent(new Event("change"));
+      const card = document.querySelector('.ticket-operator-card[data-operator="SCSO"]');
+      const synced = [...state.expandedOperators].join() === "SCSO"
+        && card && card.getAttribute("aria-expanded") === "true";
+      showOperatorZones("BHBC");
+      return JSON.stringify({ hidden: host.hidden, top: Math.round(hr.top), selH: Math.round(sr.height),
+        value: "BHBC", bhShown, pills: pills.length, inView, centred, sheetTop: Math.round(sheetTop), synced });
+    })()`));
+  check(`Tickets view opens with Brighton & Hove's zones drawn — ${where}`,
+    r.bhShown > 0, JSON.stringify(r));
+  check(`the operator picker floats over the map and is a full target — ${where}`,
+    !r.hidden && r.top >= 0 && r.selH >= 44, JSON.stringify(r));
+  // Centred in the strip the sheet leaves, and all of it where the strip is
+  // big enough to hold it; on the smallest phones most of it.
+  // Where the sheet leaves no map at all (740x360 landscape: 5px), there is
+  // nothing to frame into, and that is a layout question of its own.
+  if (typeof r.sheetTop === "number" && r.sheetTop < 60) {
+    check(`networkSAVER's reach is framed above the sheet — ${where}`, true,
+      `skipped: the sheet leaves ${r.sheetTop}px of map`);
+  } else {
+    check(`networkSAVER's reach is framed above the sheet — ${where}`,
+      r.pills > 0 && r.centred && r.inView >= Math.ceil(r.pills * (r.sheetTop >= 250 ? 1 : 0.75)),
+      JSON.stringify(r));
+  }
+  check(`the picker and the list stay in step — ${where}`, r.synced, JSON.stringify(r));
+  await page.evaluate("setViewMode('live')");
+  await sleep(500);
+  const gone = await page.evaluate(`(document.getElementById("ticket-operator-picker") || {}).hidden`);
+  check(`the operator picker leaves with Tickets view — ${where}`, gone === true, String(gone));
+}
+
+/**
+ * A bus at a stop can be told apart from it: the map zooms a level past the
+ * deepest tiles, only the round middle of a bus takes a tap, and a tap that
+ * lands on both asks which was meant. And the Bus tab's two switches sit on
+ * one row. A test bus is placed on a real stop, since there may be no live
+ * feed here.
+ */
+async function checkMapTaps(page, where) {
+  await page.evaluate("setViewMode('live'); closePanel()");
+  await sleep(600);
+  const r = JSON.parse(await page.evaluate(`
+    (() => {
+      const map = state.map;
+      const maxZoom = map.getMaxZoom();
+      if (typeof maybeOpenTapChooser !== "function")
+        return JSON.stringify({ maxZoom, missing: "no tap chooser" });
+      const atco = Object.keys(state.stopData)[0];
+      const d = state.stopData[atco];
+      map.setView([d.lat, d.lon], 17, { animate: false });
+      // Somewhere the sheet does not cover, near the map's top.
+      const sheetTop = document.getElementById("departure-panel").getBoundingClientRect().top
+        - map.getContainer().getBoundingClientRect().top;
+      const band = isSheetLayout() ? sheetTop : map.getSize().y;
+      const skip = band < 70 ? "the sheet leaves " + Math.round(band) + "px of map" : null;
+      const at = map.latLngToContainerPoint([d.lat, d.lon]);
+      if (!skip) map.panBy([0, at.y - Math.min(90, band / 2)], { animate: false });
+      applyStopVisibility();
+      const vehicle = { vehicle_ref: "CHECK-BUS", service_ref: "700", operator_ref: "SCSO",
+        latitude: d.lat, longitude: d.lon, destination: "Brighton", bearing: 90 };
+      const m = L.marker([d.lat, d.lon], { icon: createBusIcon("SCSO", "700", 90),
+        zIndexOffset: 200, title: "Bus 700 to Brighton" }).addTo(map);
+      m._vehicle = vehicle;
+      state.busMarkers["CHECK-BUS"] = m;
+      const c = map.latLngToContainerPoint([d.lat, d.lon]);
+      const box = map.getContainer().getBoundingClientRect();
+      // The corner of the bus's 56px box, outside its round middle.
+      const corner = document.elementFromPoint(box.left + c.x + 24, box.top + c.y + 24);
+      const cornerIsBus = !!(corner && corner.closest && corner.closest(".bus-marker-divicon"));
+      const middle = document.elementFromPoint(box.left + c.x, box.top + c.y);
+      const middleIsBus = !!(middle && middle.closest && middle.closest(".bus-marker-divicon"));
+      const opened = maybeOpenTapChooser({ containerPoint: c, originalEvent: { type: "click" } });
+      const choices = [...document.querySelectorAll(".tap-chooser .tap-choice")].map(b => b.dataset.kind);
+      const choiceH = Math.min(...[...document.querySelectorAll(".tap-choice")].map(b => b.getBoundingClientRect().height));
+      map.closePopup(); map.removeLayer(m); delete state.busMarkers["CHECK-BUS"];
+      openBusInfo(vehicle);
+      const labels = [...document.querySelectorAll(".bus-toggles .follow-bus-toggle")]
+        .map(l => l.getBoundingClientRect());
+      const oneRow = labels.length === 2 && Math.abs(labels[0].top - labels[1].top) < 2;
+      const tall = labels.every(l => l.height >= 44);
+      closePanel();
+      return JSON.stringify({ maxZoom, skip, cornerIsBus, middleIsBus, opened, choices, choiceH, oneRow, tall });
+    })()`));
+  check(`the map zooms in past the deepest tiles — ${where}`, r.maxZoom >= 20, JSON.stringify(r));
+  check(`only the round middle of a bus takes a tap — ${where}`,
+    r.skip ? true : (r.middleIsBus && !r.cornerIsBus), r.skip ? "skipped: " + r.skip : JSON.stringify(r));
+  check(`a tap on a bus at a stop asks which was meant — ${where}`,
+    r.opened && r.choices.includes("bus") && r.choices.includes("stop") && r.choiceH >= 44,
+    JSON.stringify(r));
+  check(`the Bus tab's follow and notify switches share a row — ${where}`,
+    r.oneRow && r.tall, JSON.stringify(r));
 }
 
 /**
@@ -3643,6 +3771,8 @@ await checkWakingBanner(page, VIEWPORTS[0].name);
 await checkClusterDensity(page, VIEWPORTS[0].name);
 await checkProposalFitsAboveSheet(page, VIEWPORTS[0].name);
 await checkPresetsDraw(page, VIEWPORTS[0].name);
+await checkTicketZonesPicker(page, VIEWPORTS[0].name);
+await checkMapTaps(page, VIEWPORTS[0].name);
 await checkObjectiveLead(page, VIEWPORTS[0].name);
 await checkBoundaryLiveButton(page, VIEWPORTS[0].name);
 await checkChipPriority(page, VIEWPORTS[0].name);
@@ -3690,6 +3820,8 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkHeaderControlRow(p, vp.name);
   await checkWakingBanner(p, vp.name);
   await checkGapMonitor(p, vp.name);
+  if (vp.mobile) await checkTicketZonesPicker(p, vp.name);
+  await checkMapTaps(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
   await checkStopClosure(p, vp.name);
   await checkUpcomingStops(p, vp.name);

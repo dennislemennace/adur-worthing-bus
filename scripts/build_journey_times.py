@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from process_snapshots import CAVEATS, METHOD, METHOD_VERSION    # noqa: E402
 from query_reliability import load_observations                  # noqa: E402
 from observation_contract import TIME_BASIS, row_identity
+import analysis_exclusions as ax                                  # noqa: E402
 import journey_times_codec as codec                              # noqa: E402
 
 # A journey with fewer calls than this says nothing about running time between
@@ -173,8 +174,10 @@ def schedule_for_document(service, operator, index, meta):
 
 
 def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
-                   operator="", places=None):
+                   operator="", places=None, exclusions=None, coords=None,
+                   drop_excluded=False):
     """One service: its stops, and every journey observed along them."""
+    coords = coords or {}
     if timing_points_only:
         rows = [r for r in rows if r.get("timepoint") == 1]
     stops, order = {}, {}
@@ -254,8 +257,26 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
             quarantined.append({"day": journey["day"], "trip_id": journey["trip_id"],
                                 "reason": "invalid_call_times_or_identity", "source_files": journey["source_files"]})
             continue
-        if len(journey["calls"]) >= MIN_CALLS:
-            kept.append(journey)
+        if len(journey["calls"]) < MIN_CALLS:
+            continue
+        # A journey made during a recorded diversion or closure is marked with
+        # it (data/analysis_exclusions.json), or left out with `--exclude`.
+        if exclusions:
+            atcos = [listed[c[0]]["atco"] for c in journey["calls"]]
+            path = [coords[a] for a in atcos if a in coords]
+            first_epoch = next((c[5] for c in journey["calls"] if c[5] is not None), None)
+            when = (datetime.fromtimestamp(first_epoch, timezone.utc) if first_epoch
+                    else datetime.fromisoformat(f"{journey['day']}T12:00:00+00:00"))
+            marks = ax.affecting(exclusions, operator, service, when,
+                                 stop_ids=atcos, path=path)
+            if marks and drop_excluded:
+                quarantined.append({"day": journey["day"], "trip_id": journey["trip_id"],
+                                    "reason": "analysis_exclusion", "exclusions": marks,
+                                    "source_files": journey["source_files"]})
+                continue
+            if marks:
+                journey["exclusions"] = marks
+        kept.append(journey)
     kept.sort(key=lambda j: (j["day"], j["start"]))
 
     # Where each destination is, as a town rather than a stop, so the browser
@@ -348,14 +369,16 @@ def document_name(service, operator):
     return f"{safe}-{noc}"
 
 
-def build(rows, meta, timing_points_only=TIMING_POINTS_ONLY, places=None):
+def build(rows, meta, timing_points_only=TIMING_POINTS_ONLY, places=None,
+          exclusions=None, coords=None, drop_excluded=False):
     """`{(service, operator): document}` for everything with something to show."""
     grouped = {}
     for row in rows:
         key = (row.get("service", "?"), (row.get("operator") or "").strip())
         grouped.setdefault(key, []).append(row)
     return {key: route_document(key[0], rows_here, meta, timing_points_only,
-                                operator=key[1], places=places)
+                                operator=key[1], places=places, exclusions=exclusions,
+                                coords=coords, drop_excluded=drop_excluded)
             for key, rows_here in grouped.items()}
 
 
@@ -371,6 +394,9 @@ def main(argv=None):
                          "Without it directions are named by destination stop.")
     ap.add_argument("--min-journeys", type=int, default=3,
                     help="services with fewer observed journeys are not written")
+    ap.add_argument("--exclude", action="store_true",
+                    help="leave out journeys made during recorded diversions and closures "
+                         "(data/analysis_exclusions.json) instead of only marking them")
     args = ap.parse_args(argv)
 
     places = Places()
@@ -398,7 +424,9 @@ def main(argv=None):
     # day is represented when no published file contains one journey from it.
     days_present: set = set()
     for (service, operator), doc in sorted(
-            build(rows, meta, args.timing_points_only, places).items()):
+            build(rows, meta, args.timing_points_only, places,
+                  exclusions=ax.load(), coords=ax.stop_coords(),
+                  drop_excluded=args.exclude).items()):
         label = f"{service} ({operator})" if operator else service
         if len(doc["journeys"]) < args.min_journeys:
             skipped.append(label)
