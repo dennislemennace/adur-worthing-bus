@@ -906,7 +906,7 @@ async function checkDeepLinkIndependence() {
 async function checkStaticPages() {
   const base = new URL(SITE);
   const origin = `${base.origin}${base.pathname.replace(/[^/]*$/, "")}`;
-  for (const name of ["about.html", "privacy.html", "terms.html"]) {
+  for (const name of ["about.html", "privacy.html", "terms.html", "contact.html"]) {
     for (const vp of [{ label: "mobile", width: 390, height: 844, mobile: true },
                       { label: "desktop", width: 1440, height: 900, mobile: false }]) {
       const page = await connect("about:blank");

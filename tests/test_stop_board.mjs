@@ -367,3 +367,8 @@ test("a tap within reach of a bus and a stop finds both, nearest first", () => {
     "the far stop was offered, or the nearest was not first");
   assert.equal(app.markersWithinReach({ x: 0, y: 0 }, [{ x: 30, y: 0 }]).length, 0);
 });
+
+test("a National Express coach shows no local fares", () => {
+  assert.equal(app.buildTicketInfoHtml("NATX", null, "025"), "",
+    "local tickets and the bus fare cap were offered for a coach");
+});

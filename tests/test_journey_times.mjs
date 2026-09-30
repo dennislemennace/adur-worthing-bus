@@ -469,22 +469,21 @@ test("nothing to show is not an empty chart pretending", () => {
 
 // ── Not offered until it is worth offering ──────────────────
 
-test("only the Simple view is announced; the stronger claims stay behind their switches", () => {
-  // This gate once held the whole view back: three days, two of them
-  // part-days, was not something to put in front of a reader who would read
-  // "median 79 minutes" as a fact about their route. Simple went public on the
-  // owner's decision on 23 September 2026, answering from the shared default
-  // filters and saying what each answer rests on. The gate keeps its purpose
-  // for what remains unverified: Detailed exposes every evidence control, and
-  // the delay map colours roads, which is a claim about a place that the 22
-  // September review asked to pilot rather than publish.
+test("Detailed and the delay map are public, and say they are experimental", () => {
+  // Simple went public on 23 September 2026. Detailed and the delay map
+  // followed on 29 September, on the owner's decision, each labelled
+  // experimental, and the delay map says how far it is from full coverage, so
+  // a reader is not left to take a thin sample as a finding.
   const fresh = loadApp();
   const CONFIG = vm.runInContext("CONFIG", fresh);
   assert.equal(CONFIG.JOURNEY_TIMES_PUBLIC, true);
-  assert.equal(CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC, false,
-    "the Detailed view was announced before its evidence was independently checked");
-  assert.equal(CONFIG.DELAY_MAP_PUBLIC, false,
-    "the delay map was published before any stretch was validated");
+  assert.equal(CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC, true);
+  assert.equal(CONFIG.DELAY_MAP_PUBLIC, true);
+  const html = readFileSync(join(ROOT, "index.html"), "utf8");
+  assert.match(html, /jt-detailed-note[\s\S]*?Experimental/, "Detailed went public without saying it is experimental");
+  const src = readFileSync(join(ROOT, "app.js"), "utf8");
+  assert.match(src, /Where do buses lose time\?<\/strong>\s*<span class="plan-preview-tag">Experimental<\/span>/);
+  assert.match(src, /months away\s+from full coverage/, "the delay map does not say it is months from full coverage");
 });
 
 test("preview is a deliberate act, not a remembered one", () => {
@@ -1637,17 +1636,17 @@ test("a destination from the feed cannot write into the delay map's direction ch
   assert.equal(chipsHtml(["westbound"], d => d, "westbound"), "", "one direction needs no chips");
 });
 
-test("the view follows a link over memory, and Detailed stays shut without preview", () => {
+test("the view follows a link over memory", () => {
   const view = () => vm.runInContext("jtView()", app);
   const set = search => vm.runInContext(`location.search = ${JSON.stringify(search)}; jtEntry.view = undefined`, app);
   try {
     set("?jt-view=detailed");
-    assert.equal(view(), "simple", "Detailed opened without its switch or preview");
-    set("?preview=1&jt-view=detailed");
-    assert.equal(view(), "detailed");
-    set("?preview=1&jt-service=700-SCSO.json");
+    assert.equal(view(), "detailed", "a link to Detailed opened Simple");
+    set("?jt-view=simple");
+    assert.equal(view(), "simple");
+    set("?jt-service=700-SCSO.json");
     assert.equal(view(), "detailed", "a link from before the two views existed was made in Detailed");
-    set("?preview=1");
+    set("");
     assert.equal(view(), "simple");
   } finally {
     set("");

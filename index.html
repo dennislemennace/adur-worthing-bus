@@ -161,6 +161,19 @@
         <path d="M9 18h6"/>
         <path d="M10 22h4"/>
       </symbol>
+      <!-- Section icons for the view menu (Lucide shapes, as the rest). -->
+      <symbol id="i-route" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>
+      </symbol>
+      <symbol id="i-ticket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/>
+      </symbol>
+      <symbol id="i-gauge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>
+      </symbol>
+      <symbol id="i-newspaper" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/>
+      </symbol>
       <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 5v14"/><path d="M5 12h14"/>
       </symbol>
@@ -236,12 +249,12 @@
           </button>
           <ul class="section-nav-menu hidden" id="section-nav-menu" role="listbox"
               aria-labelledby="section-nav-trigger" tabindex="-1">
-            <li role="option" data-mode="live" aria-selected="true" tabindex="-1">Live Bus Tracking</li>
-            <li role="option" data-mode="improvements" aria-selected="false" tabindex="-1">Route view</li>
-            <li role="option" data-mode="tickets" aria-selected="false" tabindex="-1">Tickets &amp; fares</li>
-            <li role="option" data-mode="network" aria-selected="false" tabindex="-1">Better buses</li>
-            <li role="option" data-mode="journeytimes" aria-selected="false" tabindex="-1">Bus Performance</li>
-            <li role="option" data-mode="updates" aria-selected="false" tabindex="-1">News &amp; notes</li>
+            <li role="option" data-mode="live" aria-selected="true" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-bus"/></svg><span>Live Bus Tracking</span></li>
+            <li role="option" data-mode="improvements" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-route"/></svg><span>Route view</span></li>
+            <li role="option" data-mode="tickets" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-ticket"/></svg><span>Tickets &amp; fares</span></li>
+            <li role="option" data-mode="network" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-lightbulb"/></svg><span>Better buses</span></li>
+            <li role="option" data-mode="journeytimes" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-gauge"/></svg><span>Bus Performance</span></li>
+            <li role="option" data-mode="updates" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-newspaper"/></svg><span>News &amp; notes</span></li>
           </ul>
         </div>
         <!-- Live-data status: connecting/updated text + bus visibility toggle, grouped -->
@@ -517,7 +530,10 @@
                initJourneyPlanner. -->
           <section class="plan-journey" id="plan-journey" hidden aria-labelledby="plan-title">
             <h3 class="proposals-section-title" id="plan-title">Plan a journey
-              <span class="plan-preview-tag">Preview</span></h3>
+              <span class="plan-preview-tag">Experimental</span></h3>
+            <p class="jt-experimental-note">Planned from timetables by an outside
+              service with a daily limit, so it can be unavailable late in the day.
+              Check a stop's board for live times.</p>
             <form class="plan-form" id="plan-form" autocomplete="off" novalidate>
               <label class="plan-label" for="plan-from">From</label>
               <div class="plan-row">
@@ -1023,6 +1039,10 @@
               <button type="button" class="jt-view-option" data-jt-view="detailed" aria-pressed="false">Detailed</button>
             </div>
           </div>
+          <p class="jt-experimental-note jt-detailed-note">
+            <span class="plan-preview-tag">Experimental</span> The Detailed view
+            shows every measurement and filter behind the figures. It is for
+            checking our working, and the numbers can change as data builds up.</p>
           <!-- The two stops, typed or tapped on the map. One bar for both views
                and both states, so the chosen pair is always shown in one place
                and changed in one place. The lists are filled by app.js. -->
@@ -1263,12 +1283,12 @@
             <button class="panel-tab active" data-network-tab="objectives" role="tab"
                     aria-selected="true" id="tab-objectives" aria-controls="tab-content-objectives">
               <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-info"/></svg>
-              <span class="panel-tab-label">Objectives</span>
+              <span class="panel-tab-label">Improvements</span>
             </button>
             <button class="panel-tab" data-network-tab="ideas" role="tab"
                     aria-selected="false" id="tab-ideas" aria-controls="tab-content-ideas">
               <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-lightbulb"/></svg>
-              <span class="panel-tab-label">Ideas</span>
+              <span class="panel-tab-label">Your ideas</span>
             </button>
           </div>
           <button class="btn-collapse-panel" type="button" aria-label="Hide panel" aria-pressed="false">
@@ -1279,14 +1299,14 @@
         <!-- ── OBJECTIVES TAB ── -->
         <div class="panel-tab-content" id="tab-content-objectives" role="tabpanel" aria-labelledby="tab-objectives">
           <div class="improvements-intro">
-            <h2 class="improvements-title">What we're aiming for</h2>
+            <h2 class="improvements-title">Ideas to improve the buses</h2>
             <p>
-              Eight things that would make the buses along this coast work better,
-              each one costed or measured where we can. Got something to add? The
-              <strong>Ideas</strong> tab is where it starts.
+              Eight ideas that would make the buses along this coast work
+              better, each costed or measured where we can. Have one of your
+              own? Add it under <strong>Your ideas</strong>.
             </p>
             <p class="objectives-legend">
-              The tag on each objective says how far the councils and operators
+              The tag on each idea says how far the councils and operators
               have got with it, from <strong>not considered</strong> to
               <strong>delivered</strong>.
             </p>
@@ -1328,7 +1348,7 @@
             </div>
 
             <div class="editor-field">
-              <label for="sg-objective">Related objective (optional)</label>
+              <label for="sg-objective">Related improvement (optional)</label>
               <select id="sg-objective" name="objective">
                 <option value="">none in particular</option>
               </select>
@@ -1416,6 +1436,7 @@
     </p>
     <p class="site-footer-links">
       <a href="about.html">About &amp; corrections</a> ·
+      <a href="contact.html">Contact</a> ·
       <a href="privacy.html">Privacy</a> ·
       <a href="terms.html">Terms</a> ·
       <a href="#accessibility" id="a11y-footer-link" data-open-a11y>Accessibility</a> ·
@@ -1438,6 +1459,7 @@
       <a href="https://www.realtimetrains.co.uk/" target="_blank" rel="noopener">Realtime Trains</a> ·
       <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> ·
       <a href="about.html">About</a> ·
+      <a href="contact.html">Contact</a> ·
       <a href="privacy.html">Privacy</a> ·
       <a href="terms.html">Terms</a> ·
       <a href="#accessibility" data-open-a11y>Accessibility</a> ·

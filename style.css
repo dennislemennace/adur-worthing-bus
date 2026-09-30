@@ -470,7 +470,9 @@ html.dark-mode .last-updated.is-error .loading-dots { color: #ffb84d; }
 .section-nav-menu.hidden { display: none; }
 
 .section-nav-menu [role="option"] {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 7px 12px;
   border-radius: calc(var(--radius-md) - 4px);
   font-size: var(--font-size-sm);
@@ -479,6 +481,13 @@ html.dark-mode .last-updated.is-error .loading-dots { color: #ffb84d; }
   cursor: pointer;
   user-select: none;
 }
+.section-nav-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--color-text-muted);
+}
+.section-nav-menu [role="option"][aria-selected="true"] .section-nav-icon { color: inherit; }
 .section-nav-menu [role="option"]:focus {
   background: var(--color-surface-2);
   outline: none;
@@ -2972,21 +2981,28 @@ html.dark-mode .stop-cluster-icon {
 }
 
 /* ===== UPCOMING STOPS ===== */
+/* The stops ahead are what most people open the Bus tab for, so they get a
+   card and a proper heading rather than a small grey label. */
 .upcoming-stops {
   display: flex;
   flex-direction: column;
   gap: var(--space-2xs);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
 }
 
 .upcoming-stops-title {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-2xs);
-  font-weight: 600;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--color-text);
+  text-transform: none;
+  letter-spacing: 0;
   margin: 0;
-  padding-bottom: var(--space-2xs);
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -3091,7 +3107,7 @@ html.dark-mode .stop-cluster-icon {
    own stop, and "Shoreham Old Shoreham R…" does not answer that. */
 .upcoming-stop-name {
   color: var(--color-text);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
@@ -3119,7 +3135,7 @@ html.dark-mode .stop-cluster-icon {
 }
 .upcoming-stop-time {
   font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--color-text);
@@ -7918,3 +7934,12 @@ button.target-dense {
   padding-left: var(--space-xs);
   padding-right: var(--space-xs);
 }
+
+/* Tools marked experimental say so beside them, in the same quiet voice. */
+.jt-experimental-note {
+  margin: var(--space-2xs) 0 var(--space-sm);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.jt-detailed-note { display: none; }
+#tab-content-journey-times[data-jt-view="detailed"] .jt-detailed-note { display: block; }

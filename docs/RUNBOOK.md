@@ -205,7 +205,9 @@ python -c 'import json, sys; sys.path.insert(0, "scripts"); import journey_times
 Ship any change to the encoding on the site before the pipeline publishes it:
 a compact build does not render in an `app.js` that predates the decoder.
 
-Everything is reachable with `?preview=1` while its switch is off. Both views
+Both halves (Detailed, and the delay map) are public from 29 September 2026,
+labelled experimental; `?preview=1` still reaches anything whose switch is
+turned off again. Both views
 share one selection and one set of default filters, so the same trip always
 shows the same headline number in both; a node test reads the Detailed
 controls' defaults out of `index.html` to hold that.

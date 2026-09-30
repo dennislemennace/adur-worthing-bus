@@ -184,10 +184,13 @@ lines and timetables are API calls too, and arrive with it.
   request finds the cache empty; the board never waits on it. No key, or an
   unreachable feed, means no notices and `/api/disruptions` says why.
 
-## Buses & Trains API — journey planner (preview)
+## Buses & Trains API — journey planner (experimental)
 
 - `GET /api/plan` proxies `https://api.busesandtrains.co.uk/v1/journey/plan`
-  (OpenTripPlanner behind it). It is shown only with `?preview=1`.
+  (OpenTripPlanner behind it). Public from 29 September 2026, labelled
+  experimental. Now that everyone can reach it, the daily cap below is what
+  stands between a busy day and the free tier: past it, the page says the
+  allowance is used up, and no call is made.
 - Free tier: **300 requests / day**. Paid tiers are £29/month for 10,000 a day
   and £99/month for 100,000.
 - `BAT_API_KEY` (Render env var) enables it. With no key, `/api/plan` answers

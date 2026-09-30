@@ -410,7 +410,7 @@ def night_caveats(night: dict) -> list:
     if any("025" in n["route_list"] for n in lancing):
         out.append({
             "text": (
-                "Lancing's night count includes National Express coach 025 to "
+                "Lancing's night count includes a National Express coach to "
                 "London, which needs a booked ticket and is not a local bus."),
             "direction": "understates",
             "effect": (
@@ -423,8 +423,8 @@ def night_caveats(night: dict) -> list:
         "text": (
             "The figure covers the whole night, 23:00 to 05:00. Most of the "
             "difference comes before 01:00, while Portslade's daytime routes "
-            "are still finishing; after that the N700 through Lancing and the "
-            "N1 through Portslade run at more similar rates."),
+            "are still finishing; after that the night buses through Lancing "
+            "and Portslade run at more similar rates."),
         "direction": "unknown",
         "effect": (
             "Someone travelling in the small hours sees a smaller gap than the "
@@ -547,8 +547,8 @@ def main() -> None:
             {
                 "text": (
                     "Route counts include every service in the timetable: school-day "
-                    "routes, coaches such as National Express 025, and routes that "
-                    "call only a few times a day, each counted as one route."),
+                    "routes, long-distance coaches, and routes that call only a few "
+                    "times a day, each counted as one route."),
                 "direction": "unknown",
                 "effect": (
                     "The route counts say how many services exist, not how usable "

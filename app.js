@@ -41,10 +41,11 @@ const CONFIG = {
   // of different strength. Simple answers a passenger in plain words from the
   // shared default filters. Detailed exposes every evidence control, and the
   // delay map colours roads — a claim about a place, which the 22 September
-  // review asked to pilot rather than publish. Both are reachable with
-  // ?preview=1 while off.
-  JOURNEY_TIMES_DETAILED_PUBLIC: false,
-  DELAY_MAP_PUBLIC: false,
+  // review asked to pilot rather than publish. Both are public from 29
+  // September 2026, each labelled experimental; the delay map says how far
+  // it is from full coverage.
+  JOURNEY_TIMES_DETAILED_PUBLIC: true,
+  DELAY_MAP_PUBLIC: true,
 
   // Geographic centre of Adur & Worthing
   MAP_CENTER:  [50.818, -0.372],   // [lat, lon] — Worthing town centre area
@@ -1602,11 +1603,8 @@ function renderBoundaryEvidence(data) {
       buses the timetable sends past their stops.
     </p>
     <div class="evidence-live">
-      <p>
-        These figures come from timetables. To see the difference for yourself,
-        look at the live buses either side of the line: on a typical day far
-        more are moving on the Brighton &amp; Hove side.
-      </p>
+      <p><strong>Tip:</strong> glance at the live map, and you can see the
+        difference: more buses on the Brighton &amp; Hove side of the line.</p>
       <button type="button" class="evidence-live-btn" data-show-live-boundary>
         <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
         <span>Show the live buses here</span>
@@ -5090,10 +5088,15 @@ async function renderDelayMapPanel() {
   const epoch = ++jtDelay.epoch;
   const owns = () => mine() && epoch === jtDelay.epoch && jtEntry.section === "delays";
   const view = jtView();
-  const intro = `<p class="jt-verdict"><strong>Where do buses lose time?</strong></p>
+  const intro = `<p class="jt-verdict"><strong>Where do buses lose time?</strong>
+      <span class="plan-preview-tag">Experimental</span></p>
     <p>Each stretch of road between two timing stops is coloured by how much time
       buses typically lose on it compared with the timetable. Grey dashes mean we
-      have not tracked enough journeys there yet to say.</p>`;
+      have not tracked enough journeys there yet to say.</p>
+    <p class="jt-experimental-note">We started tracking in September 2026, and a
+      stretch is shown only once 30 journeys over 5 days have run it. The busiest
+      routes, like the 700, fill in within weeks; most of the map is months away
+      from full coverage, and some quieter routes may take longer still.</p>`;
   if (!panel.querySelector(".delay-body")) panel.innerHTML = `${intro}<p class="panel-empty">Loading the delay map…</p>`;
 
   let loaded;
@@ -8111,7 +8114,13 @@ function armNotifyOnMove(wantOn, checkboxEl) {
  */
 const TICKET_OPERATOR_ALIASES = { SCSC: "SCSO", CMPA: "COMT" };
 
+// Coach operators (as api/trip_match.py's COACH_NOCS, with National Express's
+// other codes). They sell their own fares, which none of the local tickets,
+// singles or caps on this site cover, so the Bus tab shows none for them.
+const COACH_OPERATORS = new Set(["NATX", "NTXP", "TNXB", "FLIX", "GHOP", "OXBC", "BMCS", "UNTM"]);
+
 function buildTicketInfoHtml(operatorRef, liveData = null, service = "") {
+  if (COACH_OPERATORS.has(operatorRef)) return "";
   const op   = TICKET_OPERATOR_ALIASES[operatorRef] || operatorRef;
   const info = OPERATOR_TICKETS[op] || OPERATOR_TICKETS[operatorRef] || null;
   const meta = state.ticketFaresMeta || {};
@@ -8748,6 +8757,18 @@ function fitBoundsInVisibleMap(bounds, options) {
     padding: undefined,
     animate: false,
   });
+}
+
+// Brighton's Old Steine, where most of the network's routes meet.
+const ROUTE_VIEW_HOME = [50.8225, -0.1372];
+
+/** Put `latlng` in the middle of the map the sheet leaves showing. */
+function centreAboveSheet(latlng, zoom) {
+  const overlap = sheetOverlapPx();
+  const size = state.map.getSize();
+  const shift = overlap > 0 && size.y - overlap >= 60 ? overlap / 2 : 0;
+  const point = state.map.project(latlng, zoom).add([0, shift]);
+  state.map.setView(state.map.unproject(point, zoom), zoom, { animate: false });
 }
 
 function fitBoundsAboveSheet(bounds, options = {}) {
@@ -9765,6 +9786,13 @@ async function applyViewMode() {
       reconcileCouncilBoundaries();
       reconcileProposalLayers();
       if (state.selectedProposalId) showProposal(state.selectedProposalId);
+      // The first time Route view opens, start on Brighton, where the routes
+      // converge, centred in the part of the map the sheet leaves showing.
+      // Once only: coming back keeps wherever the reader has panned to.
+      else if (!state._routeViewFramed) {
+        state._routeViewFramed = true;
+        centreAboveSheet(ROUTE_VIEW_HOME, 12);
+      }
     } catch (err) {
       console.warn("Route view data fetch failed:", err);
       if (!mine()) return;
@@ -11760,7 +11788,7 @@ function planResultsHtml(data) {
 
 function initJourneyPlanner() {
   const section = document.getElementById("plan-journey");
-  if (!section || !previewEnabled()) return;
+  if (!section) return;
   section.hidden = false;
   const form = document.getElementById("plan-form");
   const fromIn = document.getElementById("plan-from");
@@ -15613,7 +15641,7 @@ function renderObjectivesList() {
   }
   const objectives = state.objectives || [];
   if (objectives.length === 0) {
-    dom.objectivesList.innerHTML = `<p class="proposals-empty">No objectives published yet.</p>`;
+    dom.objectivesList.innerHTML = `<p class="proposals-empty">No improvements published yet.</p>`;
     return;
   }
 
@@ -15633,7 +15661,7 @@ function renderObjectivesList() {
         ${alsoFeatured.map(o => objectiveCardHtml(o)).join("")}
       </div>` : ""}
     </section>
-    <p class="objective-bodies-intro">Every objective below, grouped by who would have to act on it.</p>` : "";
+    <p class="objective-bodies-intro">Every idea below, grouped by who would have to act on it.</p>` : "";
 
   dom.objectivesList.innerHTML = featuredHtml + groupObjectivesByBody(objectives)
     .map(g => bodyGroupHtml(g, objectiveCardHtml, "objective")).join("");
