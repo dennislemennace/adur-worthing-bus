@@ -92,13 +92,21 @@ function dayOf(date, count, size = 300 * 1024, prefix = "raw", ext = "xml") {
 }
 
 function env(over = {}) {
-  return { SNAPSHOTS: fakeBucket(), BODS_API_KEY: "test-key", ...over };
+  return { SNAPSHOTS: fakeBucket(), RATE_LIMIT: fakeKv(), BODS_API_KEY: "test-key", ...over };
 }
 
 // A real Response, because the recorder depends on how one behaves: the feed
 // sends no content-length, so `body` is a stream of unknown length.
 const okFeed = (body = "<Siri/>") => async () => new Response(body, { status: 200 });
 const decode = (buf) => new TextDecoder().decode(buf);
+
+test('missing, malformed and stale usage cannot authorise writes', () => {
+  const now = at('2026-09-30T12:00:00Z');
+  for (const usage of [null, {}, {bytes:0,objects:0,measured_at:'not-a-date'},
+    {bytes:0,objects:0,measured_at:'2026-09-30T09:00:00Z'}]) {
+    assert.equal(withinBudget(usage, now).ok, false);
+  }
+});
 
 // ── When it records ─────────────────────────────────────────
 
@@ -400,7 +408,8 @@ for (const [label, usage, allowed] of [
 ]) {
   test(`recording ${allowed ? "continues with" : "stops on"} ${label}`, async () => {
     let fetched = false;
-    const e = env({ RATE_LIMIT: fakeKv(usage ? { "r2-usage": JSON.stringify(usage) } : {}) });
+    const e = env({ RATE_LIMIT: fakeKv(usage ? { "r2-usage": JSON.stringify({
+      ...usage, measured_at:'2026-09-16T11:07:00Z'}) } : {}) });
     const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"),
                                    async () => { fetched = true; return new Response("<Siri/>", { status: 200 }); });
     assert.equal(r.recorded, allowed);
@@ -446,36 +455,35 @@ test("the bucket is measured once an hour, not once a minute", async () => {
   for (const minute of ["11:45", "11:46", "11:59", "12:00"]) {
     await recordSnapshot(e, at(`2026-09-16T${minute}:00Z`), okFeed());
   }
-  assert.equal(e.SNAPSHOTS.lists.length, 0, "the bucket was measured on an ordinary minute");
+  assert.equal(e.SNAPSHOTS.lists.length, 1, "bootstrap once, then reuse the measurement");
   await recordSnapshot(e, at("2026-09-16T12:07:00Z"), okFeed());
   assert.ok(e.SNAPSHOTS.lists.length > 0, "the bucket is never measured");
   assert.equal(kv.store.size, 1);
 });
 
-test("a failed measurement does not stop the recording", async () => {
-  // Losing a minute of record because a list call failed would be a worse
-  // outcome than the stale measurement it was trying to refresh.
+test("a failed initial measurement pauses recording", async () => {
   const bucket = fakeBucket();
   bucket.list = async () => { throw new Error("R2 unavailable"); };
   const e = env({ SNAPSHOTS: bucket, RATE_LIMIT: fakeKv() });
   const r = await recordSnapshot(e, at("2026-09-16T11:07:00Z"), bothFeeds());
-  assert.equal(r.recorded, true);
-  assert.equal(bucket.puts.length, 2);
+  assert.equal(r.recorded, false);
+  assert.equal(bucket.puts.length, 0);
 });
 
-test("an unreadable budget does not stop the recording either", async () => {
+test("an unreadable budget pauses recording without scanning every minute", async () => {
   const kv = fakeKv();
   kv.get = async () => { throw new Error("KV unavailable"); };
   const e = env({ RATE_LIMIT: kv });
   const r = await recordSnapshot(e, at("2026-09-16T11:45:00Z"), okFeed());
-  assert.equal(r.recorded, true);
+  assert.equal(r.recorded, false);
+  assert.equal(e.SNAPSHOTS.lists.length, 0);
 });
 
 test("the quiet hours are still free, budget or not", async () => {
   const e = env({ RATE_LIMIT: fakeKv() });
   const r = await recordSnapshot(e, at("2026-09-17T02:00:00Z"), okFeed());
   assert.equal(r.reason, "quiet_hours");
-  assert.equal(e.SNAPSHOTS.lists.length, 0);
+  assert.equal(e.SNAPSHOTS.lists.length, 1, 'the overnight RT feed needs a measured budget too');
 });
 
 
@@ -584,7 +592,7 @@ test("weeks of recording never refuse themselves", () => {
   for (let day = 0; day < 21; day++) {
     objects += perDay;
     if (day >= _internals.RETENTION_DAYS) objects -= perDay;   // the prune
-    if (!withinBudget({ bytes: 0, objects }).ok) refused += 1;
+    if (!withinBudget({ bytes: 0, objects, measured_at: new Date().toISOString() }).ok) refused += 1;
   }
   assert.equal(refused, 0, "recording would stop itself within three weeks");
 });

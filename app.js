@@ -1886,6 +1886,7 @@ function journeyTimesBetween(doc, fromIndex, toIndex) {
       fromAtco: doc.stops?.[fromIndex]?.atco || "", toAtco: doc.stops?.[toIndex]?.atco || "",
       match: from[9] && to[9] ? (from[9] === to[9] ? from[9] : "mixed") : journey.match || "unknown",
       qualityFlags: from[8] && to[8] ? [...new Set([...from[8], ...to[8]])] : journey.quality_flags || [],
+      exclusions: journey.exclusions || [],
       methodVersion: journey.method_version || "unknown",
       dataVersion: journey.data_version || "unknown",
       routePattern: journey.route_pattern || "unknown",
@@ -3361,8 +3362,8 @@ function journeyTimesChart(timings, summary, mode = "delay", width = 640, opts =
   const dots = points.map((t, i) => {
     const value = valueOf(t);
     const label = showDelay && punctuality
-      ? `${t.start} ${t.day}: ${mins(value) === 0 ? "arrived on time"
-          : `arrived ${mins(value)} min ${value > 0 ? "late" : "early"}`}`
+      ? `${t.start} ${t.day}: ${mins(value) === 0 ? "on time near destination"
+          : `${mins(value)} min ${value > 0 ? "late" : "early"} near destination`}`
       : showDelay
       ? `${t.start} ${t.day}: ${mins(value) === 0 ? "matched the timetable"
           : `${mins(value)} min ${value > 0 ? "slower" : "quicker"} than the timetable`}`
@@ -3377,7 +3378,7 @@ function journeyTimesChart(timings, summary, mode = "delay", width = 640, opts =
 
   const axisTitle = showDelay ? (punctuality ? "minutes late arriving" : "minutes slower than timetable") : "journey minutes";
   const summaryText = punctuality && showDelay
-    ? `${n} journeys. Lateness on arrival includes any delay from earlier in the journey`
+    ? `${n} journeys. Lateness near the destination includes delay from earlier in the journey; positions approximate stop departure, not passenger arrival`
     : showDelay
     ? `${n} journeys with a timetable time, median ${mins(summary.medianDelaySecs)} min `
       + `${summary.medianDelaySecs >= 0 ? "slower" : "quicker"} than the timetable`
@@ -3397,7 +3398,7 @@ function journeyTimesChart(timings, summary, mode = "delay", width = 640, opts =
       was not seen at one end, so its time there is worked out from the stops either side</li>
     ${showDelay
       ? `<li><span class="jt-key jt-key--zero"></span>${punctuality
-          ? "Above the line: arrived late. Below: early"
+          ? "Near the destination — above the line: late. Below: early"
           : "Above the line: slower than the timetable. Below: quicker"}</li>`
       : timetable
         ? series.map(s => `<li><span class="jt-key jt-key--timetable jt-key--timetable-${s.dayType}"></span>${
@@ -3450,13 +3451,11 @@ function jtCohortLabels(rows) {
 /** The evidence filters both views start from. Detailed lets an expert change
  *  them; Simple never does.
  *
- *  Flagged journeys are included. From 23 September every journey recorded
- *  under the earlier matching method carries a flag saying so, and excluding
- *  them would have left the passenger view with a single day of evidence.
- *  Simple says how many of its journeys that covers instead of hiding them. */
+ *  Passenger headlines require declared identities and unflagged measurements.
+ *  Detailed can include the other evidence explicitly. */
 const JT_DEFAULT_FILTERS = Object.freeze({
   start: "00:00", end: "23:59", evidence: "measured",
-  identity: "all", quality: "all", cohort: "all",
+  identity: "declared", quality: "clear", cohort: "all", events: "all",
 });
 
 /** When a passenger travels: a day type, then a time of day. Two small rows
@@ -3571,8 +3570,10 @@ function journeyTimesPeriodInsight(all, dayKey = "weekday") {
 function jtFrequency(schedule, periodKey) {
   const p = jtPeriod(periodKey);
   const gaps = [];
+  const perDay = [];
   let most = 0;
   for (const series of (schedule && schedule.series) || []) {
+    const dayGaps = [];
     const minutes = [...new Set(series.points.map(pt =>
       Math.floor((((pt.departSecs % 86400) + 86400) % 86400) / 60)))]
       .filter(m => jtClockInPeriod(m, p))
@@ -3580,8 +3581,16 @@ function jtFrequency(schedule, periodKey) {
     most = Math.max(most, minutes.length);
     for (let i = 1; i < minutes.length; i++) {
       const gap = (jtChartSecs(minutes[i] * 60) - jtChartSecs(minutes[i - 1] * 60)) / 60;
-      if (gap > 0 && gap <= 90) gaps.push(gap);
+      // A disjoint selection (early AND late) must not count the deliberately
+      // omitted middle of the day as a gap. Real gaps inside the slot stay.
+      let outside = false;
+      for (let k = 1; k < gap; k++) if (!jtClockInPeriod((minutes[i-1]+k)%1440, p)) { outside = true; break; }
+      if (outside) continue;
+      if (gap > 0) { gaps.push(gap); dayGaps.push(gap); }
     }
+    if (minutes.length) perDay.push({dayType: series.dayType, departures: minutes.length,
+      maxGap: Math.max(0, ...dayGaps), minutes: dayGaps.length
+        ? dayGaps.sort((a,b)=>a-b)[Math.floor(dayGaps.length/2)] : null});
   }
   if (!most) return null;
   if (!gaps.length) {
@@ -3589,8 +3598,9 @@ function jtFrequency(schedule, periodKey) {
   }
   gaps.sort((x, y) => x - y);
   const minutes = gaps[Math.floor(gaps.length / 2)];
-  return { level: minutes <= 15 ? "plenty" : minutes <= 30 ? "some" : "few",
-           minutes, departures: most, source: schedule.source };
+  const maxGap = Math.max(...gaps);
+  return { level: maxGap > 90 ? "few" : minutes <= 15 ? "plenty" : minutes <= 30 ? "some" : "few",
+           minutes, maxGap, perDay, departures: most, source: schedule.source };
 }
 
 /** The departures a frequency is measured from.
@@ -3622,6 +3632,11 @@ function jtFrequencySchedule(doc, fromIndex, toIndex, days, timings) {
 /** The badge's words: "Plenty of buses · every 12 min". */
 function jtFrequencyLabel(freq) {
   if (!freq) return null;
+  if (freq.maxGap > 90) return `Irregular service · gaps up to ${Math.round(freq.maxGap)} min`;
+  if (freq.perDay?.length > 1 && new Set(freq.perDay.map(d => d.minutes)).size > 1) {
+    return freq.perDay.map(d => `${JT_DAY_TYPE_LABELS[d.dayType] || d.dayType}: ${
+      d.minutes == null ? `${d.departures} departures` : `typically ${Math.round(d.minutes)} min apart`}`).join('; ');
+  }
   const name = { plenty: "Plenty of buses", some: "Some buses", few: "Only a few buses" }[freq.level];
   const m = freq.minutes;
   const every = m == null ? `${freq.departures === 1 ? "1 bus" : `${freq.departures} buses`} a day`
@@ -3790,7 +3805,7 @@ function journeyTimesScheduleLine(doc, fromIndex, toIndex, days, timings = []) {
  *  minutes" from 300 of 310 scheduled buses is a different claim from the same
  *  figure drawn from 30 of them. Only days with a recorded timetable count,
  *  and only departures inside the period being looked at. */
-function journeyTimesCoverage(doc, fromIndex, toIndex, days, all, periodKey = "any", hours = null) {
+function journeyTimesCoverage(doc, fromIndex, toIndex, days, all, periodKey = "any", hours = null, filters = JT_DEFAULT_FILTERS) {
   const schedule = doc && doc.schedule;
   if (!schedule || !schedule.days || !schedule.sets) return null;
   const p = jtPeriod(periodKey);
@@ -3803,18 +3818,59 @@ function journeyTimesCoverage(doc, fromIndex, toIndex, days, all, periodKey = "a
   // Days are the caller's to choose: it passes the ones in view.
   const inDays = () => true;
   const tracked = new Set((all || []).map(t => `${t.day}|${t.tripId}`));
-  let scheduled = 0, seen = 0, counted = 0;
+  const measured = new Set((all || []).filter(t => !t.estimated).map(t => `${t.day}|${t.tripId}`));
+  const eligible = new Set(journeyTimesFilter(all || [], {...filters,start:'00:00',end:'23:59'})
+    .map(t => `${t.day}|${t.tripId}`));
+  let scheduled = 0, seen = 0, counted = 0, measuredCount = 0, eligibleCount = 0;
+  const dates = [];
   for (const day of days || []) {
     if (!inDays(day) || schedule.days[day] == null) continue;
     counted++;
+    dates.push(day);
     for (const [tripId, profile, start] of schedule.sets[schedule.days[day]] || []) {
       const pair = jtScheduleCalls(schedule.profiles[profile] || [], fromIndex, toIndex);
       if (!pair || !inHours(start + pair[0][1])) continue;
       scheduled++;
       if (tracked.has(`${day}|${tripId}`)) seen++;
+      if (measured.has(`${day}|${tripId}`)) measuredCount++;
+      if (eligible.has(`${day}|${tripId}`)) eligibleCount++;
     }
   }
-  return counted ? { scheduled, tracked: seen, days: counted } : null;
+  return counted ? { scheduled, tracked: seen, measured: measuredCount, eligible: eligibleCount,
+    days: counted, dates } : null;
+}
+
+function jtCoverageHtml(coverage) {
+  if (!coverage) return '<p class="jt-provenance">No recorded timetable for this selection; scheduled coverage is unknown.</p>';
+  const dates = coverage.dates;
+  const range = dates.length ? `${jtDayLabel(dates[0], false)}${dates.length > 1 ? ` to ${jtDayLabel(dates[dates.length - 1], false)}` : ''}` : '';
+  return `<p class="jt-provenance">Recorded timetable coverage (${escapeHtml(range)}, ${dates.length} recorded days):
+    ${coverage.scheduled} scheduled → ${coverage.tracked} tracked between these stops →
+    ${coverage.measured} with measured endpoints → ${coverage.eligible} eligible with these evidence filters.
+    This uses scheduled departure hours. The chart uses observed departure hours, so its count can differ.
+    Days with no usable observations remain in the denominator.</p>`;
+}
+
+function jtMeasurementHtml(coverage) {
+  return `<details class="jt-how"><summary>How we measure</summary>
+    <p>We use the buses' location reports at both stops. Results require measured endpoints,
+      a declared journey and no quality flags. These times approximate departure from the stop area,
+      include waiting at stops, and are not guaranteed arrival times.</p>
+    ${jtCoverageHtml(coverage)}
+    <p>Frequency comes from the recorded timetable, or from tracked departures where it is unavailable.
+      Unseen buses are missing evidence, not confirmed cancellations or late buses.</p>
+    <p><a class="jt-link" href="about.html#journey-times">More about our method</a></p></details>`;
+}
+
+function jtEventsHtml(rows, doc) {
+  const counts = new Map();
+  for (const row of rows || []) for (const id of row.exclusions || []) counts.set(id, (counts.get(id)||0)+1);
+  if (!counts.size) return '';
+  return `<p class="jt-provenance">Recorded disruption conditions: ${[...counts].map(([id,n]) => {
+    const event = (doc.analysis_events || []).find(e => e.id === id);
+    return `${n} journeys — ${escapeHtml(event?.summary || id)}${event
+      ? ` (${escapeHtml(event.from)} to ${escapeHtml(event.to || 'ongoing')})` : ''}`;
+  }).join('; ')}. These are affected journeys, not necessarily delay caused by the event.</p>`;
 }
 
 /** The delay map's colours, in minutes a bus loses on one stretch.
@@ -4021,7 +4077,7 @@ function jtAllowHtml(summary) {
   const why = jtLongerWords(summary.journeys, summary.longerThanP90 || 0);
   return `<div class="jt-simple-allow">
       <p class="jt-simple-allow-main">Allow <strong>${jtMinutes(summary.p90Secs)}</strong></p>
-      <p class="jt-simple-allow-why">${why}</p>
+      <p class="jt-simple-allow-why">9 in 10 recorded journeys took this long or less. ${why}</p>
     </div>`;
 }
 
@@ -4234,7 +4290,8 @@ function journeyTimesDayChart(timings, opts = {}) {
  *  same default filters as Detailed, so the two can never disagree about the
  *  trip; what Simple leaves out is controls, not evidence. */
 function renderJourneyTimesSimple(ctx) {
-  const { host, doc, fromIndex, toIndex, all, index, serviceFile } = ctx;
+  const { host, doc, fromIndex, toIndex, all: recorded, index, serviceFile } = ctx;
+  const all = jtEntry.noEvents ? recorded.filter(t => !(t.exclusions || []).length) : recorded;
   const dayCounts = new Map(JT_DAYS.map(d => [d.key, journeyTimesOnDays(all, d.key).length]));
   // The reader's day, unless it has nothing and the other day has something.
   let dayKey = jtDay(jtEntry.day).key;
@@ -4247,7 +4304,8 @@ function renderJourneyTimesSimple(ctx) {
   const timings = journeyTimesInSlot(all, dayKey, periodKey);
   const summary = journeyTimesSummary(timings);
   const summaries = journeyTimesSlotSummaries(all, dayKey);
-  const days = (doc.days || []).filter(d => (jtDayType(d) === "weekday") === (dayKey === "weekday"));
+  const days = [...new Set([...(doc.window_days || doc.days || []), ...Object.keys(doc.schedule?.days || {})])]
+    .sort().filter(d => (jtDayType(d) === "weekday") === (dayKey === "weekday"));
   const name = i => escapeHtml(prettifyName(doc.stops[i]?.name || ""));
   const slotWords = `${jtDay(dayKey).label}, ${periodKey === "any" ? "all day"
     : `${jtPeriod(periodKey).label.toLowerCase()} (${jtPeriod(periodKey).hours})`}`;
@@ -4255,15 +4313,20 @@ function renderJourneyTimesSimple(ctx) {
   const head = `<h3 class="visually-hidden jt-result-title" tabindex="-1">${name(fromIndex)} to ${name(toIndex)}</h3>
     ${jtEntry.note ? `<p class="jt-provenance">${escapeHtml(jtEntry.note)}</p>` : ""}
     ${jtServiceChipsHtml(serviceFile)}
-    ${jtWhenChipsHtml(dayKey, periodKey, { summaries, dayCounts })}`;
+    ${jtWhenChipsHtml(dayKey, periodKey, { summaries, dayCounts })}
+    ${jtEventsHtml(journeyTimesOnDays(recorded, dayKey), doc)}
+    <button type="button" class="jt-link" data-act="events" aria-pressed="${Boolean(jtEntry.noEvents)}">${
+      jtEntry.noEvents ? 'Include recorded disruptions' : 'Compare without recorded disruptions'}</button>`;
+  const measurement = jtMeasurementHtml(journeyTimesCoverage(doc, fromIndex, toIndex, days, recorded, periodKey, null,
+    {...JT_DEFAULT_FILTERS, events: jtEntry.noEvents ? 'clear' : 'all'}));
 
   // Kept for the hour slider, which redraws only its own detail.
   let typical = null, schedule = null;
   let answer;
   if (!summary) {
-    answer = all.length
-      ? `<p class="jt-verdict">We have not timed a bus between ${name(fromIndex)} and ${name(toIndex)}
-           ${escapeHtml(JT_PERIOD_PHRASE[periodKey])} on ${jtDay(dayKey).plural}. Try another time.</p>`
+    answer = recorded.length
+      ? `<p class="jt-verdict">The tracked journeys between ${name(fromIndex)} and ${name(toIndex)}
+           do not provide eligible timings for this selection. Inspect the Detailed view or try another time.</p>`
       : `<p class="jt-verdict">We have not tracked a bus making this trip yet.</p>
          <p>That does not mean there isn't one: our recordings do not cover every
            journey. The <button type="button" class="jt-link" data-go="tickets">journey
@@ -4299,8 +4362,6 @@ function renderJourneyTimesSimple(ctx) {
       .filter(Boolean).join(" ");
     const chart = journeyTimesDayChart(dayAll, { width: host.clientWidth || 640, schedule, typical,
       periodKey, dayKey, hour, span, label: chartWords });
-    const coverage = journeyTimesCoverage(doc, fromIndex, toIndex, days, all, periodKey);
-    const legacy = timings.filter(t => (t.qualityFlags || []).includes("legacy_matching_unverified")).length;
     const first = summary.days[0], last = summary.days[summary.days.length - 1];
     const hourWords = h => `${String(h % 24).padStart(2, "0")}:00 to ${String((h + 1) % 24).padStart(2, "0")}:00`;
     answer = `
@@ -4334,18 +4395,7 @@ function renderJourneyTimesSimple(ctx) {
       <p class="jt-simple-basis">Based on ${summary.journeys} ${summary.journeys === 1 ? "bus" : "buses"} timed at
         both stops over ${summary.days.length} ${summary.days.length === 1 ? "day" : "days"}
         (${escapeHtml(jtDayLabel(first, false))}${first === last ? "" : ` to ${escapeHtml(jtDayLabel(last, false))}`}).</p>
-      <details class="jt-how">
-        <summary>How we know this</summary>
-        <p class="jt-simple-trust">We time each journey from the buses' own location reports,
-          at both stops. How often the buses run is read from ${freq && freq.source === "recorded"
-          ? "the timetable we record each night"
-          : "the departures of the buses we timed, until the timetable we now record each night covers these days, so it may miss a few"}.${coverage && coverage.scheduled
-          ? ` The timetable scheduled ${coverage.scheduled} between these stops on those days, and we
-             tracked ${coverage.tracked} of them. A bus we did not see is left out, not counted as late.` : ""}${legacy
-          ? ` ${legacy} of these were recorded before 23 September, when our checks on which bus was
-             which were less strict.` : ""}</p>
-        <p><a class="jt-link" href="about.html#journey-times">How we measure journey times</a></p>
-      </details>`;
+      `;
   }
 
   const fromStop = doc.stops[fromIndex];
@@ -4356,7 +4406,7 @@ function renderJourneyTimesSimple(ctx) {
     </p>
     <p class="jt-copy-status" aria-live="polite"></p>`;
 
-  host.innerHTML = `<div class="jt-simple">${head}${answer}${actions}</div>`;
+  host.innerHTML = `<div class="jt-simple">${head}${answer}${measurement}${actions}</div>`;
 
   // Said once, briefly: the whole panel used to be read out on every change.
   jtAnnounce(summary
@@ -4425,6 +4475,9 @@ function renderJourneyTimesSimple(ctx) {
       jtEntry.prefer = target.dataset.jtFile;
       jtEntry.focusAfter = jtFocusKey(target);
       journeyTimesResolvePair();
+    } else if (target.dataset.act === 'events') {
+      jtEntry.noEvents = !jtEntry.noEvents;
+      renderJourneyTimesSimple({ ...ctx, focus: jtFocusKey(target) });
     } else if (target.dataset.act === "departures") {
       track("journey-times-next-buses");
       setViewMode("live");
@@ -4908,7 +4961,7 @@ function delayOneIn(cell) {
 
 /** What a stretch says when it is picked: the same words on the map and in the
  *  panel, so a reader without a mouse or without colour gets all of it. */
-function delayStretchHtml(stretch, cell, floor, slot, exploratory = false, way = null) {
+function delayStretchHtml(stretch, cell, floor, slot, exploratory = false, way = null, events = []) {
   const name = s => escapeHtml(prettifyName(s || ""));
   way = way || (stretch.direction === "westbound" ? "Westbound"
     : stretch.direction === "eastbound" ? "Eastbound" : "Both ways");
@@ -4930,6 +4983,12 @@ function delayStretchHtml(stretch, cell, floor, slot, exploratory = false, way =
   return `<strong>${name(stretch.from_name)} to ${name(stretch.to_name)}</strong>
     <p class="jt-provenance">${escapeHtml(way)}, ${escapeHtml(slot.hint)}.</p>
     ${body}
+    ${cell?.excluded_by && Object.keys(cell.excluded_by).length ? `<p class="jt-provenance">Recorded disruption conditions:
+      ${Object.entries(cell.excluded_by).map(([id,n]) => {
+        const event = events.find(e => e.id === id);
+        return `${n} affected traversals — ${escapeHtml(event ? `${event.summary} (${event.from} to ${event.to})` : id)}`;
+      }).join('; ')}.
+      Included in these figures; this does not establish ordinary running conditions or traffic causation.</p>` : ''}
     ${stretch.approximate ? `<p class="jt-provenance">Drawn roughly between the stops: the
       timetable gives no road shape for this stretch.</p>` : ""}
     <button type="button" class="jt-link" data-delay-go="${escapeAttr(stretch.id)}">See journey
@@ -5238,7 +5297,7 @@ async function renderDelayMapPanel() {
   const pick = id => {
     const item = drawn.find(d => d.stretch.id === id);
     if (!item) return;
-    const html = delayStretchHtml(item.stretch, item.cell, floor, slot, exploratory, wayLabel(item.stretch.direction));
+    const html = delayStretchHtml(item.stretch, item.cell, floor, slot, exploratory, wayLabel(item.stretch.direction), doc.analysis_events || []);
     const detail = panel.querySelector(".delay-detail");
     if (detail) detail.innerHTML = html;
     for (const [lineId, line] of jtDelay.lines) {
@@ -5329,7 +5388,7 @@ function previewEnabled() {
 }
 
 const JT_FILTER_IDS = ["service", "direction", "from", "to", "mode", "days", "from-date", "to-date",
-  "time-from", "time-to", "evidence", "identity", "quality", "cohort"];
+  "time-from", "time-to", "evidence", "identity", "quality", "cohort", "events"];
 
 function jtClockMinutes(clock) {
   const [h, m] = String(clock || "00:00").split(":").map(Number);
@@ -5343,7 +5402,8 @@ function journeyTimesFilter(rows, filters) {
     return (start <= end ? at >= start && at <= end : at >= start || at <= end)
       && (filters.evidence !== "measured" || !t.estimated)
       && (!filters.identity || filters.identity === "all" || t.match === filters.identity)
-      && (filters.quality !== "clear" || !t.qualityFlags.length)
+      && (filters.quality !== "clear" || !(t.qualityFlags || []).length)
+      && (filters.events !== 'clear' || !(t.exclusions || []).length)
       && (!filters.cohort || filters.cohort === "all" || jtCohort(t) === filters.cohort);
   });
 }
@@ -5351,7 +5411,7 @@ function journeyTimesCsv(rows, doc) {
   const fields = ["build_id", "as_of", "time_basis", "service", "operator", "day", "tripId", "fromAtco", "toAtco", "start", "departEpoch", "arriveEpoch",
     "observedSecs", "scheduledSecs", "departureLatenessSecs", "arrivalLatenessSecs", "estimated", "promised",
     "match", "methodVersion", "dataVersion", "routePattern", "fromSequence", "toSequence",
-    "qualityFlags", "sourceFiles", "departInterval", "arriveInterval"];
+    "qualityFlags", "exclusions", "sourceFiles", "departInterval", "arriveInterval"];
   const quote = value => {
     let text = value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value);
     if (/^[=+@\t\r]/.test(text)) text = "'" + text;
@@ -5370,6 +5430,7 @@ function journeyTimesShareUrl(index) {
   if (jtView() === "simple") {
     url.searchParams.set("jt-day", jtDay(jtEntry.day).key);
     url.searchParams.set("jt-period", jtPeriod(jtEntry.period).key);
+    url.searchParams.set("jt-events", jtEntry.noEvents ? "clear" : "all");
   }
   url.hash = "view=j";
   return url.href;
@@ -5394,7 +5455,7 @@ function journeyTimesPointHtml(t) {
   return `<strong>${escapeHtml(jtDayLabel(t.day))}, left at ${escapeHtml(t.start)}</strong>
     <p>Took ${jtMinutes(t.observedSecs)}${t.promised ? `; the timetable allows ${jtMinutes(t.scheduledSecs)},
       so ${m === 0 ? "it matched the timetable" : `${m} min ${delay > 0 ? "slower" : "quicker"}`}.
-      ${jtLatenessWords(t.departureLatenessSecs, "Left")}, ${jtLatenessWords(t.arrivalLatenessSecs, "arrived")}`
+      ${jtLatenessWords(t.departureLatenessSecs, "Near origin")}, ${jtLatenessWords(t.arrivalLatenessSecs, "near destination")}`
       : ". The timetable gives no time at one of these stops"}.</p>
     <p>${t.estimated ? "One stop's time is estimated" : "Seen at both stops"} · ${
       t.match === "declared" ? "reported by the operator" : t.match === "inferred" ? "matched by position" : escapeHtml(t.match)}.
@@ -5419,7 +5480,8 @@ function journeyTimesEvidenceHtml(doc, index, timings, excluded) {
       ${methods.some(m => Number(m) < 4 || m === "unknown") ? "Legacy matching has not been revalidated from raw recordings." : ""}
       Inferred matches use a limited time window and may miss very late buses.</p>
     <p>Time of day is the observed departure in Europe/London. Days refer to timetable service days.
-      Extra section time includes dwell and holding. Arrival lateness also includes delay inherited upstream.
+      Extra section time includes dwell and holding. Lateness near the destination also includes delay inherited upstream.
+      These location reports approximate stop departure, not passenger arrival.
       These observations alone do not establish traffic as the cause, or the proportion of all scheduled buses delayed.</p>
     <p>${escapeHtml(doc.method || "Original observation method was not recorded.")}</p>
     ${(doc.caveats || []).map(c => `<p>${escapeHtml(c)}</p>`).join("")}
@@ -5445,6 +5507,7 @@ async function renderJourneyTimes() {
   let shared = null;
   try { if (!jtEntry.sharedApplied && new URLSearchParams(location.search).has("jt-service")) shared = new URLSearchParams(location.search); } catch {}
   if (shared) jtEntry.mode = "browse";
+  if (shared) jtEntry.noEvents = shared.get("jt-events") === "clear";
   if (shared && !jtEntry.sharedApplied && (shared.get("jt-period") || shared.get("jt-day"))) {
     const slot = jtSlotFromLink(shared.get("jt-day"), shared.get("jt-period"));
     if (slot.day) jtEntry.day = slot.day;
@@ -5706,7 +5769,7 @@ async function renderJourneyTimes() {
     if (shared) jtEntry.sharedApplied = true;
     const val = key => document.getElementById(`journey-times-${key}`)?.value;
     const filters = {start: val("time-from"), end: val("time-to"), evidence: val("evidence"),
-      identity: val("identity"), quality: val("quality"), cohort: val("cohort")};
+      identity: val("identity"), quality: val("quality"), cohort: val("cohort"), events: val("events")};
     const timings = journeyTimesFilter(journeyTimesForDays(all, daysSel.value,
       { from: fromDate ? fromDate.value : "", to: toDate ? toDate.value : "" }), filters);
     const refused = journeyTimesContradictions(
@@ -5728,7 +5791,7 @@ async function renderJourneyTimes() {
            recorded. Try two stops on the same side of the road.</p>`;
       host.querySelector(".jt-reset-days")?.addEventListener("click", () => {
         daysSel.value = "all";
-        for (const [key, value] of Object.entries({"time-from": "00:00", "time-to": "23:59", evidence: "all", identity: "all", quality: "all", cohort: "all"})) {
+        for (const [key, value] of Object.entries({"time-from": "00:00", "time-to": "23:59", evidence: "measured", identity: "declared", quality: "clear", cohort: "all", events: "all"})) {
           const el = document.getElementById(`journey-times-${key}`); if (el) el.value = value;
         }
         if (rangeBox) rangeBox.hidden = true;
@@ -5743,8 +5806,12 @@ async function renderJourneyTimes() {
       + `${jtMinutes(summary.medianSecs)} over ${summary.journeys} tracked journeys.`);
     const schedule = journeyTimesScheduleLine(doc, Number(fromSel.value), Number(toSel.value),
       summary.days, timings);
+    const coverageDays = journeyTimesForDays([...new Set([
+      ...(doc.window_days || doc.days || []), ...Object.keys(doc.schedule?.days || {})])]
+      .sort().map(day => ({day})), daysSel.value,
+      {from: fromDate?.value || '', to: toDate?.value || ''}).map(t => t.day);
     const coverage = journeyTimesCoverage(doc, Number(fromSel.value), Number(toSel.value),
-      summary.days, all, "any", { start: filters.start, end: filters.end });
+      coverageDays, all, "any", { start: filters.start, end: filters.end }, filters);
     const rows = timings.map((t, i) =>
       `<tr><td>${escapeHtml(t.day)}</td><td><button type="button" class="jt-link" data-jt-point="${i}">${escapeHtml(t.start)}</button></td>`
       + `<td>${jtMinutes(t.observedSecs)}${t.estimated ? " *" : ""}</td>`
@@ -5771,9 +5838,8 @@ async function renderJourneyTimes() {
         ${jtPick.unplaceable.length === 1 ? "is" : "are"} just outside the area
         this map draws, so ${jtPick.unplaceable.length === 1 ? "it is" : "they are"}
         not marked on it. The figures above are unaffected.</p>` : ""}
-      ${coverage && coverage.scheduled ? `<p class="jt-provenance">The timetable scheduled
-        ${coverage.scheduled} journeys between these stops on these days and hours; a bus
-        was tracked making ${coverage.tracked} of them.</p>` : ""}
+      ${jtCoverageHtml(coverage)}
+      ${jtEventsHtml(timings, doc)}
       <p class="jt-provenance">${timings.length} of ${all.length} recorded journeys match these filters.
         ${new Set(timings.map(jtCohort)).size > 1 ? "Journeys under more than one timetable or route version are combined here. Choose one under Timetable version for a like-for-like comparison." : ""}</p>
       <div class="jt-chart-area">
@@ -5799,7 +5865,7 @@ async function renderJourneyTimes() {
         <li>Fastest ${jtMinutes(summary.fastestSecs)}</li>
         <li>Slowest ${jtMinutes(summary.slowestSecs)}</li>
         ${summary.p90Secs != null
-          ? `<li>Allow ${jtMinutes(summary.p90Secs)}: ${summary.longerThanP90 || 0} of
+          ? `<li>At least 90% took up to ${jtMinutes(summary.p90Secs)}: ${summary.longerThanP90 || 0} of
              ${summary.journeys} took longer</li>`
           : `<li class="jt-thin">Too few journeys to suggest how long to allow
              (${summary.journeys} of the ${summary.percentileFloor} needed)</li>`}
@@ -11796,6 +11862,11 @@ function initJourneyPlanner() {
   const list = document.getElementById("plan-stops");
   const out = document.getElementById("plan-results");
   let here = null;
+  let request = 0;
+  const invalidate = () => { request++; out.innerHTML = ''; };
+  fromIn.addEventListener('input', invalidate);
+  toIn.addEventListener('input', invalidate);
+  for (const id of ['plan-day','plan-time']) document.getElementById(id)?.addEventListener('input', invalidate);
 
   const fill = () => {
     if (list.childElementCount) return;
@@ -11809,18 +11880,22 @@ function initJourneyPlanner() {
   const hereBtn = document.getElementById("plan-here");
   if (!("geolocation" in navigator)) hereBtn.hidden = true;
   hereBtn.addEventListener("click", () => {
+    const mine = ++request;
     out.innerHTML = `<p class="plan-note">Finding where you are…</p>`;
     navigator.geolocation.getCurrentPosition(pos => {
+      if (mine !== request) return;
       here = { lat: pos.coords.latitude, lon: pos.coords.longitude };
       fromIn.value = "My location";
       out.innerHTML = "";
     }, () => {
+      if (mine !== request) return;
       out.innerHTML = `<p class="plan-note">Your location was not available. Type a stop instead.</p>`;
     }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
   });
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const mine = ++request;
     const choices = planStopChoices();
     const a = fromIn.value === "My location" && here ? here : choices.get(fromIn.value.trim());
     const b = choices.get(toIn.value.trim());
@@ -11832,11 +11907,16 @@ function initJourneyPlanner() {
     out.innerHTML = `<p class="plan-note">Planning…</p>`;
     track("journey-plan");
     try {
-      const q = new URLSearchParams({ from_lat: a.lat.toFixed(5), from_lon: a.lon.toFixed(5),
-                                      to_lat: b.lat.toFixed(5), to_lon: b.lon.toFixed(5) });
-      out.innerHTML = planResultsHtml(await apiFetch(`/api/plan?${q}`));
+      const q = new URLSearchParams({ from_lat: a.lat.toFixed(4), from_lon: a.lon.toFixed(4),
+                                      to_lat: b.lat.toFixed(4), to_lon: b.lon.toFixed(4) });
+      const day = document.getElementById('plan-day')?.value;
+      const when = document.getElementById('plan-time')?.value;
+      if (day) q.set('day', day);
+      if (when) q.set('when', when);
+      const data = await apiFetch(`/api/plan?${q}`);
+      if (mine === request) out.innerHTML = planResultsHtml(data);
     } catch {
-      out.innerHTML = planResultsHtml({ available: false, reason: "upstream" });
+      if (mine === request) out.innerHTML = planResultsHtml({ available: false, reason: "upstream" });
     }
   });
 
@@ -12403,6 +12483,14 @@ function loadFareTables() {
  *  ride is the wrong way to be wrong. Null when the route or either stop is
  *  not in a published table.
  */
+function fareTableIsCurrent(table) {
+  if (!table) return false;
+  const today = new Intl.DateTimeFormat("en-CA", {timeZone: "Europe/London",
+    year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date());
+  return (!table.valid_from || table.valid_from <= today)
+    && (!table.valid_to || table.valid_to >= today);
+}
+
 function publishedSingleFare(service, operator, fromAtco, toAtco,
                              tables = state.fareTables && state.fareTables.tables) {
   if (!Array.isArray(tables) || !service || !fromAtco || !toAtco) return null;
@@ -12410,6 +12498,7 @@ function publishedSingleFare(service, operator, fromAtco, toAtco,
   const svc = String(service).toUpperCase();
   let best = null;
   for (const t of tables) {
+    if (!fareTableIsCurrent(t)) continue;
     if (String(t.line || "").toUpperCase() !== svc) continue;
     if (operator && t.operator && family(t.operator) !== family(operator)) continue;
     if (!t._price) t._price = new Map((t.prices || []).map(([i, j, p]) => [`${i}-${j}`, p]));
@@ -12476,19 +12565,29 @@ function renderFareLookup() {
   if (!routeSel || !fromSel || !toSel || !result) return;
   host.hidden = false;
 
-  if (!routeSel.dataset.filled) {
+  const active = data.tables.map((t, i) => fareTableIsCurrent(t) ? i : null).filter(i => i != null);
+  const signature = JSON.stringify(active.map(i => [i, data.tables[i].line, data.tables[i].direction]));
+  if (routeSel.dataset.validity !== signature) {
+    const previous = routeSel.value;
+    routeSel.dataset.validity = signature;
     routeSel.dataset.filled = "1";
     const byOp = new Map();
     data.tables.forEach((t, i) => {
+      if (!active.includes(i)) return;
       const op = getOperatorName(t.operator) || t.operator;
       if (!byOp.has(op)) byOp.set(op, []);
       byOp.get(op).push(`<option value="${i}">${escapeHtml(t.line)}: ${escapeHtml(t.direction)}</option>`);
     });
     routeSel.innerHTML = `<option value="">Choose a route…</option>` +
       [...byOp].map(([op, opts]) => `<optgroup label="${escapeAttr(op)}">${opts.join("")}</optgroup>`).join("");
-    routeSel.addEventListener("change", () => fillFareStages(true));
-    fromSel.addEventListener("change", () => fillFareStages(false));
-    toSel.addEventListener("change", showFareLookupResult);
+    routeSel.value = previous !== '' && active.includes(Number(previous)) ? previous : '';
+    fillFareStages(true);
+    if (!routeSel.dataset.bound) {
+      routeSel.dataset.bound = '1';
+      routeSel.addEventListener("change", () => fillFareStages(true));
+      fromSel.addEventListener("change", () => fillFareStages(false));
+      toSel.addEventListener("change", showFareLookupResult);
+    }
     const missing = data.services_without_tables || [];
     if (basis) {
       const list = (data.sources || []).map(src =>
@@ -12503,10 +12602,11 @@ function renderFareLookup() {
 }
 
 function fillFareStages(routeChanged) {
-  const t = state.fareTables && state.fareTables.tables[Number(document.getElementById("fl-route").value)];
+  const selected = document.getElementById("fl-route").value;
+  const t = selected === '' ? null : state.fareTables?.tables[Number(selected)];
   const fromSel = document.getElementById("fl-from");
   const toSel = document.getElementById("fl-to");
-  if (!t) {
+  if (!fareTableIsCurrent(t)) {
     fromSel.innerHTML = toSel.innerHTML = "";
     fromSel.disabled = toSel.disabled = true;
     showFareLookupResult();
@@ -12527,8 +12627,9 @@ function fillFareStages(routeChanged) {
 
 function showFareLookupResult() {
   const result = document.getElementById("fl-result");
-  const t = state.fareTables && state.fareTables.tables[Number(document.getElementById("fl-route").value)];
-  if (!t) { result.textContent = ""; return; }
+  const selected = document.getElementById("fl-route").value;
+  const t = selected === '' ? null : state.fareTables?.tables[Number(selected)];
+  if (!fareTableIsCurrent(t)) { result.textContent = ""; return; }
   const i = Number(document.getElementById("fl-from").value);
   const j = Number(document.getElementById("fl-to").value);
   const hit = (t.prices || []).find(([a, b]) => a === i && b === j);

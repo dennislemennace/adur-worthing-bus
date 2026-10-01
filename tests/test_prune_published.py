@@ -68,3 +68,23 @@ def test_an_index_naming_no_build_deletes_nothing(tmp_path, capsys):
     (tmp_path / "i.json").write_text("{}")
     assert pp.main(["--listing", str(tmp_path / "l.txt"), "--index", str(tmp_path / "i.json")]) == 1
     assert capsys.readouterr().out == ""
+
+
+def test_live_and_rollback_artifacts_survive_while_old_route_files_can_go():
+    live = index(B[9], B[8])
+    live['artifacts'] = {'old': {'file': f'builds/{B[0]}/summary.json'}}
+    rollback = index(B[8], B[7])
+    rollback['artifacts'] = {'old': {'file': f'builds/{B[1]}/observations.json.gz'}}
+    text = listing(*B[:10]) + '\n'.join([
+        f'2026-10-01 03:40:00 123 journey-times/builds/{B[0]}/summary.json',
+        f'2026-10-02 03:40:00 123 journey-times/builds/{B[1]}/observations.json.gz'])
+    doomed = pp.deletable_objects(text, live, [rollback], keep=7)
+    assert f'journey-times/builds/{B[0]}/summary.json' not in doomed
+    assert f'journey-times/builds/{B[1]}/observations.json.gz' not in doomed
+    assert f'journey-times/builds/{B[0]}/700-SCSO.json' in doomed
+
+
+def test_whole_generation_pruning_protects_nested_artifact_references():
+    live = index(B[9], B[8])
+    live['artifacts'] = {'old': {'file': f'builds/{B[0]}/summary.json'}}
+    assert B[0] not in pp.to_delete(listing(*B[:10]), live)

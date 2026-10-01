@@ -12,6 +12,7 @@ import re
 
 import check_published as checks
 from observation_contract import TIME_BASIS, service_origin
+from replay_inputs import snapshot
 
 
 def encoded(value):
@@ -35,6 +36,9 @@ def validate_observations(doc):
             raise ValueError("Measured call has no report evidence")
     if not doc.get("observations"):
         raise ValueError("An empty processing result cannot replace the public generation")
+    missing = checks.coverage_gaps(doc.get('coverage'))
+    if missing:
+        raise ValueError('Scheduled operators have no measured journeys: ' + ', '.join(missing))
     validate_schedule(doc)
 
 
@@ -98,6 +102,9 @@ def build_bundle(journey_dir, extras, out, sources, evidence, previous=None):
         binary[name] = raw
     if failures.items:
         raise ValueError(f"Candidate failed validation: {failures.items[:5]}")
+    # Rebuilds of old observations can use a newer event register. Archive the
+    # effective publication inputs as well as the original day's inputs.
+    binary['analysis-inputs.json'] = encoded(snapshot())
     seed = {"documents": documents, "index": index, "artifacts": {
         name: hashlib.sha256(raw).hexdigest() for name, raw in binary.items()},
         "sources": sources, "evidence": evidence, "previous_build": (previous or {}).get("build_id")}

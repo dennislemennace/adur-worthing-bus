@@ -262,13 +262,17 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
         # A journey made during a recorded diversion or closure is marked with
         # it (data/analysis_exclusions.json), or left out with `--exclude`.
         if exclusions:
-            atcos = [listed[c[0]]["atco"] for c in journey["calls"]]
-            path = [coords[a] for a in atcos if a in coords]
-            first_epoch = next((c[5] for c in journey["calls"] if c[5] is not None), None)
-            when = (datetime.fromtimestamp(first_epoch, timezone.utc) if first_epoch
-                    else datetime.fromisoformat(f"{journey['day']}T12:00:00+00:00"))
-            marks = ax.affecting(exclusions, operator, service, when,
-                                 stop_ids=atcos, path=path)
+            marks = set()
+            for first, second in zip(journey['calls'], journey['calls'][1:]):
+                if first[5] is None or second[5] is None:
+                    continue  # no invented noon timestamp for ambiguous legacy data
+                atcos = [listed[c[0]]['atco'] for c in (first, second)]
+                path = [coords[a] for a in atcos if a in coords]
+                marks.update(ax.affecting(exclusions, operator, service,
+                    datetime.fromtimestamp(first[5], timezone.utc),
+                    until=datetime.fromtimestamp(second[5], timezone.utc),
+                    stop_ids=atcos, path=path))
+            marks = sorted(marks)
             if marks and drop_excluded:
                 quarantined.append({"day": journey["day"], "trip_id": journey["trip_id"],
                                     "reason": "analysis_exclusion", "exclusions": marks,
@@ -329,6 +333,7 @@ def route_document(service, rows, meta, timing_points_only=TIMING_POINTS_ONLY,
         # is a fact either about the service that day or about our collection,
         # and is theirs to know.
         "window_days": list(meta["days"]),
+        "analysis_events": ax.public_entries(exclusions),
         "data_versions": meta["data_versions"],
         "method": "Ordered stop-call aggregation; source_methods retains each input's observation method. "
                   "Legacy folder-relative times are normalised to service day; legacy matching remains unverified.",

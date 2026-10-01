@@ -75,6 +75,11 @@ const MAX_STORED_BYTES = 4 * 1024 * 1024 * 1024; // 40% of the 10 GB free tier
 // trusting this comment.
 const MAX_STORED_OBJECTS = 30_000;
 const USAGE_KEY = "r2-usage";
+const USAGE_MAX_AGE_MS = 70 * 60 * 1000;
+const MAX_FEED_BYTES = 1024 * 1024;
+// Reserve a worst-case two feeds per minute until the next required measure.
+const WRITE_HEADROOM_OBJECTS = 142;
+const WRITE_HEADROOM_BYTES = WRITE_HEADROOM_OBJECTS * MAX_FEED_BYTES;
 // The published catalogue: every day it names has been archived in an
 // immutable release, so its raw objects may go.
 const CATALOGUE_KEY = "journey-times/index.json";                    // cached in the KV the Worker already binds
@@ -125,25 +130,27 @@ export function keyDay(key) {
   return parts.length > 2 ? parts[1] : "";
 }
 
-/** What the bucket held when it was last measured, or null if it never has
- *  been. Never throws: a KV outage must not stop recording. */
+/** What the bucket held when last measured. Missing or unavailable accounting
+ *  pauses writes; an outage must not silently remove the storage budget. */
 export async function readUsage(env) {
   if (!env.RATE_LIMIT) return null;
   try {
     const raw = await env.RATE_LIMIT.get(USAGE_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
-    return null;
+    return { unavailable: true };
   }
 }
 
-/** Whether the bucket is inside its budget. Only a *measured* overrun stops
- *  recording: an unmeasured bucket is not assumed to be full, since the hourly
- *  measurement will correct it within the hour and long before the free tier. */
-export function withinBudget(usage) {
-  if (!usage) return { ok: true, reason: "unmeasured" };
-  if (usage.bytes >= MAX_STORED_BYTES) return { ok: false, reason: "byte_budget" };
-  if (usage.objects >= MAX_STORED_OBJECTS) return { ok: false, reason: "object_budget" };
+/** Require a fresh measurement plus space for the largest allowed writes
+ *  between measurements. Unknown, invalid or stale usage pauses recording. */
+export function withinBudget(usage, when = new Date()) {
+  if (!usage || !Number.isFinite(usage.bytes) || usage.bytes < 0
+      || !Number.isFinite(usage.objects) || usage.objects < 0) return {ok:false, reason:'unmeasured_budget'};
+  const age = when.getTime() - Date.parse(usage.measured_at);
+  if (!Number.isFinite(age) || age < 0 || age > USAGE_MAX_AGE_MS) return {ok:false, reason:'stale_budget'};
+  if (usage.bytes + WRITE_HEADROOM_BYTES >= MAX_STORED_BYTES) return { ok: false, reason: "byte_budget" };
+  if (usage.objects + WRITE_HEADROOM_OBJECTS >= MAX_STORED_OBJECTS) return { ok: false, reason: "object_budget" };
   return { ok: true };
 }
 
@@ -237,7 +244,14 @@ export async function recordSnapshot(env, when, fetchImpl = fetch) {
       console.error(`snapshot prune failed: ${err && err.message}`);
     }
   }
-  const budget = withinBudget(await readUsage(env));
+  let usage = await readUsage(env);
+  // Bootstrap a new cache once. Stale measurements wait for the hourly retry,
+  // so an accounting outage cannot cause a full bucket scan every minute.
+  if (!usage && env.RATE_LIMIT) {
+    try { await pruneAndMeasure(env, when); usage = await readUsage(env); }
+    catch { /* an unknown budget pauses recording */ }
+  }
+  const budget = withinBudget(usage, when);
   if (!budget.ok) {
     console.error(`snapshots paused: ${budget.reason}; the processor is not clearing the bucket`);
     return { recorded: false, reason: budget.reason };
@@ -277,6 +291,7 @@ export async function recordSnapshot(env, when, fetchImpl = fetch) {
     // ~300 KB against the Worker's 128 MB, but this is the one place that grows
     // with the feed, so the size is logged to make growth visible.
     const body = await res.arrayBuffer();
+    if (body.byteLength > MAX_FEED_BYTES) return {recorded:false, reason:'payload_budget', key, rt};
     await env.SNAPSHOTS.put(key, body, {
       httpMetadata: { contentType: "application/xml" },
       customMetadata: { recordedAt: when.toISOString() },
@@ -302,6 +317,7 @@ async function storeFeed(env, fetchImpl, key, when, url, contentType) {
       return { stored: false, reason: `http_${res.status}` };
     }
     const body = await res.arrayBuffer();
+    if (body.byteLength > MAX_FEED_BYTES) return {stored:false, reason:'payload_budget'};
     await env.SNAPSHOTS.put(key, body, {
       httpMetadata: { contentType },
       customMetadata: { recordedAt: when.toISOString() },

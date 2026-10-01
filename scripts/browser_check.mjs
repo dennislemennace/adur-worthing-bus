@@ -2786,8 +2786,8 @@ async function checkJourneyReview(page, viewport) {
       departure:host.querySelector(".jt-table tbody tr td:nth-child(2)")?.textContent};
   })()`);
   check(`journey review ${viewport}: mobile chart text is readable`, result.font >= 12, `${result.font.toFixed(1)}px`);
-  check(`journey review ${viewport}: measured and declared filters agree with chart`, result.initialDots === 2 && result.declaredDots === 1, JSON.stringify(result));
-  check(`journey review ${viewport}: tapping a point opens its actual departure and evidence`, /08:00/.test(result.detail) && /arrived (on time|\d+ min (late|early))/i.test(result.detail), result.detail.slice(0,140));
+  check(`journey review ${viewport}: measured and declared defaults agree with chart`, result.initialDots === 1 && result.declaredDots === 1, JSON.stringify(result));
+  check(`journey review ${viewport}: tapping a point opens its departure proxy and evidence`, /08:00/.test(result.detail) && /near destination (on time|\d+ min (late|early))/i.test(result.detail), result.detail.slice(0,140));
   check(`journey review ${viewport}: selected-stop departure is shown in the table`, result.departure === "08:00", result.departure);
   check(`journey review ${viewport}: chart expands inside the viewport`, result.expands);
   check(`journey review ${viewport}: shared links restore the chosen cohort and metric`, result.restored);
@@ -2830,7 +2830,13 @@ async function checkJourneySimple(page, viewport) {
     const usually = simple?.querySelector(".jt-simple-usually strong")?.textContent.trim() || "";
     const legend = simple?.querySelector(".jt-legend")?.textContent || "";
     const line = simple ? simple.querySelectorAll("path.jt-timetable--weekday").length : 0;
-    const trust = simple?.querySelector(".jt-simple-trust")?.textContent.replace(/\\s+/g, " ") || "";
+    const trust = host.textContent.replace(/\\s+/g, " ");
+    const how = simple?.querySelector('.jt-how');
+    const measurementHidden = !!how && !how.open
+      && how.querySelector('summary')?.textContent === 'How we measure'
+      && how.textContent.includes('measured endpoints')
+      && !simple.innerText.includes('measured endpoints')
+      && !/\\d{4}-\\d{2}-\\d{2}/.test(how.textContent);
     const small = [...(simple ? simple.querySelectorAll("button, a") : [])]
       .map(el => el.getBoundingClientRect()).filter(r => r.width && Math.min(r.width, r.height) < 44).length;
     // One control reads the chart: the hour slider, not a tab stop per bus.
@@ -2861,21 +2867,22 @@ async function checkJourneySimple(page, viewport) {
     CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false; jtEntry.view = undefined;
     await renderJourneyTimes();
     return JSON.stringify({simple: !!simple, usually, detailed, legend, line, trust, small, tapped, pressed,
-      dotStops, moved, badge, allow, keptFocus, said, hoursTable, bodyWidth, width: innerWidth});
+      dotStops, moved, badge, allow, keptFocus, said, hoursTable, measurementHidden, bodyWidth, width: innerWidth});
   })()`));
   check(`journey simple ${viewport}: the passenger answer renders`, result.simple && !!result.usually, JSON.stringify(result));
+  check(`journey simple ${viewport}: technical detail stays in the closed measurement disclosure`, result.measurementHidden);
   check(`journey simple ${viewport}: Simple and Detailed agree on the headline`, result.usually === result.detailed,
     `Simple "${result.usually}" against Detailed "${result.detailed}"`);
   check(`journey simple ${viewport}: the line is the recorded timetable`, result.line === 1
     && /Timetable/.test(result.legend) && !/from the buses we timed/.test(result.legend), result.legend.slice(0, 160));
   check(`journey simple ${viewport}: it says how many scheduled buses were tracked`,
-    /timetable scheduled 13 between these stops/.test(result.trust) && /tracked 12 of them/.test(result.trust), result.trust);
+    /13 scheduled → 12 tracked between these stops → 12 with measured endpoints → 12 eligible/.test(result.trust), result.trust.slice(0, 1400));
   check(`journey simple ${viewport}: the hour slider says in words what an hour shows`,
     result.moved && /^Leaving between \d\d:00 and \d\d:00 on weekdays/.test(result.tapped), result.tapped);
   check(`journey simple ${viewport}: no bus on the chart is its own tab stop`, result.dotStops === 0, `${result.dotStops} tab stops`);
   // The fixture's timetable runs every 30 minutes, which is "some buses".
   check(`journey simple ${viewport}: how often buses run, and how long to allow, are in words`,
-    result.badge === "Some buses · every 30 min" && /Allow \d+ min (None|Only \d+) of the 12 buses we timed took longer/.test(result.allow),
+    result.badge === "Some buses · every 30 min" && /Allow \d+ min 9 in 10 recorded journeys took this long or less\. (None|Only \d+) of the 12 buses we timed took longer/.test(result.allow),
     `${result.badge} | ${result.allow}`);
   check(`journey simple ${viewport}: the time-of-day choice responds`, result.pressed === "true");
   check(`journey simple ${viewport}: a pressed chip keeps the focus after the redraw`, result.keptFocus === "10-16",
@@ -3722,6 +3729,25 @@ async function checkHeaderControlRow(page, where) {
 
 // ── Run ─────────────────────────────────────────────────────
 
+async function checkPlannerControls(page, viewport) {
+  const result = await page.evaluate(`(() => {
+    setViewMode('live'); closePanel(); setSheetDetent('full');
+    const form = document.getElementById('plan-form');
+    form.scrollIntoView({block:'center'});
+    const fields = ['plan-day','plan-time'].map(id => {
+      const el = document.getElementById(id), box = el.getBoundingClientRect();
+      return {id, height:box.height, width:box.width,
+        label:document.querySelector('label[for="' + id + '"]')?.textContent};
+    });
+    return {fields, privacy:form.textContent.includes('Buses & Trains')
+      && !!form.querySelector('a[href="privacy.html#journey-location"]'),
+      overflow:document.documentElement.scrollWidth > innerWidth + 1};
+  })()`);
+  check(`planner ${viewport}: date and time are labelled usable controls`,
+    result.fields.every(f => f.height >= 44 && f.width >= 44 && f.label), JSON.stringify(result.fields));
+  check(`planner ${viewport}: location transfer is disclosed without overflow`, result.privacy && !result.overflow);
+}
+
 try {
   await fetch(`${CDP}/json/version`);
 } catch {
@@ -3732,6 +3758,7 @@ try {
 const page = await openPage(VIEWPORTS[0]);
 await checkBasemap(page);
 if (process.argv.includes("--journey-review")) {
+  await checkPlannerControls(page, VIEWPORTS[0].name);
   await checkJourneyCompactFile(page);
   await checkJourneyPairService(page, VIEWPORTS[0].name);
   await checkJourneyBar(page, VIEWPORTS[0].name);
@@ -3743,6 +3770,7 @@ if (process.argv.includes("--journey-review")) {
 await checkPublishedDelayMap(page, VIEWPORTS[0].name);
   for (const vp of VIEWPORTS.slice(1)) {
     const p = await openPage(vp);
+    await checkPlannerControls(p, vp.name);
     await checkJourneyPairService(p, vp.name);
     await checkJourneyBar(p, vp.name);
     await checkJourneyKept(p, vp.name);

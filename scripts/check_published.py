@@ -267,6 +267,24 @@ def check_cells(cells, name, fails, min_obs=None, min_journeys=None):
                           f'{label}: {cell.get("journeys")} of {min_journeys}')
 
 
+def coverage_gaps(coverage):
+    """Reject total loss of regularly scheduled local operators.
+
+    The ten-trip floor avoids treating a one-off working as a feed outage.
+    This is a completeness gate, not proof of service-level coverage.
+    """
+    totals = {}
+    aliases = {'SCSC':'SCSO', 'CMPA':'COMT'}
+    for cohort in (coverage or {}).get('cohorts', []):
+        operator = aliases.get(cohort.get('operator'), cohort.get('operator'))
+        if operator not in {'SCSO', 'BHBC', 'METR', 'COMT'}:
+            continue
+        slot = totals.setdefault(operator, [0, 0])
+        slot[0] += cohort.get('scheduled_in_recording_span', 0)
+        slot[1] += cohort.get('journeys_with_measured_calls', 0)
+    return sorted(op for op, (scheduled, measured) in totals.items() if scheduled >= 10 and measured == 0)
+
+
 def check_summary(summary, name, fails):
     """One daily or monthly summary: it has to say what it rests on."""
     for field in ("method", "caveats", "as_of"):
@@ -292,6 +310,8 @@ def check_summary(summary, name, fails):
                   f'{name}: measured_only={summary.get("measured_only")!r}')
 
     coverage = summary.get("coverage") or {}
+    if summary.get('day') and coverage_gaps(coverage):
+        fails.add('scheduled operator has no measured journeys', f'{name}: {coverage_gaps(coverage)}')
     if summary.get("day") and "snapshots_by_hour" not in coverage:
         fails.add("daily summary does not report coverage by hour", name)
 

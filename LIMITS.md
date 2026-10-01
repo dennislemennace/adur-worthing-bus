@@ -134,6 +134,13 @@ lines and timetables are API calls too, and arrive with it.
   board falls back to our own estimates and timetable times. On the per-hit
   plan the daily cap is a spending cap: 1,000 a day is at most 90p.
 - Per-stop response cache: `nb:{stop_id}` for `NEXTBUSES_CACHE_TTL=90` s.
+  Concurrent stop-board requests share one upstream attempt. Failed attempts
+  remain counted and back off for 30 seconds; the SIRI diagnostic shares this
+  gate. Counters are local files, not a provider-enforced spending cap: a
+  redeploy that replaces the filesystem, or multiple processes, can reset or
+  duplicate the allowance. At the user-supplied £0.0009/hit, 600 attempts across
+  two days cost £0.54, conditional on one surviving 300/day counter. Visitor
+  count alone cannot determine requests or the actual bill.
   **Hardcoded constant** at `api/main.py:67` — not env-configurable; change
   requires a code edit.
 - Skip threshold: don't query if the next scheduled departure is more than
@@ -197,10 +204,14 @@ lines and timetables are API calls too, and arrive with it.
   `not_configured` and makes no call. The key is sent as a header, never in a
   URL.
 - Capped at `BAT_DAILY_LIMIT` (default **250**, below the free tier), counted
-  in `.bat_quota.json` so a restart does not reset it. A failed call is
-  refunded.
-- The same question is cached for 5 minutes: "now" is rounded down to the
-  five minutes. Coordinates more than about 15 km outside the live-map box
+  in `.bat_quota.json`. Every attempted call counts, including errors/timeouts;
+  simultaneous identical requests share one call. This counter survives only
+  while its filesystem survives: ephemeral redeploys and multiple instances
+  are not covered by a shared, durable billing cap.
+- Successful questions are cached for 5 minutes (upstream failures for 30 seconds).
+  "Now" rounds up to the next minute, and responses exclude departed options.
+  Coordinates are rounded to four decimal places before transmission.
+  Coordinates more than about 15 km outside the live-map box
   are refused before any call.
 - Its terms of use were not found when this was added (28 Sep 2026). Read
   them before the planner leaves preview.
@@ -314,8 +325,8 @@ section is the arithmetic that cut-off is set from.
 - **Storage budget: 4 GB and 30,000 objects.** The 4 GB is 40% of the free
   allowance and is the limit that matters, because bytes are what R2 charges
   for. Past either, the recorder stops writing and logs `snapshots paused`
-  rather than spending. The margin absorbs an hour of writing on a stale
-  measurement.
+  rather than spending. Each feed object is capped at 1 MiB; the usage check
+  reserves 142 objects and 142 MiB for 70 minutes of two feeds before writing.
 - **The object ceiling is a runaway guard, not a cost control** — objects are
   billed as operations, which are nowhere near their limit. It was 15,000, sized
   when one feed was recorded, and a week of two feeds is 18,270: the recorder
@@ -326,8 +337,10 @@ section is the arithmetic that cut-off is set from.
   only when it is taken — once an hour, ~24 writes a day against the 1,000 the
   submission counters share. Measuring every minute would spend 1,440 of them,
   which is what the hourly test exists to prevent.
-- A failed measurement or an unreadable budget never stops recording: losing a
-  minute of evidence is worse than acting on an hour-old measurement.
+- Missing, malformed, unavailable or over-70-minute-old accounting pauses
+  recording. A missing cache can be bootstrapped by a measurement; a stale
+  cache waits for the hourly retry. This favours the explicit spending budget
+  over continuous collection when storage cannot be verified.
 
 **Implications**
 
@@ -464,7 +477,11 @@ of provider pricing. No paid tier or increased raw retention is introduced.
   other account usage and raw measurement headroom still need monitoring.
   **Retention (from 26 September 2026): the newest seven generations**, plus the
   live one and its rollback whatever their age (`scripts/prune_published.py`,
-  run before the budget check). A link pinned to a retired generation with
+  run before the budget check). All retained manifests are read before deletion;
+  their exact referenced evidence objects survive even in older generations.
+  Unreadable manifests stop cleanup and emit a workflow warning. Retained
+  evidence still grows; the pre-upload cap remains necessary.
+  A link pinned to a retired generation with
   `?jt-build=` stops working after about a week. If the budget is still
   exceeded, the workflow stops and keeps the previous public generation.
 - Every new generation adds per-service documents, summaries and observations,

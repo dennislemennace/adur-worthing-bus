@@ -267,3 +267,27 @@ def test_one_client_going_away_does_not_cancel_the_others():
         return await follower
 
     assert asyncio.run(scenario()) == {"ok": True}
+
+
+def test_disconnected_leader_does_not_allow_a_second_upstream_call():
+    import asyncio
+    calls = []
+    async def scenario():
+        release = asyncio.Event()
+        async def produce():
+            calls.append(1)
+            await release.wait()
+            return {"ok": True}
+        leader = asyncio.create_task(main.cache_single_flight_async("late-follower", produce, 15))
+        await asyncio.sleep(0)
+        leader.cancel()
+        try:
+            await leader
+        except asyncio.CancelledError:
+            pass
+        follower = asyncio.create_task(main.cache_single_flight_async("late-follower", produce, 15))
+        await asyncio.sleep(0)
+        release.set()
+        await follower
+    asyncio.run(scenario())
+    assert len(calls) == 1

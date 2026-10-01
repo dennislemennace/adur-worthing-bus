@@ -222,6 +222,17 @@ def test_a_declaration_the_bus_is_driving_against_is_not_believed(monkeypatch):
     assert bus.get("trip_source") != "feed", "a contradicted declaration was taken as fact"
     assert "lateness_secs" not in bus, "the bus was still given the declared journey's lateness"
     assert "declared_journey_contradicted_by_heading" in bus["identity_flags"]
+    assert 'service_origin_epoch' not in bus
+
+
+def test_service_origin_stays_internal_in_vehicle_response(monkeypatch):
+    import asyncio
+    async def vehicles():
+        return [{'vehicle_ref': 'bus', 'service_origin_epoch': 1234, 'trip_id': 'private'}]
+    monkeypatch.setattr(main, '_check_api_key', lambda: None)
+    monkeypatch.setattr(main, '_live_vehicles', vehicles)
+    result = asyncio.run(main.get_vehicles())
+    assert result['vehicles'] == [{'vehicle_ref': 'bus'}]
 
 
 def test_a_diverted_bus_off_its_route_keeps_its_journey(monkeypatch):

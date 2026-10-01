@@ -28,6 +28,7 @@ from api import trip_match                    # noqa: E402
 from api.timetable_db import Timetable        # noqa: E402
 from observation_contract import TIME_BASIS, digest_file, route_pattern_id, service_origin
 from recorded_inputs import recorded_stream
+from replay_inputs import PATHS as REPLAY_PATHS
 
 SIRI_NS = "http://www.siri.org.uk/siri"
 
@@ -96,12 +97,16 @@ AFTER_LAST_SECS = 30 * 60
 #      Metrobus and Compass publish UTC, and read only as local every one of
 #      their declared buses was discarded: the 700 was measured on 12 journeys
 #      on 24 September 2026, against 173 on the 22nd
-METHOD_VERSION = 5
+#   6  retain disjoint declared vehicle tracks even when their scheduled windows
+#      overlap; observed track overlap, rather than timetable delay, is decisive
+METHOD_VERSION = 6
 
 METHOD = (
     "Recorded SIRI-VM and GTFS-RT positions are evaluated at their report timestamps. "
     "GTFS-RT trip identity is preferred; a declared start date and time must match the "
     "journey's scheduled first departure, read as local time or as a UTC instant. "
+    "Disjoint declared tracks survive overlapping scheduled windows; conflicting "
+    "observed tracks are resolved by identity strength and report count. "
     "Inference uses route, position, heading and "
     "a -5/+25 minute matching window. Candidate stop visits are aligned to ordered "
     "route calls. A departure estimate uses the last report within 150 m of the "
@@ -959,13 +964,10 @@ def _resolve_vehicle_journeys(tracks, scheduled_spans, declared=()):
     run and to the following one later, so its two claims are sequential in
     sightings — indistinguishable from a bus that really did run two journeys.
 
-    The discriminator is the **timetable**. One bus cannot run two journeys that
-    are scheduled to be on the road at the same time; it can run any number that
-    follow one another. So journeys are taken best-sampled first, and one is
-    rejected only where its *scheduled* span overlaps that of a journey already
-    accepted for that bus. The 10:00 and the 10:10 along the same road overlap
-    almost entirely and cannot both be this bus; an outbound at 10:00 and its
-    return at 11:15 do not, and both stand.
+    For inferred identities the timetable remains a conservative discriminator.
+    For two declared identities, use their actual track overlap instead: a
+    delayed journey can finish before the bus runs another whose scheduled
+    window overlaps. A timetable clash alone must not discard that evidence.
 
     **The underlying ambiguity remains, and its bias runs one way.** With no
     journey identifier in the feed that matches the timetable, a bus more than
@@ -987,11 +989,19 @@ def _resolve_vehicle_journeys(tracks, scheduled_spans, declared=()):
         accepted = []
         for n, key in sorted(claimed, key=lambda c: (c[1] not in declared, -c[0], scheduled_spans[c[1]][0])):
             lo, hi = scheduled_spans[key]
-            clash = any(min(hi, a_hi) - max(lo, a_lo) > OVERLAP_GRACE_SECS
-                        for a_lo, a_hi in accepted)
+            actual = [s[0] for s in tracks[key] if s[3] == ref]
+            clash = False
+            for a_lo, a_hi, other, other_actual in accepted:
+                if key in declared and other in declared:
+                    # Explicit identities may run late or out of timetable order.
+                    # Only simultaneous actual claims conflict with each other.
+                    overlap = min(max(actual), max(other_actual)) - max(min(actual), min(other_actual))
+                else:
+                    overlap = min(hi, a_hi) - max(lo, a_lo)
+                clash |= overlap > OVERLAP_GRACE_SECS
             if clash:
                 continue
-            accepted.append((lo, hi))
+            accepted.append((lo, hi, key, actual))
             keep.setdefault(ref, set()).add(key)
 
     # A report with no vehicle reference cannot be attributed to a run, so it
@@ -1095,16 +1105,7 @@ def main(argv=None):
         "provenance": {
             "runtime": {"python": sys.version, "packages": {d.metadata["Name"]: d.version for d in metadata.distributions() if d.metadata["Name"]}},
             "processing_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-            "code_sha256": {str(p.relative_to(ROOT)): digest_file(p) for p in (
-                Path(__file__), ROOT / "api/trip_match.py", ROOT / "api/gtfs_rt.py",
-                ROOT / "api/timetable_db.py", ROOT / "scripts/observation_contract.py",
-                ROOT / "scripts/reliability_stats.py", ROOT / "scripts/recorded_inputs.py",
-                ROOT / "scripts/build_journey_times.py", ROOT / "scripts/journey_times_codec.py",
-                ROOT / "scripts/query_reliability.py",
-                ROOT / "scripts/build_delay_hotspots.py", ROOT / "scripts/check_published.py",
-                ROOT / "scripts/publication_bundle.py", ROOT / "scripts/prepare_reliability_inputs.py",
-                ROOT / "scripts/archive_reliability_evidence.py",
-                ROOT / ".github/workflows/process-snapshots.yml")},
+            "code_sha256": {name: digest_file(ROOT / name) for name in REPLAY_PATHS},
             "timetable_sha256": digest_file(Path(args.timetable)),
             "timetable_label": args.timetable_version,
             "sources": manifest,

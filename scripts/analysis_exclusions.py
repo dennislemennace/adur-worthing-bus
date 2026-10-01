@@ -83,7 +83,8 @@ def path_touches(path: Sequence, polygon: Sequence) -> bool:
 
 
 def affecting(entries: list, operator: str, route: str, when: datetime,
-              stop_ids: Iterable[str] = (), path: Optional[Sequence] = None) -> list:
+              stop_ids: Iterable[str] = (), path: Optional[Sequence] = None,
+              until: Optional[datetime] = None) -> list:
     """Ids of the entries that apply to a journey or traversal at `when`.
 
     `path` is the (lat, lon) of its stops in order, where known.
@@ -96,8 +97,12 @@ def affecting(entries: list, operator: str, route: str, when: datetime,
             continue
         if e["_routes"] and str(route or "").upper() not in e["_routes"]:
             continue
-        if when < e["_from"] or (e["_to"] is not None and when > e["_to"]):
+        if (until or when) < e["_from"] or (e["_to"] is not None and when > e["_to"]):
             continue
         if (stops & e["_stops"]) or (path and path_touches(path, e.get("area") or [])):
             out.append(e["id"])
     return out
+
+
+def public_entries(entries):
+    return [{k:v for k,v in e.items() if not k.startswith('_')} for e in entries or []]

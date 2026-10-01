@@ -52,6 +52,8 @@ from api.timetable_db import (NIGHT_ENDS_SECS, Timetable,
 logging.basicConfig(level=logging.INFO,
                     format="%(levelname)s  %(name)s  %(message)s")
 log = logging.getLogger("bus_api")
+# HTTPX's INFO request lines include query strings (locations and API keys).
+logging.getLogger('httpx').setLevel(logging.WARNING)
 
 # ── Config ───────────────────────────────────────────────────
 BODS_API_KEY   = os.environ.get("BODS_API_KEY", "")
@@ -298,14 +300,18 @@ async def cache_single_flight_async(key: str, produce, ttl: int):
         # not cancel the work every other waiter is depending on.
         return await asyncio.shield(existing)
 
-    task = asyncio.ensure_future(produce())
+    async def run():
+        try:
+            value = await produce()
+            cache_set(key, value, ttl)
+            return value
+        finally:
+            # The producer owns cleanup. A disconnected first waiter must not
+            # remove the in-flight entry while upstream is still working.
+            _inflight_async.pop(key, None)
+    task = asyncio.ensure_future(run())
     _inflight_async[key] = task
-    try:
-        value = await asyncio.shield(task)
-    finally:
-        _inflight_async.pop(key, None)
-    cache_set(key, value, ttl)
-    return value
+    return await asyncio.shield(task)
 
 
 # ── Timetable store ───────────────────────────────────────────
@@ -1000,7 +1006,7 @@ async def get_vehicles():
     vehicles = await _live_vehicles()
     # 'calls' and 'trip_id' are internal; strip from the public payload
     # to keep responses small. 'trip_headsign' is what the client needs.
-    hidden = {"calls", "trip_id", "origin_ref", "destination_ref", "identity_flags"}
+    hidden = {"calls", "trip_id", "origin_ref", "destination_ref", "identity_flags", "service_origin_epoch"}
     public = [{k: val for k, val in v.items() if k not in hidden}
               for v in vehicles]
     return {"vehicles": public, "count": len(public)}
@@ -1143,19 +1149,11 @@ async def debug_live_raw(stopId: str = Query(...)):
         return {"error": "Transport API credentials not configured"}
 
     if NEXTBUSES_MODE == "siri":
-        cached = cache_get(f"nb:{stopId}")
-        if cached is None:
-            _nb_quota_rollover()
-            if _nb_quota["count"] >= NEXTBUSES_DAILY_LIMIT:
-                return {"error": "quota exhausted", "count": _nb_quota["count"],
-                        "limit": NEXTBUSES_DAILY_LIMIT}
-            _nb_quota_bump(1)
-            cached = await _fetch_nextbuses_siri(stopId)
-            if cached is None:
-                _nb_quota_bump(-1)
-                return {"error": "SIRI-SM request failed; see the API log"}
-            cache_set(f"nb:{stopId}", cached, NEXTBUSES_CACHE_TTL)
-        return {"mode": "siri", "parsed_predictions": cached[:10]}
+        result = await _nextbuses_predictions(stopId)
+        if "reason" in result:
+            return {"error": result["reason"], "count": _nb_quota["count"],
+                    "limit": NEXTBUSES_DAILY_LIMIT}
+        return {"mode": "siri", "parsed_predictions": result["predictions"][:10]}
 
     cache_key = f"nb-raw:{stopId}"
     raw = cache_get(cache_key)
@@ -1176,8 +1174,7 @@ async def debug_live_raw(stopId: str = Query(...)):
             resp.raise_for_status()
             raw = resp.json()
         except Exception as exc:
-            _nb_quota_bump(-1)   # don't burn quota on a broken/unreachable API
-            return {"error": str(exc)}
+            return {"error": type(exc).__name__}
         cache_set(cache_key, raw, NEXTBUSES_CACHE_TTL)
     predictions = _parse_transportapi_json(raw)
     return {
@@ -1674,35 +1671,59 @@ async def get_plan(
         return {"available": False, "reason": "not_configured", "options": []}
 
     now = datetime.now(UK_TZ)
-    day = day or now.date().isoformat()
+    immediate = not when and not day
     if not when:
-        # "Now", held still for five minutes so the same question hits the cache.
-        when = f"{now.hour:02d}:{now.minute - now.minute % 5:02d}"
-    key = "plan:" + ":".join(f"{x:.4f}" for x in (from_lat, from_lon, to_lat, to_lon)) + f":{day}:{when}"
-    hit = cache_get(key)
-    if hit is not None:
-        return hit
-    if _plan_quota.remaining() <= 0:
-        return {"available": False, "reason": "quota", "options": []}
-
-    _plan_quota.bump(1)
-    params = {"from_lat": from_lat, "from_lon": from_lon, "to_lat": to_lat, "to_lon": to_lon,
-              "date": day, "time": when, "mode": "TRANSIT,WALK"}
+        # The provider accepts minutes. Round UP, including the date at midnight.
+        rounded = datetime.fromtimestamp(((int(now.timestamp()) + 59) // 60) * 60, UK_TZ)
+        when = rounded.strftime('%H:%M')
+        day = day or rounded.date().isoformat()
+    day = day or now.date().isoformat()
     try:
-        async with httpx.AsyncClient(timeout=25) as client:
-            resp = await client.get(f"{planner.BAT_BASE_URL}/v1/journey/plan", params=params,
-                                    headers={"Authorization": f"Bearer {planner.BAT_API_KEY}"})
-        if resp.status_code == 429:
+        date.fromisoformat(day)
+        datetime.strptime(when, '%H:%M')
+    except ValueError:
+        raise HTTPException(status_code=400, detail='Choose a valid date and time.')
+    # Match cache precision to what actually leaves this server.
+    from_lat, from_lon, to_lat, to_lon = (round(x, 4) for x in (from_lat, from_lon, to_lat, to_lon))
+    key = "plan:" + ":".join(f"{x:.4f}" for x in (from_lat, from_lon, to_lat, to_lon)) + f":{day}:{when}"
+    async def produce():
+        hit = cache_get(key)
+        if hit is not None:
+            return hit
+        if _plan_quota.remaining() <= 0:
             return {"available": False, "reason": "quota", "options": []}
-        resp.raise_for_status()
-        data = planner.normalise(resp.json())
-    except Exception as exc:                       # noqa: BLE001 — see docstring
-        _plan_quota.bump(-1)   # an unreachable planner does not spend the day's allowance
-        log.warning("Journey planner unavailable: %s", exc)
-        return {"available": False, "reason": "upstream", "options": []}
-    result = {"available": True, "source": "Buses & Trains API (OpenTripPlanner)",
-              "day": day, "time": when, **data}
-    cache_set(key, result, planner.PLAN_CACHE_TTL)
+        _plan_quota.bump(1)
+        params = {"from_lat": from_lat, "from_lon": from_lon, "to_lat": to_lat, "to_lon": to_lon,
+                  "date": day, "time": when, "mode": "TRANSIT,WALK"}
+        try:
+            async with httpx.AsyncClient(timeout=25) as client:
+                resp = await client.get(f"{planner.BAT_BASE_URL}/v1/journey/plan", params=params,
+                                        headers={"Authorization": f"Bearer {planner.BAT_API_KEY}"})
+            if resp.status_code == 429:
+                result = {"available": False, "reason": "quota", "options": []}
+            else:
+                resp.raise_for_status()
+                result = {"available": True, "source": "Buses & Trains API (OpenTripPlanner)",
+                          "day": day, "time": when, **planner.normalise(resp.json())}
+        except Exception as exc:
+            # A response or timeout may have spent quota. Never refund guesses;
+            # never log URLs containing coordinates or credentials.
+            log.warning('Journey planner unavailable: %s', type(exc).__name__)
+            result = {"available": False, "reason": "upstream", "options": []}
+        cache_set(key, result, planner.PLAN_CACHE_TTL if result['available'] else 30)
+        return result
+
+    result = await cache_single_flight_async('flight:' + key, produce, 0)
+    if immediate and result.get('available'):
+        cutoff = datetime.now(UK_TZ).timestamp()
+        options = []
+        for option in result.get('options', []):
+            legs = option.get('legs') or []
+            starts = (legs[0].get('departure_time') if legs else None) or option.get('departure_time')
+            at = _parse_iso_datetime(starts)
+            if at and at.timestamp() >= cutoff:
+                options.append(option)
+        return {**result, 'options': options}
     return result
 
 
@@ -2583,6 +2604,29 @@ def _hhmm_to_iso(date_str: Optional[str], time_str: Optional[str]) -> Optional[s
         return None
 
 
+async def _nextbuses_predictions(stop_id: str) -> dict:
+    """One quota-counted attempt per stop, with bounded failure backoff."""
+    async def produce():
+        cached = cache_get(f"nb:{stop_id}")
+        if cached is not None:
+            return {"predictions": cached}
+        failed = cache_get(f"nb-failure:{stop_id}")
+        if failed is not None:
+            return failed
+        _nb_quota_rollover()
+        if _nb_quota["count"] >= NEXTBUSES_DAILY_LIMIT:
+            return {"reason": "quota"}
+        _nb_quota_bump(1)
+        result = await _fetch_nextbuses(stop_id)
+        if result is None:
+            failure = {"reason": "upstream"}
+            cache_set(f"nb-failure:{stop_id}", failure, 30)
+            return failure
+        cache_set(f"nb:{stop_id}", result, NEXTBUSES_CACHE_TTL)
+        return {"predictions": result}
+    return await cache_single_flight_async(f"nb-flight:{stop_id}", produce, 0)
+
+
 async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
     """
     Overlay real-time departure predictions from Traveline NextBuses onto
@@ -2604,20 +2648,10 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
 
     # ── PATH A: timetable empty — use Transport API as sole source ────────
     if not departures:
-        cached_preds = cache_get(f"nb:{stop_id}")
-        if cached_preds is None:
-            _nb_quota_rollover()
-            if _nb_quota["count"] >= NEXTBUSES_DAILY_LIMIT:
-                return base
-            _nb_quota_bump(1)
-            log.info("NextBuses hit %d/%d for stop %s (timetable fallback)",
-                     _nb_quota["count"], NEXTBUSES_DAILY_LIMIT, stop_id)
-            result = await _fetch_nextbuses(stop_id)
-            if result is None:
-                _nb_quota_bump(-1)
-                return base
-            cache_set(f"nb:{stop_id}", result, NEXTBUSES_CACHE_TTL)
-            cached_preds = result
+        result = await _nextbuses_predictions(stop_id)
+        if "reason" in result:
+            return {**base, "live": False, "live_reason": result["reason"]}
+        cached_preds = result["predictions"]
         if not cached_preds:
             return base
         ta_deps = _transportapi_to_departures(cached_preds)
@@ -2638,26 +2672,10 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
         pass
 
     # Cache hits never count against quota — check before the quota gate.
-    cached_preds = cache_get(f"nb:{stop_id}")
-    if cached_preds is None:
-        # About to make a real network call — gate on quota first.
-        _nb_quota_rollover()
-        if _nb_quota["count"] >= NEXTBUSES_DAILY_LIMIT:
-            log.info("NextBuses quota exhausted (%d/%d)", _nb_quota["count"], NEXTBUSES_DAILY_LIMIT)
-            return {**base, "live": False, "live_reason": "quota"}
-
-        _nb_quota_bump(1)
-        log.info("NextBuses hit %d/%d for stop %s", _nb_quota["count"], NEXTBUSES_DAILY_LIMIT, stop_id)
-
-        result = await _fetch_nextbuses(stop_id)
-        if result is None:
-            _nb_quota_bump(-1)  # don't burn quota on a broken/unreachable API
-            return {**base, "live": False, "live_reason": "upstream"}
-
-        cache_set(f"nb:{stop_id}", result, NEXTBUSES_CACHE_TTL)
-        cached_preds = result
-
-    predictions = cached_preds
+    result = await _nextbuses_predictions(stop_id)
+    if "reason" in result:
+        return {**base, "live": False, "live_reason": result["reason"]}
+    predictions = result["predictions"]
     if not predictions:
         return {**base, "live": False, "live_reason": "no_coverage"}
 
@@ -2823,17 +2841,14 @@ def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
         # it was when it said so, and that is the moment to judge.
         reported = _parse_iso_datetime(v.get("recorded_at"))
         at_local = reported.astimezone(UK_TZ) if reported else now_local
-        at_secs = at_local.hour * 3600 + at_local.minute * 60 + at_local.second
         # Against where the timetable has the bus at this point on the road,
         # between the stops either side, not against the nearest stop's time.
         # GTFS writes past-midnight times as 24:xx and beyond, so a night bus
         # is compared on the same clock as the one it is running against.
-        due = trip_match.scheduled_at_position(tt, calls, idx, v) % 86400
-        lateness = round(at_secs - due)
-        if lateness > 12 * 3600:
-            lateness -= 86400
-        elif lateness < -12 * 3600:
-            lateness += 86400
+        due = trip_match.scheduled_at_position(tt, calls, idx, v)
+        scheduled = live_eta.place_on_day(due, at_local)
+        v['service_origin_epoch'] = scheduled.timestamp() - due
+        lateness = round(at_local.timestamp() - scheduled.timestamp())
         # A declaration can outlive its journey. On a loop such as the N48 the
         # ticket machine went on naming the 01:45 outbound while the bus drove
         # the 02:02 return, past the same stop the other way, and the map
@@ -2859,7 +2874,7 @@ def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
         if (abs(lateness) >= DECLARATION_DOUBT_SECS and heading is not None
                 and on_route and 0 < idx < len(calls) - 1
                 and not trip_match.heading_agrees(tt, calls, idx, heading)):
-            for key in ("trip_id", "trip_headsign", "trip_source", "journey_start"):
+            for key in ("trip_id", "trip_headsign", "trip_source", "journey_start", "service_origin_epoch"):
                 v.pop(key, None)
             v.setdefault("identity_flags", []).append("declared_journey_contradicted_by_heading")
             continue

@@ -99,10 +99,10 @@ def test_the_days_cap_is_kept(setup):
     assert len(FakeClient.calls) == 2
 
 
-def test_a_failure_does_not_spend_the_allowance(setup):
+def test_a_failure_reserves_the_attempted_allowance(setup):
     FakeClient.fail = True
     assert plan()["reason"] == "upstream"
-    assert main._plan_quota.remaining() == 2
+    assert main._plan_quota.remaining() == 1
 
 
 def test_a_journey_far_outside_the_area_is_refused(setup):

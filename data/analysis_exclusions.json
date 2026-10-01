@@ -5,7 +5,7 @@
       "id": "bhbc-western-road-hove-2026-09-28",
       "kind": "diversion",
       "summary": "Western Road, Hove, closed between Holland Road and Montpelier Road; Brighton & Hove routes diverted via Montpelier Road, Davigdor Road, Holland Road, Montpelier Place and Lansdowne Road.",
-      "from": "2026-09-28T00:00:00+01:00",
+      "from": "2026-09-28T07:00:00+01:00",
       "to": "2026-11-06T23:59:00+00:00",
       "operator": "BHBC",
       "routes": ["1", "1X", "2", "5", "5A", "5B", "6", "21", "25", "46", "49", "60", "71", "71A", "N1", "N5"],

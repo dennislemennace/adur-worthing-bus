@@ -546,6 +546,13 @@
               <label class="plan-label" for="plan-to">To</label>
               <input class="stop-search-input" id="plan-to" type="text" list="plan-stops" placeholder="A stop">
               <datalist id="plan-stops"></datalist>
+              <label class="plan-label" for="plan-day">Departure date (optional)</label>
+              <input class="stop-search-input" id="plan-day" type="date">
+              <label class="plan-label" for="plan-time">Departure time, UK time (optional)</label>
+              <input class="stop-search-input" id="plan-time" type="time">
+              <p class="plan-note">Leave date and time blank to travel now. Using your location sends
+                approximate coordinates to our server and Buses &amp; Trains to plan the journey.
+                You can type stops instead. <a href="privacy.html#journey-location">Location privacy</a>.</p>
               <button type="submit" class="editor-action-btn primary plan-go">Plan journey</button>
             </form>
             <div class="plan-results" id="plan-results" aria-live="polite"></div>
@@ -1112,7 +1119,7 @@
               <span class="field-label">Show</span>
               <select id="journey-times-mode" class="field-input">
                 <option value="delay">Minutes slower than timetable</option>
-                <option value="punctuality">Minutes late arriving</option>
+                <option value="punctuality">Lateness near the destination stop</option>
                 <option value="duration">Journey time</option>
               </select>
             </label>
@@ -1126,11 +1133,12 @@
             </label>
             <details class="jt-filter-options"><summary>More filters: time of day and evidence</summary>
               <div class="jt-filter-grid">
+            <label class="field"><span class="field-label">Recorded disruptions</span><select id="journey-times-events" class="field-input"><option value="all">Include affected journeys</option><option value="clear">Exclude affected journeys</option></select></label>
             <label class="field"><span class="field-label">Leaving from (UK time)</span><input type="time" value="00:00" id="journey-times-time-from" class="field-input"></label>
             <label class="field"><span class="field-label">Leaving until (UK time)</span><input type="time" value="23:59" id="journey-times-time-to" class="field-input"></label>
             <label class="field"><span class="field-label">Timing</span><select id="journey-times-evidence" class="field-input"><option value="measured">Seen at both stops only</option><option value="all">Include estimated stop times</option></select></label>
-            <label class="field"><span class="field-label">How the bus was identified</span><select id="journey-times-identity" class="field-input"><option value="all">Either way</option><option value="declared">Reported by the operator</option><option value="inferred">Matched by position</option></select></label>
-            <label class="field"><span class="field-label">Warnings</span><select id="journey-times-quality" class="field-input"><option value="all">Include journeys with warnings</option><option value="clear">Only journeys with no warnings</option></select></label>
+            <label class="field"><span class="field-label">How the bus was identified</span><select id="journey-times-identity" class="field-input"><option value="declared">Reported by the operator</option><option value="all">Either way</option><option value="inferred">Matched by position</option></select></label>
+            <label class="field"><span class="field-label">Warnings</span><select id="journey-times-quality" class="field-input"><option value="clear">Only journeys with no warnings</option><option value="all">Include journeys with warnings</option></select></label>
             <label class="field"><span class="field-label">Timetable version</span><select id="journey-times-cohort" class="field-input"><option value="all">All versions combined</option></select></label>
               </div>
             </details>

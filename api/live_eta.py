@@ -53,7 +53,7 @@ def place_on_day(secs: int, now: datetime) -> datetime:
     for offset in (-1, 0, 1):
         day = now_local.date() + timedelta(days=offset)
         when = datetime.fromtimestamp(trip_match._service_origin(day) + secs, LONDON)
-        if best is None or abs((when - now_local).total_seconds()) < abs((best - now_local).total_seconds()):
+        if best is None or abs(when.timestamp() - now_local.timestamp()) < abs(best.timestamp() - now_local.timestamp()):
             best = when
     return best
 
@@ -116,11 +116,15 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime) -> list:
         tps = []
     projected = (projected_lateness(int(lateness), tps, start, len(calls))
                  if lateness is not None else [None] * (len(calls) - start))
+    # Anchor the whole journey once; individual calls must never change day.
+    origin = vehicle.get('service_origin_epoch')
+    if origin is None:
+        origin = place_on_day(calls[start][0], now).timestamp() - calls[start][0]
 
     def row(j, late, passed):
         secs, atco = calls[j]
-        scheduled = place_on_day(secs, now)
-        expected = scheduled + timedelta(seconds=late) if late is not None else None
+        scheduled = datetime.fromtimestamp(origin + secs, LONDON)
+        expected = datetime.fromtimestamp(origin + secs + late, LONDON) if late is not None else None
         return {
             "stop_id": atco,
             "stop_name": (tt.stops.get(atco) or {}).get("name", atco),
@@ -137,10 +141,10 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime) -> list:
     rows = []
     if start > 0:
         rows.append(row(start - 1, None, True))
-    cutoff = now - timedelta(seconds=PASSED_GRACE_SECS)
+    cutoff = now.timestamp() - PASSED_GRACE_SECS
     for k, j in enumerate(range(start, len(calls))):
         r = row(j, projected[k], False)
-        if r["expected"] and datetime.fromisoformat(r["expected"]) < cutoff:
+        if r["expected"] and datetime.fromisoformat(r["expected"]).timestamp() < cutoff:
             r["passed"] = True
         rows.append(r)
     # Only the most recent passed stop is worth showing: it says where the bus is.
@@ -165,6 +169,6 @@ def estimate_at(tt, trip_id: str, vehicle: dict, stop_id: str,
     for r in project_trip(tt, trip_id, vehicle, now):
         if r["stop_id"] != stop_id or r["passed"] or r["expected"] is None:
             continue
-        if abs((datetime.fromisoformat(r["scheduled"]) - aimed).total_seconds()) <= 60:
+        if abs(datetime.fromisoformat(r["scheduled"]).timestamp() - aimed.timestamp()) <= 60:
             return r
     return None

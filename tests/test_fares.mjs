@@ -370,6 +370,37 @@ function renderWithFares(journey, fromAtco, toAtco) {
   return { html, app };
 }
 
+test("future and expired published fare tables are not quoted", () => {
+  const app = loadApp();
+  for (const validity of [{valid_from: "2999-01-01"}, {valid_to: "2000-01-01"}]) {
+    const table = {...FARE_TABLES.tables[0], ...validity};
+    assert.equal(app.publishedSingleFare("700", "SCSO", "A", "G", [table]), null);
+  }
+});
+
+test("Tickets lookup excludes inactive tables and refuses a stale selection", () => {
+  const app = loadApp(), elements = new Map();
+  for (const id of ['fare-lookup','fl-route','fl-from','fl-to','fl-result','fl-basis']) {
+    elements.set(id, {value:'', dataset:{}, innerHTML:'', textContent:'',
+      addEventListener(){}, disabled:false});
+  }
+  app.document.getElementById = id => elements.get(id);
+  const state = vm.runInContext('state', app);
+  state.fareTables = {tables:[
+    {...FARE_TABLES.tables[0], line:'EXPIRED', valid_to:'2000-01-01'},
+    {...FARE_TABLES.tables[0], line:'FUTURE', valid_from:'2999-01-01'},
+    {...FARE_TABLES.tables[0], line:'CURRENT', valid_from:'2000-01-01'}]};
+  app.renderFareLookup();
+  assert.doesNotMatch(elements.get('fl-route').innerHTML, /EXPIRED|FUTURE/);
+  assert.match(elements.get('fl-route').innerHTML, /CURRENT/);
+  elements.get('fl-route').value = '0';
+  elements.get('fl-from').value = '0'; elements.get('fl-to').value = '1';
+  app.fillFareStages(true);
+  assert.equal(elements.get('fl-from').disabled, true);
+  app.showFareLookupResult();
+  assert.doesNotMatch(elements.get('fl-result').innerHTML, /£/);
+});
+
 test("a short hop is costed at the operator's published single, not the cap", () => {
   const { html } = renderWithFares(direct(MARINE_PARADE, SHOREHAM_HIGH), "A", "G");
   assert.equal(headlinePence(html), 360,

@@ -281,6 +281,52 @@ python3 -c "import gzip,json; d=json.load(gzip.open('observations-YYYY-MM-DD.jso
 
 ## Reliability publication and replay (23 September implementation)
 
+### September 30 review changes (local implementation; deploy separately)
+
+Processing method 6 retains disjoint declared vehicle tracks even if their
+scheduled windows overlap. Reprocess affected days from verified archives to
+apply it; changing the code does not change already published observations.
+Do not relabel method-5 observations as method 6.
+Delay-map cells pool the compatible v5/v6 traversals while retaining both in
+`method_versions`; their timing arithmetic is identical. Method 4 and future
+unreviewed versions remain separate. Rebuilding the map therefore retains
+eligible v5 history rather than restarting its sample threshold at v6.
+
+New publication archives contain `analysis-inputs.json`, with hashes and exact
+source text for the builders, event registry and stop coordinates. Daily replay
+archives also include these inputs through `code_sha256`. To restore a
+publication's code/data into a separate scratch directory:
+
+```sh
+python scripts/replay_inputs.py path/to/analysis-inputs.json /tmp/publication-replay
+```
+
+Verify the archive and snapshot against the published manifest first. Run the
+restored builders with that publication's archived observations and timetable;
+do not substitute today's event registry. Restoration checks hashes and rejects
+paths outside the destination before writing anything. It writes into the
+chosen directory, so use a new empty directory. Hashes establish consistency
+with the trusted manifest, not authenticity of an arbitrary downloaded archive.
+
+Publication now stops if a known operator has at least ten scheduled journeys
+inside the recording span and no measured journeys. This catches complete
+operator loss; it does not certify each route, feed or independent timing.
+
+Recorder writes require usable accounting less than 70 minutes old and space
+reserved for 142 feed objects of at most 1 MiB each. Investigate `snapshots
+paused` logs; missing evidence during a pause must not become an on-time claim.
+Public pause status and automated alerts remain a follow-up. The API health
+endpoint is a separate service and currently has no recorder-state connection;
+a future status must name its observation time and show unknown/stale status
+instead of presenting an old successful record as current health.
+
+Before release, deploy the site/API/Worker/workflow changes together as needed,
+rebuild fare tables to record validity end dates, and rebuild affected evidence.
+Keep the production rollback drill, independent timing sample and measured
+35-day capacity run as separate unchecked prerequisites. See
+[the complete change summary](FIX_SUMMARY_2026-09-30.md) for local validation and
+remaining review scope.
+
 This workflow is implemented locally; deployment is not established by this
 runbook. See [implementation status](IMPLEMENTATION_DATA_UI_2026-09-22.md) for
 validation and the current timetable cohort blocker.
@@ -361,10 +407,13 @@ Three safeguards let the record run for months without anyone watching:
   failed is not retried: re-run it by hand once the cause is fixed.
 - **Schedules stay switched on.** `keepalive.yml` (Mondays) re-enables the
   scheduled workflows and commits if the repository has been quiet for 45 days.
-- **The public bucket cannot fill.** Before each upload the nightly run retires
-  published generations beyond the newest seven, never the live one or its
-  rollback (`scripts/prune_published.py`; change `--keep` in the workflow).
-  Each retirement is logged as `retiring generation <id>`.
+- **The public bucket has a pre-upload cap.** Before each upload the nightly run
+  keeps the newest seven generations plus live/rollback. It reads every retained
+  manifest and preserves its referenced evidence objects in older generations,
+  deleting only unreferenced objects (`scripts/prune_published.py --objects`).
+  Each deletion is logged as `retiring unreferenced object <key>`. An unreadable
+  manifest prevents cleanup and emits a workflow warning. Evidence can continue
+  growing; publication still stops at the 4 GiB cap rather than breaking links.
 
 Re-running a day that is already published replaces it. When its raw objects
 may have started to expire, demand complete feeds:

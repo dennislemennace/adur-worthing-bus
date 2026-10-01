@@ -59,7 +59,7 @@ def entry_hour(epoch):
 STRETCH = ("operator", "service", "route_pattern", "direction", "from_sequence", "to_sequence")
 
 _CELL_BASE = ("operator", "service", "route_pattern", "direction", "from_atco", "to_atco",
-              "from_sequence", "to_sequence", "schedule_era", "method_version", "match", "day_type")
+              "from_sequence", "to_sequence", "schedule_era", "method_family", "match", "day_type")
 PERIOD_DIMENSIONS = _CELL_BASE + ("period",)
 HOUR_DIMENSIONS = _CELL_BASE + ("hour",)
 
@@ -128,6 +128,7 @@ def summarise_cells(traversals, dimensions, min_journeys, min_days, resolution):
                       "id": hashlib.sha256(json.dumps([resolution, *key]).encode()).hexdigest(),
                       "from_name": legs[0]["from_name"], "to_name": legs[0]["to_name"],
                       "data_versions": sorted({leg["data_version"] for leg in legs}, key=str),
+                      "method_versions": sorted({leg["method_version"] for leg in legs}),
                       "traversals": len(legs), "journeys": count, "distinct_days": len(days),
                       "days": days, "median_gained_secs": statistics.median(gains),
                       "p90_gained_secs": gains[min(len(gains)-1, int(len(gains)*.9))] if sufficient else None,
@@ -182,6 +183,7 @@ def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=18
                 marks = ax.affecting(
                     exclusions, first.get("operator") or "", first.get("service") or "",
                     datetime.fromtimestamp(first["observed_epoch"], timezone.utc),
+                    until=datetime.fromtimestamp(second['observed_epoch'], timezone.utc),
                     stop_ids=(first["atco"], second["atco"]),
                     path=ends if all(ends) else None)
             if marks and drop_excluded:
@@ -206,14 +208,18 @@ def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=18
             })
     eras = schedule_eras(traversals)
     for leg in traversals:
+        # v6 changes which declared tracks survive, not their timing method.
+        # Only this reviewed pair pools; future methods stay separate by default.
+        leg["method_family"] = 5 if leg["method_version"] in (5, 6) else leg["method_version"]
         leg["schedule_era"] = eras[tuple(leg[k] for k in STRETCH) + (leg["data_version"],)]
     cells = summarise_cells(traversals, PERIOD_DIMENSIONS, min_journeys, min_days, "period")
     hour_cells = summarise_cells(traversals, HOUR_DIMENSIONS, min_journeys, min_days, "hour")
     return {"schema_version": 1, "as_of": datetime.now(timezone.utc).isoformat(),
+            "analysis_events": ax.public_entries(exclusions),
             "method": "Difference in endpoint lateness between adjacent measured timing points; "
                       "declared identities, no quality flags, bounded report intervals; grouped by operator, "
                       "pattern, call pair, schedule era (weekly builds pooled only where their promises agree), "
-                      "method, day type, and observed London entry period (cells) or hour (hour_cells).",
+                      "compatible method family (5 and 6 pooled), day type, and observed London entry period (cells) or hour (hour_cells).",
             "data_versions": meta.get("data_versions", []), "method_versions": meta.get("method_versions", []),
             "input_manifest": [{k: s.get(k) for k in ("file", "sha256", "day", "data_version", "method_version")}
                                for s in meta.get("sources", [])],
@@ -225,7 +231,9 @@ def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=18
                         "Weekday/weekend grouping does not control holidays, diversions or school calendars."],
             "pooling": "Weekly timetable builds are pooled for a stretch only where they agree on the "
                        "scheduled section time of every departure they share; a changed promise starts "
-                       "a new schedule_era. Each cell names the builds it pools in data_versions.",
+                       "a new schedule_era. Each cell names the builds it pools in data_versions and "
+                       "methods in method_versions. Only methods 5 and 6 share a family: their retained "
+                       "declared traversals use identical timing, though eligibility/sample composition changes.",
             "days_collected": sorted({leg["day"] for leg in traversals}),
             "excluded": dict(excluded), "cells": cells, "hour_cells": hour_cells,
             "traversals": traversals}
@@ -242,6 +250,7 @@ def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=18
 # September 2026 they helped take the 2's map over its size limit and stopped
 # the whole night's publication. The full cells stay in hotspot-preview.json.
 MAP_CELL_FIELDS = ("resolution", "period", "hour", "day_type", "schedule_era", "data_versions",
+                   "method_family", "method_versions",
                    "median_gained_secs", "p90_gained_secs", "at_least_600s", "traversals",
                    "journeys", "distinct_days", "sample_sufficient", "excluded_by")
 
@@ -472,6 +481,7 @@ def build_map(result, tt, day, out_dir):
                "as_of": result["as_of"], "timetable_day": schedule["day"],
                "floor": result["floor"], "method": result["method"], "pooling": result.get("pooling"),
                "caveats": result["caveats"],
+               "analysis_events": result.get('analysis_events', []),
                "days_collected": sorted({d for c in cells_by_service.get((service, operator), [])
                                          for d in c.get("days", [])}),
                "stretches": sorted(stretches.values(), key=lambda s: (s["direction"], s["id"])),

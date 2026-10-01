@@ -46,7 +46,8 @@ services:
     runtimeVersion: "3.12"
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    # Planner query strings contain locations; avoid application access logs.
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT --no-access-log
     healthCheckPath: /
     envVars:
       - key: BODS_API_KEY

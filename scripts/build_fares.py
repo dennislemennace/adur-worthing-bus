@@ -80,9 +80,37 @@ def stage_key(zone_id: str) -> tuple:
     return zone_id, None
 
 
-def parse_table(xml: bytes) -> list:
+def active_tree(root, as_of):
+    """Apply periods at their owning scope before resolving fare references.
+
+    Sibling ValidBetween periods are alternatives; nested frame/product/price
+    scopes must each be active. Inactive prices cannot borrow a frame's date.
+    """
+    def interval(el):
+        start, end = text(el, 'FromDate')[:10], text(el, 'ToDate')[:10]
+        try:
+            if start: date.fromisoformat(start)
+            if end: date.fromisoformat(end)
+        except ValueError:
+            return False
+        return (not start or start <= as_of) and (not end or as_of <= end)
+    periods = [e for e in root if local(e.tag) == 'ValidBetween']
+    if periods and not any(interval(e) for e in periods):
+        return False
+    if (text(root, 'FromDate') or text(root, 'ToDate')) and not interval(root):
+        return False
+    for child in list(root):
+        if not active_tree(child, as_of):
+            root.remove(child)
+    return True
+
+
+def parse_table(xml: bytes, as_of=None) -> list:
     """The fare triangle in one NeTEx file, as plain dicts, or [] if none."""
     root = ET.fromstring(xml)
+    today = as_of or date.today().isoformat()
+    if not active_tree(root, today):
+        return []
 
     lines = []
     for ln in children(root, "Line"):
@@ -159,12 +187,14 @@ def parse_table(xml: bytes) -> list:
     # A file carries several validity periods (the frame, the tariff, the
     # product), some decades old. The fares took effect on the latest start
     # that has already come.
-    today = date.today().isoformat()
     valid_from = max((d.text[:10] for d in root.iter()
                       if local(d.tag) == "FromDate" and d.text and d.text[:10] <= today),
                      default=None)
+    valid_to = min((d.text[:10] for d in root.iter()
+                    if local(d.tag) == 'ToDate' and d.text), default=None)
     used = {s for st in stages for s in st["board"] + st["alight"]}
-    return [{**lines[0], "valid_from": valid_from, "stages": stages,
+    return [{**lines[0], "valid_from": valid_from, "valid_to": valid_to,
+             'validity_checked_on': today, "stages": stages,
              "prices": sorted(prices),
              "stop_names": {s: stop_names[s] for s in sorted(used) if s in stop_names}}]
 

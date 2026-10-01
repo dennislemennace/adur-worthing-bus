@@ -87,11 +87,26 @@
     look at. Map pictures come from the OpenStreetMap Foundation's tile servers,
     which publish anonymised, aggregated figures about which tiles are used. Each
     of these sees your IP address, as any website you visit does, and keeps short
-    technical logs under its own policy. None of them receives anything you type.
+    technical logs under its own policy. Journey planning sends the coordinates
+    of your chosen stops or location as described below; search text stays in your browser.
   </p>
   <p>
     Why: to show you the site and keep it running (legitimate interests).
   </p>
+
+  <h3 id="journey-location">Planning a journey from your location</h3>
+  <p>The journey planner's location button asks your browser for your position.
+    When you submit a plan, coordinates rounded to four decimal places are sent
+    to our server on Render and forwarded to Buses &amp; Trains, the routing
+    provider. Typed stop choices also send the selected stops' coordinates.
+    This differs from “Stops near me”, which finds nearby stops on your device.</p>
+  <p>We use these coordinates to answer your request and temporarily cache the
+    plan for up to five minutes. They are not sent to our visit analytics.
+    The deployment is configured to disable application request access logs to
+    avoid recording location query strings; we have not yet confirmed that the
+    running service uses this setting. Hosting and routing providers may
+    retain technical records under their own policies; we have not verified
+    their retention periods. You can use manually selected stops instead.</p>
 
   <h3 id="counting">Counting visits</h3>
   <p>

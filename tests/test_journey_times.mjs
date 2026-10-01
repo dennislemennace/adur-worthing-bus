@@ -1089,7 +1089,7 @@ test("the Detailed controls open on exactly the filters Simple answers with", ()
 function tracked(day, h, m, tookMins, promisedMins = 20, tripId = `T${h}${m}`) {
   const dep = h * 3600 + m * 60;
   return { day, start: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
-           trip_id: tripId, direction: "westbound",
+           trip_id: tripId, direction: "westbound", match: "declared", quality_flags: [],
            calls: [[0, dep, dep, 0], [1, dep + tookMins * MIN, dep + promisedMins * MIN, 0]] };
 }
 
@@ -1169,7 +1169,8 @@ test("coverage counts scheduled journeys in the period against the ones tracked"
                              calls: [[0, 25200, 25200, 0], [2, 26200, 26100, 0]] }] };
   const all = between(doc, 0, 2);
   assert.deepEqual({ ...coverage(doc, 0, 2, ["2026-09-22"], all) },
-                   { scheduled: 2, tracked: 1, days: 1 });
+                   { scheduled: 2, tracked: 1, measured: 1, eligible: 0, days: 1,
+                     dates: vm.runInContext('["2026-09-22"]', app) });
   // The morning peak is 08:00 to 10:00: the 08:00 is in it, the 07:00 is
   // early, and the daytime period holds neither.
   assert.equal(coverage(doc, 0, 2, ["2026-09-22"], all, "08-10").scheduled, 1);
