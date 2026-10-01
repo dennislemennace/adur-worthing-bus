@@ -422,6 +422,7 @@ function buildUrlHash() {
   else if (state.viewMode === "tickets") parts.push("view=t");
   else if (state.viewMode === "network") parts.push("view=n");
   else if (state.viewMode === "updates") parts.push("view=u");
+  else if (state.viewMode === "conference") parts.push("view=c");
   else if (state.viewMode === "journeytimes") parts.push("view=j");
   if (state.serviceMode === "night")     parts.push("svc=n");
   if (state.viewMode === "live") {
@@ -465,6 +466,7 @@ async function applyUrlState(parsed) {
                : parsed.view === "t" ? "tickets"
                : parsed.view === "n" ? "network"
                : parsed.view === "u" ? "updates"
+               : parsed.view === "c" && previewEnabled() ? "conference"
                : parsed.view === "j" ? "journeytimes"
                : "live";
     if (view === "journeytimes") jtEntry.sharedApplied = false;
@@ -1768,6 +1770,7 @@ const analytics = { enabled: false, queue: [], once: new Set() };
 const VIEW_EVENT_NAMES = {
   live: "live", improvements: "route", tickets: "tickets",
   network: "better-buses", updates: "news", journeytimes: "journey-times",
+  conference: "conference",
 };
 
 // Set by the switch on privacy.html. The analytics exemption in PECR, as
@@ -9687,7 +9690,7 @@ function setNetworkTab(tab) {
  */
 function setViewMode(mode) {
   if (!["live", "improvements", "tickets", "network", "updates",
-        "journeytimes"].includes(mode)) return;
+        "journeytimes", "conference"].includes(mode)) return;
   if (state.viewMode === mode) return;
   state.viewMode = mode;
   track(`view-${VIEW_EVENT_NAMES[mode]}`);
@@ -9799,6 +9802,9 @@ async function applyViewMode() {
   // hard way is that a branch which forgets to tear something down does not
   // fail loudly — it leaves the next view quietly wrong, with highlights on a
   // Route-view map and nothing to explain them.
+  // The conference guide's markers belong to its view alone.
+  if (state.viewMode !== "conference" && typeof conferenceHide === "function") conferenceHide();
+
   if (state.viewMode !== "journeytimes") {
     // And the delay map, which is the same view's third claim on the map.
     clearDelayMap();
@@ -9898,6 +9904,16 @@ async function applyViewMode() {
     hideCouncilBoundaries();
     clearJourneyLayers();
     await renderJourneyTimes();
+  } else if (state.viewMode === "conference") {
+    // The conference guide (conference.js): its own markers on the map,
+    // nothing of the other views'.
+    if (state.editor) closeEditor({ skipSave: false });
+    hideRouteLines();
+    hideAllProposalLayers();
+    hideTicketZones();
+    hideCouncilBoundaries();
+    clearJourneyLayers();
+    if (typeof conferenceShow === "function") await conferenceShow(mine);
   } else if (state.viewMode === "updates") {
     // Panel-only, like the network view — no map layers of its own.
     if (state.editor) closeEditor({ skipSave: false });

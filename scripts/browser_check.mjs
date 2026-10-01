@@ -1411,6 +1411,53 @@ async function checkMapTaps(page, where) {
 }
 
 /**
+ * The conference travel guide: offered in the menu while current, opens with
+ * the venue pinned in the part of the map the sheet leaves showing, the pin
+ * opens the venue's details, and the guide's markers leave with the view.
+ */
+async function checkConference(page, where) {
+  await page.evaluate("setViewMode('conference')");
+  await waitFor(page, "!!document.querySelector('#tab-content-conference .conf-section')", 15000);
+  await sleep(600);
+  const r = JSON.parse(await page.evaluate(`
+    (() => {
+      const item = document.querySelector('#section-nav-menu [data-mode="conference"]');
+      const pin = document.querySelector(".conf-pin--venue");
+      const map = state.map.getContainer().getBoundingClientRect();
+      const panel = document.getElementById("departure-panel").getBoundingClientRect();
+      const visibleBottom = isSheetLayout() ? Math.min(panel.top, map.bottom) : map.bottom;
+      const pr = pin ? pin.getBoundingClientRect() : null;
+      const pinY = pr ? pr.top + pr.height / 2 : null;
+      if (pin) pin.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      const dialog = document.getElementById("evidence-dialog");
+      const title = (document.getElementById("evidence-title") || {}).textContent || "";
+      const open = !!(dialog && dialog.open);
+      if (open) dialog.close();
+      const guide = document.querySelector("#tab-content-conference .conf-section");
+      const gr = guide ? guide.getBoundingClientRect() : null;
+      return JSON.stringify({ menu: !!item && !item.hidden, pin: !!pin,
+        guideShown: !!gr && gr.height > 0 && gr.width > 0,
+        band: Math.round(visibleBottom - map.top),
+        pinVisible: pr ? pinY > map.top && pinY < visibleBottom : false,
+        pinSize: pr ? Math.round(pr.width) : 0, open, title });
+    })()`));
+  // Behind ?preview=1, which this run does not set: the option stays hidden,
+  // and the view itself still works for anyone who has the preview link.
+  check(`the conference guide stays out of the menu without preview — ${where}`, !r.menu, JSON.stringify(r));
+  check(`the conference guide is shown in the panel — ${where}`, r.guideShown, JSON.stringify(r));
+  // Where the sheet leaves no map at all (740x360 landscape), there is
+  // nowhere to pin it; that is a layout question of its own.
+  check(`the venue is pinned where the map shows — ${where}`,
+    r.pin && r.pinSize >= 44 && (r.band < 60 || r.pinVisible),
+    r.band < 60 ? `skipped: the sheet leaves ${r.band}px of map` : JSON.stringify(r));
+  check(`the venue pin opens its details — ${where}`, r.open && /Brighton Centre/.test(r.title), JSON.stringify(r));
+  await page.evaluate("setViewMode('live')");
+  await sleep(400);
+  const left = await page.evaluate("document.querySelectorAll('.conf-pin').length");
+  check(`the conference markers leave with the view — ${where}`, left === 0, String(left));
+}
+
+/**
  * A ticket preset always draws something.
  *
  * Two of the six — Shoreham to the universities, Sompting to the Marina —
@@ -3799,6 +3846,7 @@ await checkWakingBanner(page, VIEWPORTS[0].name);
 await checkClusterDensity(page, VIEWPORTS[0].name);
 await checkProposalFitsAboveSheet(page, VIEWPORTS[0].name);
 await checkPresetsDraw(page, VIEWPORTS[0].name);
+await checkConference(page, VIEWPORTS[0].name);
 await checkTicketZonesPicker(page, VIEWPORTS[0].name);
 await checkMapTaps(page, VIEWPORTS[0].name);
 await checkObjectiveLead(page, VIEWPORTS[0].name);
@@ -3850,6 +3898,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkGapMonitor(p, vp.name);
   if (vp.mobile) await checkTicketZonesPicker(p, vp.name);
   await checkMapTaps(p, vp.name);
+  await checkConference(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
   await checkStopClosure(p, vp.name);
   await checkUpcomingStops(p, vp.name);

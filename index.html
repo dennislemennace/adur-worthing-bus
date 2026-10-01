@@ -254,6 +254,7 @@
             <li role="option" data-mode="tickets" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-ticket"/></svg><span>Tickets &amp; fares</span></li>
             <li role="option" data-mode="network" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-lightbulb"/></svg><span>Better buses</span></li>
             <li role="option" data-mode="journeytimes" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-gauge"/></svg><span>Bus Performance</span></li>
+            <li role="option" data-mode="conference" aria-selected="false" tabindex="-1" hidden><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-pin"/></svg><span>Conference travel</span></li>
             <li role="option" data-mode="updates" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-newspaper"/></svg><span>News &amp; notes</span></li>
           </ul>
         </div>
@@ -1164,6 +1165,27 @@
       </div><!-- /panel-mode[data-mode="journeytimes"] -->
 
       <!-- === NETWORK PLAN VIEW (objectives + community ideas) === -->
+      <!-- === CONFERENCE TRAVEL ===
+           A short-lived guide for visitors to one event, drawn from
+           data/conference.json by conference.js. The menu option shows only
+           until the file's show_until date. -->
+      <div class="panel-mode" data-mode="conference">
+        <div class="panel-tabs-bar">
+          <div class="panel-tabs">
+            <span class="panel-tab panel-tab-static active">
+              <span class="panel-tab-label">Conference travel</span>
+            </span>
+          </div>
+          <button class="btn-collapse-panel" type="button" aria-label="Hide panel" aria-pressed="false">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </button>
+        </div>
+        <div class="panel-tab-content conf-guide" id="tab-content-conference" role="tabpanel"
+             aria-label="Conference travel">
+          <p class="proposals-empty">Loading the travel guide…</p>
+        </div>
+      </div><!-- /panel-mode[data-mode="conference"] -->
+
       <div class="panel-mode" data-mode="updates">
 
         <!-- Tab strip (Official / Community) + mobile collapse -->
@@ -1482,6 +1504,7 @@
 
   <!-- Main application script -->
   <script src="app.js"></script>
+  <script src="conference.js"></script>
 
 </body>
 </html>

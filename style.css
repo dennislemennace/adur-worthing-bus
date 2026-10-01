@@ -4253,7 +4253,8 @@ body[data-view="improvements"] .panel-mode[data-mode="improvements"],
 body[data-view="tickets"]      .panel-mode[data-mode="tickets"],
 body[data-view="network"]      .panel-mode[data-mode="network"],
 body[data-view="updates"]      .panel-mode[data-mode="updates"],
-body[data-view="journeytimes"] .panel-mode[data-mode="journeytimes"] { display: flex; }
+body[data-view="journeytimes"] .panel-mode[data-mode="journeytimes"],
+body[data-view="conference"]   .panel-mode[data-mode="conference"] { display: flex; }
 
 /* In the non-live network views stops stay visible but inert (no clicks, no
    popup). Vehicle markers are removed from the map entirely by JS. */
@@ -7944,3 +7945,51 @@ button.target-dense {
 }
 .jt-detailed-note { display: none; }
 #tab-content-journey-times[data-jt-view="detailed"] .jt-detailed-note { display: block; }
+
+/* ===== CONFERENCE TRAVEL (conference.js) ===== */
+.conf-guide { padding: var(--space-sm) var(--space-md) var(--space-lg); }
+.conf-section { margin-bottom: var(--space-lg); }
+.conf-h { font-size: var(--font-size-lg); margin: 0 0 var(--space-xs); color: var(--color-text); }
+.conf-h3 { font-size: var(--font-size-md); margin: 0 0 var(--space-xs); color: var(--color-text); }
+.conf-lede { font-size: var(--font-size-md); margin: 0 0 var(--space-xs); }
+.conf-guide p, .conf-guide li { color: var(--color-text); }
+.conf-small { font-size: var(--font-size-xs); color: var(--color-text-muted); margin: var(--space-2xs) 0 0; }
+.conf-guide a, .evidence-body .conf-small a { color: var(--color-link); }
+.conf-venue-btn { margin-top: var(--space-xs); }
+.conf-stops, .conf-cards, .conf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-xs); }
+.conf-list { list-style: disc; padding-left: 1.2em; gap: 4px; }
+.conf-stop {
+  display: flex; flex-direction: column; align-items: flex-start; width: 100%;
+  min-height: var(--target-min); padding: 6px 12px; text-align: left; font: inherit;
+  background: var(--color-surface-2); color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer;
+}
+.conf-stop-name { font-weight: 700; }
+.conf-stop-hint { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.conf-card {
+  padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); background: var(--color-surface);
+}
+.conf-card p { margin: 0 0 4px; }
+.conf-card-title { font-weight: 700; }
+.conf-card-sub { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.conf-routes { display: flex; flex-wrap: wrap; gap: 4px; }
+.conf-route {
+  display: inline-block; min-width: 28px; padding: 1px 6px; border-radius: var(--radius-sm);
+  font-weight: 700; font-size: var(--font-size-xs); text-align: center;
+}
+.conf-warn {
+  font-size: var(--font-size-xs); padding: 6px 8px; border-radius: var(--radius-sm);
+  border-left: 3px solid var(--color-late); background: var(--color-surface-2);
+}
+.conf-late { margin-top: var(--space-sm); }
+/* Map pins: the venue large and ringed, the rest small dots. */
+.conf-pin { background: transparent; border: 0; }
+.conf-pin-dot {
+  display: block; width: 100%; height: 100%; border-radius: 50%;
+  border: 3px solid #ffffff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.conf-pin--venue .conf-pin-dot { background: #2e7d32; border-width: 4px; }
+.conf-pin--venue { cursor: pointer; }
+.conf-pin--arrival .conf-pin-dot { background: #1a4b82; }
+.conf-pin--social .conf-pin-dot { background: #8e3fae; }
