@@ -341,6 +341,7 @@ const dom = {
   // ── Section nav (dropdown) ──
   sectionNavTrigger: document.getElementById("section-nav-trigger"),
   sectionNavLabel:   document.getElementById("section-nav-label"),
+  sectionNavIcon:    document.getElementById("section-nav-icon"),
   sectionNavMenu:    document.getElementById("section-nav-menu"),
 
   // ── Improvements view ──
@@ -466,7 +467,7 @@ async function applyUrlState(parsed) {
                : parsed.view === "t" ? "tickets"
                : parsed.view === "n" ? "network"
                : parsed.view === "u" ? "updates"
-               : parsed.view === "c" && previewEnabled() ? "conference"
+               : parsed.view === "c" ? "conference"
                : parsed.view === "j" ? "journeytimes"
                : "live";
     if (view === "journeytimes") jtEntry.sharedApplied = false;
@@ -9721,7 +9722,13 @@ function syncSectionNavToViewMode() {
   for (const li of items) {
     const selected = li.dataset.mode === state.viewMode;
     li.setAttribute("aria-selected", selected ? "true" : "false");
-    if (selected) dom.sectionNavLabel.textContent = li.textContent.trim();
+    if (!selected) continue;
+    // The first span is the name; a "New" badge after it stays in the list.
+    dom.sectionNavLabel.textContent = (li.querySelector("span") || li).textContent.trim();
+    // The trigger shows the section's icon too, so it reads like the list.
+    const use = li.querySelector(".section-nav-icon use");
+    const icon = dom.sectionNavIcon && dom.sectionNavIcon.querySelector("use");
+    if (use && icon) icon.setAttribute("href", use.getAttribute("href"));
   }
 }
 

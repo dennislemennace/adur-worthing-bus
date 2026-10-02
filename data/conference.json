@@ -1,5 +1,5 @@
 {
-  "_comment": "Travel guide for the Green Party Conference at the Brighton Centre, 2 to 4 October 2026. Shown in the Conference view until show_until. Walking minutes are computed from coordinates (straight line x 1.3 for streets, at 80 m a minute); tests/test_curated_data.py holds them to that.",
+  "_comment": "Conference travel info for the Green Party Conference at the Brighton Centre, 2 to 4 October 2026. Shown in the Conference view (with ?preview=1) until show_until. Walking minutes come from coordinates (straight line x 1.3, at 80 m a minute); bus routes are the direct ones from our timetable with at least 12 trips between 08:00 and 20:00 on Saturday 3 October. tests/test_conference.py holds the walking minutes to the formula.",
   "checked_on": "2026-10-01",
   "show_until": "2026-10-05",
   "conference": {
@@ -17,7 +17,7 @@
       -0.1462
     ],
     "notes": [
-      "On the seafront, with a rear entrance on Russell Road.",
+      "On the seafront. Main entrance on Kings Road, rear entrance on Russell Road; both are step-free.",
       "There is a security check at the door. Food and drink cannot be taken in, except for medical reasons.",
       "No car park of its own. Blue Badge drop-off lay-bys are at the front and back.",
       "Cycle racks at the front and rear."
@@ -29,12 +29,12 @@
     {
       "atco": "149000006896",
       "name": "Clock Tower",
-      "hint": "top of West Street, 3 min walk"
+      "hint": "3 min walk"
     },
     {
       "atco": "149000007991",
       "name": "Churchill Square",
-      "hint": "by the shopping centre, 3 min walk"
+      "hint": "3 min walk"
     },
     {
       "atco": "149000006081",
@@ -44,66 +44,81 @@
     {
       "atco": "149000007079",
       "name": "Brighton Centre",
-      "hint": "outside the venue, route 77 only"
+      "hint": "Sat and Sun only: route 77, 8 a day. No Friday service",
+      "limited": true
     }
   ],
-  "arrivals": [
-    {
-      "id": "rail",
-      "name": "Brighton Station",
-      "lat": 50.829659,
-      "lon": -0.141234,
-      "walk_minutes": 16,
-      "kind": "train",
-      "how": "A 15 minute walk, downhill all the way: Queen's Road, then West Street to the sea. Or any bus from the station front to the Clock Tower (1, 6, 7, 12, 14, 27, 46, 48, 49 and others), about 5 minutes.",
-      "from_where": [
-        "London Victoria and London Bridge: direct trains, about an hour.",
-        "Gatwick Airport: direct trains, about 30 minutes.",
-        "Southampton, Portsmouth, Chichester and Worthing (West Coastway): direct trains along the coast.",
-        "Eastbourne, Lewes and Hastings (East Coastway): direct trains, about 35 minutes from Eastbourne."
-      ],
-      "source_url": "https://www.nationalrail.co.uk/"
-    },
+  "station": {
+    "id": "rail",
+    "name": "Brighton Station",
+    "lat": 50.829659,
+    "lon": -0.141234,
+    "walk_minutes": 16,
+    "kind": "train",
+    "walk_text": "15 minutes, downhill all the way and step-free: out of the main exit onto Queen's Road, straight down Queen's Road and West Street to the sea. The venue is on the right.",
+    "buses": [
+      "7",
+      "12X",
+      "12",
+      "27",
+      "14",
+      "20",
+      "6",
+      "47"
+    ],
+    "bus_text": "From the stops outside the station front to the Clock Tower or Churchill Square, about 5 minutes; a bus every few minutes.",
+    "back_text": "Going back is uphill. For a flat walk instead, go east along the seafront or North Street to Old Steine (about 10 minutes), where buses run to the station.",
+    "back_buses": [
+      "7",
+      "12",
+      "12X",
+      "14",
+      "20",
+      "27"
+    ],
+    "taxi": "A taxi rank is at the back of the station, on Stroudley Road.",
+    "source_url": "https://www.nationalrail.co.uk/"
+  },
+  "coaches": [
     {
       "id": "natex",
-      "name": "Pool Valley coach station (Old Steine)",
+      "name": "National Express: Pool Valley coach station (Old Steine)",
       "lat": 50.82055,
       "lon": -0.13658,
       "walk_minutes": 11,
-      "kind": "coach",
-      "atco": "149000007835",
-      "operator": "National Express",
-      "how": "National Express stops at Pool Valley, by the Old Steine gardens. The Brighton Centre is a 10 minute walk west along the seafront, or almost any bus heading west to the Clock Tower.",
-      "source_url": "https://www.nationalexpress.com/"
+      "how": "A flat 10 minute walk west along the seafront to the venue."
     },
     {
       "id": "flix-station",
-      "name": "Brighton Station, Stroudley Road",
+      "name": "FlixBus: Stroudley Road, behind Brighton Station",
       "lat": 50.83215,
       "lon": -0.14139,
       "walk_minutes": 21,
-      "kind": "coach",
-      "operator": "FlixBus",
-      "how": "FlixBus stops on Stroudley Road, behind Brighton Station, not at Pool Valley. Walk through to the station front (about 5 minutes), then down Queen's Road and West Street, or take a bus from the station front.",
-      "source_url": "https://www.flixbus.co.uk/"
+      "how": "Walk through to the station front (about 5 minutes), then follow the station directions above."
     },
     {
       "id": "flix-preston",
-      "name": "Preston Park (London Road)",
+      "name": "FlixBus: Preston Park (London Road)",
       "lat": 50.84585,
       "lon": -0.15155,
       "walk_minutes": 45,
-      "kind": "coach",
-      "operator": "FlixBus",
-      "how": "Some FlixBus coaches also stop at Preston Park, about 2 km north. Bus 5 or 5A runs from there to Churchill Square.",
-      "source_url": "https://www.flixbus.co.uk/"
+      "how": "About 2 km north of the centre. Take a bus heading into town.",
+      "buses": [
+        "5",
+        "5A"
+      ]
     }
+  ],
+  "coach_sources": [
+    "https://www.nationalexpress.com/",
+    "https://www.flixbus.co.uk/"
   ],
   "driving": {
     "text": [
       "The Brighton Centre has no car park, and Brighton has no park-and-ride.",
-      "The nearest car parks are Churchill Square (West Street, opposite the rear entrance, with the closest accessible bays) and Regency Square (under the square, 5 minutes west).",
-      "Parking in central Brighton is expensive and fills on busy days. If you can, park outside the city and come in by train or bus."
+      "Churchill Square 1 car park (West Street) is opposite the rear entrance, 30 metres away.",
+      "Regency Square car park is under the square, 250 metres west along the seafront.",
+      "Parking in central Brighton is expensive and fills on busy days. If you can, come in by train or bus."
     ],
     "car_parks": [
       {
@@ -127,150 +142,170 @@
   },
   "hotel_areas": [
     {
-      "name": "Seafront, west of the venue (Regency Square, Kings Road)",
-      "walk": "5 to 10 minutes along the seafront.",
-      "buses": []
-    },
-    {
-      "name": "Hove (Palmeira Square, Church Road, Western Road)",
-      "walk": "25 to 35 minutes.",
+      "id": "regency",
+      "name": "Regency Square and the western seafront",
+      "lat": 50.8225,
+      "lon": -0.1505,
+      "walk_minutes": 5,
+      "quickest": "walk",
       "buses": [
         "1",
-        "1X",
-        "2",
-        "5",
-        "5A",
-        "5B",
-        "6",
-        "21",
-        "25",
-        "46",
         "49",
-        "700"
-      ],
-      "night": [
-        "N1",
-        "N5",
-        "N700"
-      ],
-      "note": "Western Road is closed between Holland Road and Montpelier Road until 6 November. Brighton & Hove buses from Hove are diverted, and Norfolk Square and Brunswick Place are not served. Allow extra time."
-    },
-    {
-      "name": "Hove seafront (Kingsway)",
-      "walk": "30 minutes or more.",
-      "buses": [
-        "700"
-      ],
-      "night": []
-    },
-    {
-      "name": "Brighton Station and North Laine",
-      "walk": "10 to 15 minutes, downhill to the venue.",
-      "buses": [
-        "1",
+        "5B",
+        "700",
         "6",
-        "7",
-        "12",
-        "14",
-        "27",
         "46",
-        "48",
-        "49"
-      ],
-      "night": [
-        "N7",
-        "N12",
-        "N14"
+        "2",
+        "5"
       ]
     },
     {
+      "id": "old-steine",
+      "name": "Old Steine and the Royal Pavilion",
+      "lat": 50.8215,
+      "lon": -0.1375,
+      "walk_minutes": 10,
+      "quickest": "walk",
+      "buses": [
+        "7",
+        "1",
+        "49",
+        "5B",
+        "700",
+        "12X",
+        "1X",
+        "12"
+      ]
+    },
+    {
+      "id": "station",
+      "name": "Brighton Station and North Laine",
+      "lat": 50.829,
+      "lon": -0.141,
+      "walk_minutes": 15,
+      "quickest": "walk",
+      "buses": [
+        "7",
+        "12X",
+        "12",
+        "27",
+        "14",
+        "20",
+        "6",
+        "47"
+      ]
+    },
+    {
+      "id": "kemptown",
       "name": "Kemptown (St James's Street, Marine Parade)",
-      "walk": "15 to 20 minutes along the seafront.",
+      "lat": 50.8195,
+      "lon": -0.13,
+      "walk_minutes": 19,
+      "quickest": "bus",
+      "buses": [
+        "7",
+        "1",
+        "12",
+        "27",
+        "14",
+        "2",
+        "47"
+      ]
+    },
+    {
+      "id": "hove",
+      "name": "Hove: Palmeira Square and Church Road",
+      "lat": 50.8268,
+      "lon": -0.164,
+      "walk_minutes": 23,
+      "quickest": "bus",
       "buses": [
         "1",
-        "2",
-        "7",
-        "12",
-        "14",
-        "27",
-        "47",
-        "52"
+        "49",
+        "5B",
+        "700",
+        "1X",
+        "6",
+        "46",
+        "2"
       ],
-      "night": [
-        "N1",
-        "N7",
-        "N12",
-        "N14"
-      ]
+      "note": "Western Road is closed between Holland Road and Montpelier Road until 6 November. Brighton & Hove buses to and from Hove are diverted, and Norfolk Square and Brunswick Place are not served. Allow extra time."
     },
     {
+      "id": "hove-seafront",
+      "name": "Hove seafront (Kingsway)",
+      "lat": 50.8236,
+      "lon": -0.18,
+      "walk_minutes": 39,
+      "quickest": "bus",
+      "buses": [
+        "700"
+      ],
+      "note": "Western Road is closed between Holland Road and Montpelier Road until 6 November. Brighton & Hove buses to and from Hove are diverted, and Norfolk Square and Brunswick Place are not served. Allow extra time."
+    },
+    {
+      "id": "marina",
       "name": "Brighton Marina",
-      "walk": "40 minutes.",
+      "lat": 50.8125,
+      "lon": -0.103,
+      "walk_minutes": 52,
+      "quickest": "bus",
       "buses": [
         "7",
+        "1X",
         "12",
         "14",
-        "21",
         "27",
-        "47",
-        "52"
-      ],
-      "night": [
-        "N7",
-        "N12",
-        "N14"
+        "21",
+        "47"
       ]
     }
   ],
-  "hotels_url": "https://book.passkey.com/event/51229085/owner/9736716/home",
   "socials_url": "https://greenparty.org.uk/get-involved/conference/social-events-at-conference/",
-  "socials": [
+  "social_venues": [
     {
-      "id": "birdcage",
-      "name": "The Birdcage",
-      "lat": 50.82002,
-      "lon": -0.13448,
-      "walk_minutes": 14,
-      "day": "Friday 2 October",
-      "time": "10:00 to 12:00",
-      "event": "LGBTQ+ Networking Brunch (RSVP needed)",
-      "area": "Kemptown, east along the seafront",
+      "id": "shelter-hall",
+      "name": "Shelter Hall",
+      "lat": 50.82036,
+      "lon": -0.145,
+      "walk_minutes": 2,
+      "where": "On the seafront, just below the venue.",
+      "source_url": "https://greenparty.org.uk/get-involved/conference/social-events-at-conference/"
+    },
+    {
+      "id": "wagner",
+      "name": "Wagner Hall",
+      "lat": 50.82242,
+      "lon": -0.1447,
+      "walk_minutes": 3,
+      "where": "Regency Road, behind Churchill Square.",
+      "source_url": "https://greenparty.org.uk/get-involved/conference/social-events-at-conference/"
+    },
+    {
+      "id": "harbour",
+      "name": "Harbour Hotel",
+      "lat": 50.82052,
+      "lon": -0.14324,
+      "walk_minutes": 4,
+      "where": "Kings Road: east along the seafront.",
       "source_url": "https://greenparty.org.uk/get-involved/conference/social-events-at-conference/"
     },
     {
       "id": "mad-dog",
-      "name": "Mad Dog Brewery Taproom, 24 Duke Street",
+      "name": "Mad Dog Brewery Taproom",
       "lat": 50.82298,
       "lon": -0.1435,
       "walk_minutes": 5,
-      "day": "Friday 2 October",
-      "time": "from 19:30",
-      "event": "Get Vocal at the Verdant Social",
-      "area": "The Lanes",
+      "where": "24 Duke Street in the Lanes: up West Street, right into Duke Street.",
       "source_url": "https://greenparty.org.uk/get-involved/conference/social-events-at-conference/"
     },
     {
       "id": "komedia",
-      "name": "Komedia, Gardner Street",
+      "name": "Komedia",
       "lat": 50.82491,
       "lon": -0.13934,
       "walk_minutes": 10,
-      "day": "Friday 2 October",
-      "time": "23:00 till late",
-      "event": "Tunes in the Laines (18+, ticketed)",
-      "area": "North Laine",
-      "source_url": "https://greenparty.org.uk/get-involved/conference/social-events-at-conference/"
-    },
-    {
-      "id": "shelter-hall",
-      "name": "Shelter Hall, Kings Road",
-      "lat": 50.82036,
-      "lon": -0.145,
-      "walk_minutes": 2,
-      "day": "Saturday 3 October",
-      "time": "09:00 to 10:00",
-      "event": "Beach clean",
-      "area": "Seafront, just below the venue",
+      "where": "Gardner Street in North Laine: up West Street, across North Street and up through the Lanes.",
       "source_url": "https://greenparty.org.uk/get-involved/conference/social-events-at-conference/"
     },
     {
@@ -279,49 +314,62 @@
       "lat": 50.82292,
       "lon": -0.15533,
       "walk_minutes": 11,
-      "day": "Saturday 3 October",
-      "time": "18:30 to 20:00",
-      "event": "National Education Union drinks reception (invite only)",
-      "area": "Seafront, west",
+      "where": "Kings Road: west along the seafront, past the West Pier.",
       "source_url": "https://greenparty.org.uk/get-involved/conference/social-events-at-conference/"
     },
     {
-      "id": "wagner",
-      "name": "Wagner Hall, Regency Road",
-      "lat": 50.82242,
-      "lon": -0.1447,
-      "walk_minutes": 3,
-      "day": "Saturday 3 October",
-      "time": "19:30 to 23:00",
-      "event": "The Green Party Party (ticketed gig)",
-      "area": "Behind Churchill Square",
-      "source_url": "https://greenparty.org.uk/get-involved/conference/social-events-at-conference/"
-    },
-    {
-      "id": "harbour",
-      "name": "Harbour Hotel, Kings Road",
-      "lat": 50.82052,
-      "lon": -0.14324,
-      "walk_minutes": 4,
-      "day": "Saturday 3 October",
-      "time": "19:30 to 22:00",
-      "event": "New Economics Foundation reception (invite only)",
-      "area": "Seafront, a short walk east",
+      "id": "birdcage",
+      "name": "The Birdcage",
+      "lat": 50.82002,
+      "lon": -0.13448,
+      "walk_minutes": 14,
+      "where": "Kemptown: east along the seafront past the Palace Pier.",
       "source_url": "https://greenparty.org.uk/get-involved/conference/social-events-at-conference/"
     }
   ],
-  "on_site": "Several socials are in the Brighton Centre itself (East Bar, Syndicate 1 and 2, Meeting Room 15). The Living Streets walk on Saturday meets at the Brighton Centre bus stop at 13:30.",
+  "on_site": "Several socials are in the Brighton Centre itself (East Bar, Syndicate 1 and 2, Meeting Room 15). Times and tickets are on the organisers' list.",
   "tickets": [
     "Tap a contactless card or phone on the reader when you board. Brighton & Hove Buses cap what you pay in a day, so you never pay more than a day ticket.",
     "A single fare in England is capped at £3.",
-    "Stagecoach (the 700 along the coast) has its own tickets; a Brighton & Hove day ticket is not valid on it."
+    "Stagecoach runs the 700, N700 and 17, and has its own tickets: a Brighton & Hove day ticket is not valid on them."
   ],
   "tickets_url": "https://www.buses.co.uk/tickets",
-  "accessibility": [
-    "The Brighton Centre and the seafront are step-free. Read the venue's access statement for entrances and facilities.",
-    "Brighton Station to the venue is downhill one way and uphill the other. A bus from the station front to the Clock Tower avoids the climb back.",
-    "Every Brighton & Hove and Stagecoach bus here is low-floor with a wheelchair space.",
-    "Taxi ranks: Brighton Station front, and East Street near the Clock Tower."
+  "taxi_ranks": [
+    {
+      "id": "taxi-queens-square",
+      "name": "Queen's Square, top of West Street by the Clock Tower",
+      "lat": 50.82412,
+      "lon": -0.14414,
+      "walk_minutes": 6
+    },
+    {
+      "id": "taxi-kings-road",
+      "name": "Kings Road, on the seafront east of West Street",
+      "lat": 50.8199,
+      "lon": -0.14036,
+      "walk_minutes": 7
+    },
+    {
+      "id": "taxi-market-street",
+      "name": "Market Street, in the Lanes",
+      "lat": 50.82165,
+      "lon": -0.13893,
+      "walk_minutes": 8
+    },
+    {
+      "id": "taxi-station",
+      "name": "Brighton Station, at the back on Stroudley Road",
+      "lat": 50.83047,
+      "lon": -0.14033,
+      "walk_minutes": 18
+    }
   ],
-  "late_night": "Night buses run from the Clock Tower and North Street after the day services stop: N1, N5, N7, N12, N14 and N700 (along the coast to Worthing). Check the live board for the next one."
+  "taxi_source": "https://www.openstreetmap.org/",
+  "accessibility": [
+    "From Brighton Station it is a step-free walk of about 950 metres, all downhill. The way back is uphill: take a bus from the Clock Tower or Churchill Square, or walk on the flat along the seafront to Old Steine (about 10 minutes) for buses 7, 12, 12X, 14, 20 and 27 to the station.",
+    "Every bus here is low-floor with a wheelchair space, and a manual ramp for step-free boarding is available: ask the driver.",
+    "Blue Badge drop-off: lay-bys at the front and back of the venue.",
+    "Churchill Square 1 car park has accessible bays on every level; park on P1 if you can, as it is the exit level. From the exit it is 30 metres, on the level, across a crossing with dropped kerbs, to the rear entrance. Regency Square car park has no lift and a steep slope at the exit, then a flat 250 metres along the seafront."
+  ],
+  "late_night": "Night buses run from the Clock Tower and North Street after the day services stop: N1, N5, N7, N12, N14 and N700 (Stagecoach, to Worthing). Check the live board for the next one."
 }

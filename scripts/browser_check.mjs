@@ -1416,6 +1416,13 @@ async function checkMapTaps(page, where) {
  * opens the venue's details, and the guide's markers leave with the view.
  */
 async function checkConference(page, where) {
+  await waitFor(page, "typeof conf !== 'undefined' && !!conf.data", 15000);
+  // After show_until the guide leaves the menu; nothing else here applies.
+  if (!(await page.evaluate("conferenceActive(conf.data)"))) {
+    const hidden = await page.evaluate(`document.querySelector('#section-nav-menu [data-mode="conference"]').hidden`);
+    check(`the finished conference guide is out of the menu — ${where}`, hidden, String(hidden));
+    return;
+  }
   await page.evaluate("setViewMode('conference')");
   await waitFor(page, "!!document.querySelector('#tab-content-conference .conf-section')", 15000);
   await sleep(600);
@@ -1435,15 +1442,14 @@ async function checkConference(page, where) {
       if (open) dialog.close();
       const guide = document.querySelector("#tab-content-conference .conf-section");
       const gr = guide ? guide.getBoundingClientRect() : null;
-      return JSON.stringify({ menu: !!item && !item.hidden, pin: !!pin,
+      return JSON.stringify({ menu: !!item && !item.hidden, active: conferenceActive(conf.data), pin: !!pin,
         guideShown: !!gr && gr.height > 0 && gr.width > 0,
         band: Math.round(visibleBottom - map.top),
         pinVisible: pr ? pinY > map.top && pinY < visibleBottom : false,
         pinSize: pr ? Math.round(pr.width) : 0, open, title });
     })()`));
-  // Behind ?preview=1, which this run does not set: the option stays hidden,
-  // and the view itself still works for anyone who has the preview link.
-  check(`the conference guide stays out of the menu without preview — ${where}`, !r.menu, JSON.stringify(r));
+  // Public, no preview flag: in the menu until show_until, then gone.
+  check(`the conference guide is in the menu while current — ${where}`, r.menu === r.active, JSON.stringify(r));
   check(`the conference guide is shown in the panel — ${where}`, r.guideShown, JSON.stringify(r));
   // Where the sheet leaves no map at all (740x360 landscape), there is
   // nowhere to pin it; that is a layout question of its own.
@@ -1451,6 +1457,20 @@ async function checkConference(page, where) {
     r.pin && r.pinSize >= 44 && (r.band < 60 || r.pinVisible),
     r.band < 60 ? `skipped: the sheet leaves ${r.band}px of map` : JSON.stringify(r));
   check(`the venue pin opens its details — ${where}`, r.open && /Brighton Centre/.test(r.title), JSON.stringify(r));
+  const icon = await page.evaluate("(document.querySelector('#section-nav-icon use') || {getAttribute: () => ''}).getAttribute('href')");
+  check(`the header dropdown shows the section's icon — ${where}`, icon === "#i-pin", String(icon));
+  const label = await page.evaluate("document.getElementById('section-nav-label').textContent");
+  check(`the header names the section without its New badge — ${where}`, label === "Conference travel info", label);
+  // A position by Brighton Station: the nearest stop with a direct bus must be found on the device.
+  await page.send("Emulation.setGeolocationOverride", { latitude: 50.8288, longitude: -0.1411, accuracy: 20 });
+  await page.evaluate("navigator.geolocation.getCurrentPosition = (ok) => ok({ coords: { latitude: 50.8288, longitude: -0.1411 } })");
+  await page.evaluate("document.querySelector('[data-conf-locate]').click()");
+  await waitFor(page, "!!document.querySelector('#conf-locate-result [data-conf-stop]')", 8000).catch(() => {});
+  const loc = JSON.parse(await page.evaluate(`JSON.stringify([...document.querySelectorAll('#conf-locate-result [data-conf-stop]')]
+    .map(b => ({ name: b.dataset.name, h: Math.round(b.getBoundingClientRect().height) })))`));
+  check(`find my nearest stop lists a stop with a direct bus — ${where}`,
+    loc.length > 0 && loc.every(b => b.h >= 44), JSON.stringify(loc));
+  await page.send("Emulation.clearGeolocationOverride");
   await page.evaluate("setViewMode('live')");
   await sleep(400);
   const left = await page.evaluate("document.querySelectorAll('.conf-pin').length");

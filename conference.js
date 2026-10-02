@@ -32,9 +32,9 @@ function conferenceActive(data, now = new Date()) {
   return Boolean(data && data.show_until && conferenceToday(now) <= data.show_until);
 }
 
-/** Offered only with ?preview=1, and only while current. */
-function conferenceOffered(data, now = new Date(), preview = previewEnabled()) {
-  return Boolean(preview) && conferenceActive(data, now);
+/** Offered to everyone while current; it leaves the menu after show_until. */
+function conferenceOffered(data, now = new Date()) {
+  return conferenceActive(data, now);
 }
 
 /** Show the menu option where the guide is offered. */
@@ -48,8 +48,16 @@ function confWalk(min) {
   return `${min} min walk`;
 }
 
+/** Route numbers lowest first: 1, 1X, 2, 5B, 12, 12X, 700, N700. */
+function confRouteOrder(a, b) {
+  const key = r => { const m = /^([A-Z]*)(\d+)(.*)$/i.exec(r) || ["", "", "9999", r];
+                     return [Number(m[2]), m[1], m[3]]; };
+  const [x, y] = [key(a), key(b)];
+  return x[0] - y[0] || x[1].localeCompare(y[1]) || x[2].localeCompare(y[2]);
+}
+
 function confRouteChips(routes, operator = "BHBC") {
-  return (routes || []).map(r => {
+  return [...(routes || [])].sort(confRouteOrder).map(r => {
     const colour = typeof getRouteColour === "function" ? getRouteColour(r, r === "700" || r === "N700" ? "SCSO" : operator) : "#444";
     const fg = typeof pickTextOn === "function" && pickTextOn(colour) === "dark" ? "#000" : "#fff";
     return `<span class="conf-route" style="background:${escapeAttr(colour)};color:${fg}">${escapeHtml(r)}</span>`;
@@ -60,93 +68,162 @@ function confLink(url, text) {
   return `<a href="${escapeAttr(safeUrl(url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
 }
 
-function conferencePanelHtml(d) {
-  const v = d.venue;
-  const stops = (d.nearest_stops || []).map(s =>
-    `<li><button type="button" class="conf-stop" data-conf-stop="${escapeAttr(s.atco)}" data-name="${escapeAttr(s.name)}">
+function confStopButtons(stops) {
+  return (stops || []).map(s =>
+    `<li><button type="button" class="conf-stop${s.limited ? " conf-stop--limited" : ""}" data-conf-stop="${escapeAttr(s.atco)}" data-name="${escapeAttr(s.name)}">
        <span class="conf-stop-name">${escapeHtml(s.name)}</span>
        <span class="conf-stop-hint">${escapeHtml(s.hint)} · live times</span></button></li>`).join("");
-  const arrivals = (d.arrivals || []).map(a => `
-    <li class="conf-card">
-      <p class="conf-card-title">${escapeHtml(a.kind === "train" ? "By train" : `By coach: ${a.operator}`)}</p>
-      <p class="conf-card-sub">${escapeHtml(a.name)} · ${confWalk(a.walk_minutes)} to the venue</p>
-      <p>${escapeHtml(a.how)}</p>
-      ${a.from_where ? `<ul class="conf-list">${a.from_where.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
-        <p class="conf-small">Times and engineering work: ${confLink(a.source_url, "National Rail Enquiries")}.</p>` : ""}
-    </li>`).join("");
+}
+
+function confList(items) {
+  return `<ul class="conf-list">${(items || []).map(t => `<li>${escapeHtml(t)}</li>`).join("")}</ul>`;
+}
+
+function conferencePanelHtml(d) {
+  const v = d.venue, st = d.station;
+  const coaches = (d.coaches || []).map(c => `<li><strong>${escapeHtml(c.name)}</strong>
+      (${confWalk(c.walk_minutes)}). ${escapeHtml(c.how)}${c.buses && c.buses.length
+        ? ` <span class="conf-routes">${confRouteChips(c.buses)}</span>` : ""}</li>`).join("");
   const hotels = (d.hotel_areas || []).map(h => `
     <li class="conf-card">
       <p class="conf-card-title">${escapeHtml(h.name)}</p>
-      <p class="conf-card-sub">Walk: ${escapeHtml(h.walk)}</p>
-      ${h.buses && h.buses.length ? `<p class="conf-routes">${confRouteChips(h.buses)}</p>` : ""}
-      ${h.night && h.night.length ? `<p class="conf-small">At night: ${confRouteChips(h.night)}</p>` : ""}
+      <p><strong>Quickest:</strong> ${h.quickest === "walk"
+        ? `walk, about ${h.walk_minutes} min.`
+        : `bus, or a ${h.walk_minutes} min walk.`}</p>
+      ${h.buses && h.buses.length ? `<p class="conf-routes"><span class="conf-small">Direct buses:</span> ${confRouteChips(h.buses)}</p>` : ""}
       ${h.note ? `<p class="conf-warn">${escapeHtml(h.note)}</p>` : ""}
     </li>`).join("");
-  const socials = (d.socials || []).map(s => `
+  const venues = (d.social_venues || []).map(s => `
     <li class="conf-card">
-      <p class="conf-card-title">${escapeHtml(s.event)}</p>
-      <p class="conf-card-sub">${escapeHtml(s.day)}, ${escapeHtml(s.time)}</p>
-      <p>${escapeHtml(s.name)}: ${escapeHtml(s.area)}, ${confWalk(s.walk_minutes)} from the venue.</p>
+      <p class="conf-card-title">${escapeHtml(s.name)}</p>
+      <p><strong>From the conference:</strong> walk, about ${s.walk_minutes} min. ${escapeHtml(s.where)}</p>
     </li>`).join("");
-  const parking = (d.driving && d.driving.text || []).map(t => `<li>${escapeHtml(t)}</li>`).join("");
+  const taxis = (d.taxi_ranks || []).map(t => `<li>${escapeHtml(t.name)} (${confWalk(t.walk_minutes)})</li>`).join("");
   return `
     <section class="conf-section conf-glance">
-      <h2 class="conf-h">${escapeHtml(d.conference.name)}</h2>
+      <h2 class="conf-h">${escapeHtml(d.conference.name)}: travel info</h2>
       <p class="conf-lede"><strong>${escapeHtml(v.name)}</strong>, ${escapeHtml(v.address)}.
         ${escapeHtml(d.conference.dates)}.</p>
-      <p>Central Brighton is compact: the station, the coach stop, the Lanes and most
-        hotels are within a 15 minute walk of the venue, and buses run every few minutes.</p>
-      <button type="button" class="editor-action-btn primary conf-venue-btn" data-conf-venue>
-        <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg><span>About the venue</span></button>
+      <p>The station, the coach stop, the Lanes and most hotels are within a 15 minute walk,
+        and buses to the stops by the venue run every few minutes.</p>
+      <div class="conf-actions">
+        <button type="button" class="editor-action-btn primary" data-conf-locate>
+          <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg><span>Find my nearest stop</span></button>
+        <button type="button" class="editor-action-btn" data-conf-venue><span>About the venue</span></button>
+      </div>
+      <div class="conf-locate-result" id="conf-locate-result" aria-live="polite"></div>
     </section>
 
     <section class="conf-section">
       <h3 class="conf-h3">Nearest bus stops</h3>
       <p>Almost every bus route stops within 3 minutes' walk. Tap a stop for its live departures.</p>
-      <ul class="conf-stops">${stops}</ul>
+      <ul class="conf-stops conf-stops--grid">${confStopButtons(d.nearest_stops)}</ul>
     </section>
 
     <section class="conf-section">
-      <h3 class="conf-h3">Getting here</h3>
-      <ul class="conf-cards">${arrivals}</ul>
+      <h3 class="conf-h3">From Brighton Station</h3>
       <div class="conf-card">
-        <p class="conf-card-title">By car</p>
-        <ul class="conf-list">${parking}</ul>
-        <p class="conf-small">${confLink(d.driving.source_url, "Council car parks and prices")}.</p>
+        <p><strong>Walk:</strong> ${escapeHtml(st.walk_text)}</p>
+        <p><strong>Bus:</strong> ${escapeHtml(st.bus_text)}</p>
+        <p class="conf-routes">${confRouteChips(st.buses)}</p>
+        <p><strong>Going back:</strong> ${escapeHtml(st.back_text)}</p>
+        <p class="conf-routes"><span class="conf-small">From Old Steine to the station:</span> ${confRouteChips(st.back_buses)}</p>
+        <p class="conf-small">${escapeHtml(st.taxi)} Train times and engineering work:
+          ${confLink(st.source_url, "National Rail Enquiries")}.</p>
       </div>
     </section>
 
     <section class="conf-section">
+      <h3 class="conf-h3">By coach</h3>
+      <div class="conf-card"><ul class="conf-list">${coaches}</ul></div>
+    </section>
+
+    <section class="conf-section">
+      <h3 class="conf-h3">By car</h3>
+      <div class="conf-card">${confList(d.driving.text)}
+        <p class="conf-small">${confLink(d.driving.source_url, "Council car parks and prices")}.</p></div>
+    </section>
+
+    <section class="conf-section">
       <h3 class="conf-h3">Tickets and paying</h3>
-      <ul class="conf-list">${(d.tickets || []).map(t => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
+      ${confList(d.tickets)}
       <p class="conf-small">${confLink(d.tickets_url, "Brighton & Hove Buses tickets")} ·
         <a href="#view=t" data-view-link="tickets">Compare tickets for a journey</a></p>
     </section>
 
     <section class="conf-section">
       <h3 class="conf-h3">From your hotel</h3>
-      <p>Buses that run between each area and the stops by the venue.
-        ${confLink(d.hotels_url, "Conference hotel bookings")}.</p>
       <ul class="conf-cards">${hotels}</ul>
     </section>
 
     <section class="conf-section">
-      <h3 class="conf-h3">Evenings and socials</h3>
-      <p>${escapeHtml(d.on_site)}</p>
-      <ul class="conf-cards">${socials}</ul>
-      <p class="conf-small">Full list: ${confLink(d.socials_url, "social events at Conference")}.</p>
+      <h3 class="conf-h3">Getting to the socials</h3>
+      <p>${escapeHtml(d.on_site)} ${confLink(d.socials_url, "Social events at Conference")}.</p>
+      <ul class="conf-cards">${venues}</ul>
       <p class="conf-late"><strong>Getting back late.</strong> ${escapeHtml(d.late_night)}</p>
     </section>
 
     <section class="conf-section">
+      <h3 class="conf-h3">Taxis</h3>
+      <p>Closest ranks to the venue:</p>
+      <ul class="conf-list">${taxis}</ul>
+    </section>
+
+    <section class="conf-section">
       <h3 class="conf-h3">Accessibility</h3>
-      <ul class="conf-list">${(d.accessibility || []).map(t => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
-      <p class="conf-small">${confLink(v.access_url, "Brighton Centre access statement")}.</p>
+      ${confList(d.accessibility)}
     </section>
 
     <p class="conf-small conf-checked">Checked ${escapeHtml(d.checked_on)} from the venue,
       the conference organisers, the operators and our own timetable data. Times can change:
       check live departures before you travel.</p>`;
+}
+
+// ── Find my nearest stop ───────────────────────────────────────
+// The device's position never leaves it: the stops with a direct bus to the
+// venue are a static file, and the nearest is worked out here.
+const confLoc = { promise: null };
+
+function loadConferenceStops() {
+  if (!confLoc.promise) {
+    confLoc.promise = fetch("data/conference_stops.json")
+      .then(res => (res.ok ? res.json() : null)).catch(() => null)
+      .then(d => (d && Array.isArray(d.stops) ? d.stops : []));
+  }
+  return confLoc.promise;
+}
+
+/** Nearest stops to (lat, lon), straight-line metres, closest first. Pure. */
+function conferenceNearestStops(stops, lat, lon, n = 2) {
+  const m = s => Math.hypot((s.lat - lat) * 111195, (s.lon - lon) * 111195 * Math.cos(lat * Math.PI / 180));
+  return (stops || []).map(s => ({ ...s, metres: m(s) })).sort((a, b) => a.metres - b.metres).slice(0, n);
+}
+
+async function conferenceLocate() {
+  const out = document.getElementById("conf-locate-result");
+  if (!out) return;
+  if (!("geolocation" in navigator)) {
+    out.innerHTML = `<p class="conf-small">Your browser cannot share its location. Use the stops listed below.</p>`;
+    return;
+  }
+  out.innerHTML = `<p class="conf-small">Finding where you are…</p>`;
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const stops = await loadConferenceStops();
+    const near = conferenceNearestStops(stops, pos.coords.latitude, pos.coords.longitude);
+    if (!near.length || near[0].metres > 5000) {
+      out.innerHTML = `<p class="conf-small">No stop with a direct bus to the venue is near you. Try the journey planner or a taxi.</p>`;
+      return;
+    }
+    out.innerHTML = `<p class="conf-small">Nearest stops with a direct bus to the venue
+        (Clock Tower, Churchill Square or North Street):</p>
+      <ul class="conf-stops">${near.map(s => `<li><button type="button" class="conf-stop"
+        data-conf-stop="${escapeAttr(s.atco)}" data-name="${escapeAttr(s.name)}">
+        <span class="conf-stop-name">${escapeHtml(s.name)}${s.towards ? ` <span class="conf-small">towards ${escapeHtml(s.towards)}</span>` : ""}</span>
+        <span class="conf-stop-hint">${Math.round(s.metres)} m, about ${Math.max(1, Math.round(s.metres * 1.3 / 80))} min walk · live times</span>
+        <span class="conf-routes">${confRouteChips(s.routes)}</span></button></li>`).join("")}</ul>`;
+  }, () => {
+    out.innerHTML = `<p class="conf-small">Your location was not available. Use the stops listed below.</p>`;
+  }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
 }
 
 function conferenceVenueDialog() {
@@ -162,10 +239,7 @@ function conferenceVenueDialog() {
       ${escapeHtml(d.conference.dates)}</p>
     <ul class="conf-list">${(v.notes || []).map(n => `<li>${escapeHtml(n)}</li>`).join("")}</ul>
     <h3 class="conf-h3">Nearest stops</h3>
-    <ul class="conf-stops">${(d.nearest_stops || []).map(s =>
-      `<li><button type="button" class="conf-stop" data-conf-stop="${escapeAttr(s.atco)}" data-name="${escapeAttr(s.name)}">
-        <span class="conf-stop-name">${escapeHtml(s.name)}</span>
-        <span class="conf-stop-hint">${escapeHtml(s.hint)} · live times</span></button></li>`).join("")}</ul>
+    <ul class="conf-stops">${confStopButtons(d.nearest_stops)}</ul>
     <p class="conf-small">${confLink(v.access_url, "Access statement")} ·
       ${confLink(v.source_url, "Getting here, from the venue")}</p>`;
   if (typeof dialog.showModal === "function") { if (!dialog.open) dialog.showModal(); }
@@ -195,8 +269,10 @@ function conferenceMarkers(d) {
     return m.addTo(group);
   };
   pin(d.venue.lat, d.venue.lon, "conf-pin--venue", `${d.venue.name}: ${d.conference.name}`, conferenceVenueDialog, 44);
-  for (const a of d.arrivals || []) pin(a.lat, a.lon, "conf-pin--arrival", a.name, null);
-  for (const s of d.socials || []) pin(s.lat, s.lon, "conf-pin--social", `${s.name}: ${s.event}`, null);
+  pin(d.station.lat, d.station.lon, "conf-pin--arrival", d.station.name, null);
+  for (const c of d.coaches || []) pin(c.lat, c.lon, "conf-pin--arrival", c.name, null);
+  for (const s of d.social_venues || []) pin(s.lat, s.lon, "conf-pin--social", s.name, null);
+  for (const t of d.taxi_ranks || []) pin(t.lat, t.lon, "conf-pin--taxi", `Taxi rank: ${t.name}`, null, 22);
   return group;
 }
 
@@ -210,6 +286,10 @@ async function conferenceShow(mine = () => true) {
     host.innerHTML = `<p class="proposals-empty">The conference guide could not be loaded.</p>`;
     return;
   }
+  if (!conferenceActive(d)) {
+    host.innerHTML = `<p class="proposals-empty">The conference has finished, so its travel guide is no longer shown.</p>`;
+    return;
+  }
   host.innerHTML = conferencePanelHtml(d);
   if (!host.dataset.bound) {
     host.dataset.bound = "1";
@@ -217,6 +297,7 @@ async function conferenceShow(mine = () => true) {
       const stop = e.target.closest("[data-conf-stop]");
       if (stop) { conferenceOpenStop(stop.dataset.confStop, stop.dataset.name); return; }
       if (e.target.closest("[data-conf-venue]")) conferenceVenueDialog();
+      if (e.target.closest("[data-conf-locate]")) conferenceLocate();
     });
   }
   conferenceHide();

@@ -244,6 +244,7 @@
           <button class="section-nav-trigger" id="section-nav-trigger"
                   type="button" aria-haspopup="listbox" aria-expanded="false"
                   aria-controls="section-nav-menu" aria-label="Choose section">
+            <svg class="icon section-nav-icon section-nav-current-icon" id="section-nav-icon" aria-hidden="true"><use href="#i-bus"/></svg>
             <span class="section-nav-label" id="section-nav-label">Live Bus Tracking</span>
             <svg class="icon section-nav-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
           </button>
@@ -254,8 +255,8 @@
             <li role="option" data-mode="tickets" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-ticket"/></svg><span>Tickets &amp; fares</span></li>
             <li role="option" data-mode="network" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-lightbulb"/></svg><span>Better buses</span></li>
             <li role="option" data-mode="journeytimes" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-gauge"/></svg><span>Bus Performance</span></li>
-            <li role="option" data-mode="conference" aria-selected="false" tabindex="-1" hidden><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-pin"/></svg><span>Conference travel</span></li>
             <li role="option" data-mode="updates" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-newspaper"/></svg><span>News &amp; notes</span></li>
+            <li role="option" data-mode="conference" aria-selected="false" tabindex="-1" hidden><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-pin"/></svg><span class="section-nav-text">Conference travel info</span><span class="section-nav-new">New</span></li>
           </ul>
         </div>
         <!-- Live-data status: connecting/updated text + bus visibility toggle, grouped -->
@@ -1173,7 +1174,7 @@
         <div class="panel-tabs-bar">
           <div class="panel-tabs">
             <span class="panel-tab panel-tab-static active">
-              <span class="panel-tab-label">Conference travel</span>
+              <span class="panel-tab-label">Conference travel info</span>
             </span>
           </div>
           <button class="btn-collapse-panel" type="button" aria-label="Hide panel" aria-pressed="false">
@@ -1181,7 +1182,7 @@
           </button>
         </div>
         <div class="panel-tab-content conf-guide" id="tab-content-conference" role="tabpanel"
-             aria-label="Conference travel">
+             aria-label="Conference travel info">
           <p class="proposals-empty">Loading the travel guide…</p>
         </div>
       </div><!-- /panel-mode[data-mode="conference"] -->

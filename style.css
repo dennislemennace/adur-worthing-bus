@@ -488,6 +488,7 @@ html.dark-mode .last-updated.is-error .loading-dots { color: #ffb84d; }
   color: var(--color-text-muted);
 }
 .section-nav-menu [role="option"][aria-selected="true"] .section-nav-icon { color: inherit; }
+.section-nav-trigger .section-nav-icon { color: inherit; }
 .section-nav-menu [role="option"]:focus {
   background: var(--color-surface-2);
   outline: none;
@@ -7993,3 +7994,18 @@ button.target-dense {
 .conf-pin--venue { cursor: pointer; }
 .conf-pin--arrival .conf-pin-dot { background: #1a4b82; }
 .conf-pin--social .conf-pin-dot { background: #8e3fae; }
+.conf-pin--taxi .conf-pin-dot { background: #f2c200; }
+.conf-actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); margin-top: var(--space-xs); }
+.conf-locate-result:empty { display: none; }
+.conf-locate-result { margin-top: var(--space-xs); }
+.conf-stop .conf-routes { margin-top: 4px; }
+/* At the narrowest phones the site title needs the room; the list keeps its icons. */
+@media (max-width: 360px) { .section-nav-current-icon { display: none; } }
+.conf-stops--grid { display: grid; grid-template-columns: 1fr 1fr; }
+.conf-stops--grid .conf-stop { height: 100%; }
+.conf-stop--limited { border-style: dashed; }
+.section-nav-new {
+  flex: none; margin-left: auto; padding: 2px 7px; border-radius: 999px;
+  background: var(--color-primary); color: var(--color-on-fill);
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.3;
+}
