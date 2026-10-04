@@ -6,12 +6,12 @@
     "east": "Brighton & Hove"
   },
   "headline": "Bus service is measurably thinner on the West Sussex side of the Brighton & Hove boundary.",
-  "as_of": "2026-09-29",
-  "computed_at": "2026-09-29T15:53:46+00:00",
+  "as_of": "2026-10-04",
+  "computed_at": "2026-10-04T09:34:29+00:00",
   "data_version": {
     "source": "Bus Open Data Service, South East regional GTFS bundle",
     "artefact": "data/timetable.sqlite",
-    "sha256": "d4179553c81c9dbd7775d445bfa608e5f9e4e0b52de721128ef631c959921bbf"
+    "sha256": "c4dd51408247628606dc79a51d0012463a03fc622711406c93c3258ac237b813"
   },
   "measured_week": {
     "monday": "2026-10-05",
@@ -190,10 +190,10 @@
       },
       "east": {
         "stops": 320,
-        "departures": 31985,
-        "departures_per_stop": 100.0,
+        "departures": 31896,
+        "departures_per_stop": 99.7,
         "routes": 39,
-        "departures_after_2300": 1383,
+        "departures_after_2300": 1376,
         "route_list": [
           "025",
           "1",
@@ -237,7 +237,7 @@
         ]
       },
       "ratio": {
-        "departures_per_stop": 0.649,
+        "departures_per_stop": 0.651,
         "routes": 0.513
       }
     },
@@ -264,10 +264,10 @@
       },
       "east": {
         "stops": 320,
-        "departures": 29661,
-        "departures_per_stop": 92.7,
+        "departures": 29578,
+        "departures_per_stop": 92.4,
         "routes": 26,
-        "departures_after_2300": 1386,
+        "departures_after_2300": 1379,
         "route_list": [
           "025",
           "1",
@@ -298,7 +298,7 @@
         ]
       },
       "ratio": {
-        "departures_per_stop": 0.654,
+        "departures_per_stop": 0.656,
         "routes": 0.423
       }
     },
@@ -323,10 +323,10 @@
       },
       "east": {
         "stops": 320,
-        "departures": 19244,
-        "departures_per_stop": 60.1,
+        "departures": 19178,
+        "departures_per_stop": 59.9,
         "routes": 23,
-        "departures_after_2300": 875,
+        "departures_after_2300": 868,
         "route_list": [
           "025",
           "1",
@@ -354,7 +354,7 @@
         ]
       },
       "ratio": {
-        "departures_per_stop": 0.611,
+        "departures_per_stop": 0.613,
         "routes": 0.391
       }
     },
@@ -383,12 +383,12 @@
       },
       "east": {
         "stops": 320,
-        "departures": 48905,
-        "departures_per_stop": 76.4,
+        "departures": 48756,
+        "departures_per_stop": 76.2,
         "routes": 26,
         "routes_saturday": 26,
         "routes_sunday": 23,
-        "departures_after_2300": 2261,
+        "departures_after_2300": 2247,
         "route_list": [
           "025",
           "1",
@@ -419,7 +419,7 @@
         ]
       },
       "ratio": {
-        "departures_per_stop": 0.636,
+        "departures_per_stop": 0.638,
         "routes": 0.423
       },
       "combines": [
