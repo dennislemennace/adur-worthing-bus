@@ -214,7 +214,10 @@
   <!-- ===== HEADER ===== -->
   <header class="site-header">
     <div class="header-inner">
-      <div class="header-brand">
+      <!-- The name and mark take you home: Live Bus Tracking. A real link, so it
+           works from the keyboard and opens in a new tab; app.js switches the
+           view in place on an ordinary click. -->
+      <a class="header-brand" id="header-home" href="./">
         <span class="header-icon" aria-hidden="true">
           <!-- Built by scripts/prepare_brand_mark.py from brand/mark-source.png.
                width/height are set so the row does not reflow while it loads,
@@ -235,7 +238,7 @@
               class="brand-word brand-word--accent">Brighton</span> <span
               class="brand-word">Bus</span></h1>
         </div>
-      </div>
+      </a>
       <div class="header-controls">
         <!-- Section navigation. Dropdown chosen over a segmented toggle so
              new sections (Tickets, Mission, etc.) can be added without

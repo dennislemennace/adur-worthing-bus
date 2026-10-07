@@ -1415,6 +1415,27 @@ async function checkMapTaps(page, where) {
  * the venue pinned in the part of the map the sheet leaves showing, the pin
  * opens the venue's details, and the guide's markers leave with the view.
  */
+/** The name and mark in the header take you home, to Live Bus Tracking, in
+ *  place: no reload, so a preview flag or API override survives. */
+async function checkHomeLink(page, where) {
+  await page.evaluate("setViewMode('tickets')");
+  await sleep(300);
+  const r = JSON.parse(await page.evaluate(`(() => {
+    const home = document.getElementById("header-home");
+    if (!home) return JSON.stringify({ home: false });
+    window.__homeMarker = 1;                      // gone if the page reloads
+    const box = home.getBoundingClientRect();
+    home.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+    return JSON.stringify({ home: true, tag: home.tagName, href: home.getAttribute("href"),
+      view: state.viewMode, kept: window.__homeMarker === 1, height: Math.round(box.height),
+      name: home.textContent.replace(/\\s+/g, " ").trim() });
+  })()`));
+  check(`the header name takes you home to live tracking — ${where}`,
+    r.home && r.tag === "A" && r.href === "./" && r.view === "live" && r.kept && /Worthing Brighton Bus/.test(r.name),
+    JSON.stringify(r));
+  check(`the header name is a full-size target — ${where}`, r.height >= 44, `${r.height}px`);
+}
+
 async function checkConference(page, where) {
   await waitFor(page, "typeof conf !== 'undefined' && !!conf.data", 15000);
   // After show_until the guide leaves the menu; nothing else here applies.
@@ -3876,6 +3897,7 @@ await checkClusterDensity(page, VIEWPORTS[0].name);
 await checkProposalFitsAboveSheet(page, VIEWPORTS[0].name);
 await checkPresetsDraw(page, VIEWPORTS[0].name);
 await checkConference(page, VIEWPORTS[0].name);
+await checkHomeLink(page, VIEWPORTS[0].name);
 await checkTicketZonesPicker(page, VIEWPORTS[0].name);
 await checkMapTaps(page, VIEWPORTS[0].name);
 await checkObjectiveLead(page, VIEWPORTS[0].name);
@@ -3928,6 +3950,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   if (vp.mobile) await checkTicketZonesPicker(p, vp.name);
   await checkMapTaps(p, vp.name);
   await checkConference(p, vp.name);
+  await checkHomeLink(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
   await checkStopClosure(p, vp.name);
   await checkUpcomingStops(p, vp.name);

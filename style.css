@@ -302,6 +302,11 @@ html.dark-mode .site-header {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  /* A link home: the wordmark keeps its own colours, no underline. */
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  min-height: var(--target-min);   /* as tall as the header's buttons beside it */
 }
 
 .header-icon {

@@ -9455,6 +9455,7 @@ function bindUIEvents() {
 
   // Section nav dropdown (Live / Improvements / future sections)
   initSectionNav();
+  initHomeLink();
 
   // Browser back/forward — re-apply state from the URL hash.
   window.addEventListener("popstate", () => applyUrlState(parseUrlState()));
@@ -9998,6 +9999,19 @@ function syncSectionNavToViewMode() {
  *  switch the view, Escape closes + returns focus, Arrow keys move within
  *  the menu, Enter/Space selects, outside-click closes. Standard listbox
  *  interactions so keyboard parity with the previous button-pair is kept. */
+/** The name and mark in the header go home, to Live Bus Tracking. An ordinary
+ *  click switches the view in place, keeping ?preview and ?api; a click meant
+ *  for a new tab or window is left to the browser and its href. */
+function initHomeLink() {
+  const home = document.getElementById("header-home");
+  if (!home) return;
+  home.addEventListener("click", event => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    setViewMode("live");
+  });
+}
+
 function initSectionNav() {
   if (!dom.sectionNavTrigger || !dom.sectionNavMenu) return;
   const trigger = dom.sectionNavTrigger;
