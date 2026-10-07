@@ -111,3 +111,49 @@ def test_reprocessing_old_month_restores_the_month_without_widening_current_wind
     assert {s["day"] for s in sources} == {"2026-07-01", "2026-07-02"}
     assert len(list((tmp_path / "inputs/month").glob("*.gz"))) == 2
     assert not list((tmp_path / "inputs/window").glob("*.gz"))
+
+
+def _previous(*names):
+    build = "a" * 64
+    return {"build_id": build, "artifacts": {
+        name: {"file": f"builds/{build}/{name}", "sha256": "x"} for name in names}}
+
+
+def test_a_compressed_artifact_replaces_its_uncompressed_twin(tmp_path):
+    """Carried forward, the uncompressed delay-map evidence (559 MB a night by
+    5 October 2026) would stay linked, and so stored, after its .gz replaced it."""
+    from publication_bundle import build_bundle
+    folder = journey_files(tmp_path)
+    preview = tmp_path / "hotspot-preview.json.gz"
+    preview.write_bytes(gzip.compress(b'{"cells": []}'))
+    index = build_bundle(folder, {preview.name: preview}, tmp_path / "candidate",
+                         [{"day": "2026-09-21"}], {}, _previous("hotspot-preview.json"))
+    assert "hotspot-preview.json" not in index["artifacts"]
+    assert index["artifacts"]["hotspot-preview.json.gz"]["file"].startswith(f'builds/{index["build_id"]}/')
+
+
+def test_day_artifacts_stop_being_carried_once_their_day_leaves_the_window(tmp_path):
+    """Every carried day stayed linked, so retention could never retire it: about
+    20 MB a day, the whole 4 GiB budget within months. A day out of the window is
+    still in its own release, which observation_sources names."""
+    from publication_bundle import build_bundle
+    folder = journey_files(tmp_path)
+    previous = _previous(
+        "observations-2026-08-01.json.gz", "summary-2026-08-01.json", "rollup-2026-08.json",
+        "observations-2026-09-20.json.gz", "summary-2026-09-20.json", "rollup-2026-09.json",
+        "hotspot-map-700-SCSO.json")
+    index = build_bundle(folder, {}, tmp_path / "candidate",
+                         [{"day": "2026-09-20"}, {"day": "2026-09-21"}], {}, previous)
+    kept = set(index["artifacts"])
+    assert {"observations-2026-09-20.json.gz", "summary-2026-09-20.json",
+            "rollup-2026-09.json", "hotspot-map-700-SCSO.json"} <= kept
+    assert not kept & {"observations-2026-08-01.json.gz", "summary-2026-08-01.json",
+                       "rollup-2026-08.json"}
+
+
+def test_workflow_stores_the_preview_compressed_and_says_why_it_will_not_publish():
+    workflow = Path(".github/workflows/process-snapshots.yml").read_text()
+    assert workflow.index("gzip -9nf hotspot-preview.json") < workflow.index("scripts/publication_bundle.py")
+    assert '"hotspot-preview.json=hotspot-preview.json"' not in workflow
+    # The 6 October 2026 failure was a bare `test` that printed nothing.
+    assert 'over the $(gib "$BUDGET") budget' in workflow

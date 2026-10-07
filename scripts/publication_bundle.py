@@ -75,6 +75,38 @@ def validate_schedule(doc):
             raise ValueError(f"Recorded trip {trip_id} has a profile of the wrong length")
 
 
+# Per-day and per-month evidence a generation links to. Carried from one night
+# to the next for as long as its day is in the window; after that it is still in
+# its own release (observation_sources names it), and dropping the link lets
+# retention retire the bucket's copy. Carried unconditionally, every day stayed
+# linked for ever: about 20 MB a day against a 4 GiB budget.
+DAY_ARTIFACT = re.compile(r"(?:observations|summary)-(\d{4}-\d{2}-\d{2})\.json(?:\.gz)?")
+MONTH_ARTIFACT = re.compile(r"rollup-(\d{4}-\d{2})\.json(?:\.gz)?")
+
+
+def carried_artifacts(previous, new_names, days):
+    """The previous generation's artifacts this one still links to.
+
+    A name this generation publishes replaces the old entry, and so does its
+    compressed or uncompressed twin: hotspot-preview.json.gz replaced the 559 MB
+    hotspot-preview.json, which carried forward would have stayed stored.
+    """
+    months = {day[:7] for day in days}
+    kept = {}
+    for name, entry in (previous or {}).items():
+        twin = name[:-3] if name.endswith(".gz") else name + ".gz"
+        if name in new_names or twin in new_names:
+            continue
+        day = DAY_ARTIFACT.fullmatch(name)
+        if day and day.group(1) not in days:
+            continue
+        month = MONTH_ARTIFACT.fullmatch(name)
+        if month and month.group(1) not in months:
+            continue
+        kept[name] = entry
+    return kept
+
+
 def build_bundle(journey_dir, extras, out, sources, evidence, previous=None):
     journey_dir, out = Path(journey_dir), Path(out)
     failures, documents, binary = checks.Failures(), {}, {}
@@ -120,8 +152,10 @@ def build_bundle(journey_dir, extras, out, sources, evidence, previous=None):
     for entry in index["services"]:
         name = entry["file"]
         entry.update(file=f"{prefix}/{name}", sha256=hashlib.sha256(objects[name]).hexdigest())
-    index["artifacts"] = {**(previous or {}).get("artifacts", {}), **{name: {"file": f"{prefix}/{name}", "sha256": hashlib.sha256(raw).hexdigest()}
-                          for name, raw in binary.items()}}
+    days = {source.get("day") for source in sources or [] if source.get("day")}
+    index["artifacts"] = {**carried_artifacts((previous or {}).get("artifacts", {}), set(binary), days),
+                          **{name: {"file": f"{prefix}/{name}", "sha256": hashlib.sha256(raw).hexdigest()}
+                             for name, raw in binary.items()}}
     objects["index.json"] = encoded(index)
     # All validation precedes writes, and a build path is never overwritten.
     for name, raw in objects.items():

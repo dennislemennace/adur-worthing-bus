@@ -88,3 +88,23 @@ def test_whole_generation_pruning_protects_nested_artifact_references():
     live = index(B[9], B[8])
     live['artifacts'] = {'old': {'file': f'builds/{B[0]}/summary.json'}}
     assert B[0] not in pp.to_delete(listing(*B[:10]), live)
+
+
+def test_old_delay_map_evidence_goes_from_every_build_but_live_and_rollback():
+    """Seven retained copies of the full delay-map evidence (559 MB uncompressed
+    by October 2026) filled the 4 GiB budget on their own, and publication
+    stopped on 6 October. Each night's copy is in that run's release, so only the
+    live generation and its rollback keep theirs in the bucket."""
+    live = index(B[9], B[8])
+    older = index(B[5], B[4])
+    older["artifacts"] = {"hotspot-preview.json": {"file": f"builds/{B[5]}/hotspot-preview.json"}}
+    extra = [(5, "hotspot-preview.json"), (7, "hotspot-preview.json.gz"),
+             (8, "hotspot-preview.json"), (9, "hotspot-preview.json.gz")]
+    text = listing(*B[:10]) + "".join(
+        f"2026-10-{n + 1:02d} 03:40:00 559000000 journey-times/builds/{B[n]}/{name}\n" for n, name in extra)
+    doomed = pp.deletable_objects(text, live, [older], keep=7)
+    assert f"journey-times/builds/{B[5]}/hotspot-preview.json" in doomed       # retained, and named by its own index
+    assert f"journey-times/builds/{B[7]}/hotspot-preview.json.gz" in doomed
+    assert f"journey-times/builds/{B[8]}/hotspot-preview.json" not in doomed   # rollback
+    assert f"journey-times/builds/{B[9]}/hotspot-preview.json.gz" not in doomed  # live
+    assert f"journey-times/builds/{B[5]}/700-SCSO.json" not in doomed          # the rest of a retained build stays

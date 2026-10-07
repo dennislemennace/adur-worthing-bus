@@ -44,12 +44,8 @@ def generations(listing_text):
 
 
 def protected(index):
-    """The live generation and its rollback target."""
-    keep = {index.get("build_id"), index.get("previous_build")}
-    rollback = index.get("rollback_index") or ""
-    m = re.search(r"builds/([a-f0-9]{64})/", rollback)
-    if m:
-        keep.add(m.group(1))
+    """The live generation, its rollback target, and every build it links to."""
+    keep = current_builds(index)
     keep.update(re.search(r'builds/([a-f0-9]{64})/', key).group(1)
                 for key in references(index))
     return {b for b in keep if b}
@@ -75,6 +71,22 @@ def retained_builds(listing_text, index, keep):
         b for b in (index.get('build_id'), index.get('previous_build')) if b}
 
 
+# Evidence rebuilt in full every night and archived in that run's release
+# (publication.tar.gz). Only the live generation and its rollback keep a copy in
+# the bucket: on 6 October 2026 seven retained copies of the delay map's, then
+# 559 MB each uncompressed, filled the 4 GiB budget and stopped publication.
+NIGHTLY_EVIDENCE = frozenset({"hotspot-preview.json", "hotspot-preview.json.gz"})
+
+
+def current_builds(index):
+    """The live generation and the one it rolls back to."""
+    keep = {index.get("build_id"), index.get("previous_build")}
+    m = re.search(r"builds/([a-f0-9]{64})/", index.get("rollback_index") or "")
+    if m:
+        keep.add(m.group(1))
+    return {b for b in keep if b}
+
+
 def deletable_objects(listing_text, index, manifests=(), keep=7):
     """Retire large old route files without retiring still-linked evidence.
 
@@ -84,12 +96,17 @@ def deletable_objects(listing_text, index, manifests=(), keep=7):
     """
     retained = retained_builds(listing_text, index, keep)
     required = set().union(*(references(m) for m in [index, *manifests]))
+    current = current_builds(index)
+    live_refs = references(index)
     doomed = []
     for line in listing_text.splitlines():
         match = BUILD_KEY.fullmatch(line.strip())
         if match:
             key = line.split()[-1]
             if match.group(2) not in retained and key not in required:
+                doomed.append(key)
+            elif (key.rsplit("/", 1)[-1] in NIGHTLY_EVIDENCE and match.group(2) not in current
+                  and key not in live_refs):
                 doomed.append(key)
     return sorted(doomed)
 

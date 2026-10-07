@@ -488,6 +488,23 @@ of provider pricing. No paid tier or increased raw retention is introduced.
   A link pinned to a retired generation with
   `?jt-build=` stops working after about a week. If the budget is still
   exceeded, the workflow stops and keeps the previous public generation.
+- **What actually filled it (6 October 2026, run 37448955929).** The 5 October
+  generation measured **882 MB**: service files 88 MB, delay-map files 16 MB,
+  and **`hotspot-preview.json`, the full delay-map evidence, 559 MB** as plain
+  JSON. Seven retained copies of that file filled the budget by themselves, and
+  the publish step stopped on a bare `test` that printed nothing. Since then:
+  - the evidence is stored as `hotspot-preview.json.gz`, **52 MB** for the same
+    night;
+  - only the live generation and its rollback keep a copy in the bucket
+    (`NIGHTLY_EVIDENCE` in `scripts/prune_published.py`); each night's copy is
+    in that run's release, inside `publication.tar.gz`;
+  - day artifacts (`observations-*`, `summary-*`) and monthly rollups stop being
+    carried once their day or month leaves `observation_sources`
+    (`carried_artifacts` in `scripts/publication_bundle.py`), so retention can
+    retire them. Carried unconditionally, about 20 MB a day stayed linked for
+    ever;
+  - the step prints held, new and total sizes, warns past 80% of the budget, and
+    says why it stops.
 - Every new generation adds per-service documents, summaries and observations,
   then reads each uploaded object back once before switching the pointer.
   Service documents are written compact (`scripts/journey_times_codec.py`; the

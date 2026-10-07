@@ -251,6 +251,10 @@ jobs:
             --rollup "rollup-$MONTH.json"
           python scripts/build_delay_hotspots.py --observations inputs/window --out hotspot-preview.json \
             --map-out hotspot-map --timetable data/timetable.sqlite --map-day "$DAY"
+          # The full delay-map evidence: every traversal, about 560 MB as JSON
+          # by 5 October 2026 and 52 MB compressed. Stored compressed, or seven
+          # retained generations of it fill the 4 GiB published budget alone.
+          gzip -9nf hotspot-preview.json
           # One artifact per service map, validated with the rest of the candidate.
           MAP_ARTIFACTS=()
           for f in hotspot-map/*.json; do MAP_ARTIFACTS+=(--artifact "$(basename "$f")=$f"); done
@@ -260,7 +264,7 @@ jobs:
             --artifact "observations-$DAY.json.gz=observations-$DAY.json.gz" \
             --artifact "summary-$DAY.json=data/reliability/$DAY.json" \
             --artifact "rollup-$MONTH.json=rollup-$MONTH.json" \
-            --artifact "hotspot-preview.json=hotspot-preview.json" \
+            --artifact "hotspot-preview.json.gz=hotspot-preview.json.gz" \
             "${MAP_ARTIFACTS[@]}" \
             --sources inputs/sources.json --evidence evidence.json \
             --previous-index previous-index.json --out candidate > build-id.txt
@@ -310,9 +314,22 @@ jobs:
           aws s3 ls s3://adur-worthing-published/ --recursive --summarize \
             --endpoint-url "$ENDPOINT" > published-usage.txt
           USED=$(awk '/Total Size:/ {print $3}' published-usage.txt)
-          test -n "$USED"
+          if [ -z "$USED" ]; then
+            echo "::error::Could not read the published bucket's size; not publishing"
+            exit 1
+          fi
           SIZE=$(du -sb candidate | cut -f1)
-          test "$((USED + SIZE))" -le 4294967296
+          BUDGET=4294967296
+          TOTAL=$((USED + SIZE))
+          gib() { awk -v b="$1" 'BEGIN { printf "%.2f GiB", b / 1073741824 }'; }
+          echo "Published bucket: $(gib "$USED") held + $(gib "$SIZE") new = $(gib "$TOTAL") of $(gib "$BUDGET")"
+          if [ "$TOTAL" -gt "$BUDGET" ]; then
+            echo "::error::Publishing would hold $(gib "$TOTAL"), over the $(gib "$BUDGET") budget ($(gib "$USED") already held, $(gib "$SIZE") in this generation). Nothing was uploaded; the live generation is unchanged."
+            exit 1
+          fi
+          if [ "$TOTAL" -gt $((BUDGET * 8 / 10)) ]; then
+            echo "::warning::The published bucket will be at $(gib "$TOTAL"), over 80% of its $(gib "$BUDGET") budget"
+          fi
           aws s3 cp "candidate/builds/$BUILD/" \
             "s3://adur-worthing-published/journey-times/builds/$BUILD/" \
             --recursive --endpoint-url "$ENDPOINT" --no-progress
