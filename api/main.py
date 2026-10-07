@@ -1501,15 +1501,22 @@ def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime) ->
     is one, is kept; it comes from the operator's own system.
     """
     cached = cache_get(RECENT_VEHICLES_KEY) or {}
-    by_trip = {v["trip_id"]: v for v in cached.get("vehicles") or []
-               if v.get("trip_source") == "feed" and v.get("trip_id")
-               and v.get("lateness_secs") is not None}
+    # The bus running each journey, where the feed names it. Every row whose
+    # journey is on the road names that bus, estimate or not, so a click opens
+    # it: without one the board opened whichever bus with the same number was
+    # nearest the stop, often the one before.
+    running = {v["trip_id"]: v for v in cached.get("vehicles") or []
+               if v.get("trip_source") == "feed" and v.get("trip_id")}
+    by_trip = {trip: v for trip, v in running.items() if v.get("lateness_secs") is not None}
     departures = payload.get("departures") or []
-    if not by_trip or not departures:
+    if not running or not departures:
         return payload
     out, estimated = [], 0
     for dep in departures:
         new = dict(dep)
+        on_trip = running.get(dep.get("_trip_id"))
+        if on_trip and on_trip.get("vehicle_ref") and not new.get("vehicle_ref"):
+            new["vehicle_ref"] = on_trip["vehicle_ref"]
         if new.get("expected_departure"):
             new.setdefault("live_source", "prediction")
         elif (new.get("status") or "").lower() == "cancelled":
@@ -1527,19 +1534,22 @@ def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime) ->
                 new["live_source"] = "feed"
                 estimated += 1
         out.append(new)
-    if not estimated:
-        return payload
-    result = {**payload, "departures": out, "live": True}
-    result.pop("live_reason", None)
+    result = {**payload, "departures": out}
+    if estimated:
+        result["live"] = True
+        result.pop("live_reason", None)
     return result
 
 
 def _public_departures(payload: dict) -> dict:
     """The board as readers get it: the next `BOARD_ROWS` departures, soonest
-    first, without the trip ids and service list used to build it."""
+    first, without the service list used to build it. Each row names its
+    journey (`trip_id`, the same id the vehicle list gives as
+    `declared_trip_id`), so a click can open that journey and no other."""
     rows = sorted(payload.get("departures") or [], key=_soonest_key)[:BOARD_ROWS]
     return {**{k: v for k, v in payload.items() if not k.startswith("_")},
-            "departures": [{k: v for k, v in dep.items() if not k.startswith("_")}
+            "departures": [{**{k: v for k, v in dep.items() if not k.startswith("_")},
+                            **({"trip_id": dep["_trip_id"]} if dep.get("_trip_id") else {})}
                            for dep in rows]}
 
 
@@ -1828,6 +1838,35 @@ _GAP_MEMORY: dict = {}
 # an ordinary midday departure makes the quote reproducible and representative
 # of the journey most people are actually making.
 JOURNEY_TIME_ANCHOR = "12:00"
+
+
+@app.get("/api/trip")
+async def get_trip(
+    tripId: str = Query(..., max_length=120, pattern=r"^[A-Za-z0-9_:.\-]+$"),
+    fromStop: str = Query(..., alias="from", max_length=30),
+):
+    """One journey's timetabled stops from a stop onwards.
+
+    For a departure whose bus is not on the road yet: clicking it on a board
+    shows that journey, from the timetable, rather than another bus with the
+    same number. Reads the local timetable only; no live call.
+    """
+    tt = await _get_timetable()
+    trip = tt.trips.get(tripId)
+    calls = [(secs, atco) for secs, atco in (tt.trip_stops_for(tripId) or []) if secs is not None]
+    if not trip or not calls:
+        raise HTTPException(status_code=404, detail="Journey not in the timetable.")
+    start = next((i for i, (_secs, atco) in enumerate(calls) if atco == fromStop), 0)
+    route = tt.routes.get(trip.get("route_id", "")) or {}
+    return {
+        "trip_id": tripId,
+        "service": route.get("short_name", ""),
+        "operator": route.get("noc", ""),
+        "headsign": trip.get("headsign", ""),
+        "journey_start": _secs_to_hhmm(calls[0][0]),
+        "calls": [{"atco": atco, "name": (tt.stops.get(atco) or {}).get("name", ""),
+                   "time": _secs_to_hhmm(secs)} for secs, atco in calls[start:]],
+    }
 
 
 @app.get("/api/journey")

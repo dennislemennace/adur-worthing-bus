@@ -84,7 +84,7 @@ test("a departure row's action is a real button", () => {
   });
   assert.match(html, /<button[^>]*class="service-badge-btn"/,
     "the row's only action has no keyboard route");
-  assert.match(html, /aria-label="Show service 700 on the map"/,
+  assert.match(html, /aria-label="Show this 700 bus and its stops"/,
     "the button is a coloured badge with no accessible name");
 });
 

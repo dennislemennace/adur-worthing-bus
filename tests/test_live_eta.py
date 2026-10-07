@@ -202,9 +202,67 @@ def test_an_inferred_bus_gives_the_board_no_estimate(monkeypatch):
     assert out["departures"][0]["expected_departure"] is None
 
 
-def test_internal_trip_ids_do_not_reach_the_reader():
+def test_each_row_names_its_journey_for_the_reader():
+    # Clicking a row must open that journey's bus, not the nearest one with
+    # the same number, so the row says which journey it is. The vehicle list
+    # already publishes the same ids as declared_trip_id.
     payload = main._public_departures(_board([_row(at(14, 10))]))
-    assert "_trip_id" not in payload["departures"][0]
+    dep = payload["departures"][0]
+    assert dep["trip_id"] == "VJ_1400"
+    assert "_trip_id" not in dep
+
+
+def test_each_row_names_the_bus_running_its_journey(monkeypatch):
+    # The 700 in 14 min and the 700 in 35 min: each row names its own bus.
+    # The second has no lateness yet, so no estimate, but it is still the bus
+    # on that journey. Before, neither row named a bus and a click opened
+    # whichever 700 was nearest the stop.
+    later = declared(None, trip="VJ_1421", vehicle_ref="BUS-2")
+    monkeypatch.setattr(main, "cache_get", _cached([declared(180), later]))
+    out = main._apply_own_feed_estimates(
+        _board([_row(at(14, 10)), _row(at(14, 31), trip="VJ_1421")]), FakeTimetable(), "STOP5", at(14, 5))
+    assert [d.get("vehicle_ref") for d in out["departures"]] == ["BUS-1", "BUS-2"]
+
+
+def test_a_vehicle_the_prediction_named_is_kept(monkeypatch):
+    monkeypatch.setattr(main, "cache_get", _cached([declared(180)]))
+    out = main._apply_own_feed_estimates(_board([_row(at(14, 10), vehicle_ref="NB-9")]),
+                                         FakeTimetable(), "STOP5", at(14, 5))
+    assert out["departures"][0]["vehicle_ref"] == "NB-9"
+
+
+def test_an_inferred_bus_is_not_named_as_running_a_journey(monkeypatch):
+    monkeypatch.setattr(main, "cache_get", _cached([declared(180, trip_source="inferred")]))
+    out = main._apply_own_feed_estimates(_board([_row(at(14, 10))]),
+                                         FakeTimetable(), "STOP5", at(14, 5))
+    assert "vehicle_ref" not in out["departures"][0]
+
+
+def test_a_journey_not_yet_on_the_road_lists_its_timetabled_stops(monkeypatch):
+    import asyncio
+    tt = FakeTimetable()
+    async def fake_tt():
+        return tt
+    monkeypatch.setattr(main, "_get_timetable", fake_tt)
+    out = asyncio.run(main.get_trip(tripId="VJ_1400", fromStop="STOP5"))
+    assert (out["service"], out["headsign"], out["trip_id"]) == ("700", "Worthing", "VJ_1400")
+    assert [c["atco"] for c in out["calls"]] == ["STOP5", "STOP6", "STOP7"]
+    assert [c["time"] for c in out["calls"]] == ["14:10", "14:12", "14:14"]
+    assert out["calls"][0]["name"] == "Stop 5"
+
+
+def test_an_unknown_journey_is_a_404(monkeypatch):
+    import asyncio
+    from fastapi import HTTPException
+    async def fake_tt():
+        return FakeTimetable()
+    monkeypatch.setattr(main, "_get_timetable", fake_tt)
+    try:
+        asyncio.run(main.get_trip(tripId="VJ_NOPE", fromStop="STOP5"))
+    except HTTPException as err:
+        assert err.status_code == 404
+    else:
+        raise AssertionError("an unknown journey was answered")
 
 
 def test_the_bus_tab_lists_the_journey_the_feed_named(monkeypatch):

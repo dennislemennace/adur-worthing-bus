@@ -1415,6 +1415,65 @@ async function checkMapTaps(page, where) {
  * the venue pinned in the part of the map the sheet leaves showing, the pin
  * opens the venue's details, and the guide's markers leave with the view.
  */
+/** A board row opens its own journey: the bus running it, or, before it sets
+ *  off, its timetabled stops. Never the nearest bus with the same number,
+ *  which is how the 700 in 35 min used to show the 700 in 14. */
+async function checkDepartureJourneys(page, where) {
+  const r = JSON.parse(await page.evaluate(`(async () => {
+    const atco = Object.keys(state.stopData || {})[0];
+    if (!atco) return JSON.stringify({ skip: "no stops loaded" });
+    setViewMode("live");
+    await openDepartures(atco, (state.stopData[atco] || {}).name || atco);
+    const stop = state.stopMarkers[atco] && state.stopMarkers[atco].getLatLng();
+    const soon = m => new Date(Date.now() + m * 60000).toISOString();
+    const row = (m, trip, extra = {}) => ({ service: "700", operator: "SCSO", destination: "Worthing",
+      aimed_departure: soon(m), expected_departure: null, status: "Scheduled", delay_seconds: null,
+      ...(trip ? { trip_id: trip } : {}), ...extra });
+    renderDepartures({ stop_name: "Fixture Stop", departures: [
+      row(14, "FIX_TRIP_A"), row(35, "FIX_TRIP_B"), row(50, "FIX_TRIP_C"), row(55, null)] });
+    const near = stop || { lat: 50.83, lng: -0.27 };
+    const fake = (ref, trip, dLat) => {
+      const v = { vehicle_ref: ref, service_ref: "700", operator_ref: "SCSO", destination: "Worthing",
+        latitude: near.lat + dLat, longitude: near.lng, bearing: 90, recorded_at: new Date().toISOString(),
+        declared_trip_id: trip, trip_source: "feed", trip_headsign: "Worthing" };
+      const marker = L.marker([v.latitude, v.longitude]);
+      marker._vehicle = v;
+      state.busMarkers[ref] = marker;
+    };
+    fake("FIX-A", "FIX_TRIP_A", 0.0005);     // the earlier bus, nearer the stop
+    fake("FIX-B", "FIX_TRIP_B", 0.03);       // the later bus, further away
+    const rows = [...document.querySelectorAll("tr.departure-row")];
+    const click = tr => tr.querySelector("button.service-badge-btn").click();
+    click(rows[1]);
+    const opened = state.selectedVehicleRef;
+    click(rows[2]);
+    await new Promise(res => setTimeout(res, 1500));
+    const plan = document.querySelector("tr.departure-plan");
+    const planBox = plan && plan.getBoundingClientRect();
+    const panel = document.getElementById("departure-panel").getBoundingClientRect();
+    const afterPlan = state.selectedVehicleRef;
+    const planRight = planBox ? planBox.right <= panel.right + 1 : false;
+    const planFor = plan && plan.dataset.trip;
+    const expanded = rows[2].querySelector("button.service-badge-btn").getAttribute("aria-expanded");
+    click(rows[2]);
+    const closed = !document.querySelector("tr.departure-plan");
+    click(rows[3]);
+    const afterUnknown = state.selectedVehicleRef;
+    delete state.busMarkers["FIX-A"]; delete state.busMarkers["FIX-B"];
+    state.selectedVehicleRef = null; state.selectedVehicle = null;
+    setActiveTab("departures");
+    return JSON.stringify({ opened, afterPlan, planFor, planRight, expanded, closed, afterUnknown,
+      planText: plan ? plan.textContent.replace(/\\s+/g, " ").trim().slice(0, 80) : "" });
+  })()`));
+  if (r.skip) { check(`a board row opens its own bus — ${where}`, true, r.skip); return; }
+  check(`a board row opens its own bus, not the nearest with the same number — ${where}`,
+    r.opened === "FIX-B", JSON.stringify(r));
+  check(`a departure not yet on the road opens its own journey, not a bus — ${where}`,
+    r.afterPlan === "FIX-B" && r.planFor === "FIX_TRIP_C" && r.expanded === "true" && r.planRight && r.closed,
+    JSON.stringify(r));
+  check(`a departure with no journey opens no bus — ${where}`, r.afterUnknown === "FIX-B", JSON.stringify(r));
+}
+
 /** The name and mark in the header take you home, to Live Bus Tracking, in
  *  place: no reload, so a preview flag or API override survives. */
 async function checkHomeLink(page, where) {
@@ -3898,6 +3957,7 @@ await checkProposalFitsAboveSheet(page, VIEWPORTS[0].name);
 await checkPresetsDraw(page, VIEWPORTS[0].name);
 await checkConference(page, VIEWPORTS[0].name);
 await checkHomeLink(page, VIEWPORTS[0].name);
+await checkDepartureJourneys(page, VIEWPORTS[0].name);
 await checkTicketZonesPicker(page, VIEWPORTS[0].name);
 await checkMapTaps(page, VIEWPORTS[0].name);
 await checkObjectiveLead(page, VIEWPORTS[0].name);
@@ -3951,6 +4011,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkMapTaps(p, vp.name);
   await checkConference(p, vp.name);
   await checkHomeLink(p, vp.name);
+  await checkDepartureJourneys(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
   await checkStopClosure(p, vp.name);
   await checkUpcomingStops(p, vp.name);

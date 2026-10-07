@@ -8028,3 +8028,16 @@ button.target-dense {
   font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
 }
 .jt-reliability-thin, .jt-reliability-basis { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+
+/* A departure whose bus is not on the road yet: its own journey, opened under
+   its row, from the timetable. */
+.departure-plan td { padding: 0 var(--space-sm) var(--space-sm); }
+.departure-plan-body {
+  padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-md);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+}
+.departure-plan-title { margin: 0; font-weight: 700; color: var(--color-text); }
+.departure-plan-sub { margin: 4px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.departure-plan-stops { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
+.departure-plan-stops li { display: flex; gap: 10px; font-size: var(--font-size-sm); color: var(--color-text); }
+.departure-plan-time { flex: none; min-width: 3.2em; font-variant-numeric: tabular-nums; color: var(--color-text-muted); }

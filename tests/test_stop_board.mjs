@@ -372,3 +372,48 @@ test("a National Express coach shows no local fares", () => {
   assert.equal(app.buildTicketInfoHtml("NATX", null, "025"), "",
     "local tickets and the bus fare cap were offered for a coach");
 });
+
+// ── A row opens its own journey ────────────────────────────────
+
+test("a board row opens the bus running its journey, never the nearest with the same number", () => {
+  // The 700 in 14 min and the 700 in 35: the later row used to open the
+  // earlier bus, the one nearest the stop.
+  const app = loadApp();
+  const bus = (ref, trip, extra = {}) => ({ _vehicle: { vehicle_ref: ref, service_ref: "700",
+    declared_trip_id: trip, trip_source: "feed", ...extra } });
+  vm.runInContext("state", app).busMarkers = {
+    "BUS-A": bus("BUS-A", "VJ_A"), "BUS-B": bus("BUS-B", "VJ_B"),
+    "BUS-X": bus("BUS-X", "VJ_X", { trip_source: undefined }),   // declaration contradicted
+  };
+  const pick = vm.runInContext("departureBus", app);
+  const tr = data => ({ dataset: data });
+  assert.equal(pick(tr({ service: "700", trip: "VJ_B" })).vehicle_ref, "BUS-B");
+  assert.equal(pick(tr({ service: "700", trip: "VJ_A", vehicle: "BUS-B" })).vehicle_ref, "BUS-B",
+    "a bus the board names comes first");
+  assert.equal(pick(tr({ service: "700", trip: "VJ_C" })), null, "a journey with no bus on it is not guessed");
+  assert.equal(pick(tr({ service: "700" })), null, "a row with no journey is not guessed");
+  assert.equal(pick(tr({ service: "700", trip: "VJ_X" })), null, "a contradicted declaration is not trusted");
+});
+
+test("a journey not yet on the road is shown from the timetable, and says so", () => {
+  const app = loadApp();
+  const html = vm.runInContext("buildDeparturePlanHtml", app)({
+    service: "700", headsign: "Worthing Pier", journey_start: "15:05",
+    calls: Array.from({ length: 15 }, (_, i) => ({ atco: `S${i}`, name: `Stop ${i}`, time: `15:${String(10 + i).padStart(2, "0")}` })),
+  }, { onRoad: false, service: "700" }, 14 * 60 + 50);
+  assert.match(html, /This 700 to Worthing Pier has not set off yet/);
+  assert.match(html, /It starts at 15:05\. No bus is running it yet/);
+  assert.equal((html.match(/<li>/g) || []).length, 12);
+  assert.match(html, /And 3 more stops to\s+Stop 14/);
+  // Past its start with no bus declaring it, it may be running untracked.
+  const late = vm.runInContext("buildDeparturePlanHtml", app)({ service: "700", journey_start: "15:05", calls: [] },
+    { onRoad: false, service: "700" }, 15 * 60 + 8);
+  assert.match(late, /This 700 is not being tracked[\s\S]*was due to start at 15:05/);
+  assert.doesNotMatch(late, /has not set off/);
+  // Just after midnight, a 23:50 start is past; a 00:20 start at 23:55 is not.
+  const build = vm.runInContext("buildDeparturePlanHtml", app);
+  assert.match(build({ service: "N7", journey_start: "23:50", calls: [] }, { service: "N7" }, 5), /not being tracked/);
+  assert.match(build({ service: "N7", journey_start: "00:20", calls: [] }, { service: "N7" }, 23 * 60 + 55), /has not set off yet/);
+  const hidden = vm.runInContext("buildDeparturePlanHtml", app)({ service: "700", calls: [] }, { onRoad: true, service: "700" });
+  assert.match(hidden, /is not on the map[\s\S]*bus filter may be hiding it/);
+});

@@ -199,6 +199,7 @@ const state = {
   activeTab:               "stop", // "stop" | "bus"
   busInfoTickTimer:        null,   // setInterval handle for "X ago" text
   busDetails:              null,   // /api/vehicle response for selected bus
+  departurePlan:           null,   // a board row's journey, opened under it when no bus is on it yet
   busDetailsLoading:       false,  // true while waiting on /api/vehicle
   busTabShellRef:          null,   // the bus the Bus tab's static shell was built for
   upcomingExpanded:        {},     // vehicle_ref -> true once "Show all stops" is pressed
@@ -7500,6 +7501,7 @@ function renderDepartures(data) {
   // Every row goes into the table and the filter decides which show, so
   // choosing a route can reach its departures beyond the first ten.
   dom.departuresTbody.innerHTML = departures.map(dep => buildDepartureRow(dep)).join("");
+  restoreDeparturePlan();
 
   // Say when this was fetched, and describe the table rather than the
   // response. This said "16 departures" over ten rows, with no hint that six
@@ -7569,6 +7571,11 @@ function applyBoardFilter() {
   const matching = rows.filter(r => !want || r.dataset.service === want);
   rows.forEach(r => { r.hidden = true; });
   matching.slice(0, CONFIG.DEPARTURES_COUNT).forEach(r => { r.hidden = false; });
+  // An open journey hides with its departure.
+  dom.departuresTbody.querySelectorAll("tr.departure-plan").forEach(plan => {
+    const owner = plan.previousElementSibling;
+    plan.hidden = !owner || owner.hidden;
+  });
   updateDepartureCount(Math.min(matching.length, CONFIG.DEPARTURES_COUNT),
                        matching.length, want);
   return matching.length;
@@ -7754,10 +7761,11 @@ function buildDepartureRow(dep) {
 
   return `
     <tr class="departure-row${cancelled || notServed ? " departure-row--cancelled" : ""}" data-service="${escapeHtml(service)}"
-        ${dep.vehicle_ref ? `data-vehicle="${escapeAttr(dep.vehicle_ref)}"` : ""} title="Show this bus on the map">
+        ${dep.vehicle_ref ? `data-vehicle="${escapeAttr(dep.vehicle_ref)}"` : ""}
+        ${dep.trip_id ? `data-trip="${escapeAttr(dep.trip_id)}"` : ""} title="Show this bus">
       <td><button type="button" class="service-badge-btn"
                   data-service="${escapeAttr(service)}"
-                  aria-label="Show service ${escapeAttr(service)} on the map"
+                  aria-label="Show this ${escapeAttr(service)} bus and its stops"
           ><span class="service-badge ${badgeTextCls}" style="background:${badgeColour}">${escapeHtml(service)}</span></button></td>
       <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span>${
         notServed
@@ -7774,52 +7782,110 @@ function buildDepartureRow(dep) {
     </tr>`;
 }
 
-/**
- * Open the Bus tab for whichever live vehicle currently runs `service`.
- * If multiple vehicles share the service number, picks the one closest
- * to the selected stop. Shows a toast if no live vehicle is tracked.
- */
-function openBusFromService(service) {
-  // Some operators (Stagecoach SCSO) publish night variants without the
-  // leading "N" — e.g. the timetable says "N700" but the live vehicle
-  // reports "700". Match either form.
-  const target     = service || "";
-  const targetBare = stripNightPrefix(target);
+/** The bus on the map running a departure's journey: the one the board
+ *  names, else the one whose feed declares that journey. Never a guess: the
+ *  nearest bus with the same number, which this used to open, is often the
+ *  one before (the 700 in 14 min for the 700 in 35). */
+function departureBus(tr) {
+  const named = tr.dataset.vehicle && state.busMarkers[tr.dataset.vehicle];
+  if (named && named._vehicle) return named._vehicle;
+  const trip = tr.dataset.trip;
+  if (!trip) return null;
+  for (const marker of Object.values(state.busMarkers)) {
+    const v = marker && marker._vehicle;
+    if (v && v.trip_source === "feed" && v.declared_trip_id === trip) return v;
+  }
+  return null;
+}
 
-  const matches = [];
-  Object.values(state.busMarkers).forEach(marker => {
-    const v = marker._vehicle;
-    if (!v) return;
-    const ref = v.service_ref || "";
-    if (ref === target || stripNightPrefix(ref) === targetBare) {
-      matches.push(v);
-    }
-  });
+/** A departure whose bus is not on the map: its own journey, from the
+ *  timetable, opened under its row. A second click closes it. */
+async function toggleDeparturePlan(tr) {
+  const trip = tr.dataset.trip;
+  const open = state.departurePlan;
+  closeDeparturePlan();
+  if (open && open.trip === trip) return;
+  const stop = state.selectedStop && state.selectedStop.atcoCode;
+  const plan = { trip, stop, onRoad: Boolean(tr.dataset.vehicle), service: tr.dataset.service || "",
+                 html: `<p class="departure-plan-sub">Loading this journey…</p>` };
+  state.departurePlan = plan;
+  restoreDeparturePlan();
+  try {
+    const data = await apiFetch(`/api/trip?tripId=${encodeURIComponent(trip)}&from=${encodeURIComponent(stop || "")}`);
+    plan.html = buildDeparturePlanHtml(data, plan);
+  } catch {
+    plan.html = `<p class="departure-plan-sub">We could not load this journey's stops. Try again in a moment.</p>`;
+  }
+  if (state.departurePlan === plan) restoreDeparturePlan();
+}
 
-  if (matches.length === 0) {
-    showToast(`No live vehicle currently tracked for service ${service}.`);
+const DEPARTURE_PLAN_STOPS = 12;
+
+/** Minutes past midnight now, in London. */
+function londonMinutesNow() {
+  const [h, m] = LONDON_CLOCK.format(clockNow()).split(":").map(Number);   // skew-corrected, as the board is
+  return h * 60 + m;
+}
+
+function buildDeparturePlanHtml(data, plan, nowMinutes = londonMinutesNow()) {
+  const svc = escapeHtml(data.service || plan.service);
+  const to = data.headsign ? ` to ${escapeHtml(prettifyName(data.headsign))}` : "";
+  const calls = data.calls || [];
+  const shown = calls.slice(0, DEPARTURE_PLAN_STOPS);
+  const rest = calls.length - shown.length;
+  const last = calls[calls.length - 1];
+  // Past its start time with no bus declaring it, the journey may be running
+  // untracked: "has not set off" would be a guess. Within the last twelve
+  // hours counts as past, so a journey starting after midnight is not.
+  const [sh, sm] = (data.journey_start || "").split(":").map(Number);
+  const started = Number.isFinite(sh) && Number.isFinite(sm)
+    && (nowMinutes - (sh * 60 + sm) + 1440) % 1440 < 12 * 60;
+  const title = plan.onRoad ? `This ${svc}${to} is not on the map`
+    : started ? `This ${svc}${to} is not being tracked` : `This ${svc}${to} has not set off yet`;
+  const sub = plan.onRoad
+    ? "Its bus is on the road, but not on the map: the bus filter may be hiding it. Its stops, from the timetable:"
+    : started
+      ? `It was due to start at ${escapeHtml(data.journey_start)}, but no bus on the map says it is running this
+        journey, so these are its stops from the timetable.`
+      : `${data.journey_start ? `It starts at ${escapeHtml(data.journey_start)}. ` : ""}No bus is running it yet, so these
+        are its stops from the timetable. It shows live once it sets off.`;
+  return `<p class="departure-plan-title">${title}</p>
+    <p class="departure-plan-sub">${sub}</p>
+    <ol class="departure-plan-stops">${shown.map(c => `<li><span class="departure-plan-time">${
+      escapeHtml(c.time)}</span> <span class="departure-plan-name">${escapeHtml(prettifyName(c.name || c.atco))}</span></li>`).join("")}</ol>
+    ${rest > 0 && last ? `<p class="departure-plan-sub">And ${rest} more ${rest === 1 ? "stop" : "stops"} to
+      ${escapeHtml(prettifyName(last.name || last.atco))}.</p>` : ""}`;
+}
+
+/** Put the open journey back under its row: the board is rebuilt on every
+ *  refresh, and a reader halfway down the list should not lose it. Gone when
+ *  its departure leaves the board. */
+function restoreDeparturePlan() {
+  const plan = state.departurePlan;
+  const tbody = dom.departuresTbody;
+  if (!plan || !tbody) return;
+  tbody.querySelectorAll("tr.departure-plan").forEach(row => row.remove());
+  const owner = [...tbody.querySelectorAll("tr.departure-row")].find(r => r.dataset.trip === plan.trip);
+  if (!owner || (state.selectedStop && plan.stop && state.selectedStop.atcoCode !== plan.stop)) {
+    state.departurePlan = null;
     return;
   }
+  const row = document.createElement("tr");
+  row.className = "departure-plan";
+  row.dataset.trip = plan.trip;
+  row.hidden = owner.hidden;
+  row.innerHTML = `<td colspan="4"><div class="departure-plan-body" role="region"
+    aria-label="This departure's journey">${plan.html}</div></td>`;
+  owner.after(row);
+  owner.querySelector("button.service-badge-btn")?.setAttribute("aria-expanded", "true");
+}
 
-  let chosen = matches[0];
-
-  // Prefer the closest match to the selected stop, if we know its position
-  if (state.selectedStop) {
-    const stopMarker = state.stopMarkers[state.selectedStop.atcoCode];
-    if (stopMarker) {
-      const { lat, lng } = stopMarker.getLatLng();
-      let bestDist = Infinity;
-      for (const v of matches) {
-        const d = Math.hypot(v.latitude - lat, v.longitude - lng);
-        if (d < bestDist) {
-          bestDist = d;
-          chosen = v;
-        }
-      }
-    }
-  }
-
-  openBusInfo(chosen);
+function closeDeparturePlan() {
+  state.departurePlan = null;
+  const tbody = dom.departuresTbody;
+  if (!tbody) return;
+  tbody.querySelectorAll("tr.departure-plan").forEach(row => row.remove());
+  tbody.querySelectorAll("button.service-badge-btn[aria-expanded]").forEach(b => b.removeAttribute("aria-expanded"));
 }
 
 // Past this, a position report is old enough that the lateness derived from
@@ -9398,15 +9464,19 @@ function bindUIEvents() {
   // real button so the same action has a keyboard route. A <tr> with a click
   // listener has none — it cannot be focused and Enter does nothing on it.
   dom.departuresTbody.addEventListener("click", (e) => {
-    const btn = e.target.closest("button.service-badge-btn");
     const tr  = e.target.closest("tr.departure-row");
-    const service = (btn && btn.dataset.service) || (tr && tr.dataset.service);
-    // NextBuses can name the vehicle working this departure. Where it does and
-    // that bus is on the map, open that one: the nearest bus with the same
-    // number is often the one before it.
-    const exact = tr && tr.dataset.vehicle && state.busMarkers[tr.dataset.vehicle];
-    if (exact && exact._vehicle) openBusInfo(exact._vehicle);
-    else if (service) openBusFromService(service);
+    if (!tr) return;
+    // This departure's own bus, or its own journey: never another bus with
+    // the same number, which is how the 700 in 35 min showed the 700 in 14.
+    const bus = departureBus(tr);
+    if (bus) {
+      closeDeparturePlan();
+      openBusInfo(bus);
+    } else if (tr.dataset.trip) {
+      toggleDeparturePlan(tr);
+    } else {
+      showToast(`We cannot tell yet which bus will run this ${tr.dataset.service || ""} departure.`);
+    }
   });
 
   // Dark mode toggle
