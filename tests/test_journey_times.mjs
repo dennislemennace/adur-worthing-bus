@@ -1316,21 +1316,23 @@ test("the chart opens on the first busy hour of the chosen time", () => {
   assert.equal(defaultHour(rows, span, "any", 3), 12, "otherwise the busiest hour");
 });
 
-test("an hour with ten journeys says how long to allow, on the headline's own rule", () => {
+test("each hour counts its late buses against the timetable's promise", () => {
+  // Twelve journeys promised 10 min and taking 10..21: those taking over 15
+  // (five minutes late) are the 16, 17, 18, 19, 20 and 21.
   const journeys = Array.from({ length: 12 }, (_, i) => tracked("2026-09-22", 8, i * 4, 10 + i, 10, `P${i}`));
   const rows = hourly(between({ stops: [{}, {}], journeys }, 0, 1));
-  // Twelve journeys taking 10..21 min: the ninth-in-ten is index 10, 20 min.
-  assert.equal(rows[8].p90Secs, 20 * MIN);
-  assert.equal(rows[8].longerThanP90, 1);
-  const few = hourly(between({ stops: [{}, {}], journeys: journeys.slice(0, 9) }, 0, 1));
-  assert.equal(few[8].p90Secs, null, "nine journeys gave an hour its own 'allow'");
-  const words = vm.runInContext("jtLongerWords", app);
-  assert.equal(words(12, 1), "Only 1 of the 12 buses we timed took longer.");
-  assert.equal(words(10, 0), "None of the 10 buses we timed took longer.");
-  assert.equal(words(80, 8), "Only 1 in 10 buses we timed took longer.");
+  assert.deepEqual([rows[8].late, rows[8].lateOf], [6, 12]);
+  // Exactly five minutes late is not late; a bus interpolated at the far stop
+  // was not seen there, so it is not counted either way.
+  const edge = [tracked("2026-09-22", 9, 0, 15, 10, "E1"), tracked("2026-09-22", 9, 5, 16, 10, "E2"),
+                tracked("2026-09-22", 9, 10, 30, 10, "E3")];
+  edge[2].calls[1][3] = 1;
+  const edgeRows = hourly(between({ stops: [{}, {}], journeys: edge }, 0, 1));
+  assert.deepEqual([edgeRows[9].late, edgeRows[9].lateOf], [1, 2]);
+  assert.equal(rows[8].p90Secs, undefined, "Simple view's hours no longer carry 'allow'");
 });
 
-test("how long to allow is said for each hour, not drawn over the chart", () => {
+test("how many buses were late is said for each hour, not drawn over the chart", () => {
   // The band made the chart harder to read, so the figure moved into the words
   // the hour slider gives and the table under it.
   const busy = Array.from({ length: 24 }, (_, i) => tracked("2026-09-22", 8 + Math.floor(i / 12), (i % 12) * 5, 10 + (i % 7), 10, `B${i}`));
@@ -1340,9 +1342,10 @@ test("how long to allow is said for each hour, not drawn over the chart", () => 
   assert.doesNotMatch(got.key, /Time to allow/);
   const detail = vm.runInContext("jtHourDetailText", app);
   const rows = hourly(all);
-  // Twelve journeys taking 10 to 16 min: the middle is 12.5, the ninth in ten
-  // is 15, and one (the 16) took longer.
-  assert.match(detail(rows[8], "weekday", null), /usually 13 min, from 12 buses timed\. Allow 15 min: only 1 of the 12 buses we timed took longer\./);
+  // Twelve journeys taking 10 to 16 min against a promised 10: the middle is
+  // 12.5, and only the 16 got there more than 5 min after it was due.
+  assert.match(detail(rows[8], "weekday", null),
+    /usually 13 min, from 12 buses timed\. 1 of the 12 buses left the far stop more than 5 min after they were due there\./);
 });
 
 test("every hour of the chart is also a row in a table", () => {
@@ -1352,32 +1355,141 @@ test("every hour of the chart is also a row in a table", () => {
   const rows = hourly(all);
   const span = chartSpan(all.map(t => chartSecs(Number(t.start.slice(0, 2)) * 3600)));
   const html = table(rows, span, { series: [] }, all, "weekday");
-  assert.match(html, /<th scope="row">08:00<\/th>\s*<td>20 min<\/td>\s*<td>20 min<\/td>/);
+  // Twenty minutes against a promised 25: none of the twelve late.
+  assert.match(html, /<th scope="row">08:00<\/th>\s*<td>20 min<\/td>\s*<td>0 of 12<\/td>/);
+  assert.doesNotMatch(html, /Allow/, "Simple view no longer says how long to allow");
   assert.match(html, /<th scope="row">14:00<\/th>\s*<td>too few<\/td>/, "two buses gave a usual time");
   assert.doesNotMatch(html, /<th scope="row">03:00/, "an hour with nothing timed has a row");
 });
 
 // ── Words a passenger can act on ───────────────────────────────
 
-const allowHtml = vm.runInContext("jtAllowHtml", app);
 const versus = vm.runInContext("jtVersusTimetable", app);
 const chips = vm.runInContext("jtWhenChipsHtml", app);
 const slotSummaries = vm.runInContext("journeyTimesSlotSummaries", app);
 
-test("how long to allow is said as how many buses took longer, counted", () => {
-  const took = mins => mins.map((m, i) => tracked("2026-09-22", 8, i, m, 20, `A${i}`));
-  const ten = summarise(between({ stops: [{}, {}], journeys: took([20, 21, 22, 23, 24, 25, 26, 27, 28, 29]) }, 0, 1));
-  assert.match(allowHtml(ten), /Allow <strong>29 min<\/strong>/);
-  assert.match(allowHtml(ten), /None of the 10 buses we timed took longer/,
-    "with ten journeys the ninth-in-ten is the slowest, so none took longer");
-  const twenty = summarise(between({ stops: [{}, {}], journeys: took(Array.from({ length: 20 }, (_, i) => 20 + i)) }, 0, 1));
-  assert.match(allowHtml(twenty), /Only 1 of the 20 buses we timed took longer/);
-  const hundred = summarise(between({ stops: [{}, {}], journeys: Array.from({ length: 100 },
-    (_, i) => tracked("2026-09-22", 6 + Math.floor(i / 10), (i % 10) * 5, 20 + (i % 25), 20, `H${i}`)) }, 0, 1));
-  assert.match(allowHtml(hundred), /Only 1 in 10 buses we timed took longer/);
-  const few = summarise(between({ stops: [{}, {}], journeys: took([20, 21, 22]) }, 0, 1));
-  assert.match(allowHtml(few), /We need 10 timed journeys[\s\S]*We have 3 so far/);
-  assert.doesNotMatch(allowHtml(few), /Allow/);
+// ── Do I need the bus before? ──────────────────────────────────
+
+const earlierBus = vm.runInContext("journeyTimesEarlierBus", app);
+const earlierHtml = vm.runInContext("jtEarlierBusHtml", app);
+const earlierSentence = vm.runInContext("jtEarlierBusSentence", app);
+
+/** Ten weekdays with a bus every 15 minutes from 07:00 to 09:45, promised 20
+ *  minutes between the stops. `took(h, m, day)` says how long each bus took;
+ *  `skip(h, m, day)` leaves a bus untimed. */
+function timetabledDays(took, skip = () => false, promised = 20, endsAtB = false) {
+  const days = Array.from({ length: 10 }, (_, i) => `2026-09-${String(14 + i + (i >= 5 ? 2 : 0)).padStart(2, "0")}`);
+  const starts = Array.from({ length: 12 }, (_, i) => 7 * 3600 + i * 900);
+  const id = (day, start) => `T${day}-${start}`;
+  // B is a stop on the way unless asked otherwise: the route runs on to a third.
+  const profile = [[0, 0, 1], [1, promised * MIN, 1], ...(endsAtB ? [] : [[2, promised * MIN + 300, 1]])];
+  const doc = { stops: [{}, {}, {}], journeys: [], schedule: {
+    profiles: [profile],
+    sets: days.map(day => starts.map(start => [id(day, start), 0, start, "Brighton"])),
+    days: Object.fromEntries(days.map((day, i) => [day, i])) } };
+  for (const day of days) for (const start of starts) {
+    const h = Math.floor(start / 3600), m = (start % 3600) / 60;
+    if (skip(h, m, day)) continue;
+    doc.journeys.push(tracked(day, h, m, took(h, m, day), promised, id(day, start)));
+  }
+  return doc;
+}
+
+const eightOClock = all => all.filter(t => t.start === "08:00");
+
+test("the bus before: on time most days means no earlier bus", () => {
+  const doc = timetabledDays(() => 21);
+  const all = between(doc, 0, 1);
+  const eb = earlierBus(eightOClock(all), all, doc, 0, 1);
+  assert.equal(eb.verdict, "reliable");
+  assert.equal(eb.late, 0);
+  assert.equal(eb.journeys, 10);
+  assert.match(earlierHtml(eb, "Churchill Square"), /usually keeps to time/);
+  assert.match(earlierHtml(eb, "Churchill Square"), /None of the 10 buses we timed left Churchill Square more than 5 min/);
+  assert.doesNotMatch(earlierHtml(eb, "Churchill Square"), /bus before/, "no advice to catch an earlier bus");
+});
+
+test("the bus before: late every day, and the 07:45 would have made it", () => {
+  // The 08:00 takes 30 min against 20 promised, ten minutes late; the 07:45
+  // takes 20 and is there at 08:05, well before the 08:00 was due at 08:20.
+  const doc = timetabledDays((h, m) => (h === 8 && m === 0 ? 30 : 20));
+  const all = between(doc, 0, 1);
+  const eb = earlierBus(eightOClock(all), all, doc, 0, 1);
+  assert.equal(eb.verdict, "often");
+  assert.equal(eb.before, "ok");
+  assert.deepEqual([eb.late, eb.checked, eb.madeIt, eb.gapSecs], [10, 10, 10, 900]);
+  const html = earlierHtml(eb, "Churchill Square");
+  assert.match(html, /Catch the bus before if you need to be there on time/);
+  assert.match(html, /10 of the 10 buses we timed left Churchill Square more than 5 min\s+after they were due there/);
+  assert.match(html, /The bus before, usually 15 min earlier, had left Churchill Square by then on 10 of the 10\s+occasions we could check/);
+  assert.equal(earlierSentence(eb), "Catch the bus before if you need to be there on time. 10 of 10 left more than 5 min late.");
+});
+
+test("the bus before: when it is late too, say so, and advise nothing unchecked", () => {
+  // Codex review: "allow two buses" was never checked against a second bus.
+  const doc = timetabledDays((h, m) => (h === 8 && m === 0 ? 30 : h === 7 && m === 45 ? 40 : 20));
+  const all = between(doc, 0, 1);
+  const eb = earlierBus(eightOClock(all), all, doc, 0, 1);
+  assert.deepEqual([eb.verdict, eb.before, eb.madeIt], ["often", "late", 0]);
+  const html = earlierHtml(eb, "X");
+  assert.match(html, /Buses on this trip are often late, and the bus before was often late too/);
+  assert.doesNotMatch(html, /two buses|Catch the bus before|catch the bus before/);
+});
+
+test("the bus before: the day's first bus has none, so no advice to catch one", () => {
+  // Codex review: ten late first-of-day buses still said "Catch the bus before".
+  const doc = timetabledDays((h, m) => (h === 7 && m === 0 ? 30 : 20));
+  const all = between(doc, 0, 1);
+  const eb = earlierBus(all.filter(t => t.start === "07:00"), all, doc, 0, 1);
+  assert.deepEqual([eb.verdict, eb.before, eb.checked, eb.gapSecs], ["often", "unknown", 0, null]);
+  const html = earlierHtml(eb, "X");
+  assert.match(html, /Buses on this trip are often late\./);
+  assert.match(html, /could not time the bus before often enough/);
+  assert.doesNotMatch(html, /atch the bus before/);
+});
+
+test("the bus before: at the end of the route, departures say nothing about arrival", () => {
+  const doc = timetabledDays((h, m) => (h === 8 && m === 0 ? 30 : 20), () => false, 20, true);
+  const all = between(doc, 0, 1);
+  const eb = earlierBus(eightOClock(all), all, doc, 0, 1);
+  assert.equal(eb.verdict, "end_of_route");
+  assert.match(earlierHtml(eb, "X"), /X is where this route ends/);
+  assert.doesNotMatch(earlierHtml(eb, "X"), /atch the bus before|late\./);
+  const rows = hourly(all, { lateness: false });
+  assert.equal(rows[8].lateOf, 0, "no late counts for the hours either");
+});
+
+test("the bus before: one that was never timed is unknown, not assumed", () => {
+  const doc = timetabledDays((h, m) => (h === 8 && m === 0 ? 30 : 20), (h, m) => h === 7 && m === 45);
+  const all = between(doc, 0, 1);
+  const eb = earlierBus(eightOClock(all), all, doc, 0, 1);
+  assert.deepEqual([eb.late, eb.checked, eb.madeIt, eb.before], [10, 0, 0, "unknown"]);
+  assert.equal(eb.verdict, "often");
+  assert.doesNotMatch(earlierHtml(eb, "X"), /occasions we could check|atch the bus before/);
+});
+
+test("the bus before: a time the timetable only estimates still counts, and says so", () => {
+  // Most stops are not timing points: GTFS's time there is an estimate, and a
+  // passenger goes by it all the same.
+  const doc = timetabledDays((h, m) => (h === 8 && m === 0 ? 30 : 20));
+  for (const j of doc.journeys) j.calls[1][3] = 2;    // the far stop's time is GTFS's own interpolation
+  const all = between(doc, 0, 1);
+  const eb = earlierBus(eightOClock(all), all, doc, 0, 1);
+  assert.deepEqual([eb.journeys, eb.late, eb.estimatedDue, eb.verdict], [10, 10, 10, "often"]);
+  assert.match(earlierHtml(eb, "X"), /The timetable's time at X is its estimate between the times it promises/);
+  const promised = timetabledDays((h, m) => (h === 8 && m === 0 ? 30 : 20));
+  const allPromised = between(promised, 0, 1);
+  assert.doesNotMatch(earlierHtml(earlierBus(eightOClock(allPromised), allPromised, promised, 0, 1), "X"), /its estimate/);
+});
+
+test("the bus before: under ten buses there is no verdict", () => {
+  const doc = timetabledDays((h, m) => (h === 8 && m === 0 ? 30 : 20));
+  const all = between(doc, 0, 1);
+  const eb = earlierBus(eightOClock(all).slice(0, 3), all, doc, 0, 1);
+  assert.equal(eb.verdict, "thin");
+  assert.match(earlierHtml(eb, "X"), /We need 10 buses timed at X[\s\S]*We have 3 so far/);
+  assert.doesNotMatch(earlierHtml(eb, "X"), /catch the bus|Allow \d/i);
+  assert.equal(earlierSentence(eb), "Too few buses timed yet to say whether you need an earlier one.");
 });
 
 test("the timetable comparison agrees with the two numbers on screen", () => {
@@ -1683,4 +1795,50 @@ test("the loader expands a compact file before anything reads a journey", async 
   } finally {
     app.fetch = before;
   }
+});
+
+// ── Waiting and punctuality preview ────────────────────────────
+
+const hwFile = vm.runInContext("jtHeadwaysFile", app);
+const hwCell = vm.runInContext("jtHeadwaysCell", app);
+const reliability = vm.runInContext("jtReliabilityHtml", app);
+
+test("the waiting file is found by the name the builder writes", () => {
+  // scripts/build_headways.py file_name(): anything but letters, digits, - and _ becomes _.
+  assert.equal(hwFile("700", "SCSO"), "headways-700-SCSO.json");
+  assert.equal(hwFile("N7/A", "BHBC"), "headways-N7_A-BHBC.json");
+});
+
+const hwBase = { atco: "A", direction: "eastbound", day_type: "weekday", period: "10-16", days: 6,
+  days_eligible: 6, days_incomplete: 1, scheduled_passages: 300, accounted_passages: 290, judged: 250,
+  on_time: 200, early: 10, late: 40, late_here: 30, late_from_start: 10, late_on_the_way: 18, late_start_unknown: 2 };
+const hwDoc = { floors: { days: 5, judged: 30 }, days: ["2026-09-25", "2026-10-05"], cells: [
+  { ...hwBase, kind: "frequent", sample_sufficient: true, swt_secs: 210, awt_secs: 300, ewt_secs: 90,
+    hours_six_plus: 58, hours_tested: 60, gaps_over_15: 3, gaps_tested: 280, bunched_definite: 12,
+    bunched_possible: 20, left_together: 4, closed_up: 8, origin_unknown: 0 },
+  { ...hwBase, kind: "non_frequent", period: "late", sample_sufficient: true },
+  { ...hwBase, kind: "non_frequent", period: "early", sample_sufficient: false, judged: 5, on_time: 5, early: 0, late: 0 },
+], groups: [{ direction: "eastbound", day_type: "weekday", group: "first", judged: 20, on_time: 19 },
+            { direction: "eastbound", day_type: "weekday", group: "day", judged: 2000, on_time: 1500 }] };
+
+test("the preview picks the stop's cell for the chosen day and time", () => {
+  assert.equal(hwCell(hwDoc, "A", "eastbound", "weekday", "10-16").kind, "frequent");
+  assert.equal(hwCell(hwDoc, "A", "eastbound", "all", "10-16").period, "10-16", "all days reads as weekdays");
+  assert.equal(hwCell(hwDoc, "A", "eastbound", "weekday", "other").period, "late", "the sufficient of early and late");
+  assert.equal(hwCell(hwDoc, "A", "westbound", "weekday", "10-16"), null);
+});
+
+test("waiting, bunching and punctuality are said in counted words", () => {
+  const freq = reliability(hwDoc, hwCell(hwDoc, "A", "eastbound", "weekday", "10-16"), "Churchill Square");
+  assert.match(freq, /timetabled about every 7 min, so turning up[\s\S]*3\.5 min[\s\S]*making it 5\.0 min: 1\.5 min longer/);
+  assert.match(freq, /within 2 min of each other 12 times, 4 of them having set off together/);
+  assert.match(freq, /At least 6 buses ran in 58 of the 60 hours/);
+  assert.match(freq, /Of the 30 buses more than 5 min late here, 10 were already\s+late near the start/);
+  assert.match(freq, /the day's first bus 95%, the rest 75%/);
+  assert.match(freq, /290 of 300 scheduled\s+buses tracked/);
+  assert.doesNotMatch(freq, /non-compliant|was cancelled|were cancelled/i);
+  const late = reliability(hwDoc, hwCell(hwDoc, "A", "eastbound", "weekday", "other"), "X");
+  assert.match(late, /80% of buses left X on time<\/strong>[\s\S]*of 250 timed\. The Traffic Commissioners expect 95%/);
+  assert.match(reliability(hwDoc, { ...hwDoc.cells[2] }, "X"), /Too few buses timed at X yet to judge punctuality:\s+5 of the 30 needed/);
+  assert.match(reliability(hwDoc, null, "X"), /not a timing point/);
 });

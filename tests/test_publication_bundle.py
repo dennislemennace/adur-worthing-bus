@@ -157,3 +157,18 @@ def test_workflow_stores_the_preview_compressed_and_says_why_it_will_not_publish
     assert '"hotspot-preview.json=hotspot-preview.json"' not in workflow
     # The 6 October 2026 failure was a bare `test` that printed nothing.
     assert 'over the $(gib "$BUDGET") budget' in workflow
+
+
+def test_a_waiting_file_whose_counts_do_not_add_up_stops_publication(tmp_path):
+    from publication_bundle import build_bundle
+    folder = journey_files(tmp_path)
+    bad = tmp_path / "headways-7-BHBC.json"
+    bad.write_text(json.dumps({"schema_version": 1, "service": "7", "operator": "BHBC", "method": "m",
+        "method_version": 1, "caveats": ["c"], "as_of": "2026-10-07", "days": ["2026-09-21"],
+        "floors": {"days": 5, "judged": 30}, "groups": [], "cells": [{
+            "atco": "A", "direction": "eastbound", "day_type": "weekday", "period": "10-16",
+            "kind": "non_frequent", "days": 1, "scheduled_passages": 4, "accounted_passages": 4,
+            "judged": 4, "on_time": 4, "early": 0, "late": 1, "late_here": 0, "late_from_start": 0,
+            "late_on_the_way": 0, "late_start_unknown": 0, "sample_sufficient": False}]}))
+    with pytest.raises(ValueError, match="punctuality does not add up"):
+        build_bundle(folder, {bad.name: bad}, tmp_path / "candidate", [{"day": "2026-09-21"}], {})

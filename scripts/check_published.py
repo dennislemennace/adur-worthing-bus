@@ -233,6 +233,68 @@ def check_hotspot_map(doc, name, fails, size=None, raw=None):
             fails.add("delay map cell claims sufficiency below the floor", where)
 
 
+HEADWAYS_MAX_BYTES = 2 * 1024 * 1024
+HEADWAYS_MAX_COMPRESSED = 200 * 1024
+HEADWAYS_KINDS = ("frequent", "non_frequent")
+HEADWAYS_PERIODS = ("early", "08-10", "10-16", "16-18", "late", "any")
+
+
+def check_headways(doc, name, fails, raw=None):
+    """One service's waiting, bunching and punctuality: counts that add up.
+
+    Each figure is published beside its denominators, so every one of them is
+    checked against the others: on time, early and late make up what was
+    judged; buses late here were late from the start, on the way, or unknown;
+    a bunched pair is definite only if it was possible. A cell may only claim
+    sufficiency at the floor it states, and waiting is only given where days
+    were complete enough to measure it.
+    """
+    if raw is not None:
+        if len(raw) > HEADWAYS_MAX_BYTES or len(gzip.compress(raw, 6)) > HEADWAYS_MAX_COMPRESSED:
+            fails.add("waiting file is too large for a phone", f"{name}: {len(raw)} bytes")
+    for key in ("schema_version", "service", "operator", "method", "method_version", "caveats",
+                "as_of", "days", "floors", "cells", "groups"):
+        if key not in doc:
+            fails.add("waiting file lacks provenance", f"{name}: {key}")
+    floors = doc.get("floors") or {}
+    for cell in doc.get("cells") or []:
+        where = f"{name} {cell.get('atco')} {cell.get('direction')} {cell.get('day_type')} {cell.get('period')}"
+        if cell.get("kind") not in HEADWAYS_KINDS or cell.get("period") not in HEADWAYS_PERIODS:
+            fails.add("waiting cell has an unknown kind or period", where)
+            continue
+        counts = [v for k, v in cell.items() if isinstance(v, int) and not isinstance(v, bool)
+                  and not k.endswith("_secs")]          # a wait can be shorter than the timetable implies
+        if any(v < 0 for v in counts):
+            fails.add("waiting cell has a negative count", where)
+        if cell.get("accounted_passages", 0) > cell.get("scheduled_passages", 0):
+            fails.add("waiting cell accounts for more buses than were scheduled", where)
+        if cell.get("on_time", 0) + cell.get("early", 0) + cell.get("late", 0) != cell.get("judged", 0):
+            fails.add("waiting cell's punctuality does not add up", where)
+        if (cell.get("late_from_start", 0) + cell.get("late_on_the_way", 0)
+                + cell.get("late_start_unknown", 0)) != cell.get("late_here", 0):
+            fails.add("waiting cell's late-from-start split does not add up", where)
+        if cell["kind"] == "frequent":
+            if cell.get("bunched_definite", 0) > cell.get("bunched_possible", 0):
+                fails.add("waiting cell has more definite than possible bunching", where)
+            if (cell.get("left_together", 0) + cell.get("closed_up", 0)
+                    + cell.get("origin_unknown", 0)) != cell.get("bunched_definite", 0):
+                fails.add("waiting cell's bunching origins do not add up", where)
+            if cell.get("hours_six_plus", 0) > cell.get("hours_tested", 0) \
+                    or cell.get("gaps_over_15", 0) > cell.get("gaps_tested", 0):
+                fails.add("waiting cell passes more tests than it ran", where)
+            if cell.get("ewt_secs") is not None and not cell.get("days_eligible"):
+                fails.add("waiting cell gives a wait with no complete day", where)
+            if None not in (cell.get("ewt_secs"), cell.get("awt_secs"), cell.get("swt_secs")) \
+                    and abs(cell["ewt_secs"] - (cell["awt_secs"] - cell["swt_secs"])) > 1:
+                fails.add("waiting cell's excess wait is not its two waits apart", where)
+            clears = cell.get("days_eligible", 0) >= floors.get("days", 5)
+        else:
+            clears = (cell.get("judged", 0) >= floors.get("judged", 30)
+                      and cell.get("days", 0) >= floors.get("days", 5))
+        if cell.get("sample_sufficient") and not clears:
+            fails.add("waiting cell claims sufficiency below the floor", where)
+
+
 def is_stats_cell(cell):
     """Whether a published cell came from `reliability_stats.stats`.
 

@@ -36,9 +36,12 @@ test('Simple keeps measurement detail in a closed disclosure with a short date r
   assert.doesNotMatch(html, /\bopen[ =>]|2026-09-/);
   assert.match(html, /20 Sept? to 30 Sept?/);
   assert.match(html, /20 scheduled → 15 tracked/);
-  const allow = app.jtAllowHtml({p90Secs:1800,journeys:20,longerThanP90:1});
-  assert.match(allow, /Allow <strong>30 min/);
-  assert.match(allow, /9 in 10 recorded journeys/);
+  assert.match(html, /left the stop more than 5 min after its\s+timetabled time there/);
+  assert.match(html, /can overstate lateness/);
+  const answer = app.jtEarlierBusHtml({verdict:'sometimes',before:'ok',journeys:20,late:5,checked:4,madeIt:4,gapSecs:720,lateSecs:300,estimatedDue:0}, 'Churchill Square');
+  assert.match(answer, /If you must be there on time, catch the bus before/);
+  assert.match(answer, /5 of the 20 buses we timed left Churchill Square/);
+  assert.doesNotMatch(answer, /Allow|9 in 10/);
 });
 
 test('a superseded planner response cannot change the latest destination result', async () => {

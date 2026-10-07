@@ -2799,8 +2799,11 @@ async function checkJourneyReview(page, viewport) {
   const result = await page.evaluate(`(async () => {
     const build = "a".repeat(64), file = "builds/" + build + "/700-SCSO.json";
     const day = "2026-09-21", origin = Date.parse(day + "T00:00:00+01:00") / 1000;
+    // The route runs on past Brighton: at the end of a route a departure says
+    // nothing about when the bus arrived, and the answer would decline.
     const stops = [{atco:"4400AD0064",name:"Lancing",lat:50.823,lon:-.321},
-                  {atco:"149000007830",name:"Brighton",lat:50.820,lon:-.136}];
+                  {atco:"149000007830",name:"Brighton",lat:50.820,lon:-.136},
+                  {atco:"149000006692",name:"Marina",lat:50.812,lon:-.101}];
     const journeys = [0,1,2].map(i => ({day, start:"07:00", trip_id:"probe-"+i,
       direction:"eastbound", headsign:"Brighton", route_pattern:"pattern", data_version:"timetable", method_version:4,
       match:i===2?"inferred":"declared", source_files:["input-hash"], quality_flags:[],
@@ -2883,7 +2886,7 @@ async function checkJourneySimple(page, viewport) {
     trips.push(["unseen", 0, 25200 + 12 * 1800, "Brighton"]);
     const doc = {build_id: build, service: "700", operator: "SCSO", days: [day], window_days: [day], stops, journeys,
       method: "Simple fixture", as_of: day, caveats: [], source_methods: [],
-      schedule: {profiles: [[[0, 0, 1], [1, 1320, 1]]], sets: [trips], days: {[day]: 0}, unrecorded_days: []}};
+      schedule: {profiles: [[[0, 0, 1], [1, 1320, 1], [2, 1800, 1]]], sets: [trips], days: {[day]: 0}, unrecorded_days: []}};
     const index = {build_id: build, days: [day], services: [{file, service: "700", operator: "SCSO", journeys: 12}]};
     journeyTimesCache.set("index.json", index); journeyTimesCache.set(file, doc);
     CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false; jtEntry.view = undefined; jtEntry.section = "journey";
@@ -2949,14 +2952,19 @@ async function checkJourneySimple(page, viewport) {
     result.moved && /^Leaving between \d\d:00 and \d\d:00 on weekdays/.test(result.tapped), result.tapped);
   check(`journey simple ${viewport}: no bus on the chart is its own tab stop`, result.dotStops === 0, `${result.dotStops} tab stops`);
   // The fixture's timetable runs every 30 minutes, which is "some buses".
-  check(`journey simple ${viewport}: how often buses run, and how long to allow, are in words`,
-    result.badge === "Some buses · every 30 min" && /Allow \d+ min 9 in 10 recorded journeys took this long or less\. (None|Only \d+) of the 12 buses we timed took longer/.test(result.allow),
+  // Its buses take 25 to 31 min against 22 promised: the 7 and 9 minute ones,
+  // 6 of the 12, are over five minutes late, and the bus half an hour before
+  // always got there in time.
+  check(`journey simple ${viewport}: how often buses run, and whether to catch the bus before, are in words`,
+    result.badge === "Some buses · every 30 min"
+      && /^Catch the bus before if you need to be there on time\. 6 of the 12 buses we timed left Brighton more than 5 min after they were due there\. The bus before, usually 30 min earlier, had left Brighton by then on 6 of the 6 occasions we could check\.$/.test(result.allow)
+      && !/Allow \d/.test(result.allow),
     `${result.badge} | ${result.allow}`);
   check(`journey simple ${viewport}: the time-of-day choice responds`, result.pressed === "true");
   check(`journey simple ${viewport}: a pressed chip keeps the focus after the redraw`, result.keptFocus === "10-16",
     `focus on ${result.keptFocus}`);
   check(`journey simple ${viewport}: the change is announced in one sentence`,
-    /Lancing to Brighton, Weekdays, daytime .*: usually takes \d+ min\. (Allow \d+ min|Too few)/.test(result.said), result.said);
+    /Lancing to Brighton, Weekdays, daytime .*: usually takes \d+ min\. (Too few buses timed yet|The bus you plan|If you must|Catch the bus before|Buses on this trip)/.test(result.said), result.said);
   check(`journey simple ${viewport}: every hour is also in a table`, result.hoursTable);
   check(`journey simple ${viewport}: targets and width`, result.small === 0 && result.bodyWidth <= result.width + 1,
     `${result.small} small targets; ${result.bodyWidth}px on ${result.width}px`);

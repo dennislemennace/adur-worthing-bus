@@ -255,9 +255,13 @@ jobs:
           # by 5 October 2026 and 52 MB compressed. Stored compressed, or seven
           # retained generations of it fill the 4 GiB published budget alone.
           gzip -9nf hotspot-preview.json
-          # One artifact per service map, validated with the rest of the candidate.
+          # Waiting, bunching and punctuality at timing points: a preview, small
+          # per-service files the Simple view reads behind ?preview=1.
+          python scripts/build_headways.py --observations inputs/window --out-dir headways
+          # One artifact per service map and waiting file, validated with the rest of the candidate.
           MAP_ARTIFACTS=()
-          for f in hotspot-map/*.json; do MAP_ARTIFACTS+=(--artifact "$(basename "$f")=$f"); done
+          shopt -s nullglob    # an empty folder adds nothing, not a literal '*.json'
+          for f in hotspot-map/*.json headways/*.json; do MAP_ARTIFACTS+=(--artifact "$(basename "$f")=$f"); done
           python scripts/check_published.py --journey-times journey-times \
             --summaries "data/reliability/$DAY.json" "rollup-$MONTH.json"
           python scripts/publication_bundle.py --journey-times journey-times \

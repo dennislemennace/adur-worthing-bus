@@ -1841,6 +1841,11 @@ const JT_NO_PROMISE = 2;
 // clothes. Deliberately lower than reliability_stats' 30, because a cell there
 // is one stop across many journeys and this is one journey end to end.
 const JT_PERCENTILE_FLOOR = 10;
+// A bus makes you late when it reaches your stop more than this after its
+// timetabled time. A little inside the DfT's "on time" limit (5 min 59 s late),
+// and clear of the minute or so the measurement can add: a time at a stop is
+// taken as the bus leaves it, after the doors have opened and closed.
+const JT_LATE_SECS = 5 * 60;
 
 /** Every journey that called at both stops, in order, as timings. */
 /** The journey's single call at a stop, or null if it is not exactly one.
@@ -1913,6 +1918,9 @@ function journeyTimesBetween(doc, fromIndex, toIndex) {
       // different admissions and the chart makes them separately.
       estimated: Boolean((from[3] | to[3]) & JT_ESTIMATED),
       promised: !((from[3] | to[3]) & JT_NO_PROMISE),
+      // Whether the time at the far stop is one the operator committed to, or
+      // the timetable's estimate between two that are.
+      arrivePromised: !(to[3] & JT_NO_PROMISE),
     });
   }
   return out.sort((a, b) => a.departSecs - b.departSecs);
@@ -3656,34 +3664,45 @@ function jtFrequencyLabel(freq) {
  *  anecdote, and a line drawn through anecdotes wobbles in ways that mean
  *  nothing. They are still returned, with their count, so an hour can say how
  *  many buses it did see. */
-function jtHourlyTypical(timings) {
+function jtHourlyTypical(timings, { lateness = true } = {}) {
   const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, secs: [] }));
+  const late = Array.from({ length: 24 }, () => ({ of: 0, late: 0 }));
   for (const t of timings || []) {
     const minutes = jtClockMinutes(t.start);
     if (!Number.isFinite(minutes)) continue;
-    hours[Math.floor(minutes / 60) % 24].secs.push(t.observedSecs);
+    const hour = Math.floor(minutes / 60) % 24;
+    hours[hour].secs.push(t.observedSecs);
+    if (lateness && jtLatenessKnown(t)) {
+      late[hour].of++;
+      if (t.arrivalLatenessSecs > JT_LATE_SECS) late[hour].late++;
+    }
   }
   return hours.map(({ hour, secs }) => {
     const sorted = secs.slice().sort((a, b) => a - b);
     const mid = sorted.length % 2 ? sorted[(sorted.length - 1) / 2]
       : Math.round((sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2);
-    // How long to allow in this hour, on the same rule and floor as the
-    // headline, so the hour and the answer never use two definitions.
-    const p90 = sorted.length >= JT_PERCENTILE_FLOOR
-      ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))] : null;
+    const due = late[hour];
     return { hour, journeys: sorted.length, medianSecs: sorted.length >= 3 ? mid : null,
              fastestSecs: sorted.length ? sorted[0] : null,
              slowestSecs: sorted.length ? sorted[sorted.length - 1] : null,
-             p90Secs: p90, longerThanP90: p90 == null ? null : sorted.filter(v => v > p90).length };
+             // Of the buses whose time at the far stop the timetable promised,
+             // how many got there more than JT_LATE_SECS after it.
+             lateOf: due.of, late: due.late };
   });
 }
 
-/** How many took longer than "allow", in the words the answer uses: counted
- *  under fifty journeys, where "1 in 10" would overstate it. */
-function jtLongerWords(journeys, longer) {
-  if (!longer) return `None of the ${journeys} buses we timed took longer.`;
-  if (journeys < 50) return `Only ${longer} of the ${journeys} buses we timed took longer.`;
-  return "Only 1 in 10 buses we timed took longer.";
+/** Whether a timing can say if the bus was late at the far stop: seen at both
+ *  ends rather than interpolated, with a timetabled time there. The time may be
+ *  the timetable's estimate between two it promises (most stops are not timing
+ *  points: 10 to 28% of timed calls on the 700, 1, 2, 7 and 12 were); a
+ *  passenger goes by it all the same, and five minutes is wider than its error. */
+function jtLatenessKnown(t) {
+  return Boolean(t && !t.estimated && Number.isFinite(t.arrivalLatenessSecs));
+}
+
+/** "None of the 12 buses" / "3 of the 12 buses": counted, never a share. */
+function jtLateWords(late, of) {
+  return `${late ? late : "None"} of the ${of} ${of === 1 ? "bus" : "buses"}`;
 }
 
 /** A tick spacing a reader can count in: 1, 2, 5, 10, 15, 20, 30 or 60 minutes,
@@ -3861,6 +3880,9 @@ function jtMeasurementHtml(coverage) {
       a declared journey and no quality flags. These times approximate departure from the stop area,
       include waiting at stops, and are not guaranteed arrival times.</p>
     ${jtCoverageHtml(coverage)}
+    <p>A bus counts as late when it left the stop more than ${Math.round(JT_LATE_SECS / 60)} min after its
+      timetabled time there. We time buses as they leave a stop, so one that waited there, at a timing point
+      say, looks later than it arrived: these counts can overstate lateness, never hide it.</p>
     <p>Frequency comes from the recorded timetable, or from tracked departures where it is unavailable.
       Unseen buses are missing evidence, not confirmed cancellations or late buses.</p>
     <p><a class="jt-link" href="about.html#journey-times">More about our method</a></p></details>`;
@@ -4070,20 +4092,251 @@ function jtTimetableRange(schedule, periodKey) {
   return max - min >= 240 ? { min, max } : null;
 }
 
-/** "Allow 45 min", and how many buses took longer, counted rather than
- *  rounded to a slogan. Ten journeys is the floor for offering it at all, and
- *  on a small sample "1 in 10" overstates it: of ten, none took longer. */
-function jtAllowHtml(summary) {
-  if (summary.p90Secs == null) {
-    return `<p class="jt-simple-allow jt-thin">We need ${JT_PERCENTILE_FLOOR} timed journeys to
-      suggest how long to allow. We have ${summary.journeys} so far.</p>`;
+/** The timetable's departures from one stop that also call at another, on one
+ *  day, in time order: {tripId, departSecs, arriveSecs}. Null where the day has
+ *  no recorded timetable. */
+function jtScheduledPairDepartures(doc, fromIndex, toIndex, day) {
+  const schedule = doc && doc.schedule;
+  const set = schedule && schedule.days ? schedule.days[day] : null;
+  if (set == null || !schedule.sets || !schedule.profiles) return null;
+  const out = [];
+  for (const [tripId, profile, start] of schedule.sets[set] || []) {
+    const pair = jtScheduleCalls(schedule.profiles[profile] || [], fromIndex, toIndex);
+    if (pair) out.push({ tripId, departSecs: start + pair[0][1], arriveSecs: start + pair[1][1] });
   }
-  const why = jtLongerWords(summary.journeys, summary.longerThanP90 || 0);
-  return `<div class="jt-simple-allow">
-      <p class="jt-simple-allow-main">Allow <strong>${jtMinutes(summary.p90Secs)}</strong></p>
-      <p class="jt-simple-allow-why">9 in 10 recorded journeys took this long or less. ${why}</p>
+  return out.sort((a, b) => a.departSecs - b.departSecs);
+}
+
+/** Whether the far stop is where the route ends, for most timetabled journeys
+ *  between the two. Buses are timed as they leave a stop, and at the end of a
+ *  route that is after the layover, so it says nothing about when they arrived. */
+function jtEndsRoute(doc, fromIndex, toIndex) {
+  const profiles = (doc && doc.schedule && doc.schedule.profiles) || [];
+  let between = 0, ending = 0;
+  for (const calls of profiles) {
+    const pair = jtScheduleCalls(calls || [], fromIndex, toIndex);
+    if (!pair) continue;
+    between++;
+    if (pair[1] === calls[calls.length - 1]) ending++;
+  }
+  return between > 0 && ending * 2 >= between;
+}
+
+/** Would you need the bus before to get there on time?
+ *
+ *  The question a passenger has, where "allow 45 min" was a planner's answer.
+ *  Buses are timed as they leave a stop, so this counts how many left the far
+ *  stop more than JT_LATE_SECS after their timetabled time there: a bus that
+ *  waited at the stop looks later than it arrived, so the count can overstate
+ *  lateness, never hide it. For each late one, the previous bus the timetable
+ *  runs from the same stop that day, and whether it had left the far stop by
+ *  the time the late one was due there, and so had certainly arrived. It is
+ *  looked for in `all`, every timing under the same filters; a bus before that
+ *  was not timed is unknown, never assumed to have made it.
+ *
+ *  `verdict` is the lateness alone, on JT_PERCENTILE_FLOOR buses like every
+ *  answer here: `reliable` when at most 1 in 10 was late, `sometimes` up to 1
+ *  in 3, `often` beyond; `end_of_route` where the far stop ends the route.
+ *  `before` is whether the bus before helped: `ok` when it made it on at least
+ *  two in three of at least three checks, `late` when it did not, `unknown`
+ *  with fewer checks or no bus before. Advice to catch it needs `ok`. */
+function journeyTimesEarlierBus(timings, all, doc, fromIndex, toIndex, lateSecs = JT_LATE_SECS) {
+  const known = (timings || []).filter(jtLatenessKnown);
+  const seen = new Map();
+  for (const t of all || []) if (!t.estimated) seen.set(`${t.day}|${t.tripId}`, t);
+  const days = new Map();
+  const departures = day => {
+    if (!days.has(day)) days.set(day, jtScheduledPairDepartures(doc, fromIndex, toIndex, day));
+    return days.get(day);
+  };
+  let late = 0, checked = 0, madeIt = 0;
+  const gaps = [];
+  for (const t of known) {
+    const deps = departures(t.day);
+    const mine = deps && deps.find(d => d.tripId === t.tripId);
+    const before = mine ? deps.filter(d => d.departSecs < mine.departSecs).pop() : null;
+    if (before) gaps.push(mine.departSecs - before.departSecs);
+    if (t.arrivalLatenessSecs <= lateSecs) continue;
+    late++;
+    const prev = before && seen.get(`${t.day}|${before.tripId}`);
+    if (!prev) continue;
+    checked++;
+    if (prev.arriveSecs <= t.scheduledArriveSecs) madeIt++;
+  }
+  gaps.sort((a, b) => a - b);
+  const n = known.length;
+  let verdict;
+  if (jtEndsRoute(doc, fromIndex, toIndex)) verdict = "end_of_route";
+  else if (n < JT_PERCENTILE_FLOOR) verdict = "thin";
+  else if (late <= n / 10) verdict = "reliable";
+  else if (late <= n / 3) verdict = "sometimes";
+  else verdict = "often";
+  const before = checked < 3 ? "unknown" : madeIt * 3 >= checked * 2 ? "ok" : "late";
+  return { journeys: n, late, checked, madeIt, verdict, before, lateSecs,
+           // How many were judged against the timetable's estimate rather than
+           // a time the operator promised, so the answer can say so.
+           estimatedDue: known.filter(t => t.arrivePromised === false).length,
+           gapSecs: gaps.length ? gaps[Math.floor((gaps.length - 1) / 2)] : null };
+}
+
+/** The answer's first line. Advice to catch the bus before only where the bus
+ *  before was timed often enough, and made it. */
+function jtEarlierHeadline(eb) {
+  if (eb.verdict === "reliable") return "The bus you plan to catch usually keeps to time.";
+  const often = eb.verdict === "often" ? "often" : "sometimes";
+  if (eb.before === "ok") {
+    return eb.verdict === "often" ? "Catch the bus before if you need to be there on time."
+      : "If you must be there on time, catch the bus before.";
+  }
+  if (eb.before === "late") return `Buses on this trip are ${often} late, and the bus before was often late too.`;
+  return `Buses on this trip are ${often} late.`;
+}
+
+/** The answer in Simple view. Counted, as every figure here is. */
+function jtEarlierBusHtml(eb, toName) {
+  if (eb && eb.verdict === "end_of_route") {
+    return `<p class="jt-simple-allow jt-thin">${toName} is where this route ends. We time buses as they leave a
+      stop, and at the end of a route that can be long after they arrived, so we cannot say whether you need
+      an earlier bus.</p>`;
+  }
+  if (!eb || eb.verdict === "thin") {
+    return `<p class="jt-simple-allow jt-thin">We need ${JT_PERCENTILE_FLOOR} buses timed at ${toName}
+      to say whether you need an earlier one. We have ${eb ? eb.journeys : 0} so far.</p>`;
+  }
+  const mins = Math.round(eb.lateSecs / 60);
+  const lateText = `${jtLateWords(eb.late, eb.journeys)} we timed left ${toName} more than ${mins} min
+    after ${eb.journeys === 1 ? "it was" : "they were"} due there.`;
+  const gap = eb.gapSecs != null ? `, usually ${jtMinutes(eb.gapSecs)} earlier,` : "";
+  const before = eb.verdict === "reliable" ? ""
+    : eb.before === "unknown"
+      ? " We could not time the bus before often enough to say whether catching it would help."
+      : ` The bus before${gap} had left ${toName} by then on ${eb.madeIt} of the ${eb.checked}
+        ${eb.checked === 1 ? "occasion" : "occasions"} we could check.`;
+  const estimate = eb.estimatedDue * 2 > eb.journeys
+    ? ` The timetable's time at ${toName} is its estimate between the times it promises, so treat this as a guide.`
+    : "";
+  return `<div class="jt-simple-allow jt-earlier jt-earlier--${eb.verdict}">
+      <p class="jt-simple-allow-main"><strong>${jtEarlierHeadline(eb)}</strong></p>
+      <p class="jt-simple-allow-why">${lateText}${before}${estimate}</p>
     </div>`;
 }
+
+/** The same answer in one line, for the screen reader announcement. */
+function jtEarlierBusSentence(eb) {
+  if (eb && eb.verdict === "end_of_route") return "The far stop ends the route, so we cannot say whether you need an earlier bus.";
+  if (!eb || eb.verdict === "thin") return "Too few buses timed yet to say whether you need an earlier one.";
+  return `${jtEarlierHeadline(eb)} ${eb.late} of ${eb.journeys} left more than ${
+    Math.round(eb.lateSecs / 60)} min late.`;
+}
+
+// ── Waiting and punctuality: a preview ─────────────────────────
+
+/** The waiting file's name for a service, as scripts/build_headways.py
+ *  writes it. */
+function jtHeadwaysFile(service, operator) {
+  return `headways-${`${service}-${operator}`.replace(/[^A-Za-z0-9_-]/g, "_")}.json`;
+}
+
+/** The cell for one stop, direction and Simple view's day and time: the
+ *  sufficient one first, a frequent one before a punctuality one. Simple's
+ *  "early & late" is two cells in the file, early and late. */
+function jtHeadwaysCell(hw, atco, direction, dayKey, periodKey) {
+  const dayType = dayKey === "weekend" ? "weekend" : "weekday";
+  const periods = periodKey === "other" ? ["late", "early"] : [periodKey];
+  const rank = c => (c.sample_sufficient ? 2 : 0) + (c.kind === "frequent" ? 1 : 0);
+  return (hw && hw.cells || [])
+    .filter(c => c.atco === atco && c.direction === direction && c.day_type === dayType && periods.includes(c.period))
+    .sort((a, b) => rank(b) - rank(a) || b.scheduled_passages - a.scheduled_passages)[0] || null;
+}
+
+/** "How reliable is this route?" for one stop: waiting on frequent services,
+ *  punctuality on the rest, against the Traffic Commissioners' standard. Every
+ *  figure counted, never "non-compliant", never "cancelled". `stopName` is
+ *  already escaped. */
+function jtReliabilityHtml(hw, cell, stopName) {
+  const head = `<h4 class="jt-reliability-title">How reliable is this route? <span class="jt-preview-tag">Preview</span></h4>`;
+  if (!cell) {
+    return `${head}<p class="jt-reliability-thin">${stopName} is not a timing point for this route, so it has
+      no waiting or punctuality figures.</p>`;
+  }
+  const mins = secs => (Math.round(secs / 6) / 10).toFixed(1);
+  const times = n => `${n} ${n === 1 ? "time" : "times"}`;
+  const floors = (hw && hw.floors) || {};
+  const parts = [];
+  if (cell.kind === "frequent") {
+    if (cell.sample_sufficient && cell.ewt_secs != null) {
+      const every = Math.max(1, Math.round(cell.swt_secs * 2 / 60));
+      parts.push(cell.ewt_secs <= 30
+        ? `<p><strong>Waiting at ${stopName}:</strong> buses are timetabled about every ${every} min, and the
+            recorded buses came about as evenly: an average wait of ${mins(cell.awt_secs)} min.</p>`
+        : `<p><strong>Waiting at ${stopName}:</strong> buses are timetabled about every ${every} min, so turning up
+            without looking means an average wait of ${mins(cell.swt_secs)} min. The recorded buses came unevenly,
+            making it ${mins(cell.awt_secs)} min: ${mins(cell.ewt_secs)} min longer.</p>`);
+      const bunched = cell.bunched_definite
+        ? `Buses came within 2 min of each other ${times(cell.bunched_definite)}${cell.left_together
+            ? `, ${cell.left_together} of them having set off together` : ""}.`
+        : "No buses were recorded within 2 min of each other.";
+      parts.push(`<p>${bunched} At least 6 buses ran in ${cell.hours_six_plus} of the ${cell.hours_tested} hours
+        measured, and a gap was over 15 min ${times(cell.gaps_over_15)} in ${cell.gaps_tested}. The Traffic
+        Commissioners look for 6 an hour and no gap over 15 min.</p>`);
+    } else {
+      parts.push(`<p class="jt-reliability-thin">Not enough complete days yet to measure waiting at ${stopName}:
+        ${cell.days_eligible} of the ${floors.days || 5} needed with nearly every bus tracked.</p>`);
+    }
+  } else if (cell.sample_sufficient && cell.judged) {
+    parts.push(`<p><strong>${Math.round(100 * cell.on_time / cell.judged)}% of buses left ${stopName} on time</strong>
+      (1 min early to 5 min late), of ${cell.judged} timed. The Traffic Commissioners expect 95%.</p>`);
+  } else {
+    parts.push(`<p class="jt-reliability-thin">Too few buses timed at ${stopName} yet to judge punctuality:
+      ${cell.judged} of the ${floors.judged || 30} needed.</p>`);
+  }
+  if (cell.late_here >= 5) {
+    parts.push(`<p>Of the ${cell.late_here} buses more than 5 min late here, ${cell.late_from_start} were already
+      late near the start of their journey and ${cell.late_on_the_way} lost the time on the way${
+      cell.late_start_unknown ? ` (${cell.late_start_unknown} were not seen near the start)` : ""}. Time lost on the
+      way includes stops as well as traffic.</p>`);
+  }
+  const groups = ((hw && hw.groups) || []).filter(g => g.direction === cell.direction && g.day_type === cell.day_type);
+  const share = kind => {
+    const g = groups.find(x => x.group === kind);
+    return g && g.judged >= 10 ? `${Math.round(100 * g.on_time / g.judged)}%` : null;
+  };
+  if (share("day") && (share("first") || share("last"))) {
+    parts.push(`<p>On time across the route: ${[share("first") && `the day's first bus ${share("first")}`,
+      share("last") && `its last ${share("last")}`, `the rest ${share("day")}`].filter(Boolean).join(", ")}.</p>`);
+  }
+  const days = (hw && hw.days) || [];
+  parts.push(`<p class="jt-reliability-basis">${cell.accounted_passages} of ${cell.scheduled_passages} scheduled
+    buses tracked here${days.length ? `, ${escapeHtml(jtDayLabel(days[0], false))} to ${
+    escapeHtml(jtDayLabel(days[days.length - 1], false))}` : ""}. A bus we did not see may have run without
+    reporting; it is never counted as cancelled.${cell.excluded_by ? " Includes days with a recorded disruption." : ""}
+    Preview figures, which may change.</p>`);
+  return head + parts.join("");
+}
+
+/** Add the preview under Simple view's answer, once its file has loaded. */
+async function jtShowReliabilityPreview(host, { index, doc, fromIndex, dayKey, periodKey }) {
+  const answer = host.querySelector(".jt-simple-answer");
+  const name = jtHeadwaysFile(doc.service, doc.operator);
+  const entry = index && index.artifacts && index.artifacts[name];
+  if (!answer || !entry) return;
+  const box = document.createElement("section");
+  box.className = "jt-reliability";
+  box.setAttribute("aria-label", "How reliable is this route, a preview");
+  box.innerHTML = `<p class="jt-reliability-thin">Loading waiting and punctuality…</p>`;
+  answer.after(box);
+  try {
+    const hw = await loadJourneyTimes(entry.file, entry.sha256 || "");
+    const stop = doc.stops[fromIndex] || {};
+    if (box.isConnected) {
+      box.innerHTML = jtReliabilityHtml(hw, jtHeadwaysCell(hw, stop.atco, stop.direction, dayKey, periodKey),
+        escapeHtml(prettifyName(stop.name || "")));
+    }
+  } catch {
+    box.remove();
+  }
+}
+
 
 /** What the timetable allows in one clock hour: the recorded timetable where
  *  there is one, otherwise the promises on the journeys we saw. */
@@ -4112,10 +4365,11 @@ function jtHourDetailText(row, dayKey, timetableSecs) {
       row.journeys === 1 ? `${mins(row.fastestSecs)} min`
         : `${mins(row.fastestSecs)} and ${mins(row.slowestSecs)} min`}.${tt}`;
   }
-  const allow = row.p90Secs != null
-    ? ` Allow ${mins(row.p90Secs)} min: ${jtLongerWords(row.journeys, row.longerThanP90).replace(/^./, c => c.toLowerCase())}`
+  const late = row.lateOf
+    ? ` ${jtLateWords(row.late, row.lateOf)} left the far stop more than ${Math.round(JT_LATE_SECS / 60)} min after ${
+        row.lateOf === 1 ? "it was" : "they were"} due there.`
     : ` The quickest took ${mins(row.fastestSecs)} min and the slowest ${mins(row.slowestSecs)} min.`;
-  return `${when}: usually ${mins(row.medianSecs)} min, from ${row.journeys} buses timed.${allow}${tt}`;
+  return `${when}: usually ${mins(row.medianSecs)} min, from ${row.journeys} buses timed.${late}${tt}`;
 }
 
 /** Every hour of the day chart as a table, for anyone who cannot use the
@@ -4130,7 +4384,7 @@ function jtHoursTableHtml(typical, span, schedule, timings, dayKey) {
     const m = secs => `${Math.round(secs / 60)} min`;
     rows.push(`<tr><th scope="row">${String(clock).padStart(2, "0")}:00</th>
       <td>${row.medianSecs != null ? m(row.medianSecs) : "too few"}</td>
-      <td>${row.p90Secs != null ? m(row.p90Secs) : "too few"}</td>
+      <td>${row.lateOf ? `${row.late} of ${row.lateOf}` : "not known"}</td>
       <td>${tt != null ? m(tt) : "none"}</td><td>${row.journeys}</td></tr>`);
   }
   if (!rows.length) return "";
@@ -4138,8 +4392,9 @@ function jtHoursTableHtml(typical, span, schedule, timings, dayKey) {
     <summary>Every hour as a table</summary>
     <div class="jt-table-scroll"><table class="jt-table">
       <caption>Leaving in each hour on ${jtDay(dayKey).plural}. "Too few" means under 3 buses
-        for a usual time, or under ${JT_PERCENTILE_FLOOR} for how long to allow.</caption>
-      <thead><tr><th scope="col">Leaving</th><th scope="col">Usually</th><th scope="col">Allow</th>
+        for a usual time. "Late" counts buses that left the far stop more than ${Math.round(JT_LATE_SECS / 60)} min
+        after their timetabled time there.</caption>
+      <thead><tr><th scope="col">Leaving</th><th scope="col">Usually</th><th scope="col">Late</th>
         <th scope="col">Timetable</th><th scope="col">Buses timed</th></tr></thead>
       <tbody>${rows.join("")}</tbody>
     </table></div>
@@ -4325,7 +4580,7 @@ function renderJourneyTimesSimple(ctx) {
     {...JT_DEFAULT_FILTERS, events: jtEntry.noEvents ? 'clear' : 'all'}));
 
   // Kept for the hour slider, which redraws only its own detail.
-  let typical = null, schedule = null;
+  let typical = null, schedule = null, earlier = null;
   let answer;
   if (!summary) {
     answer = recorded.length
@@ -4337,10 +4592,14 @@ function renderJourneyTimesSimple(ctx) {
            and ticket checker</button> shows the timetable.</p>`;
   } else {
     schedule = journeyTimesScheduleLine(doc, fromIndex, toIndex, days, dayAll);
+    // The bus before is looked for among every timing under the same filters,
+    // whatever its time of day: the 07:55 is the bus before the 08:05.
+    earlier = journeyTimesEarlierBus(timings, journeyTimesFilter(all, journeyTimesPeriodFilters("any")),
+      doc, fromIndex, toIndex);
     const freq = jtFrequency(jtFrequencySchedule(doc, fromIndex, toIndex, days,
       journeyTimesOnDays(all, dayKey)), periodKey);
     const freqLabel = jtFrequencyLabel(freq);
-    typical = jtHourlyTypical(dayAll);
+    typical = jtHourlyTypical(dayAll, { lateness: !jtEndsRoute(doc, fromIndex, toIndex) });
     const range = jtTimetableRange(schedule, periodKey);
     const insight = periodKey === "any" ? journeyTimesPeriodInsight(all, dayKey) : null;
     const insightText = !insight ? ""
@@ -4378,7 +4637,7 @@ function renderJourneyTimesSimple(ctx) {
         </div>
         <p class="jt-simple-timetable">${escapeHtml(jtVersusTimetable(summary))}${range
           ? ` The timetable allows ${Math.round(range.min / 60)} to ${Math.round(range.max / 60)} min, depending on when you leave.` : ""}</p>
-        ${jtAllowHtml(summary)}
+        ${jtEarlierBusHtml(earlier, name(toIndex))}
         ${summary.journeys < JT_PERCENTILE_FLOOR ? `<p class="jt-simple-rough">We have timed only ${summary.journeys}
           ${summary.journeys === 1 ? "bus" : "buses"} here, so treat these times as a rough guide.</p>` : ""}
       </div>
@@ -4411,12 +4670,15 @@ function renderJourneyTimesSimple(ctx) {
     <p class="jt-copy-status" aria-live="polite"></p>`;
 
   host.innerHTML = `<div class="jt-simple">${head}${answer}${measurement}${actions}</div>`;
+  // Waiting, bunching and punctuality at the boarding stop: behind ?preview=1
+  // until enough complete days pass the floors.
+  if (summary && previewEnabled()) jtShowReliabilityPreview(host, { index, doc, fromIndex, dayKey, periodKey });
 
   // Said once, briefly: the whole panel used to be read out on every change.
   jtAnnounce(summary
     ? `${prettifyName(doc.stops[fromIndex]?.name || "")} to ${prettifyName(doc.stops[toIndex]?.name || "")}, `
       + `${slotWords}: usually takes ${jtMinutes(summary.medianSecs)}. `
-      + (summary.p90Secs != null ? `Allow ${jtMinutes(summary.p90Secs)}.` : "Too few journeys yet to say how long to allow.")
+      + jtEarlierBusSentence(earlier)
     : `No buses timed ${JT_PERIOD_PHRASE[periodKey]} on ${jtDay(dayKey).plural}.`);
   // Focus back where the reader was: on the chip they pressed, or on the
   // answer's heading when what they pressed has gone.

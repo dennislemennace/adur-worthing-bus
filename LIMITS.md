@@ -505,6 +505,12 @@ of provider pricing. No paid tier or increased raw retention is introduced.
     ever;
   - the step prints held, new and total sizes, warns past 80% of the budget, and
     says why it stops.
+- **Waiting and punctuality files** (`headways-*.json`, `scripts/build_headways.py`,
+  added 7 October 2026). Measured on 25 September to 5 October (11 days): 96
+  files, 4.8 MB in all, the largest 163 KB raw and 7 KB compressed. The build
+  took 24 seconds and **1.9 GB peak memory** with compact rows; a 35-day window
+  would need roughly three times that, inside a standard Actions runner's
+  16 GB but not a small machine. No new external calls.
 - Every new generation adds per-service documents, summaries and observations,
   then reads each uploaded object back once before switching the pointer.
   Service documents are written compact (`scripts/journey_times_codec.py`; the

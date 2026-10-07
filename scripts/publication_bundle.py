@@ -131,6 +131,8 @@ def build_bundle(journey_dir, extras, out, sources, evidence, previous=None):
             checks.check_summary(doc, name, failures)
         elif name.startswith("hotspot-map-") and name != "hotspot-map-index.json":
             checks.check_hotspot_map(doc, name, failures, raw=raw)
+        elif name.startswith("headways-"):
+            checks.check_headways(doc, name, failures, raw=raw)
         binary[name] = raw
     if failures.items:
         raise ValueError(f"Candidate failed validation: {failures.items[:5]}")
