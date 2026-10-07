@@ -136,6 +136,57 @@ The browser check needs Chrome on `--remote-debugging-port=9222` and
 `scripts/dev_server.py` running. It is timing-sensitive across five viewports;
 a lone failure is worth re-running before believing.
 
+## Event travel guides
+
+The Green Party Conference guide (Brighton Centre, 2 to 4 October 2026) is
+kept as the template for the next event. It hid itself after its
+`show_until` date; the code stays in place.
+
+**Files.** `data/conference.json` (everything the guide says),
+`data/conference_stops.json` (built, for Find my nearest stop),
+`conference.js` (rendering, map pins, locator), the menu item and panel in
+`index.html`, the `.conf-*` block in `style.css`, `tests/test_conference.py`,
+`tests/test_conference.mjs` and `checkConference` in
+`scripts/browser_check.mjs`. The view's deep link is `#view=c`.
+
+**For a new event:**
+
+1. Edit `data/conference.json`. Set `conference`, `checked_on`, `show_until`
+   (the last day, by London's date) and `"preview_only": true` while it is
+   being written. Then set `venue` (`walk_point` is the main entrance;
+   walking minutes are measured from it) and `nearest_stops` (`limited: true`
+   draws a dashed card for a stop with a thin service). Every place needs
+   `id`, `name`, `lat` and `lon`; sources go in `source_url`,
+   `coach_sources` and `taxi_source`. Rewrite the prose: `station`
+   (including `back_from`), `coaches`, `driving`, `hotel_areas` (a diversion
+   goes in `note`), `social_venues`, `tickets` and `tickets_label`,
+   `socials_label`, `taxi_ranks`, `accessibility` and `late_night`.
+2. Set `derive`: the venue's stop ATCO codes in both directions, a
+   representative `day` inside the event, the hours, and the trip floors.
+   The timetable (`data/timetable.sqlite`) must cover that day.
+3. Fill in the buses and the derived fields:
+
+   ```sh
+   .venv/bin/python scripts/build_event_guide.py direct LAT LON   # a place's buses
+   .venv/bin/python scripts/build_event_guide.py walks             # walk_minutes, quickest
+   .venv/bin/python scripts/build_event_guide.py stops             # conference_stops.json
+   ```
+
+4. Rename the menu item and panel tab in `index.html` if "Conference travel
+   info" does not fit. The item stays last in the list, with its New badge.
+5. Run `tests/test_conference.py`, `tests/test_conference.mjs` and the
+   browser check. They read the data, so they need no event-specific edits.
+   The browser check only exercises the guide while it is offered: before
+   the event, or with `preview_only` set, it skips the guide unless
+   `SITE_URL` carries `?preview=1`.
+6. When it is ready, set `"preview_only": false` and ship. It leaves the
+   menu by itself after `show_until`; `#view=c` then says the event has
+   finished.
+
+During the conference, `NEXTBUSES_DAILY_LIMIT` was raised to 5000 in Render
+(see `LIMITS.md`). Check the setting before the next event, and whether it
+should come back down afterwards.
+
 ## Latest verified timetable release
 
 On 8 September 2026, workflow run `34241330364` published

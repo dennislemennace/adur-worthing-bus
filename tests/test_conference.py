@@ -60,3 +60,15 @@ def test_hotel_quickest_way_follows_walking_time():
 def test_places_are_in_brighton():
     for item in [DOC["venue"]] + PLACES:
         assert 50.80 < item["lat"] < 50.87 and -0.20 < item["lon"] < -0.09, item.get("id", item.get("name"))
+
+
+def test_derive_settings_name_real_stops():
+    derive = DOC["derive"]
+    assert derive["venue_stops"] and all(a in STOPS for a in derive["venue_stops"])
+    date.fromisoformat(derive["day"])
+    assert derive["from"] < derive["to"] and derive["locator_min_trips"] >= 1
+
+
+def test_labels_moved_out_of_the_code_are_present():
+    assert DOC["station"]["back_from"] and DOC["tickets_label"] and DOC["socials_label"]
+    assert isinstance(DOC["preview_only"], bool)

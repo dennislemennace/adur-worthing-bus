@@ -123,7 +123,11 @@ lines and timetables are API calls too, and arrive with it.
 `transportapi.com`. Do not rename without updating Render env config.)
 
 - Free developer plan: **1,000 hits / day** (historical; verify on dashboard).
-- Current cap: `NEXTBUSES_DAILY_LIMIT=300` (conservative, env-configurable).
+- Current cap: `NEXTBUSES_DAILY_LIMIT=5000`, set in Render on 2 Oct 2026 for
+  the Green Party Conference after the TransportAPI plan was changed (the
+  code default is still 300). At £0.0009 a hit the cap allows at most £4.50
+  a day; actual use is far lower, because each stop is fetched at most once
+  per 90-second cache window and only within 30 minutes of a departure.
 - Two routes to the same NextBuses data, chosen by `NEXTBUSES_MODE`:
   `rest` (default) calls `GET /v3/uk/bus/stop/{atco}/live.json?nextbuses=yes`,
   which the bundled £5/month plan covers (300 hits a day, all endpoints);

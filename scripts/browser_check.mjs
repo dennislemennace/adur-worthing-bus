@@ -1418,9 +1418,9 @@ async function checkMapTaps(page, where) {
 async function checkConference(page, where) {
   await waitFor(page, "typeof conf !== 'undefined' && !!conf.data", 15000);
   // After show_until the guide leaves the menu; nothing else here applies.
-  if (!(await page.evaluate("conferenceActive(conf.data)"))) {
+  if (!(await page.evaluate("conferenceOffered(conf.data)"))) {
     const hidden = await page.evaluate(`document.querySelector('#section-nav-menu [data-mode="conference"]').hidden`);
-    check(`the finished conference guide is out of the menu — ${where}`, hidden, String(hidden));
+    check(`a finished or draft event guide is out of the menu — ${where}`, hidden, String(hidden));
     return;
   }
   await page.evaluate("setViewMode('conference')");
@@ -1442,7 +1442,8 @@ async function checkConference(page, where) {
       if (open) dialog.close();
       const guide = document.querySelector("#tab-content-conference .conf-section");
       const gr = guide ? guide.getBoundingClientRect() : null;
-      return JSON.stringify({ menu: !!item && !item.hidden, active: conferenceActive(conf.data), pin: !!pin,
+      return JSON.stringify({ menu: !!item && !item.hidden, active: conferenceOffered(conf.data),
+        venue: conf.data.venue.name, pin: !!pin,
         guideShown: !!gr && gr.height > 0 && gr.width > 0,
         band: Math.round(visibleBottom - map.top),
         pinVisible: pr ? pinY > map.top && pinY < visibleBottom : false,
@@ -1456,7 +1457,7 @@ async function checkConference(page, where) {
   check(`the venue is pinned where the map shows — ${where}`,
     r.pin && r.pinSize >= 44 && (r.band < 60 || r.pinVisible),
     r.band < 60 ? `skipped: the sheet leaves ${r.band}px of map` : JSON.stringify(r));
-  check(`the venue pin opens its details — ${where}`, r.open && /Brighton Centre/.test(r.title), JSON.stringify(r));
+  check(`the venue pin opens its details — ${where}`, r.open && r.title.includes(r.venue), JSON.stringify(r));
   const icon = await page.evaluate("(document.querySelector('#section-nav-icon use') || {getAttribute: () => ''}).getAttribute('href')");
   check(`the header dropdown shows the section's icon — ${where}`, icon === "#i-pin", String(icon));
   const label = await page.evaluate("document.getElementById('section-nav-label').textContent");

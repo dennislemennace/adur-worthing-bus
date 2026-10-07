@@ -1,8 +1,9 @@
-/* Conference travel: a short-lived guide for visitors to one event.
+/* Event travel guide: a short-lived guide for visitors to one event, kept as
+ * the template for the next one (docs/RUNBOOK.md, "Event travel guides").
  *
  * Everything it says comes from data/conference.json, which carries its own
- * sources and a show_until date. It is offered only with ?preview=1, and
- * after that date not at all. Loaded after app.js and uses its helpers
+ * sources and a show_until date. It is in the menu until that date, then
+ * hidden; with "preview_only": true it is offered only with ?preview=1. Loaded after app.js and uses its helpers
  * (escapeHtml, escapeAttr, safeUrl, centreAboveSheet, openDepartures,
  * setViewMode, wireEvidenceClose, getRouteColour). Its map markers are its
  * own and come down whenever another view is chosen (conferenceHide, called
@@ -32,9 +33,10 @@ function conferenceActive(data, now = new Date()) {
   return Boolean(data && data.show_until && conferenceToday(now) <= data.show_until);
 }
 
-/** Offered to everyone while current; it leaves the menu after show_until. */
-function conferenceOffered(data, now = new Date()) {
-  return conferenceActive(data, now);
+/** Offered while current; it leaves the menu after show_until. A guide still
+ *  being written sets preview_only, and shows only with ?preview=1. */
+function conferenceOffered(data, now = new Date(), preview = previewEnabled()) {
+  return conferenceActive(data, now) && (!data.preview_only || Boolean(preview));
 }
 
 /** Show the menu option where the guide is offered. */
@@ -121,13 +123,13 @@ function conferencePanelHtml(d) {
     </section>
 
     <section class="conf-section">
-      <h3 class="conf-h3">From Brighton Station</h3>
+      <h3 class="conf-h3">From ${escapeHtml(st.name)}</h3>
       <div class="conf-card">
         <p><strong>Walk:</strong> ${escapeHtml(st.walk_text)}</p>
         <p><strong>Bus:</strong> ${escapeHtml(st.bus_text)}</p>
         <p class="conf-routes">${confRouteChips(st.buses)}</p>
         <p><strong>Going back:</strong> ${escapeHtml(st.back_text)}</p>
-        <p class="conf-routes"><span class="conf-small">From Old Steine to the station:</span> ${confRouteChips(st.back_buses)}</p>
+        <p class="conf-routes"><span class="conf-small">From ${escapeHtml(st.back_from)} to the station:</span> ${confRouteChips(st.back_buses)}</p>
         <p class="conf-small">${escapeHtml(st.taxi)} Train times and engineering work:
           ${confLink(st.source_url, "National Rail Enquiries")}.</p>
       </div>
@@ -147,7 +149,7 @@ function conferencePanelHtml(d) {
     <section class="conf-section">
       <h3 class="conf-h3">Tickets and paying</h3>
       ${confList(d.tickets)}
-      <p class="conf-small">${confLink(d.tickets_url, "Brighton & Hove Buses tickets")} ·
+      <p class="conf-small">${confLink(d.tickets_url, d.tickets_label)} ·
         <a href="#view=t" data-view-link="tickets">Compare tickets for a journey</a></p>
     </section>
 
@@ -158,7 +160,7 @@ function conferencePanelHtml(d) {
 
     <section class="conf-section">
       <h3 class="conf-h3">Getting to the socials</h3>
-      <p>${escapeHtml(d.on_site)} ${confLink(d.socials_url, "Social events at Conference")}.</p>
+      <p>${escapeHtml(d.on_site)} ${confLink(d.socials_url, d.socials_label)}.</p>
       <ul class="conf-cards">${venues}</ul>
       <p class="conf-late"><strong>Getting back late.</strong> ${escapeHtml(d.late_night)}</p>
     </section>
@@ -214,8 +216,9 @@ async function conferenceLocate() {
       out.innerHTML = `<p class="conf-small">No stop with a direct bus to the venue is near you. Try the journey planner or a taxi.</p>`;
       return;
     }
+    const venueStops = (conf.data.nearest_stops || []).filter(s => !s.limited).map(s => s.name);
     out.innerHTML = `<p class="conf-small">Nearest stops with a direct bus to the venue
-        (Clock Tower, Churchill Square or North Street):</p>
+        (${escapeHtml(venueStops.join(", ").replace(/, ([^,]*)$/, " or $1"))}):</p>
       <ul class="conf-stops">${near.map(s => `<li><button type="button" class="conf-stop"
         data-conf-stop="${escapeAttr(s.atco)}" data-name="${escapeAttr(s.name)}">
         <span class="conf-stop-name">${escapeHtml(s.name)}${s.towards ? ` <span class="conf-small">towards ${escapeHtml(s.towards)}</span>` : ""}</span>

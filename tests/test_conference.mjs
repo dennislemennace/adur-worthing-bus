@@ -34,17 +34,22 @@ test("the panel covers every section, and escapes what it is given", () => {
   }
   assert.doesNotMatch(html, /<script>x/, "venue text was not escaped");
   assert.match(html, /data-conf-locate/, "no find-my-nearest-stop button");
-  assert.match(html, /downhill/);
-  assert.match(html, /data-conf-stop="149000006896"/, "the Clock Tower stop is not a live-board button");
-  assert.match(html, /Pool Valley/);
-  assert.match(html, /Western Road is closed/);
+  // Drawn from the data, so these hold for whichever event the file describes.
+  assert.ok(html.includes(`data-conf-stop="${DATA.nearest_stops[0].atco}"`), "the first stop is not a live-board button");
+  assert.ok(html.includes(app.escapeHtml(DATA.coaches[0].name)), "coach stop missing");
+  assert.ok(html.includes(`From ${app.escapeHtml(DATA.station.name)}`), "station heading missing");
+  for (const h of DATA.hotel_areas.filter(h => h.note)) assert.ok(html.includes(app.escapeHtml(h.note)), h.id);
 });
 
-test("the guide is offered to everyone while current, with no preview flag", () => {
+test("the guide is offered while current, and preview_only keeps it behind ?preview=1", () => {
   const app = loadGuide();
+  const during = new Date("2026-10-02T09:00:00Z");
   const data = { show_until: "2026-10-05" };
-  assert.equal(app.conferenceOffered(data, new Date("2026-10-02T09:00:00Z")), true);
-  assert.equal(app.conferenceOffered(data, new Date("2026-10-06T09:00:00Z")), false, "offered after it ended");
+  assert.equal(app.conferenceOffered(data, during, false), true);
+  assert.equal(app.conferenceOffered(data, new Date("2026-10-06T09:00:00Z"), true), false, "offered after it ended");
+  const draft = { show_until: "2026-10-05", preview_only: true };
+  assert.equal(app.conferenceOffered(draft, during, false), false, "a draft offered without ?preview=1");
+  assert.equal(app.conferenceOffered(draft, during, true), true);
 });
 
 test("the locator picks the closest stop first", () => {
