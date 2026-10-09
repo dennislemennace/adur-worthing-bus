@@ -30,6 +30,7 @@ fit first, so two buses reporting the same position cannot both claim it.
 
 import math
 import re
+import weakref
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -210,36 +211,41 @@ def place_declared(tt, vehicles, instances, now):
     placed, claimed = {}, set()
     for vi, v in enumerate(vehicles):
         trip = (v.get("trip_id") or "").strip()
-        candidates = by_trip.get(trip)
-        if not trip:
-            continue
-        if v.get("schedule_relationship", 0) not in (None, 0):
+        candidates = by_trip.get(trip) if trip else None
+        if trip and v.get("schedule_relationship", 0) not in (None, 0):
             claimed.add(vi)  # new/cancelled instance has no usable static schedule
             continue
         if not candidates:
-            # Still usable for exploratory inference, never certified as declared.
-            v.setdefault("identity_flags", []).append("unresolved_declared_trip")
-            continue
-        start_date, start_time = v.get("start_date") or "", v.get("start_time") or ""
-        readings = {}
-        if start_date or start_time:
-            calls = tt.trip_stops_for(trip)
-            first = calls[0][0] if calls else None
-            readings = {k: declared_start(start_date, start_time, k[1], first)
-                        for k in candidates}
-            candidates = [k for k in candidates if readings[k]]
-            if not candidates:
-                # A start this journey does not have names another instance —
-                # a frequency or replacement run, or another day. Do not
-                # silently infer one.
-                v["declared_start"] = "contradicts"
-                claimed.add(vi)
+            # No id we hold. SIRI-VM may still name the journey by its line,
+            # first stop and start; if not, the bus is still usable for
+            # exploratory inference, never certified as declared.
+            key = _start_key(tt, v, instances)
+            if key is None:
+                if trip:
+                    v.setdefault("identity_flags", []).append("unresolved_declared_trip")
                 continue
-        report_now = v.get("recorded_secs")
-        report_now = now if report_now is None else report_now
-        key = min(candidates, key=lambda k: _span_distance(instances[k], report_now))
-        if readings:
-            v["declared_start"] = readings[key]
+            v["declared_by"] = "start"
+        else:
+            start_date, start_time = v.get("start_date") or "", v.get("start_time") or ""
+            readings = {}
+            if start_date or start_time:
+                calls = tt.trip_stops_for(trip)
+                first = calls[0][0] if calls else None
+                readings = {k: declared_start(start_date, start_time, k[1], first)
+                            for k in candidates}
+                candidates = [k for k in candidates if readings[k]]
+                if not candidates:
+                    # A start this journey does not have names another instance —
+                    # a frequency or replacement run, or another day. Do not
+                    # silently infer one.
+                    v["declared_start"] = "contradicts"
+                    claimed.add(vi)
+                    continue
+            report_now = v.get("recorded_secs")
+            report_now = now if report_now is None else report_now
+            key = min(candidates, key=lambda k: _span_distance(instances[k], report_now))
+            if readings:
+                v["declared_start"] = readings[key]
         if key in placed:
             claimed.add(vi)
             other = vehicles[placed[key][0]]
@@ -253,6 +259,16 @@ def place_declared(tt, vehicles, instances, now):
         placed[key] = (vi, idx)
         claimed.add(vi)
     return placed, claimed
+
+
+def _start_key(tt, v, instances):
+    """The journey instance SIRI-VM names this bus by, if exactly one and held."""
+    start = _instant(v.get("origin_aimed_departure"))
+    if start is None:
+        return None
+    key = instance_by_start(tt, v.get("operator_ref"), v.get("service_ref"),
+                            v.get("origin_ref"), start)
+    return key if key in instances else None
 
 
 def journey_by_start(tt, operator, service, origin, start):
@@ -273,25 +289,69 @@ def journey_by_start(tt, operator, service, origin, start):
     before's service as well, where GTFS writes it as 24:xx. "700" also finds
     "N700": Stagecoach drop the N, our timetable keeps it.
     """
+    found = instance_by_start(tt, operator, service, origin, start)
+    return found[0] if found else None
+
+
+def instance_by_start(tt, operator, service, origin, start):
+    """`(trip id, service day)` for `journey_by_start`, or None.
+
+    The nightly processor keys journeys by service day, since one trip id can
+    be on the road twice around midnight; the live map needs only the id.
+    """
     if not (operator and service and origin and start):
         return None
     local = start.astimezone(LONDON)
     secs = local.hour * 3600 + local.minute * 60 + local.second
     names = {service} | service_keys(service)
     names |= {"N" + name for name in names if name.isdigit()}
-    days = service_days(local.date())
     found = set()
-    for name in names:
-        for trip_id, first_stop, _last, first_secs in tt.service_endpoints(name):
-            if first_stop != origin:
-                continue
-            trip = tt.trips.get(trip_id) or {}
-            if tt.noc_for_route(trip.get("route_id", "")) != operator:
-                continue
-            for day, shift in days:
-                if first_secs == secs + shift and tt.runs_on(trip.get("service_id", ""), day):
-                    found.add(trip_id)
+    for day, shift in service_days(local.date()):
+        for name in names:
+            for trip_id in _starts(tt, name).get((origin, secs + shift), ()):
+                trip = tt.trips.get(trip_id) or {}
+                if (tt.noc_for_route(trip.get("route_id", "")) == operator
+                        and tt.runs_on(trip.get("service_id", ""), day)):
+                    found.add((trip_id, day))
     return next(iter(found)) if len(found) == 1 else None
+
+
+# `{timetable: (its trips, {service: {(first stop, first secs): [trip ids]}})}`.
+# A day of recorded snapshots asks this about 80,000 times, mostly the same
+# journeys minute after minute, and the 700 alone has 3,279 trips to walk. The
+# trips dict is kept beside each index so a timetable reloaded in place, as the
+# live API's is each week, is indexed afresh rather than answered from the old.
+_START_INDEX = weakref.WeakKeyDictionary()
+
+
+def _starts(tt, service):
+    try:
+        trips, by_service = _START_INDEX.get(tt, (None, None))
+    except TypeError:                   # not weak-referenceable: no cache
+        trips, by_service = None, None
+    if trips is not tt.trips:
+        trips, by_service = tt.trips, {}
+        try:
+            _START_INDEX[tt] = (trips, by_service)
+        except TypeError:
+            pass
+    if service not in by_service:
+        index = {}
+        for trip_id, first_stop, _last, first_secs in tt.service_endpoints(service):
+            index.setdefault((first_stop, first_secs), []).append(trip_id)
+        by_service[service] = index
+    return by_service[service]
+
+
+def _instant(text):
+    """An ISO 8601 instant from SIRI-VM as an aware datetime, or None."""
+    if not text:
+        return None
+    try:
+        when = datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return when if when.tzinfo else None
 
 
 def _span_distance(inst, now):

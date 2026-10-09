@@ -99,12 +99,20 @@ AFTER_LAST_SECS = 30 * 60
 #      on 24 September 2026, against 173 on the 22nd
 #   6  retain disjoint declared vehicle tracks even when their scheduled windows
 #      overlap; observed track overlap, rather than timetable delay, is decisive
-METHOD_VERSION = 6
+#   7  a bus GTFS-RT gives no id we hold is declared by SIRI-VM's line, first
+#      stop and scheduled start when those name exactly one journey. From 7
+#      October 2026 BODS published no Stagecoach South timetable and their
+#      GTFS-RT ids were found nowhere: 606 of 619 of their journeys that day
+#      could only be inferred. Timing is unchanged from 6.
+METHOD_VERSION = 7
 
 METHOD = (
     "Recorded SIRI-VM and GTFS-RT positions are evaluated at their report timestamps. "
     "GTFS-RT trip identity is preferred; a declared start date and time must match the "
     "journey's scheduled first departure, read as local time or as a UTC instant. "
+    "Where GTFS-RT names no journey we hold, SIRI-VM's line, first stop and scheduled "
+    "start declare one if they fit exactly one journey of that operator on that day "
+    "(declared_by: start). "
     "Disjoint declared tracks survive overlapping scheduled windows; conflicting "
     "observed tracks are resolved by identity strength and report count. "
     "Inference uses route, position, heading and "
@@ -132,6 +140,12 @@ CAVEATS = [
     "universal seconds allowance. Inspect the retained report interval.",
     "A declared label describes the selected report's identity, not a guarantee "
     "of correct stop timing. Mixed identities and ambiguous visits remain visible.",
+    "A journey declared by its start (declared_by: start) rests on the operator's "
+    "line, first stop and scheduled start matching our timetable to the second. A "
+    "start two journeys share, or that none has, declares nothing. If the operator "
+    "retimed a journey without BODS publishing the new timetable, its bus is "
+    "inferred or unmatched rather than wrongly declared; coverage.declared_by_start "
+    "counts the journeys this placed.",
     "A bus whose declared start matches its journey in neither local time nor UTC "
     "(a garage departure the timetable does not hold, say) is neither certified nor "
     "inferred, so its journey counts as missing coverage. Coverage is understated, "
@@ -217,6 +231,10 @@ def parse_snapshot(xml_text, at_utc=None):
             "service_ref": jtext("PublishedLineName") or jtext("LineRef"),
             "operator_ref": jtext("OperatorRef"),
             "destination": jtext("DestinationName"),
+            # The journey by line, first stop and scheduled start: the
+            # operator's declaration when GTFS-RT gives no id we hold.
+            "origin_ref": jtext("OriginRef"),
+            "origin_aimed_departure": jtext("OriginAimedDepartureTime"),
             "latitude": lat,
             "longitude": lon,
             "bearing": bearing,
@@ -495,6 +513,7 @@ def observe_day(tt, day, snapshots, atcos=None):
     # Where each journey's bus was, every time it reported.
     tracks = {key: [] for key in instances}
     declared_journeys_seen = set()   # journeys the feed named rather than us
+    declared_by_start = set()        # ...by SIRI-VM's line, first stop and start
     # How each declared journey's start was read, and the declarations whose
     # start matched no journey at all — the size of the UTC problem, and of
     # what is still refused, so neither has to be taken on trust.
@@ -546,6 +565,9 @@ def observe_day(tt, day, snapshots, atcos=None):
         declared, claimed = trip_match.place_declared(tt, vehicles, instances, at_secs)
         for key in declared:
             declared_journeys_seen.add(key)
+            if vehicles[declared[key][0]].get("declared_by") == "start":
+                declared_by_start.add(key)      # named by SIRI-VM, not by an id
+                continue
             reading = vehicles[declared[key][0]].get("declared_start") or "unstated"
             declared_start_readings.setdefault(key, reading)
         for v in vehicles:
@@ -668,6 +690,9 @@ def observe_day(tt, day, snapshots, atcos=None):
                 # 1 a timing point, 0 a time GTFS interpolated, None unstated.
                 "timepoint": timepoints.get(stop_index),
                 "match": detail.get("match", "inferred"),
+                # How a declared journey was named, where not by GTFS-RT's id.
+                **({"declared_by": "start"} if detail.get("match") == "declared"
+                   and detail.get("declared_by") == "start" else {}),
                 # A real sighting, not a time worked out from its neighbours.
                 "estimated": False,
                 "direction": direction,
@@ -734,6 +759,9 @@ def observe_day(tt, day, snapshots, atcos=None):
                for basis in ("local", "utc", "unstated")},
             "contradicted_declarations": len(contradicted),
         },
+        # Declared journeys named by SIRI-VM's line, first stop and start
+        # because GTFS-RT gave no id we hold (method 7). Not in declared_start.
+        "declared_by_start": len(declared_by_start),
         "measured_observations": sum(not r.get("estimated") for r in observations),
         "quality_flagged_observations": sum(bool(r.get("quality_flags")) for r in observations),
         # Minutes captured in each hour. "snapshots: 900" hides a three-hour

@@ -89,6 +89,23 @@ def recorded_stream(tt, day, xml_files, rt_files, health, manifest, siri_parser,
                             r = compatible[0]
                             v.update(trip_id=r["trip_id"], start_date=r.get("start_date", ""), start_time=r.get("start_time", ""),
                                      schedule_relationship=r.get("schedule_relationship", 0), identity_source=r["source_report"])
+                        # The other way (method 7): the same bus's GTFS-RT report, naming
+                        # no journey we hold, takes the line, first stop and start SIRI-VM
+                        # names it by. Stagecoach, 7 October 2026: those reports carried
+                        # nearly all of the operator's readings on a normal day.
+                        if v.get("origin_aimed_departure"):
+                            for r in rt_vehicles:
+                                if (r.get("vehicle_ref") == v.get("vehicle_ref")
+                                        and not tt.trips.get(r.get("trip_id") or "")
+                                        and not r.get("origin_aimed_departure")
+                                        and abs(r["recorded_epoch"] - v["recorded_epoch"]) <= 30
+                                        and trip_match.km(r["latitude"], r["longitude"],
+                                                          v["latitude"], v["longitude"]) <= .05):
+                                    r.update(service_ref=v.get("service_ref", ""), operator_ref=v.get("operator_ref", ""),
+                                             origin_ref=v.get("origin_ref", ""),
+                                             origin_aimed_departure=v["origin_aimed_departure"],
+                                             destination=r.get("destination") or v.get("destination", ""),
+                                             identity_source=v["source_report"])
                     vehicles.append(v)
             except (ET.ParseError, ValueError, IndexError, struct.error, OverflowError):
                 h["parse_errors"] += 1

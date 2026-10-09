@@ -208,9 +208,11 @@ def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=18
             })
     eras = schedule_eras(traversals)
     for leg in traversals:
-        # v6 changes which declared tracks survive, not their timing method.
-        # Only this reviewed pair pools; future methods stay separate by default.
-        leg["method_family"] = 5 if leg["method_version"] in (5, 6) else leg["method_version"]
+        # v6 changes which declared tracks survive, and v7 which buses count as
+        # declared (by SIRI-VM's start where GTFS-RT gives no held id), not the
+        # timing method. Only these reviewed methods pool; future methods stay
+        # separate by default.
+        leg["method_family"] = 5 if leg["method_version"] in (5, 6, 7) else leg["method_version"]
         leg["schedule_era"] = eras[tuple(leg[k] for k in STRETCH) + (leg["data_version"],)]
     cells = summarise_cells(traversals, PERIOD_DIMENSIONS, min_journeys, min_days, "period")
     hour_cells = summarise_cells(traversals, HOUR_DIMENSIONS, min_journeys, min_days, "hour")
@@ -219,7 +221,7 @@ def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=18
             "method": "Difference in endpoint lateness between adjacent measured timing points; "
                       "declared identities, no quality flags, bounded report intervals; grouped by operator, "
                       "pattern, call pair, schedule era (weekly builds pooled only where their promises agree), "
-                      "compatible method family (5 and 6 pooled), day type, and observed London entry period (cells) or hour (hour_cells).",
+                      "compatible method family (5, 6 and 7 pooled), day type, and observed London entry period (cells) or hour (hour_cells).",
             "data_versions": meta.get("data_versions", []), "method_versions": meta.get("method_versions", []),
             "input_manifest": [{k: s.get(k) for k in ("file", "sha256", "day", "data_version", "method_version")}
                                for s in meta.get("sources", [])],
@@ -232,7 +234,7 @@ def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=18
             "pooling": "Weekly timetable builds are pooled for a stretch only where they agree on the "
                        "scheduled section time of every departure they share; a changed promise starts "
                        "a new schedule_era. Each cell names the builds it pools in data_versions and "
-                       "methods in method_versions. Only methods 5 and 6 share a family: their retained "
+                       "methods in method_versions. Only methods 5, 6 and 7 share a family: their retained "
                        "declared traversals use identical timing, though eligibility/sample composition changes.",
             "days_collected": sorted({leg["day"] for leg in traversals}),
             "excluded": dict(excluded), "cells": cells, "hour_cells": hour_cells,

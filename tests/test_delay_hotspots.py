@@ -51,16 +51,18 @@ def test_operator_and_method_cohorts_do_not_merge():
 def test_only_compatible_methods_pool_with_provenance():
     from build_delay_hotspots import build_hotspots, map_cell
     rows = []
-    for version, day in [(5, '2026-09-21'), (6, '2026-09-22'),
-                         (4, '2026-09-23'), (7, '2026-09-24')]:
+    # 7 changes which buses count as declared, not timing, so it pools with
+    # 5 and 6; 8 stands for a future method, separate until reviewed.
+    for version, day in [(5, '2026-09-21'), (6, '2026-09-22'), (7, '2026-09-25'),
+                         (4, '2026-09-23'), (8, '2026-09-24')]:
         rows.extend(dict(r, method_version=version) for r in pair(day))
     result = build_hotspots(rows, {}, min_journeys=2, min_days=2)
     for name in ('cells', 'hour_cells'):
         assert len(result[name]) == 3
-        pooled = next(c for c in result[name] if c['method_versions'] == [5, 6])
-        assert pooled['journeys'] == 2 and pooled['distinct_days'] == 2
+        pooled = next(c for c in result[name] if c['method_versions'] == [5, 6, 7])
+        assert pooled['journeys'] == 3 and pooled['distinct_days'] == 3
         assert pooled['sample_sufficient']
-        assert map_cell('stretch', pooled)['method_versions'] == [5, 6]
+        assert map_cell('stretch', pooled)['method_versions'] == [5, 6, 7]
 
 
 def test_legacy_interpolated_ambiguous_and_unbounded_calls_cannot_support_location_claims():

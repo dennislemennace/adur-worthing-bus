@@ -1163,3 +1163,129 @@ def test_a_service_with_no_operator_is_not_given_an_empty_bracket(tt):
              "scheduled_secs": 36_000, "timepoint": 1, "day": "2026-09-17",
              "trip_id": "A", "estimated": False}]
     assert set(ps.summarise(rows, {})["by_service"]) == {"1"}
+
+
+# ── A journey named by its start (method 7) ─────────────────
+#
+# From 7 October 2026 BODS published no timetable for Stagecoach South and
+# GTFS-RT named their journeys with ids found nowhere, then not at all: 606 of
+# 619 of their journeys that day could only be inferred, and fell out of every
+# declared figure. SIRI-VM still names each journey by line, first stop and
+# scheduled start. Where that names exactly one journey, it is the operator's
+# declaration and is measured as one.
+
+def naming_start(minutes, start, trip="", origin="4400TW0000", offset=0):
+    """Snapshots of a bus SIRI-VM names only by line, first stop and start."""
+    out = declaring(minutes, trip, offset=offset)
+    for _secs, vehicles in out:
+        for bus in vehicles:
+            bus.update(origin_ref=origin, origin_aimed_departure=start)
+    return out
+
+
+W600_START = "2026-09-16T09:00:00+00:00"        # 10:00 BST, from stop 0
+
+
+def test_a_bus_named_by_its_start_is_measured_as_declared(tt):
+    # Forty minutes late: outside the inference window, so only the
+    # declaration can place it at all.
+    obs, _ = observations(tt, naming_start(range(640, 700), W600_START, offset=40))
+    assert obs, "a bus naming its journey by its start produced nothing"
+    assert {o["trip_id"] for o in obs} == {"W600"}
+    assert {o["match"] for o in obs} == {"declared"}
+    assert {o.get("declared_by") for o in obs} == {"start"}, "how it was named was not recorded"
+    assert all(o["lateness_secs"] == 40 * 60 for o in obs)
+
+
+def test_an_id_we_do_not_hold_gives_way_to_the_start(tt):
+    obs, _ = observations(tt, naming_start(range(640, 700), W600_START, trip="VJ_NOWHERE", offset=40))
+    assert {o["match"] for o in obs} == {"declared"}
+    assert not any("unresolved_declared_trip" in o["quality_flags"] for o in obs), \
+        "a journey the operator named is still flagged as unresolved"
+
+
+def test_an_id_we_hold_needs_no_start(tt):
+    obs, _ = observations(tt, naming_start(range(600, 646), W600_START, trip="W600"))
+    assert {o["match"] for o in obs} == {"declared"}
+    assert not any(o.get("declared_by") for o in obs)
+
+
+def test_a_start_no_journey_has_declares_nothing(tt):
+    # A minute out: some other journey, or none. Inference, as before.
+    obs, _ = observations(tt, naming_start(range(600, 646), "2026-09-16T09:01:00+00:00",
+                                           trip="VJ_NOWHERE"))
+    assert obs and {o["match"] for o in obs} == {"inferred"}
+    assert all("unresolved_declared_trip" in o["quality_flags"] for o in obs if not o["estimated"])
+
+
+def test_journeys_declared_by_their_start_are_counted(tt):
+    _obs, coverage = observations(tt, naming_start(range(640, 700), W600_START, offset=40))
+    assert coverage["declared_by_start"] == 1
+
+
+def test_the_first_bus_of_the_morning_is_named_on_the_evening_before(tt):
+    # MORNING is written 28:40 on the previous day's service: 04:40 on the 16th
+    # is the 15th's journey.
+    from api import trip_match
+    from datetime import date
+    start = datetime(2026, 9, 16, 3, 40, tzinfo=timezone.utc)
+    assert trip_match.instance_by_start(tt, "SCSO", "700", "4400TW0000", start) \
+        == ("MORNING", date(2026, 9, 15))
+    saturday = datetime(2026, 9, 19, 9, 0, tzinfo=timezone.utc)
+    assert trip_match.instance_by_start(tt, "SCSO", "700", "4400TW0000", saturday) is None
+    assert trip_match.instance_by_start(tt, "BHBC", "700", "4400TW0000",
+                                        datetime(2026, 9, 16, 9, 0, tzinfo=timezone.utc)) is None
+
+
+def test_a_recorded_snapshot_names_its_journey_by_its_start(tt, tmp_path):
+    # End to end through the SIRI-VM parser, with no GTFS-RT at all, as
+    # Stagecoach South's buses were recorded on 9 October.
+    snaps = tmp_path / "raw"
+    snaps.mkdir()
+    extra = ("<OriginRef>4400TW0000</OriginRef>"
+             f"<OriginAimedDepartureTime>{W600_START}</OriginAimedDepartureTime>")
+    for n, minute in enumerate((615, 616, 617, 618)):
+        blat, blon = west_xy(15 + n)
+        (snaps / f"{minute // 60:02d}{minute % 60:02d}.xml").write_text(
+            siri_minute(minute, blat, blon).replace("<VehicleRef>", extra + "<VehicleRef>"))
+    out = tmp_path / "obs.json"
+    assert ps.main(["--day", DAY.isoformat(), "--snapshots", str(snaps),
+                    "--timetable", str(tt.db_path), "--out", str(out)]) == 0
+    doc = json.loads(out.read_text())
+    assert {o["match"] for o in doc["observations"]} == {"declared"}
+    assert {o.get("declared_by") for o in doc["observations"]} == {"start"}
+    assert doc["method_version"] == 7
+
+
+import pytest                                                    # noqa: E402
+
+
+@pytest.mark.parametrize("rt_trip", ["", "VJ_NOWHERE"])
+def test_the_same_bus_in_gtfs_rt_takes_the_start_siri_vm_names(tt, tmp_path, rt_trip):
+    # On a normal day nearly every Stagecoach reading comes from GTFS-RT, whose
+    # reports carry the journey id. On 7 October those reports named nothing
+    # we hold (on the 9th, nothing at all), and with only SIRI-VM's reports
+    # declared the day kept 62% of its readings. The feeds are already joined
+    # by vehicle, 30 seconds and 50 metres apart; the join now runs both ways.
+    snaps, rt = tmp_path / "raw", tmp_path / "rt"
+    snaps.mkdir(), rt.mkdir()
+    extra = ("<OriginRef>4400TW0000</OriginRef>"
+             f"<OriginAimedDepartureTime>{W600_START}</OriginAimedDepartureTime>")
+    for n, minute in enumerate((615, 616, 617, 618)):
+        name = f"{minute // 60:02d}{minute % 60:02d}"
+        blat, blon = west_xy(15 + n)
+        (snaps / f"{name}.xml").write_text(
+            siri_minute(minute, blat, blon).replace("<VehicleRef>", extra + "<VehicleRef>"))
+        (rt / f"{name}.pb").write_bytes(a_feed([a_vehicle(
+            trip=rt_trip, vehicle="SCSO-1234", lat=blat, lon=blon,
+            stamp=int(datetime(2026, 9, 16, 9, 15 + n, 10, tzinfo=timezone.utc).timestamp()))]))
+    out = tmp_path / "obs.json"
+    assert ps.main(["--day", DAY.isoformat(), "--snapshots", str(snaps), "--gtfs-rt", str(rt),
+                    "--timetable", str(tt.db_path), "--out", str(out)]) == 0
+    obs = json.loads(out.read_text())["observations"]
+    assert obs and {o["match"] for o in obs} == {"declared"}
+    assert {o.get("declared_by") for o in obs} == {"start"}
+    # The report each arrival was timed from comes first; a SIRI-VM report
+    # that borrowed GTFS-RT's unknown id lists GTFS-RT second, as its identity.
+    timed_from = {o["source_reports"][0]["feed"] for o in obs}
+    assert "gtfs_rt" in timed_from, "the GTFS-RT reports of a bus SIRI-VM named were thrown away"
