@@ -208,6 +208,14 @@ jobs:
             --summary-out "data/reliability/$DAY.json"
           gzip -9 "observations-$DAY.json"
 
+      # An operator's mid-week timetable gives its journeys new ids our weekly
+      # build does not hold (Stagecoach, 7 October 2026: 606 of 619 journeys).
+      # A warning, not a failure and not a rebuild: when BODS itself lacks the
+      # timetable, as it did then, a rebuild only fails validation. Look at the
+      # operator's BODS dataset, then rebuild by hand if BODS has it.
+      - name: Check every operator's journeys are in our timetable
+        run: python scripts/check_declared_journeys.py "observations-${{ steps.day.outputs.day }}.json.gz"
+
       - name: Restore every known input and archive replay evidence
         env:
           GH_TOKEN: ${{ github.token }}
