@@ -1006,7 +1006,8 @@ async def get_vehicles():
     vehicles = await _live_vehicles()
     # 'calls' and 'trip_id' are internal; strip from the public payload
     # to keep responses small. 'trip_headsign' is what the client needs.
-    hidden = {"calls", "trip_id", "origin_ref", "destination_ref", "identity_flags", "service_origin_epoch"}
+    hidden = {"calls", "trip_id", "origin_ref", "destination_ref", "identity_flags", "service_origin_epoch",
+              "origin_aimed_departure"}
     public = [{k: val for k, val in v.items() if k not in hidden}
               for v in vehicles]
     return {"vehicles": public, "count": len(public)}
@@ -1228,7 +1229,7 @@ async def get_vehicle(vehicleRef: str = Query(...)):
     # where it doesn't. Inference used to run first and win, so a bus that
     # told us it was the 14:22 could be shown the 14:32's stops and times,
     # under a Journey row that still said the 14:22.
-    declared = vehicle.get("trip_source") == "feed" and vehicle.get("trip_id")
+    declared = vehicle.get("trip_source") in trip_match.DECLARED_SOURCES and vehicle.get("trip_id")
     if declared:
         trip_id = vehicle["trip_id"]
     else:
@@ -1265,7 +1266,7 @@ async def get_vehicle(vehicleRef: str = Query(...)):
             "longitude":     vehicle.get("longitude"),
             "recorded_at":   vehicle.get("recorded_at"),
             "report_age_secs": vehicle.get("report_age_secs"),
-            "trip_source":   "feed" if declared else ("inferred" if trip_id else None),
+            "trip_source":   vehicle["trip_source"] if declared else ("inferred" if trip_id else None),
             "journey_start": vehicle.get("journey_start") if declared else None,
             "lateness_secs": vehicle.get("lateness_secs") if declared else None,
             "on_diversion":  bool(vehicle.get("on_diversion")),
@@ -1381,6 +1382,9 @@ def _parse_siri_vm(xml_text: str) -> list:
             # so the map showed buses "going to Destination".
             "destination":   jtext("DestinationName"),
             "origin_ref":    jtext("OriginRef"),
+            # With the line and first stop, the operator's own name for the
+            # journey, used where GTFS-RT gives no id we hold.
+            "origin_aimed_departure": jtext("OriginAimedDepartureTime"),
             "destination_ref": jtext("DestinationRef"),
             "latitude":      lat,
             "longitude":     lon,
@@ -1506,7 +1510,7 @@ def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime) ->
     # it: without one the board opened whichever bus with the same number was
     # nearest the stop, often the one before.
     running = {v["trip_id"]: v for v in cached.get("vehicles") or []
-               if v.get("trip_source") == "feed" and v.get("trip_id")}
+               if v.get("trip_source") in trip_match.DECLARED_SOURCES and v.get("trip_id")}
     by_trip = {trip: v for trip, v in running.items() if v.get("lateness_secs") is not None}
     departures = payload.get("departures") or []
     if not running or not departures:
@@ -2853,98 +2857,141 @@ def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
     `trip_source` records which it was, because "the 14:22, four minutes late"
     and "probably the 14:22" are different claims and the map should not make
     the second sound like the first.
+
+    GTFS-RT's id first ("feed"). Where it gives none we hold, SIRI-VM's line,
+    first stop and scheduled start, when they fit exactly one journey
+    ("feed_start"). Both are the operator's statement; inference is ours.
     """
     now_local = datetime.now(UK_TZ)
     for v in vehicles:
         trip_id = v.get("declared_trip_id")
-        trip = tt.trips.get(trip_id or "")
-        if not trip:
+        if tt.trips.get(trip_id or ""):
+            _attach_journey(v, tt, trip_id, "feed", now_local)
+    for v, trip_id in _journeys_by_start(vehicles, tt):
+        _attach_journey(v, tt, trip_id, "feed_start", now_local)
+        # The map finds the bus on a board row's journey by this.
+        if v.get("trip_source") == "feed_start":
+            v["declared_trip_id"] = trip_id
+
+
+def _journeys_by_start(vehicles: list, tt: Timetable) -> list:
+    """`(vehicle, trip id)` for buses SIRI-VM names a journey for, by start.
+
+    Only buses no id placed, and only journeys no other bus claims: a journey
+    named by two buses, or already named by id, is believed for neither, as
+    the nightly processor does with two buses declaring one id. See
+    `trip_match.journey_by_start` for why this exists.
+    """
+    taken = {v["trip_id"] for v in vehicles if v.get("trip_source") == "feed"}
+    named: dict = {}
+    for v in vehicles:
+        if v.get("trip_source") or "declared_journey_contradicted_by_heading" in (
+                v.get("identity_flags") or []):
             continue
-        v["trip_id"] = trip_id
-        v["trip_headsign"] = trip.get("headsign", "")
-        v["trip_source"] = "feed"
-        calls = [(secs, atco) for secs, atco in tt.trip_stops_for(trip_id)
-                 if secs is not None]
-        if not calls:
+        start = _parse_iso_datetime(v.get("origin_aimed_departure"))
+        trip_id = trip_match.journey_by_start(
+            tt, v.get("operator_ref"), v.get("service_ref"), v.get("origin_ref"), start)
+        if trip_id and trip_id not in taken:
+            named.setdefault(trip_id, []).append(v)
+    out = []
+    for trip_id, buses in named.items():
+        if len(buses) == 1:
+            out.append((buses[0], trip_id))
             continue
-        v["journey_start"] = _secs_to_hhmm(calls[0][0])
-        inst = {"calls": calls}
-        idx = trip_match.nearest_call(tt, inst, v.get("latitude"), v.get("longitude"))
-        if idx is None:
-            continue
-        # Measured on the bus's own clock, not ours. The feed runs a median
-        # 186 seconds behind — three quarters of reports over a minute stale,
-        # half over three minutes — so comparing the timetable against the
-        # moment we happened to ask added our latency to every bus's lateness,
-        # against DfT bands one and six minutes wide. The bus is where it said
-        # it was when it said so, and that is the moment to judge.
-        reported = _parse_iso_datetime(v.get("recorded_at"))
-        at_local = reported.astimezone(UK_TZ) if reported else now_local
-        # Against where the timetable has the bus at this point on the road,
-        # between the stops either side, not against the nearest stop's time.
-        # GTFS writes past-midnight times as 24:xx and beyond, so a night bus
-        # is compared on the same clock as the one it is running against.
-        due = trip_match.scheduled_at_position(tt, calls, idx, v)
-        scheduled = live_eta.place_on_day(due, at_local)
-        v['service_origin_epoch'] = scheduled.timestamp() - due
-        lateness = round(at_local.timestamp() - scheduled.timestamp())
-        # A declaration can outlive its journey. On a loop such as the N48 the
-        # ticket machine went on naming the 01:45 outbound while the bus drove
-        # the 02:02 return, past the same stop the other way, and the map
-        # called an on-time bus 44 minutes late. A bus travelling against the
-        # declared journey's direction, by a margin the declaration would need
-        # a long delay to explain, is not on it: drop the claim and let
-        # inference place it, as for a bus that declared nothing.
-        #
-        # Both conditions, because either alone misfires: headings are noisy
-        # at a stop and on a bend, and buses really do run very late. Not at
-        # either end, where a bus on the stand or turning round points
-        # anywhere. Feeds send 0 for "no heading", so 0 is not a heading.
-        heading = v.get("bearing") or None
-        # And only on the route. A stale declaration has the bus driving the
-        # declared road the wrong way; a diversion has it off the road
-        # altogether, where its heading says nothing about the journey. The
-        # Western Road closure (28 Sep 2026) had a 5B 650 m off its route,
-        # 21 minutes late and truly on the journey it named.
-        stop = tt.stops.get(calls[idx][1]) or {}
-        on_route = (stop.get("lat") is not None and v.get("latitude") is not None
-                    and trip_match.km(v["latitude"], v["longitude"],
-                                      stop["lat"], stop["lon"]) <= DECLARATION_DOUBT_KM)
-        if (abs(lateness) >= DECLARATION_DOUBT_SECS and heading is not None
-                and on_route and 0 < idx < len(calls) - 1
-                and not trip_match.heading_agrees(tt, calls, idx, heading)):
-            for key in ("trip_id", "trip_headsign", "trip_source", "journey_start", "service_origin_epoch"):
-                v.pop(key, None)
-            v.setdefault("identity_flags", []).append("declared_journey_contradicted_by_heading")
-            continue
-        # Early at the first stop and not yet pulled away: the bus is on the
-        # stand waiting for its time, not running early. The N48 sat at Old
-        # Steine "10 minutes early" for its 02:45. It leaves on time, so
-        # that is the lateness to carry forward, and the map says when.
-        waiting = (idx == 0 and lateness < 0
-                   and not trip_match.past_pole(tt, v, calls, 0))
-        v["waiting_to_start"] = waiting
-        # The same at any timing point along the way: drivers must not leave
-        # one early, so a bus stood at one before its time will leave on it.
-        tps = (list(tt.timepoints_by_call(trip_id) or [])
-               if hasattr(tt, "timepoints_by_call") else [])
-        held = (lateness < 0 and len(tps) == len(calls)
-                and trip_match.waiting_at_timing_point(tt, calls, idx, v, tps))
-        v["lateness_secs"] = 0 if (waiting or held) else lateness
-        # How old the claim is. A reader looking at a dot on a map assumes it
-        # is now; often it is three minutes ago, and on a stale report that is
-        # the difference between "on time" and "late". Published so the map can
-        # hedge rather than quietly assert.
-        v["report_age_secs"] = (
-            max(0, round((now_local - reported).total_seconds())) if reported else None)
-        # Near a stop no bus calls at, the bus is on a diversion around it:
-        # "near Brunswick Place" said of a bus two streets away on Lansdowne
-        # Road points a reader at the one place it will not stop.
-        if calls[idx][1] in local_disruptions.closures_now(datetime.now(timezone.utc)):
-            v["nearest_stop_name"] = ""
-            v["on_diversion"] = True
-        else:
-            v["nearest_stop_name"] = (tt.stops.get(calls[idx][1]) or {}).get("name", "")
+        for v in buses:
+            v.setdefault("identity_flags", []).append("conflicting_declared_vehicles")
+    return out
+
+
+def _attach_journey(v: dict, tt: Timetable, trip_id: str, source: str,
+                    now_local: datetime) -> None:
+    """Put one bus on the journey it named, `source` saying how it named it."""
+    trip = tt.trips[trip_id]
+    v["trip_id"] = trip_id
+    v["trip_headsign"] = trip.get("headsign", "")
+    v["trip_source"] = source
+    calls = [(secs, atco) for secs, atco in tt.trip_stops_for(trip_id)
+             if secs is not None]
+    if not calls:
+        return
+    v["journey_start"] = _secs_to_hhmm(calls[0][0])
+    inst = {"calls": calls}
+    idx = trip_match.nearest_call(tt, inst, v.get("latitude"), v.get("longitude"))
+    if idx is None:
+        return
+    # Measured on the bus's own clock, not ours. The feed runs a median
+    # 186 seconds behind — three quarters of reports over a minute stale,
+    # half over three minutes — so comparing the timetable against the
+    # moment we happened to ask added our latency to every bus's lateness,
+    # against DfT bands one and six minutes wide. The bus is where it said
+    # it was when it said so, and that is the moment to judge.
+    reported = _parse_iso_datetime(v.get("recorded_at"))
+    at_local = reported.astimezone(UK_TZ) if reported else now_local
+    # Against where the timetable has the bus at this point on the road,
+    # between the stops either side, not against the nearest stop's time.
+    # GTFS writes past-midnight times as 24:xx and beyond, so a night bus
+    # is compared on the same clock as the one it is running against.
+    due = trip_match.scheduled_at_position(tt, calls, idx, v)
+    scheduled = live_eta.place_on_day(due, at_local)
+    v['service_origin_epoch'] = scheduled.timestamp() - due
+    lateness = round(at_local.timestamp() - scheduled.timestamp())
+    # A declaration can outlive its journey. On a loop such as the N48 the
+    # ticket machine went on naming the 01:45 outbound while the bus drove
+    # the 02:02 return, past the same stop the other way, and the map
+    # called an on-time bus 44 minutes late. A bus travelling against the
+    # declared journey's direction, by a margin the declaration would need
+    # a long delay to explain, is not on it: drop the claim and let
+    # inference place it, as for a bus that declared nothing.
+    #
+    # Both conditions, because either alone misfires: headings are noisy
+    # at a stop and on a bend, and buses really do run very late. Not at
+    # either end, where a bus on the stand or turning round points
+    # anywhere. Feeds send 0 for "no heading", so 0 is not a heading.
+    heading = v.get("bearing") or None
+    # And only on the route. A stale declaration has the bus driving the
+    # declared road the wrong way; a diversion has it off the road
+    # altogether, where its heading says nothing about the journey. The
+    # Western Road closure (28 Sep 2026) had a 5B 650 m off its route,
+    # 21 minutes late and truly on the journey it named.
+    stop = tt.stops.get(calls[idx][1]) or {}
+    on_route = (stop.get("lat") is not None and v.get("latitude") is not None
+                and trip_match.km(v["latitude"], v["longitude"],
+                                  stop["lat"], stop["lon"]) <= DECLARATION_DOUBT_KM)
+    if (abs(lateness) >= DECLARATION_DOUBT_SECS and heading is not None
+            and on_route and 0 < idx < len(calls) - 1
+            and not trip_match.heading_agrees(tt, calls, idx, heading)):
+        for key in ("trip_id", "trip_headsign", "trip_source", "journey_start", "service_origin_epoch"):
+            v.pop(key, None)
+        v.setdefault("identity_flags", []).append("declared_journey_contradicted_by_heading")
+        return
+    # Early at the first stop and not yet pulled away: the bus is on the
+    # stand waiting for its time, not running early. The N48 sat at Old
+    # Steine "10 minutes early" for its 02:45. It leaves on time, so
+    # that is the lateness to carry forward, and the map says when.
+    waiting = (idx == 0 and lateness < 0
+               and not trip_match.past_pole(tt, v, calls, 0))
+    v["waiting_to_start"] = waiting
+    # The same at any timing point along the way: drivers must not leave
+    # one early, so a bus stood at one before its time will leave on it.
+    tps = (list(tt.timepoints_by_call(trip_id) or [])
+           if hasattr(tt, "timepoints_by_call") else [])
+    held = (lateness < 0 and len(tps) == len(calls)
+            and trip_match.waiting_at_timing_point(tt, calls, idx, v, tps))
+    v["lateness_secs"] = 0 if (waiting or held) else lateness
+    # How old the claim is. A reader looking at a dot on a map assumes it
+    # is now; often it is three minutes ago, and on a stale report that is
+    # the difference between "on time" and "late". Published so the map can
+    # hedge rather than quietly assert.
+    v["report_age_secs"] = (
+        max(0, round((now_local - reported).total_seconds())) if reported else None)
+    # Near a stop no bus calls at, the bus is on a diversion around it:
+    # "near Brunswick Place" said of a bus two streets away on Lansdowne
+    # Road points a reader at the one place it will not stop.
+    if calls[idx][1] in local_disruptions.closures_now(datetime.now(timezone.utc)):
+        v["nearest_stop_name"] = ""
+        v["on_diversion"] = True
+    else:
+        v["nearest_stop_name"] = (tt.stops.get(calls[idx][1]) or {}).get("name", "")
 
 
 def _enrich_vehicles_with_trip_match(vehicles: list, tt: Timetable) -> None:
@@ -2984,7 +3031,7 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: Timetable) -> None:
 
     matched_n = 0
     # Buses whose journey the feed named are already answered for.
-    vehicles = [v for v in vehicles if v.get("trip_source") != "feed"]
+    vehicles = [v for v in vehicles if v.get("trip_source") not in trip_match.DECLARED_SOURCES]
     if not vehicles:
         return
     for v in vehicles:

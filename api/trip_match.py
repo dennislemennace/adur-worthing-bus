@@ -45,6 +45,12 @@ MAX_OFF_ROUTE_KM = 0.4
 # they need their own ticket and are not what anyone at a bus stop is waiting for.
 COACH_NOCS = frozenset({"NATX", "FLIX", "OXBC", "GHOP", "BMCS", "UNTM"})
 
+# The ways a live bus's journey is known from the operator rather than guessed
+# by us. "feed": GTFS-RT named a trip id we hold. "feed_start": SIRI-VM named it
+# by line, first stop and scheduled start, and exactly one journey fits (see
+# `journey_by_start`). Anything that trusts a bus's own lateness checks this.
+DECLARED_SOURCES = frozenset({"feed", "feed_start"})
+
 
 def clock(secs: int) -> str:
     secs = int(secs) % 86400
@@ -247,6 +253,45 @@ def place_declared(tt, vehicles, instances, now):
         placed[key] = (vi, idx)
         claimed.add(vi)
     return placed, claimed
+
+
+def journey_by_start(tt, operator, service, origin, start):
+    """The one journey a bus names by its line, first stop and start, or None.
+
+    SIRI-VM gives each bus's `LineRef`, `OriginRef` and
+    `OriginAimedDepartureTime`: the operator's own statement of the journey,
+    without an id. GTFS-RT's id is normally better, but it depends on BODS
+    publishing the timetable the id comes from. Stagecoach re-published every
+    timetable on 6 October 2026; BODS left Stagecoach South out of its GTFS,
+    gave their buses ids found nowhere, and by 9 October no id at all. All 46
+    of their buses between Worthing and Brighton still named exactly one
+    journey in our timetable this way.
+
+    Believed only when exactly one journey of this operator and service leaves
+    `origin` at that second on a day it runs. Two journeys, or none, and the
+    bus is left to inference. A start after midnight is tried on the evening
+    before's service as well, where GTFS writes it as 24:xx. "700" also finds
+    "N700": Stagecoach drop the N, our timetable keeps it.
+    """
+    if not (operator and service and origin and start):
+        return None
+    local = start.astimezone(LONDON)
+    secs = local.hour * 3600 + local.minute * 60 + local.second
+    names = {service} | service_keys(service)
+    names |= {"N" + name for name in names if name.isdigit()}
+    days = service_days(local.date())
+    found = set()
+    for name in names:
+        for trip_id, first_stop, _last, first_secs in tt.service_endpoints(name):
+            if first_stop != origin:
+                continue
+            trip = tt.trips.get(trip_id) or {}
+            if tt.noc_for_route(trip.get("route_id", "")) != operator:
+                continue
+            for day, shift in days:
+                if first_secs == secs + shift and tt.runs_on(trip.get("service_id", ""), day):
+                    found.add(trip_id)
+    return next(iter(found)) if len(found) == 1 else None
 
 
 def _span_distance(inst, now):

@@ -384,8 +384,12 @@ test("a board row opens the bus running its journey, never the nearest with the 
   vm.runInContext("state", app).busMarkers = {
     "BUS-A": bus("BUS-A", "VJ_A"), "BUS-B": bus("BUS-B", "VJ_B"),
     "BUS-X": bus("BUS-X", "VJ_X", { trip_source: undefined }),   // declaration contradicted
+    // Named by line, first stop and start (Stagecoach, from 7 October 2026).
+    "BUS-S": bus("BUS-S", "VJ_S", { trip_source: "feed_start" }),
   };
   const pick = vm.runInContext("departureBus", app);
+  assert.equal(pick({ dataset: { service: "700", trip: "VJ_S" } })?.vehicle_ref, "BUS-S",
+    "a bus that named its journey by its start was not found");
   const tr = data => ({ dataset: data });
   assert.equal(pick(tr({ service: "700", trip: "VJ_B" })).vehicle_ref, "BUS-B");
   assert.equal(pick(tr({ service: "700", trip: "VJ_A", vehicle: "BUS-B" })).vehicle_ref, "BUS-B",

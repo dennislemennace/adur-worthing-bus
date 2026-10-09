@@ -109,7 +109,8 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime) -> list:
         return []
     start = min(start, len(calls) - 1)
 
-    declared = vehicle.get("trip_source") == "feed" and vehicle.get("trip_id") == trip_id
+    declared = (vehicle.get("trip_source") in trip_match.DECLARED_SOURCES
+                and vehicle.get("trip_id") == trip_id)
     lateness = vehicle.get("lateness_secs") if declared else None
     tps = list(tt.timepoints_by_call(trip_id) or []) if hasattr(tt, "timepoints_by_call") else []
     if len(tps) != len(calls):

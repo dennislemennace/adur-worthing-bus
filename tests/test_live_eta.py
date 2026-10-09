@@ -292,3 +292,40 @@ def test_the_bus_tab_lists_the_journey_the_feed_named(monkeypatch):
     assert out["vehicle"]["trip_source"] == "feed"
     assert out["vehicle"]["lateness_secs"] == 120
     assert any(r["expected"] for r in out["upcoming_stops"]), "the named journey was replaced"
+
+
+def test_the_board_trusts_a_journey_named_by_its_start(monkeypatch):
+    # SIRI-VM's line, first stop and start name the journey when BODS's id
+    # does not (Stagecoach, from 7 October 2026). The operator said it, so
+    # the board uses it as it would an id.
+    monkeypatch.setattr(main, "cache_get", _cached([declared(180, trip_source="feed_start")]))
+    out = main._apply_own_feed_estimates(_board([_row(at(14, 10))]),
+                                         FakeTimetable(), "STOP5", at(14, 5))
+    dep = out["departures"][0]
+    assert dep["delay_seconds"] == 180 and dep.get("vehicle_ref") == "BUS-1"
+
+
+def test_the_bus_tab_shows_a_journey_named_by_its_start(monkeypatch):
+    import asyncio
+    tt = FakeTimetable()
+    bus = declared(120, trip_source="feed_start", service_ref="700", operator_ref="SCSO",
+                   journey_start="14:00", report_age_secs=30)
+
+    async def vehicles():
+        return [bus]
+
+    async def timetable():
+        return tt
+
+    async def inline(fn, *args):
+        return fn(*args)
+
+    monkeypatch.setattr(main, "_check_api_key", lambda: None)
+    monkeypatch.setattr(main, "_get_vehicles_or_empty", vehicles)
+    monkeypatch.setattr(main, "_get_timetable", timetable)
+    monkeypatch.setattr(main, "off_loop", inline)
+    monkeypatch.setattr(main, "_best_trip_for_vehicle", lambda *_: "VJ_SOMETHING_ELSE")
+    out = asyncio.run(main.get_vehicle(vehicleRef="BUS-1"))
+    assert out["vehicle"]["trip_source"] == "feed_start"
+    assert out["vehicle"]["lateness_secs"] == 120
+    assert any(r["expected"] for r in out["upcoming_stops"]), "the stated journey got no estimates"

@@ -416,3 +416,190 @@ def test_a_trail_keeps_this_journey_once_each_and_forgets_the_old(monkeypatch):
 
     poll(60, 50.840, "VJ_1422")          # 45 minutes on, the old points go
     assert [p[0] for p in main._trail_for("BUS-1", "VJ_1422")] == [50.840]
+
+
+# ── A journey named by its start, not its id ─────────────────
+#
+# Stagecoach re-published every timetable on BODS on 6 October 2026 under new
+# dataset ids. BODS then left Stagecoach South out of its GTFS and, by 9
+# October, stopped naming their journeys in GTFS-RT at all: 0 of 46 buses
+# between Worthing and Brighton carried a trip id. Every 700 on the board went
+# back to timetable times.
+#
+# SIRI-VM still says which journey each bus is running, by its line, first
+# stop and scheduled start: all 46 named exactly one journey in our timetable.
+# That is the operator's statement, not our guess, so it is believed — but only
+# when it names exactly one journey, and recorded as its own source.
+
+class StartTimetable(FakeTimetable):
+    """The 14:22 again, findable by line, first stop and start, as SIRI-VM
+    describes it, plus whatever other journeys a test adds."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        trip_id, start = next(iter(self.trips)), self._calls[0][0]
+        self.trips[trip_id]["service_id"] = "DAILY"
+        self.endpoints = {"700": [(trip_id, "STOP0", "STOP4", start)]}
+        self.nocs = {"R700": "SCSO"}
+        self.not_running = set()
+
+    def add(self, trip_id, start, service="700", stop="STOP0", route="R700", noc="SCSO",
+            service_id="DAILY"):
+        self.trips[trip_id] = {"headsign": "Worthing", "route_id": route, "service_id": service_id}
+        self.routes.setdefault(route, {"short_name": service})
+        self.nocs[route] = noc
+        self.endpoints.setdefault(service, []).append((trip_id, stop, "STOP4", start))
+
+    def service_endpoints(self, service_key):
+        return list(self.endpoints.get(service_key, []))
+
+    def noc_for_route(self, route_id):
+        return self.nocs.get(route_id, "")
+
+    def runs_on(self, service_id, _day):
+        return service_id not in self.not_running
+
+
+def a_bus_by_start(start="2026-09-18T13:22:00+00:00", **over):
+    """A bus that names its journey only as SIRI-VM does: 14:22 BST from STOP0."""
+    return a_bus(**{"origin_ref": "STOP0", "origin_aimed_departure": start, **over})
+
+
+def test_a_bus_that_names_its_journey_by_its_start_is_taken_at_its_word(monkeypatch):
+    tt = StartTimetable()
+    _freeze(monkeypatch, 14, 30)
+    bus = a_bus_by_start(latitude=50.832)
+    main._attach_declared_journeys([bus], tt)
+    assert bus.get("trip_id") == "VJ_1422", "the journey the bus stated was not found"
+    assert bus["trip_source"] == "feed_start", "a start-named journey must say how it was named"
+    assert bus["declared_trip_id"] == "VJ_1422", "the map finds a row's bus by this"
+    assert bus["journey_start"] == "14:22"
+    assert bus["lateness_secs"] == 4 * 60
+
+
+def test_an_id_we_do_not_hold_gives_way_to_the_start(monkeypatch):
+    # 7 October: Stagecoach's buses carried new BODS ids found in no
+    # timetable BODS published, ours included.
+    tt = StartTimetable()
+    _freeze(monkeypatch, 14, 30)
+    bus = a_bus_by_start(declared_trip_id="VJ_NEW_ID_NOWHERE", latitude=50.832)
+    main._attach_declared_journeys([bus], tt)
+    assert bus.get("trip_source") == "feed_start"
+    assert bus["trip_id"] == "VJ_1422"
+
+
+def test_a_held_id_is_preferred_to_the_start():
+    tt = StartTimetable()
+    tt.add("VJ_1432", 14 * 3600 + 32 * 60)
+    bus = a_bus_by_start(declared_trip_id="VJ_1432")
+    main._attach_declared_journeys([bus], tt)
+    assert bus["trip_id"] == "VJ_1432" and bus["trip_source"] == "feed"
+
+
+def test_a_start_two_journeys_share_names_neither():
+    tt = StartTimetable()
+    tt.add("VJ_TWIN", 14 * 3600 + 22 * 60)
+    bus = a_bus_by_start()
+    main._attach_declared_journeys([bus], tt)
+    assert bus.get("trip_source") is None, "an ambiguous start was settled by guessing"
+
+
+def test_a_journey_that_does_not_run_today_is_not_named():
+    tt = StartTimetable()
+    tt.not_running.add("DAILY")
+    bus = a_bus_by_start()
+    main._attach_declared_journeys([bus], tt)
+    assert bus.get("trip_source") is None
+
+
+def test_another_operators_journey_is_not_taken():
+    # Brighton & Hove and Stagecoach both run a 7, from some of the same stops.
+    tt = StartTimetable()
+    tt.nocs["R700"] = "BHBC"
+    bus = a_bus_by_start()
+    main._attach_declared_journeys([bus], tt)
+    assert bus.get("trip_source") is None
+
+
+def test_a_different_first_stop_or_minute_names_nothing():
+    tt = StartTimetable()
+    for bus in (a_bus_by_start(start="2026-09-18T13:23:00+00:00"),
+                a_bus_by_start(origin_ref="STOP1")):
+        main._attach_declared_journeys([bus], tt)
+        assert bus.get("trip_source") is None
+
+
+def test_two_buses_naming_one_journey_by_its_start_are_neither_believed():
+    tt = StartTimetable()
+    one, two = a_bus_by_start(), a_bus_by_start(vehicle_ref="BUS-2")
+    main._attach_declared_journeys([one, two], tt)
+    assert one.get("trip_source") is None and two.get("trip_source") is None
+    assert "conflicting_declared_vehicles" in one["identity_flags"]
+
+
+def test_a_journey_another_bus_named_by_id_is_not_given_away_by_a_start():
+    tt = StartTimetable()
+    by_id = a_bus(declared_trip_id="VJ_1422", vehicle_ref="BUS-1")
+    by_start = a_bus_by_start(vehicle_ref="BUS-2")
+    main._attach_declared_journeys([by_id, by_start], tt)
+    assert by_id["trip_source"] == "feed"
+    assert by_start.get("trip_source") is None
+
+
+def test_a_start_after_midnight_belongs_to_the_evening_before(monkeypatch):
+    # 00:20 on the 18th is 24:20 on the 17th's service, as GTFS writes it.
+    tt = StartTimetable(trip_id="VJ_NIGHT", start=24 * 3600 + 20 * 60)
+    _freeze(monkeypatch, 0, 28)
+    bus = a_bus_by_start(start="2026-09-17T23:20:00+00:00", latitude=50.832)
+    main._attach_declared_journeys([bus], tt)
+    assert bus.get("trip_id") == "VJ_NIGHT"
+    assert abs(bus["lateness_secs"]) < 15 * 60
+
+
+def test_a_night_journey_named_without_its_n_is_found():
+    # Stagecoach publish the N700 as "700"; our timetable keeps the N.
+    tt = StartTimetable()
+    tt.endpoints = {}
+    tt.add("VJ_N700", 14 * 3600 + 22 * 60, service="N700", route="RN700")
+    bus = a_bus_by_start()
+    main._attach_declared_journeys([bus], tt)
+    assert bus.get("trip_id") == "VJ_N700"
+
+
+def test_inference_does_not_overwrite_a_journey_named_by_its_start(monkeypatch):
+    # The fallback strategies pick the journey starting nearest now: at 14:31
+    # that is the 14:32, which this bus is not.
+    tt = StartTimetable()
+    tt.add("VJ_1432", 14 * 3600 + 32 * 60)
+    _freeze(monkeypatch, 14, 31)
+    bus = a_bus_by_start(latitude=50.832)
+    main._enrich_vehicles_with_trip_match([bus], tt)
+    assert bus["trip_id"] == "VJ_1422", "inference argued with the operator"
+    assert bus["trip_source"] == "feed_start"
+
+
+def test_siri_vm_keeps_the_scheduled_start():
+    xml = f"""<Siri xmlns="{main.SIRI_NS}"><ServiceDelivery>
+      <VehicleMonitoringDelivery><VehicleActivity>
+        <MonitoredVehicleJourney>
+          <LineRef>700</LineRef><OperatorRef>SCSO</OperatorRef>
+          <OriginRef>4400AD0329</OriginRef>
+          <OriginAimedDepartureTime>2026-10-09T12:30:00+00:00</OriginAimedDepartureTime>
+          <VehicleLocation><Latitude>50.83</Latitude><Longitude>-0.27</Longitude></VehicleLocation>
+          <VehicleRef>SCSO-15123</VehicleRef>
+        </MonitoredVehicleJourney>
+      </VehicleActivity></VehicleMonitoringDelivery>
+    </ServiceDelivery></Siri>"""
+    [bus] = main._parse_siri_vm(xml)
+    assert bus["origin_aimed_departure"] == "2026-10-09T12:30:00+00:00"
+    assert bus["origin_ref"] == "4400AD0329"
+
+
+def test_the_scheduled_start_stays_internal_in_vehicle_response(monkeypatch):
+    import asyncio
+
+    async def vehicles():
+        return [{"vehicle_ref": "bus", "origin_aimed_departure": "2026-10-09T12:30:00+00:00"}]
+    monkeypatch.setattr(main, "_check_api_key", lambda: None)
+    monkeypatch.setattr(main, "_live_vehicles", vehicles)
+    assert asyncio.run(main.get_vehicles())["vehicles"] == [{"vehicle_ref": "bus"}]

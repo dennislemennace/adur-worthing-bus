@@ -7793,7 +7793,10 @@ function departureBus(tr) {
   if (!trip) return null;
   for (const marker of Object.values(state.busMarkers)) {
     const v = marker && marker._vehicle;
-    if (v && v.trip_source === "feed" && v.declared_trip_id === trip) return v;
+    // "feed_start": named by line, first stop and start where the feed gave
+    // no id we hold. Still the operator's word, so still not a guess.
+    if (v && (v.trip_source === "feed" || v.trip_source === "feed_start")
+        && v.declared_trip_id === trip) return v;
   }
   return null;
 }
