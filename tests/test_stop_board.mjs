@@ -368,6 +368,60 @@ test("a tap within reach of a bus and a stop finds both, nearest first", () => {
   assert.equal(app.markersWithinReach({ x: 0, y: 0 }, [{ x: 30, y: 0 }]).length, 0);
 });
 
+test("the chooser says which way each stop's buses go and which side of the road it is on", () => {
+  // Two poles called Grand Avenue, either side of the road and a finger apart
+  // on the map: the chooser listed both as "Stop Grand Avenue".
+  state.stopData = {
+    E: { name: "Grand Avenue", towards: "Brighton", locality: "Hove" },
+    W: { name: "Grand Avenue", towards: "Worthing", locality: "Hove" },
+    N: { name: "Lancing Station", locality: "Lancing" },
+  };
+  state.stopDetails = {
+    E: ["opp", "Kingsway", "King Alfred", "E"],
+    W: ["Stop D", "Kingsway", "", "W"],
+    N: ["o/s", "Station Approach", "Lancing Station", "N"],
+  };
+  const stop = (id) => ({ kind: "stop", id, label: state.stopData[id].name });
+  const row = (id) => app.tapChoiceHtml(stop(id));
+  const east = row("E"), west = row("W");
+  assert.match(east, /Towards Brighton · heading east/);
+  assert.match(east, /--heading:\s*90deg/);
+  assert.match(west, /Stop D · Towards Worthing · heading west/);
+  assert.match(west, /--heading:\s*270deg/);
+  assert.match(west, /class="tap-choice-arrow" aria-hidden="true"/, "the arrow is decoration; the words carry it");
+  // No "towards" from the timetable: the bearing alone still says which way.
+  assert.match(row("N"), /Heading north/);
+  // Directions that differ tell the poles apart; the side of the road would
+  // only be a third line to read.
+  const apart = app.tapChoicesHtml([stop("E"), stop("W")]);
+  assert.doesNotMatch(apart, /Opposite King Alfred/, "a side shown where the directions already differ");
+  // Two poles the same way, a few metres apart: only the side tells them apart.
+  state.stopData.T1 = { name: "Tarring Road", towards: "Worthing", locality: "Worthing" };
+  state.stopData.T2 = { name: "Tarring Road", towards: "Worthing", locality: "Worthing" };
+  state.stopDetails.T1 = ["opp", "Tarring Road", "The Vine", "W"];
+  state.stopDetails.T2 = ["o/s", "Tarring Road", "Station Parade", "W"];
+  const alike = app.tapChoicesHtml([stop("T1"), stop("T2"), { kind: "bus", id: "B", label: "6 to Worthing" }]);
+  assert.match(alike, /Opposite The Vine, Tarring Road/);
+  assert.match(alike, /Outside Station Parade, Tarring Road/);
+  assert.doesNotMatch(app.tapChoicesHtml([stop("T1"), stop("E")]), /Opposite The Vine/,
+    "one stop of a direction has nothing to be told apart from");
+  // A different letter is not a different direction: the side still shows.
+  state.stopDetails.T1 = ["Stop A", "Tarring Road", "", "W"];
+  state.stopDetails.T2 = ["Stop B", "Tarring Road", "", "W"];
+  assert.doesNotMatch(app.tapChoicesHtml([stop("T1"), stop("T2")]), /On Tarring Road/,
+    "a street both poles share tells them apart from nothing");
+  // Before NaPTAN has loaded, the timetable's "towards" still tells them apart.
+  state.stopDetails = null;
+  const early = row("E");
+  assert.match(early, /Towards Brighton/);
+  assert.doesNotMatch(early, /heading|--heading/);
+  assert.match(early, /data-atco="E"/, "the row must be findable to fill in once NaPTAN arrives");
+  // A bus row is as it was, and every name is escaped.
+  const bus = app.tapChoiceHtml({ kind: "bus", id: "B<1", label: "700 to <Brighton>" });
+  assert.match(bus, /700 to &lt;Brighton&gt;/);
+  assert.doesNotMatch(bus, /Towards|heading|tap-choice-detail/);
+});
+
 test("a National Express coach shows no local fares", () => {
   assert.equal(app.buildTicketInfoHtml("NATX", null, "025"), "",
     "local tickets and the bus fare cap were offered for a coach");

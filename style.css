@@ -7914,11 +7914,11 @@ html.dark-mode .delay-map-on .leaflet-tile-pane {
   .delay-legend-map { display: none; }
 }
 
-/* "Which one?" when a tap lands on a bus and a stop at once. */
 /* A linked photo credit keeps the caption's own colour: the link blue on the
    dark caption band measured 1.27:1. Underlined, so it still reads as a link. */
 .update-card-credit a { color: inherit; text-decoration: underline; }
 
+/* "Which one?" when a tap lands on a bus and a stop at once. */
 .tap-chooser-popup .leaflet-popup-content { margin: 10px 12px; }
 .tap-chooser-title { margin: 0 0 6px; font-weight: 700; font-size: var(--font-size-sm); }
 .tap-chooser { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -7932,6 +7932,20 @@ html.dark-mode .delay-map-on .leaflet-tile-pane {
 .tap-choice-kind {
   flex: none; font-size: var(--font-size-2xs); font-weight: 700; text-transform: uppercase;
   letter-spacing: 0.06em; color: var(--color-text-muted);
+}
+/* A stop's direction and side of the road, under its name: two poles of one
+   name are otherwise the same row twice. */
+.tap-choice-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tap-choice-detail { display: flex; flex-direction: column; gap: 1px; }
+.tap-choice-direction, .tap-choice-side {
+  font-size: var(--font-size-xs); color: var(--color-text-muted); line-height: 1.3;
+}
+.tap-choice-direction { font-weight: 600; color: var(--color-text); }
+/* North-up map, so the arrow turned to the stop's bearing points the way its
+   buses go along the road. The words beside it say the same for a screen reader. */
+.tap-choice-arrow {
+  display: inline-block; margin-right: 4px; font-weight: 700;
+  transform: rotate(var(--heading, 0deg));
 }
 
 /* Dense controls: rows of short chips (route numbers, filters), where a 44px

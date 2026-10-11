@@ -937,22 +937,97 @@ function tapCandidatesAt(point) {
   return markersWithinReach(point, out);
 }
 
+// The map is drawn north-up, so an arrow turned to a stop's bearing points
+// along the road the way its buses go.
+const STOP_BEARING_DEGREES = { N: 0, NE: 45, E: 90, SE: 135, S: 180, SW: 225, W: 270, NW: 315 };
+
+/** Which way a stop's buses go and which side of the road it is on, for the
+ *  chooser: "Stop D · Towards Worthing · heading west", then "Opposite King
+ *  Alfred, Kingsway". The two poles of one stop name sit either side of the
+ *  road, a finger apart on the map, and the name alone cannot tell them apart.
+ *
+ *  "Towards" comes from the stop list, there from first paint, and only for
+ *  names shared by more than one pole. The letter, bearing and side come from
+ *  NaPTAN, loaded on demand; until it arrives the row says what it can. */
+function tapStopDetailHtml(atcoCode, withSide = false) {
+  const s = (state.stopData || {})[atcoCode] || {};
+  const heading = stopHeading(atcoCode);
+  const bits = [stopLetter(atcoCode),
+                s.towards ? `Towards ${prettifyName(s.towards)}` : "",
+                heading ? `heading ${heading}` : ""].filter(Boolean);
+  const line = bits.join(" · ").replace(/^\w/, c => c.toUpperCase());
+  const degrees = STOP_BEARING_DEGREES[String(stopDetail(atcoCode)?.bearing || "").toUpperCase()];
+  const arrow = degrees === undefined ? ""
+    : `<span class="tap-choice-arrow" aria-hidden="true" style="--heading:${degrees}deg">↑</span>`;
+  // Only where another stop in the list goes the same way (`withSide`):
+  // otherwise the direction already tells them apart. "Opposite King Alfred"
+  // says which side of the road; "On Kingsway" is true of both poles.
+  const where = withSide ? stopWhereLine(atcoCode) : "";
+  const side = where && !where.startsWith("On ") ? where : "";
+  return (line ? `<span class="tap-choice-direction">${arrow}${escapeHtml(line)}</span>` : "")
+    + (side ? `<span class="tap-choice-side">${escapeHtml(side)}</span>` : "");
+}
+
+/** Which way a stop's buses go, without its letter: a different letter on
+ *  the flag does not say which pole is where. */
+function tapStopDirectionKey(atcoCode) {
+  const s = (state.stopData || {})[atcoCode] || {};
+  return `${s.towards || ""}|${stopHeading(atcoCode)}`;
+}
+
+/** The stops among `ids` whose direction another of them shares. */
+function stopsSharingDirection(ids) {
+  const counts = new Map();
+  for (const id of ids) {
+    const key = tapStopDirectionKey(id);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return new Set(ids.filter(id => counts.get(tapStopDirectionKey(id)) > 1));
+}
+
+/** The chooser's rows, a stop's side of the road only where it is needed. Pure. */
+function tapChoicesHtml(candidates) {
+  const shared = stopsSharingDirection(candidates.filter(c => c.kind === "stop").map(c => c.id));
+  return candidates.map(c => tapChoiceHtml(c, shared.has(c.id))).join("");
+}
+
+/** One row of the "Which one?" chooser. Pure. */
+function tapChoiceHtml(c, withSide = false) {
+  const detail = c.kind === "stop"
+    ? `<span class="tap-choice-detail" data-atco="${escapeAttr(c.id)}">${tapStopDetailHtml(c.id, withSide)}</span>` : "";
+  return `
+    <li><button type="button" class="tap-choice" data-kind="${c.kind}" data-id="${escapeAttr(c.id)}">
+      <span class="tap-choice-kind">${c.kind === "bus" ? "Bus" : "Stop"}</span>
+      <span class="tap-choice-text"><span>${escapeHtml(c.label)}</span>${detail}</span></button></li>`;
+}
+
 /** Open the chooser if this tap could mean more than one marker. */
 function maybeOpenTapChooser(e) {
   const type = e && e.originalEvent && e.originalEvent.type || "";
   if (!e || !e.containerPoint || !state.map || type.startsWith("key")) return false;
   const near = tapCandidatesAt(e.containerPoint);
   if (near.length < 2) return false;
-  const items = near.slice(0, 6).map(c => `
-    <li><button type="button" class="tap-choice" data-kind="${c.kind}" data-id="${escapeAttr(c.id)}">
-      <span class="tap-choice-kind">${c.kind === "bus" ? "Bus" : "Stop"}</span>
-      <span>${escapeHtml(c.label)}</span></button></li>`).join("");
+  const items = tapChoicesHtml(near.slice(0, 6));
   state.map.closePopup();
-  const popup = L.popup({ className: "tap-chooser-popup", maxWidth: 260 })
+  const popup = L.popup({ className: "tap-chooser-popup", maxWidth: 300 })
     .setLatLng(state.map.containerPointToLatLng(e.containerPoint))
     .setContent(`<p class="tap-chooser-title">Which one?</p><ul class="tap-chooser">${items}</ul>`)
     .openOn(state.map);
   const el = popup.getElement();
+  // NaPTAN's letters, bearings and sides arrive on first use: fill them into
+  // the rows still on screen.
+  if (!state.stopDetails && near.some(c => c.kind === "stop")) {
+    loadStopDetails().then(() => {
+      if (!state.map.hasLayer(popup)) return;
+      // Bearings can make two directions the same, or different: decide again.
+      const spans = [...(popup.getElement()?.querySelectorAll(".tap-choice-detail[data-atco]") || [])];
+      const shared = stopsSharingDirection(spans.map(span => span.dataset.atco));
+      spans.forEach(span => {
+        span.innerHTML = tapStopDetailHtml(span.dataset.atco, shared.has(span.dataset.atco));
+      });
+      popup.update();
+    }).catch(() => {});
+  }
   if (el) {
     el.addEventListener("click", (ev) => {
       const b = ev.target.closest("button.tap-choice");
