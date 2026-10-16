@@ -1918,6 +1918,22 @@ const JT_NO_PROMISE = 2;
 // clothes. Deliberately lower than reliability_stats' 30, because a cell there
 // is one stop across many journeys and this is one journey end to end.
 const JT_PERCENTILE_FLOOR = 10;
+// ...and the days they must come from. Ten buses timed on one day describe
+// that day: a crash or a diversion would read as how the trip always goes.
+// The delay map, the waiting figures and the diversion allowances each ask
+// for five days already.
+const JT_MIN_DAYS = 5;
+
+/** Whether `journeys` timed over `days` distinct days can carry a figure. */
+function jtEnoughEvidence(journeys, days) {
+  return journeys >= JT_PERCENTILE_FLOOR && days >= JT_MIN_DAYS;
+}
+
+/** "10 buses over 5 days": what a figure needs, in words. */
+function jtFloorWords() {
+  return `${JT_PERCENTILE_FLOOR} buses over ${JT_MIN_DAYS} days`;
+}
+
 // A bus makes you late when it reaches your stop more than this after its
 // timetabled time. A little inside the DfT's "on time" limit (5 min 59 s late),
 // and clear of the minute or so the measurement can add: a time at a stop is
@@ -3170,6 +3186,12 @@ function journeyTimesSummary(timings) {
   // days and the denominators describe the chart the reader is looking at
   // rather than the file behind it.
   const days = [...new Set(timings.map(t => t.day))].sort();
+  // A percentile over a handful of journeys is arithmetic dressed as
+  // evidence: "9 in 10 under 54 minutes" from two journeys means the slower
+  // of the two, and reads as a much stronger claim than that. Nor over one
+  // or two days, however many buses ran on them. Below the floor it is not
+  // offered at all.
+  const enough = jtEnoughEvidence(timings.length, days.length);
   return {
     journeys: timings.length,
     estimated: timings.filter(t => t.estimated).length,
@@ -3177,20 +3199,18 @@ function journeyTimesSummary(timings) {
     medianSecs: median(observed),
     fastestSecs: observed[0],
     slowestSecs: observed[observed.length - 1],
-    // A percentile over a handful of journeys is arithmetic dressed as
-    // evidence: "9 in 10 under 54 minutes" from two journeys means the slower
-    // of the two, and reads as a much stronger claim than that. Below the
-    // floor it is not offered at all.
-    p90Secs: timings.length >= JT_PERCENTILE_FLOOR
+    enough,
+    p90Secs: enough
       ? observed[Math.min(observed.length - 1, Math.floor(observed.length * 0.9))]
       : null,
     // How many took longer than that, counted rather than assumed. On a small
     // sample "1 in 10" overstates it: of ten journeys none took longer.
-    longerThanP90: timings.length >= JT_PERCENTILE_FLOOR
+    longerThanP90: enough
       ? observed.filter(v => v > observed[Math.min(observed.length - 1,
           Math.floor(observed.length * 0.9))]).length
       : null,
     percentileFloor: JT_PERCENTILE_FLOOR,
+    dayFloor: JT_MIN_DAYS,
     scheduledSecs: scheduled,
     overPromised: scheduled == null ? null
       : promised.filter(t => t.observedSecs > t.scheduledSecs + 60).length,
@@ -3612,7 +3632,8 @@ function journeyTimesSlotSummaries(all, dayKey) {
   const out = new Map();
   for (const p of JT_PERIODS) {
     const s = journeyTimesSummary(journeyTimesInSlot(all, dayKey, p.key));
-    out.set(p.key, s ? { journeys: s.journeys, medianSecs: s.medianSecs } : { journeys: 0, medianSecs: null });
+    out.set(p.key, s ? { journeys: s.journeys, days: s.days.length, medianSecs: s.medianSecs }
+      : { journeys: 0, days: 0, medianSecs: null });
   }
   return out;
 }
@@ -3620,8 +3641,9 @@ function journeyTimesSlotSummaries(all, dayKey) {
 /** When a trip is slowest and quickest on one kind of day, where the evidence
  *  can say.
  *
- *  A period is compared only with at least JT_PERCENTILE_FLOOR journeys: a
- *  "slowest time of day" drawn from three buses is one bus that got stuck.
+ *  A period is compared only with at least JT_PERCENTILE_FLOOR journeys over
+ *  JT_MIN_DAYS days: a "slowest time of day" drawn from three buses is one
+ *  bus that got stuck, and one drawn from a single day is that day.
  *  The spread is returned rather than judged, so the caller can say "much the
  *  same all day" when it is small instead of inventing a rush hour. */
 function journeyTimesPeriodInsight(all, dayKey = "weekday") {
@@ -3629,7 +3651,7 @@ function journeyTimesPeriodInsight(all, dayKey = "weekday") {
   for (const p of JT_PERIODS) {
     if (p.key === "any") continue;
     const s = journeyTimesSummary(journeyTimesInSlot(all, dayKey, p.key));
-    if (s && s.journeys >= JT_PERCENTILE_FLOOR) {
+    if (s && s.enough) {
       rows.push({ period: p, medianSecs: s.medianSecs, journeys: s.journeys });
     }
   }
@@ -3957,6 +3979,7 @@ function jtMeasurementHtml(coverage) {
       a declared journey and no quality flags. These times approximate departure from the stop area,
       include waiting at stops, and are not guaranteed arrival times.</p>
     ${jtCoverageHtml(coverage)}
+    <div class="jt-identification" data-jt-identification hidden></div>
     <p>A bus counts as late when it left the stop more than ${Math.round(JT_LATE_SECS / 60)} min after its
       timetabled time there. We time buses as they leave a stop, so one that waited there, at a timing point
       say, looks later than it arrived: these counts can overstate lateness, never hide it.</p>
@@ -4115,7 +4138,7 @@ function jtWhenChipsHtml(dayKey, periodKey, opts = {}) {
   const times = JT_PERIODS.filter(p => showAll || p.key !== "any").map(p => {
     const s = summaries ? summaries.get(p.key) : null;
     const hours = JT_PERIOD_SHORT[p.key] || "";
-    const few = s && s.journeys && s.journeys < JT_PERCENTILE_FLOOR;
+    const few = s && s.journeys && !jtEnoughEvidence(s.journeys, s.days ?? 0);
     const figure = !summaries ? ""
       : !s || !s.journeys ? "none timed"
       : few ? `${s.journeys} timed`
@@ -4123,7 +4146,8 @@ function jtWhenChipsHtml(dayKey, periodKey, opts = {}) {
     const note = [hours, figure].filter(Boolean).join(" · ");
     const spoken = [p.label, p.hours ? p.hours.replace("–", " to ") : "",
       !summaries ? "" : !s || !s.journeys ? "no buses timed"
-        : few ? `only ${s.journeys} ${s.journeys === 1 ? "bus" : "buses"} timed`
+        : few ? `only ${s.journeys} ${s.journeys === 1 ? "bus" : "buses"} timed, over ${s.days ?? 0} ${
+            s.days === 1 ? "day" : "days"}`
         : `usually ${figure}`].filter(Boolean).join(", ");
     const none = summaries && (!s || !s.journeys);
     return `<button type="button" class="jt-chip" data-jt-period="${p.key}" aria-label="${escapeAttr(spoken)}"
@@ -4211,8 +4235,8 @@ function jtEndsRoute(doc, fromIndex, toIndex) {
  *  looked for in `all`, every timing under the same filters; a bus before that
  *  was not timed is unknown, never assumed to have made it.
  *
- *  `verdict` is the lateness alone, on JT_PERCENTILE_FLOOR buses like every
- *  answer here: `reliable` when at most 1 in 10 was late, `sometimes` up to 1
+ *  `verdict` is the lateness alone, on JT_PERCENTILE_FLOOR buses over
+ *  JT_MIN_DAYS days like every answer here (`thin` below that): `reliable` when at most 1 in 10 was late, `sometimes` up to 1
  *  in 3, `often` beyond; `end_of_route` where the far stop ends the route.
  *  `before` is whether the bus before helped: `ok` when it made it on at least
  *  two in three of at least three checks, `late` when it did not, `unknown`
@@ -4242,14 +4266,15 @@ function journeyTimesEarlierBus(timings, all, doc, fromIndex, toIndex, lateSecs 
   }
   gaps.sort((a, b) => a - b);
   const n = known.length;
+  const dayCount = new Set(known.map(t => t.day)).size;
   let verdict;
   if (jtEndsRoute(doc, fromIndex, toIndex)) verdict = "end_of_route";
-  else if (n < JT_PERCENTILE_FLOOR) verdict = "thin";
+  else if (!jtEnoughEvidence(n, dayCount)) verdict = "thin";
   else if (late <= n / 10) verdict = "reliable";
   else if (late <= n / 3) verdict = "sometimes";
   else verdict = "often";
   const before = checked < 3 ? "unknown" : madeIt * 3 >= checked * 2 ? "ok" : "late";
-  return { journeys: n, late, checked, madeIt, verdict, before, lateSecs,
+  return { journeys: n, days: dayCount, late, checked, madeIt, verdict, before, lateSecs,
            // How many were judged against the timetable's estimate rather than
            // a time the operator promised, so the answer can say so.
            estimatedDue: known.filter(t => t.arrivePromised === false).length,
@@ -4277,8 +4302,9 @@ function jtEarlierBusHtml(eb, toName) {
       an earlier bus.</p>`;
   }
   if (!eb || eb.verdict === "thin") {
-    return `<p class="jt-simple-allow jt-thin">We need ${JT_PERCENTILE_FLOOR} buses timed at ${toName}
-      to say whether you need an earlier one. We have ${eb ? eb.journeys : 0} so far.</p>`;
+    const n = eb ? eb.journeys : 0, d = eb ? eb.days ?? 0 : 0;
+    return `<p class="jt-simple-allow jt-thin">We need ${jtFloorWords()} timed at ${toName}
+      to say whether you need an earlier one. We have ${n} so far, over ${d} ${d === 1 ? "day" : "days"}.</p>`;
   }
   const mins = Math.round(eb.lateSecs / 60);
   const lateText = `${jtLateWords(eb.late, eb.journeys)} we timed left ${toName} more than ${mins} min
@@ -4414,6 +4440,87 @@ async function jtShowReliabilityPreview(host, { index, doc, fromIndex, dayKey, p
   }
 }
 
+
+/** "Route report for the 700": the printable report (report.html), behind
+ *  ?preview=1 until stop times have been checked against an independent
+ *  record, and only where the build has one for this route. */
+function jtRouteReportLink(doc, index) {
+  if (!doc || !previewEnabled()) return "";
+  const safe = String(doc.service || "").replace(/[^A-Za-z0-9_-]/g, "") || "unknown";
+  const noc = String(doc.operator || "").replace(/[^A-Za-z0-9]/g, "") || "unknown";
+  if (!(index && index.artifacts && index.artifacts[`route-report-${safe}-${noc}.json`])) return "";
+  const params = new URLSearchParams({ service: doc.service, operator: doc.operator });
+  const build = journeyTimesBuildFromUrl();
+  if (build) params.set("build", build);
+  return `<a class="jt-link" href="report.html?${escapeAttr(params.toString())}">Route report for the ${escapeHtml(doc.service)}</a>`;
+}
+
+// ── How we knew which journey each bus was running ─────────────
+
+const JT_IDENTIFICATION_FILE = "identification.json";
+// One operator under two codes, as scripts/build_identification.py counts them.
+const JT_OPERATOR_FAMILIES = Object.freeze({ SCSC: "SCSO", CMPA: "COMT" });
+
+/** "1,234": counts here run to tens of thousands. */
+function jtCount(n) {
+  return Number(n || 0).toLocaleString("en-GB");
+}
+
+/** How one operator's buses, and this service's, were matched to their
+ *  journeys over the window (scripts/build_identification.py). Counted, with
+ *  the timetabled journeys as the denominator. Empty when the file does not
+ *  name the operator. */
+function jtIdentificationHtml(ident, operator, service, fileUrl = "") {
+  if (!ident || !ident.operators) return "";
+  const op = JT_OPERATOR_FAMILIES[operator] || operator;
+  const all = ident.operators[op];
+  if (!all || !all.tracked) return "";
+  const svc = ident.services && ident.services[`${service}|${op}`];
+  const days = ident.days || [];
+  const span = days.length
+    ? `${jtDayLabel(days[0], false)}${days.length > 1 ? ` to ${jtDayLabel(days[days.length - 1], false)}` : ""}` : "";
+  const ways = c => {
+    const by = c.by || {};
+    const parts = [
+      by.journey_id ? `for ${jtCount(by.journey_id)} the operator's feed named the journey` : "",
+      by.start ? `${jtCount(by.start)} we matched by line, first stop and start time` : "",
+      by.position ? `${jtCount(by.position)} we worked out from where and when the bus was` : "",
+    ].filter(Boolean);
+    const text = parts.length > 1 ? `${parts.slice(0, -1).join("; ")}; and ${parts[parts.length - 1]}` : parts[0] || "";
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  };
+  const line = (who, c) => `${who}: we tracked ${jtCount(c.tracked)} of the ${jtCount(c.scheduled)} journeys
+    timetabled while we were recording. ${ways(c)}.`;
+  const name = escapeHtml(getOperatorName(op) || op);
+  return `<p class="jt-provenance"><strong>Which journey each bus was running.</strong>
+      ${escapeHtml(line(`${getOperatorName(op) || op}, ${span}`, all))}
+      ${svc && svc.tracked ? escapeHtml(line(`The ${service}`, svc)) : ""}</p>
+    <p class="jt-provenance">A journey worked out from position is less certain: a bus running very late can be
+      taken for the next one. ${all.by && all.by.start ? `Matching ${name}'s buses by start time relies on our
+      timetable having the operator's times to the second; a journey it does not match is left out, never
+      given to the wrong bus.` : ""}
+      ${/^https?:\/\//.test(fileUrl) ? `<a class="jt-link" href="${escapeAttr(fileUrl)}" target="_blank"
+        rel="noopener">The counts for every operator</a>.` : ""}</p>`;
+}
+
+/** Fill every identification slot under `host` once the file has loaded. A
+ *  file that is missing or fails leaves the slots hidden: it qualifies the
+ *  figures, and the page reads correctly without it. */
+async function jtShowIdentification(host, index, doc) {
+  const slots = [...(host?.querySelectorAll("[data-jt-identification]") || [])];
+  const entry = index && index.artifacts && index.artifacts[JT_IDENTIFICATION_FILE];
+  if (!slots.length || !entry || !doc) return;
+  try {
+    const ident = await loadJourneyTimes(entry.file, entry.sha256 || "");
+    const html = jtIdentificationHtml(ident, doc.operator, doc.service, `${CONFIG.JOURNEY_TIMES_BASE}/${entry.file}`);
+    if (!html) return;
+    for (const slot of slots) {
+      if (!slot.isConnected) continue;
+      slot.innerHTML = html;
+      slot.hidden = false;
+    }
+  } catch { /* the slots stay hidden */ }
+}
 
 /** What the timetable allows in one clock hour: the recorded timetable where
  *  there is one, otherwise the promises on the journeys we saw. */
@@ -4715,8 +4822,9 @@ function renderJourneyTimesSimple(ctx) {
         <p class="jt-simple-timetable">${escapeHtml(jtVersusTimetable(summary))}${range
           ? ` The timetable allows ${Math.round(range.min / 60)} to ${Math.round(range.max / 60)} min, depending on when you leave.` : ""}</p>
         ${jtEarlierBusHtml(earlier, name(toIndex))}
-        ${summary.journeys < JT_PERCENTILE_FLOOR ? `<p class="jt-simple-rough">We have timed only ${summary.journeys}
-          ${summary.journeys === 1 ? "bus" : "buses"} here, so treat these times as a rough guide.</p>` : ""}
+        ${!summary.enough ? `<p class="jt-simple-rough">We have timed only ${summary.journeys}
+          ${summary.journeys === 1 ? "bus" : "buses"} here, over ${summary.days.length}
+          ${summary.days.length === 1 ? "day" : "days"}, so treat these times as a rough guide.</p>` : ""}
       </div>
       ${insightText ? `<p class="jt-simple-insight">${insightText}</p>` : ""}
       <figure class="jt-simple-chart">
@@ -4743,6 +4851,7 @@ function renderJourneyTimesSimple(ctx) {
       ${fromStop?.atco ? `<button type="button" class="jt-link" data-act="departures">Next buses from ${name(fromIndex)}</button>` : ""}
       <button type="button" class="jt-link" data-act="copy">Copy link to this journey</button>
       ${jtDetailedAvailable() ? `<button type="button" class="jt-link" data-act="detailed">See all the data</button>` : ""}
+      ${jtRouteReportLink(doc, index)}
     </p>
     <p class="jt-copy-status" aria-live="polite"></p>`;
 
@@ -4750,6 +4859,7 @@ function renderJourneyTimesSimple(ctx) {
   // Waiting, bunching and punctuality at the boarding stop: behind ?preview=1
   // until enough complete days pass the floors.
   if (summary && previewEnabled()) jtShowReliabilityPreview(host, { index, doc, fromIndex, dayKey, periodKey });
+  jtShowIdentification(host, index, doc);
 
   // Said once, briefly: the whole panel used to be read out on every change.
   jtAnnounce(summary
@@ -5853,6 +5963,7 @@ function journeyTimesEvidenceHtml(doc, index, timings, excluded) {
   return `<details class="jt-evidence"><summary>Evidence and limitations</summary>
     <p>${measured} of ${timings.length} have measured endpoints; ${declared} declared, ${timings.filter(t => t.match === "inferred").length} inferred identities;
       ${flagged} have quality flags. ${excluded} removed by your filters.</p>
+    <div class="jt-identification" data-jt-identification hidden></div>
     <p>Methods ${escapeHtml(methods.join(", "))}. Built ${escapeHtml(doc.as_of || "date unrecorded")}.
       ${methods.some(m => Number(m) < 4 || m === "unknown") ? "Legacy matching has not been revalidated from raw recordings." : ""}
       Inferred matches use a limited time window and may miss very late buses.</p>
@@ -6229,6 +6340,7 @@ async function renderJourneyTimes() {
         <button type="button" class="btn-secondary jt-json">Download filtered JSON</button>
         <a class="jt-link" href="${escapeAttr(journeyTimesShareUrl(index))}">${index.build_id ? "Link to this view, pinned to this data" : "Link to this view (the data may change)"}</a>
         <a class="jt-link" href="${escapeAttr(CONFIG.JOURNEY_TIMES_BASE + "/" + serviceSel.value)}" target="_blank" rel="noopener">Source JSON</a>
+        ${jtRouteReportLink(doc, index)}
       </div>
       ${journeyTimesEvidenceHtml(doc, index, timings, all.length - timings.length)}
       ${journeyTimesDestinations(direction)}
@@ -6244,8 +6356,9 @@ async function renderJourneyTimes() {
         ${summary.p90Secs != null
           ? `<li>At least 90% took up to ${jtMinutes(summary.p90Secs)}: ${summary.longerThanP90 || 0} of
              ${summary.journeys} took longer</li>`
-          : `<li class="jt-thin">Too few journeys to suggest how long to allow
-             (${summary.journeys} of the ${summary.percentileFloor} needed)</li>`}
+          : `<li class="jt-thin">Too few journeys to suggest how long to allow: we need
+             ${summary.percentileFloor} over ${summary.dayFloor} days, and have ${summary.journeys}
+             over ${summary.days.length} ${summary.days.length === 1 ? "day" : "days"}</li>`}
         ${summary.overPromised != null
           ? `<li>More than 1 min slower than the timetable on ${summary.overPromised} of
              ${summary.promisedJourneys} journeys</li>` : ""}
@@ -6269,6 +6382,7 @@ async function renderJourneyTimes() {
         Measured from the operators' own vehicle feed, ${escapeHtml(doc.days.join(", "))}.
         Source methods and recording coverage are in Evidence and limitations above.
       </p>`;
+    jtShowIdentification(host, index, doc);
     const selectPoint = event => {
       if (event.type === "keydown" && event.key === "Escape" && host.querySelector(".jt-chart-area--expanded")) {
         host.querySelector(".jt-expand").click(); return;
@@ -7355,7 +7469,13 @@ window.openDepartures = async function(atcoCode, stopName) {
     return;
   }
 
-  // Stops are inert in the non-live network views (Route view / Ticket view).
+  // Route view: a stop opens what serves it, not a live board.
+  if (state.viewMode === "improvements") {
+    state.map.closePopup();
+    openRouteStop(atcoCode, stopName);
+    return;
+  }
+  // Stops are inert in the other network views (Ticket view).
   if (state.viewMode !== "live") return;
 
   // Close any open Leaflet popup to avoid clutter
@@ -7385,7 +7505,7 @@ window.openDepartures = async function(atcoCode, stopName) {
   const idEl = document.getElementById("departures-stop-id");
   if (idEl) idEl.textContent = `Stop ID ${atcoCode}`;
   renderStopAccess(atcoCode);
-  if (changedStop) state.boardFilter = null;
+  if (changedStop) { state.boardFilter = null; hideBoardNext(); }
 
   // Make sure the Stop tab is the one in front
   setActiveTab("stop");
@@ -7472,15 +7592,18 @@ function groupSpanDays(span) {
 }
 
 /**
- * "Last direct bus home from central Brighton", for the stop being viewed.
+ * The last direct bus home from Brighton, or from Worthing, for the stop
+ * being viewed (`place` names which).
  *
  * The night-service objective says an evening in Brighton ends early for
  * anyone living out here. That is a claim about a time, so the panel says the
  * time for this stop. Days with the same last bus are merged the way the
  * service span merges them, so a reader sees Mon–Fri once and Sunday apart.
+ * Empty when the stop is in that town's own stops, or no direct bus from it
+ * calls here: `lastBusesHomeHtml` decides what to say then.
  */
-function lastBusHomeHtml(info) {
-  if (!info || info.inside_hub || !info.days) return "";
+function lastBusHomeHtml(info, place = "Brighton") {
+  if (!lastBusServes(info)) return "";
   const fmt = (v) => v ? `${v.depart}|${v.service}` : "";
   const runs = [];
   for (const [day, label] of SPAN_DAYS) {
@@ -7490,17 +7613,12 @@ function lastBusHomeHtml(info) {
     if (prev && prev.key === key) prev.to = label;
     else runs.push({ key, from: label, to: label, value: v });
   }
-  if (runs.every(r => !r.value)) {
-    return `
-      <div class="stop-lastbus">
-        <p class="stop-lastbus-title">Last bus home from central Brighton</p>
-        <p class="stop-lastbus-note">No direct bus from central Brighton calls here on any day.</p>
-      </div>`;
-  }
-  // Two columns, never one figure. The night bus runs until gone three at most
-  // stops on the coast; shown alone it would make the evening look well served,
-  // when the ordinary buses stop hours earlier and the night route is a
-  // separate service that day tickets don't cover.
+  // Two columns where there is a night bus, never one figure. The night bus
+  // runs until gone three at most stops on the coast; shown alone it would
+  // make the evening look well served, when the ordinary buses stop hours
+  // earlier and the night route is a separate service that day tickets don't
+  // cover. Where no night bus runs, the column would be "None" all the way down.
+  const night = runs.some(r => r.value && r.value.night_bus);
   const cell = (v) => v
     ? `<span class="stop-lastbus-time">${escapeHtml(v.depart)}</span>`
       + `${v.after_midnight ? ` <span class="stop-lastbus-late">after midnight</span>` : ""}`
@@ -7512,26 +7630,198 @@ function lastBusHomeHtml(info) {
     return `<tr>
         <th scope="row">${escapeHtml(days)}</th>
         <td>${cell(v.day_bus)}</td>
-        <td>${cell(v.night_bus)}</td>
+        ${night ? `<td>${cell(v.night_bus)}</td>` : ""}
       </tr>`;
   }).join("");
   return `
     <div class="stop-lastbus" title="${escapeAttr(info.method || "")}">
       <table class="stop-lastbus-table">
-        <caption class="stop-lastbus-title">Last direct bus home from central Brighton</caption>
-        <thead><tr><th scope="col">Days</th><th scope="col">Day bus</th><th scope="col">Night bus</th></tr></thead>
+        <caption class="stop-lastbus-title">Last bus home from ${escapeHtml(place)}</caption>
+        <thead><tr><th scope="col">Days</th><th scope="col">${night ? "Day bus" : "Last bus"}</th>${
+          night ? `<th scope="col">Night bus</th>` : ""}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <p class="stop-lastbus-note">Scheduled departure times, week of ${escapeHtml(info.week_of || "")}.
-        A journey home needing a change isn't counted.</p>
     </div>`;
+}
+
+/** Whether any direct bus from that town calls here on some day. */
+function lastBusServes(info) {
+  return Boolean(info && !info.inside_hub && info.days
+    && Object.values(info.days).some(Boolean));
+}
+
+/** Brighton, Worthing, or both: whichever has a direct bus to this stop, with
+ *  one note beneath. A stop neither serves says so once; a stop in one of the
+ *  two towns shows only the other. */
+function lastBusesHomeHtml(data) {
+  const homes = [["Brighton", data && data.last_from_brighton], ["Worthing", data && data.last_from_worthing]];
+  const served = homes.filter(([, info]) => lastBusServes(info));
+  const week = (served[0] && served[0][1].week_of) || "";
+  if (!served.length) {
+    const asked = homes.filter(([, info]) => info && !info.inside_hub && info.days);
+    if (!asked.length) return "";
+    return `
+      <div class="stop-lastbus">
+        <p class="stop-lastbus-title">Last bus home</p>
+        <p class="stop-lastbus-note">No direct bus from ${asked.map(([place]) => place).join(" or ")} calls here on any day.</p>
+      </div>`;
+  }
+  return `${served.map(([place, info]) => lastBusHomeHtml(info, place)).join("")}
+    <p class="stop-lastbus-note">Scheduled departure times, week of ${escapeHtml(week)}.
+      A journey home needing a change, or a coach, isn't counted.</p>`;
+}
+
+// ============================================================
+// ROUTE VIEW: A STOP
+//
+// In Route view a stop answers "what serves this place?" rather than "what is
+// coming next": every service calling there, when and how often on each kind
+// of day, the last bus home, which tickets work, and what the stop is like.
+// All from the timetable (/api/stop-span) and the site's own files, so it
+// spends no live-prediction quota.
+// ============================================================
+
+/** "every 12 min", "about hourly", "3 buses": how often, in a passenger's words. */
+function routeStopFrequency(day) {
+  if (!day) return "No buses";
+  const n = day.count || 0;
+  if (!day.first && day.night) return `Night only, ${day.night} ${day.night === 1 ? "bus" : "buses"}`;
+  const often = day.every_min == null ? `${n} ${n === 1 ? "bus" : "buses"}`
+    : day.every_min < 55 ? `every ${day.every_min} min`
+    : day.every_min <= 75 ? "about hourly"
+    : `${n} ${n === 1 ? "bus" : "buses"}`;
+  const hours = day.first === day.last ? day.first : `${day.first}–${day.last}`;
+  return `${hours}, ${often}${day.night && day.first ? `, and ${day.night} at night` : ""}`;
+}
+
+/** One service at the stop: its badge, operator, where it goes, and its days. */
+function routeStopServiceHtml(svc) {
+  const colour = getRouteColour(svc.service, svc.operator);
+  const cls = pickTextOn(colour) === "dark" ? "service-badge--dark-text" : "service-badge--light-text";
+  const days = [["weekday", "Mon–Fri"], ["saturday", "Sat"], ["sunday", "Sun"]];
+  const towards = (svc.towards || []).slice(0, 2);
+  return `<li class="route-stop-service">
+      <p class="route-stop-service-head"><span class="service-badge ${cls}" style="background:${colour}">${escapeHtml(svc.service)}</span>
+        <span class="route-stop-operator">${escapeHtml(getOperatorName(svc.operator) || svc.operator || "")}</span>
+        ${towards.length ? `<span class="route-stop-towards">to ${escapeHtml(towards.join(" or "))}</span>` : ""}</p>
+      <dl class="route-stop-days">${days.map(([key, label]) => `<div><dt>${label}</dt>
+        <dd${svc.days && svc.days[key] ? "" : ` class="route-stop-none"`}>${escapeHtml(routeStopFrequency(svc.days && svc.days[key]))}</dd></div>`).join("")}</dl>
+    </li>`;
+}
+
+/** Which day tickets work at this stop, by the operators that call here. */
+function routeStopTicketsHtml(atcoCode, services) {
+  const pos = state.stopData[atcoCode];
+  const zones = state.ticketZones || [];
+  const operators = [...new Set((services || []).map(s => TICKET_OPERATOR_ALIASES[s.operator] || s.operator))]
+    .filter(op => op && !COACH_OPERATORS.has(op));
+  if (!pos || !operators.length) return "";
+  const byId = Object.fromEntries(zones.map(z => [z.id, z]));
+  const meta = state.ticketFaresMeta || {};
+  const here = new Set((services || []).map(s => `${TICKET_OPERATOR_ALIASES[s.operator] || s.operator}|${String(s.service).toUpperCase()}`));
+  const rows = operators.map(op => {
+    const valid = zonesForStop({ lat: pos.lat, lon: pos.lon }, zones.filter(z => z.operator === op), byId, [op])
+      .map(id => byId[id] && byId[id].name).filter(Boolean);
+    const info = OPERATOR_TICKETS[op] || {};
+    const cashless = (meta.cashless_services || []).filter(c => c.operator === op)
+      .flatMap(c => (c.services || []).filter(svc => here.has(`${op}|${svc}`)));
+    const links = [info.app && /^https:\/\//.test(info.app.url)
+        ? `<a href="${escapeAttr(info.app.url)}" target="_blank" rel="noopener">${escapeHtml(info.app.name)}</a>` : "",
+      info.url && /^https:\/\//.test(info.url)
+        ? `<a href="${escapeAttr(info.url)}" target="_blank" rel="noopener">tickets</a>` : ""].filter(Boolean);
+    return `<li><strong>${escapeHtml(getOperatorName(op) || op)}</strong>: ${valid.length
+        ? `day tickets valid here: ${escapeHtml(valid.join(", "))}.` : "no zone day ticket of theirs covers this stop; a single or return does."}
+      ${cashless.length ? ` The ${escapeHtml(cashless.join(", "))} ${cashless.length === 1 ? "takes" : "take"} no cash: card or app only.` : ""}
+      ${links.length ? ` Buy: ${links.join(" · ")}.` : ""}</li>`;
+  }).join("");
+  return `<h4 class="route-stop-heading">Tickets</h4>
+    <ul class="route-stop-tickets">${rows}</ul>
+    <p class="route-stop-note">A day ticket works only on its own company's buses.
+      <button type="button" class="jt-link" data-act="tickets">Work out a fare in Tickets &amp; fares</button></p>`;
+}
+
+/** The whole panel, from /api/stop-span's answer. */
+function routeStopHtml(atcoCode, stopName, span) {
+  const services = (span && span.services) || [];
+  const where = [stopContextLine(atcoCode), stopWhereLine(atcoCode)].filter(Boolean).join(" · ");
+  const sample = services.flatMap(s => Object.values(s.days || {})).find(Boolean);
+  const week = span && (span.last_from_brighton || {}).week_of;
+  return `<div class="route-stop-head">
+      <h3 class="route-stop-name" id="route-stop-name" tabindex="-1">${escapeHtml(stopName)}</h3>
+      <button type="button" class="btn-close route-stop-close" data-act="close" aria-label="Close this stop">
+        <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    ${where ? `<p class="route-stop-where">${escapeHtml(where)}</p>` : ""}
+    <p class="route-stop-actions"><button type="button" class="route-stop-live" data-act="live">Live departures</button></p>
+    <h4 class="route-stop-heading">Buses here</h4>
+    ${services.length
+      ? `<ul class="route-stop-services">${services.map(routeStopServiceHtml).join("")}</ul>
+         <p class="route-stop-note">First and last times and how often, from the timetable${week
+           ? ` for the week of ${escapeHtml(week)}` : ""}. "Every" is the usual gap between 07:00 and 19:00.</p>`
+      : `<p class="route-stop-note">No bus is timetabled to call here${sample ? "" : " this week"}.</p>`}
+    ${lastBusesHomeHtml(span)}
+    ${routeStopTicketsHtml(atcoCode, services)}
+    <div class="route-stop-access stop-access">${stopAccessHtml(atcoCode)}</div>
+    <p class="route-stop-note">Stop ID ${escapeHtml(atcoCode)}.</p>`;
+}
+
+function closeRouteStop() {
+  const host = document.getElementById("route-stop");
+  state.routeStop = null;
+  if (host && !host.hidden) { host.hidden = true; host.innerHTML = ""; }
+}
+
+/** Open a stop in Route view's panel. */
+async function openRouteStop(atcoCode, stopName) {
+  const host = document.getElementById("route-stop");
+  if (!host) return;
+  state.routeStop = { atcoCode, stopName };
+  setImprovementsTab("about");
+  revealPanelForSelection();
+  if (typeof pulseStopMarker === "function") pulseStopMarker(atcoCode);
+  host.hidden = false;
+  host.innerHTML = `<p class="route-stop-name">${escapeHtml(stopName)}</p><p class="route-stop-note">Loading…</p>`;
+  if (dom.tabContentAbout) dom.tabContentAbout.scrollTop = 0;
+  if (!host.dataset.bound) {
+    host.dataset.bound = "1";
+    host.addEventListener("click", (e) => {
+      const act = e.target.closest("[data-act]")?.dataset.act;
+      const stop = state.routeStop;
+      if (act === "close") closeRouteStop();
+      else if (act === "tickets") setViewMode("tickets");
+      else if (act === "live" && stop) {
+        setViewMode("live");
+        openDepartures(stop.atcoCode, stop.stopName);
+      }
+    });
+  }
+  const stillOurs = claimRender("route-stop");
+  const mine = () => stillOurs() && state.routeStop && state.routeStop.atcoCode === atcoCode;
+  try {
+    let url = `/api/stop-span?stopId=${encodeURIComponent(atcoCode)}`;
+    const pos = state.stopData[atcoCode];
+    if (pos) url += `&lat=${pos.lat}&lon=${pos.lon}`;
+    const [span] = await Promise.all([apiFetch(url),
+      loadStopOsm().catch(() => null), loadTicketZones().catch(() => null),
+      state.stopDetails ? null : loadStopDetails().catch(() => null)]);
+    if (!mine()) return;
+    host.innerHTML = routeStopHtml(atcoCode, stopName, span);
+    host.querySelector("#route-stop-name")?.focus({ preventScroll: true });
+  } catch (err) {
+    console.warn("Route view stop unavailable:", err);
+    if (!mine()) return;
+    host.innerHTML = `<div class="route-stop-head"><h3 class="route-stop-name" id="route-stop-name">${escapeHtml(stopName)}</h3>
+      <button type="button" class="btn-close route-stop-close" data-act="close" aria-label="Close this stop">
+        <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+      <p class="route-stop-note">Could not load this stop's timetable. Try again in a moment.</p>`;
+  }
 }
 
 function renderStopSpan(data) {
   if (!dom.stopSpan) return;
   const span = (data && data.span) || {};
   const runs = groupSpanDays(span);
-  const lastHome = lastBusHomeHtml(data && data.last_from_brighton);
+  const lastHome = lastBusesHomeHtml(data);
   if (!runs.length || runs.every(r => !r.value)) {
     // No service on any day is itself worth saying, and is not an error.
     dom.stopSpan.innerHTML =
@@ -7716,10 +8006,17 @@ function renderDepartures(data) {
     }
   }
 
+  // Every service that calls here, not only those in the next two hours: a
+  // route that has finished for the night, or runs on Saturdays only, still
+  // stops here, and its button opens its next times from the timetable.
+  const here = Array.isArray(data?.services_here) ? data.services_here : [];
+  const hereOperators = Object.fromEntries(here.map(h => [h.service, h.operator || ""]));
+
   if (departures.length === 0) {
     dom.departuresTbody.innerHTML = `<tr><td colspan="4" class="no-departures">No departures found for this stop in the next 2 hours.</td></tr>`;
     dom.departuresCount.textContent = "No upcoming departures";
-    renderBoardFilter([]);
+    renderBoardFilter(here.map(h => h.service), hereOperators);
+    showBoardNext(state.boardFilter);
     showPanelState("results");
     return;
   }
@@ -7734,11 +8031,11 @@ function renderDepartures(data) {
   // more existed — and a second, earlier assignment of the same element sat
   // just above, immediately overwritten and long dead.
   state.departuresAsOf = new Date();
-  renderBoardFilter(departures.map(d => d.service || "?"),
+  renderBoardFilter([...departures.map(d => d.service || "?"), ...here.map(h => h.service)],
     // The first bus of each number decides its chip's colour, so it matches
     // the top row with that number.
-    Object.fromEntries([...departures].reverse()
-      .map(d => [d.service || "?", d.operator || d.operator_ref || ""])));
+    { ...hereOperators, ...Object.fromEntries([...departures].reverse()
+      .map(d => [d.service || "?", d.operator || d.operator_ref || ""])) });
   applyBoardFilter();
 
   startDepartureTicker();
@@ -7804,7 +8101,96 @@ function applyBoardFilter() {
   });
   updateDepartureCount(Math.min(matching.length, CONFIG.DEPARTURES_COUNT),
                        matching.length, want);
+  if (matching.length) hideBoardNext();
+  else showBoardNext(want);
   return matching.length;
+}
+
+// ── Next from the timetable, for a route with nothing on the board ──
+
+const BOARD_NEXT_TTL_MS = 2 * 60 * 1000;
+const boardNextCache = new Map();
+
+function hideBoardNext() {
+  const host = document.getElementById("board-next");
+  if (host) { host.hidden = true; host.innerHTML = ""; }
+}
+
+/** "Today", "Tomorrow, Sunday 18 October" or "Monday 19 October": the London
+ *  day a departure falls on, as a passenger would say it. */
+function boardNextDayLabel(iso, now = clockNow()) {
+  const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London",
+    year: "numeric", month: "2-digit", day: "2-digit" });
+  const key = d => fmt.format(d);
+  const when = new Date(iso);
+  const long = when.toLocaleDateString("en-GB", { timeZone: "Europe/London",
+    weekday: "long", day: "numeric", month: "long" });
+  if (key(when) === key(now)) return "Today";
+  if (key(when) === key(new Date(now.getTime() + 86400000))) return `Tomorrow, ${long}`;
+  return long;
+}
+
+/** The next timetabled departures, grouped by the day they fall on. Pure, so
+ *  the wording can be tested; `service` null means every route here. */
+function boardNextHtml(data, service, now = clockNow()) {
+  const deps = (data && data.departures) || [];
+  const what = service ? `${service}` : "bus";
+  if (!deps.length) {
+    const days = (data && data.days_searched) || 8;
+    return `<p class="board-next-title">The timetable has no ${escapeHtml(what)} from this stop
+      in the next ${days} days.</p>`;
+  }
+  const groups = [];
+  for (const d of deps) {
+    const label = boardNextDayLabel(d.aimed_departure, now);
+    let g = groups[groups.length - 1];
+    if (!g || g.label !== label) groups.push(g = { label, items: [] });
+    g.items.push(d);
+  }
+  const badge = d => {
+    const colour = getRouteColour(d.service, d.operator);
+    const cls = pickTextOn(colour) === "dark" ? "service-badge--dark-text" : "service-badge--light-text";
+    return `<span class="service-badge ${cls}" style="background:${colour}">${escapeHtml(d.service)}</span>`;
+  };
+  return `<p class="board-next-title">${service
+      ? `Next ${escapeHtml(service)} from this stop, from the timetable:`
+      : "Next buses from this stop, from the timetable:"}</p>
+    ${groups.map(g => `<h4 class="board-next-day">${escapeHtml(g.label)}</h4>
+      <ul class="board-next-list">${g.items.map(d => `<li>${badge(d)}
+        <time datetime="${escapeAttr(d.aimed_departure)}">${escapeHtml(londonClock(new Date(d.aimed_departure)))}</time>
+        <span class="board-next-dest">${d.destination ? `to ${escapeHtml(d.destination)}` : ""}</span></li>`).join("")}</ul>`).join("")}
+    <p class="board-next-note">Timetable times. A bus shows on the board, live where we can see it,
+      from two hours before it is due.</p>`;
+}
+
+/** Fill the block under the board for `service` (null: every route), at the
+ *  stop on screen. A reply for a stop or route the reader has left is dropped. */
+async function showBoardNext(service) {
+  const host = document.getElementById("board-next");
+  const atco = state.selectedStop && state.selectedStop.atcoCode;
+  if (!host || !atco) return;
+  const key = `${atco}|${service || ""}`;
+  const current = () => state.selectedStop && state.selectedStop.atcoCode === atco
+    && (state.boardFilter || null) === (service || null);
+  const hit = boardNextCache.get(key);
+  let data = hit && nowMs() - hit.at < BOARD_NEXT_TTL_MS ? hit.data : null;
+  if (!data) {
+    host.hidden = false;
+    host.innerHTML = `<p class="board-next-title">Looking up the timetable…</p>`;
+    try {
+      let url = `/api/next-departures?stopId=${encodeURIComponent(atco)}`;
+      if (service) url += `&service=${encodeURIComponent(service)}`;
+      data = await apiFetch(url);
+      boardNextCache.set(key, { at: nowMs(), data });
+    } catch (err) {
+      console.warn("Next departures unavailable:", err);
+      if (current()) hideBoardNext();
+      return;
+    }
+  }
+  if (!current()) return;
+  host.innerHTML = boardNextHtml(data, service || null);
+  host.hidden = false;
 }
 
 /** The line above the board: how many rows it is showing, of how many, and
@@ -10405,6 +10791,8 @@ async function applyViewMode() {
   // Route-view map and nothing to explain them.
   // The conference guide's markers belong to its view alone.
   if (state.viewMode !== "conference" && typeof conferenceHide === "function") conferenceHide();
+  // Route view's chosen stop belongs to Route view.
+  if (state.viewMode !== "improvements") closeRouteStop();
 
   if (state.viewMode !== "journeytimes") {
     // And the delay map, which is the same view's third claim on the map.

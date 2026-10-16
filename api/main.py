@@ -19,6 +19,7 @@ Environment variables:
 """
 
 import json
+import re
 import math
 import asyncio
 import functools
@@ -1783,6 +1784,18 @@ async def get_stop_span(
     # already makes this call, and a second request is a second chance to hit
     # a free-tier container that has just gone back to sleep.
     last_home = await off_loop(tt.last_bus_from_hub, resolved)
+    last_worthing = await off_loop(tt.last_bus_from_hub, resolved, None, "worthing")
+    stop_name = (tt.stops.get(resolved) or {}).get("name", "")
+    services = await off_loop(tt.stop_services, resolved)
+    for svc in services:
+        # The far end, as the board names it: a coach's "Belgravia, Victoria -
+        # Worthing" read at Shoreham means Worthing.
+        towards = []
+        for headsign in svc.get("towards") or []:
+            name = _destination_of(headsign, stop_name)
+            if name and name not in towards:
+                towards.append(name)
+        svc["towards"] = towards
     result = {
         "atco": resolved,
         "name": (tt.stops.get(resolved) or {}).get("name", ""),
@@ -1792,13 +1805,124 @@ async def get_stop_span(
         "night_before": _secs_to_hhmm(NIGHT_ENDS_SECS),
         "last_from_brighton": {
             **last_home,
-            "method": ("Scheduled times, direct buses only: the latest trip each "
-                       "day that leaves a stop in central Brighton (Old Steine, "
-                       "Churchill Square, North Street) and later calls here. A "
-                       "journey home needing a change is not counted."),
+            "method": ("Scheduled times, direct buses only: the last trip each day, "
+                       "before the night's break in service, that leaves Brighton "
+                       "(Old Steine, Churchill Square or North Street) and later "
+                       "calls here. Coaches, and a journey home needing a change, "
+                       "are not counted."),
         },
+        "last_from_worthing": {
+            **last_worthing,
+            "method": ("Scheduled times, direct buses only: the last trip each day, "
+                       "before the night's break in service, that leaves Worthing "
+                       "by the pier and later calls here. Coaches, and a journey "
+                       "home needing a change, are not counted."),
+        },
+        # Every service at this pole: where it goes, and when and how often
+        # it calls on a weekday, a Saturday and a Sunday (Route view's stop).
+        "services": services,
     }
     cache_set(cache_key, result, 3600)
+    return result
+
+
+# ── /api/next-departures ──────────────────────────────────────
+NEXT_DEPARTURES_LIMIT = 8
+NEXT_DEPARTURES_DAYS = 8
+
+
+def _next_departures(tt: Timetable, stop_id: str, now: datetime,
+                     service: Optional[str] = None, operator: Optional[str] = None,
+                     limit: int = NEXT_DEPARTURES_LIMIT,
+                     days: int = NEXT_DEPARTURES_DAYS) -> dict:
+    """The next timetabled departures from a stop, for one service or all.
+
+    The board covers two hours. A route whose next bus is tomorrow, or on
+    Monday because it does not run at weekends, had a button that opened
+    nothing. This walks forward a service day at a time, each checked against
+    its own calendar (`runs_on`), so a weekday-only route asked about on a
+    Saturday answers with Monday's times, dated Monday.
+
+    Service days start the day before today, for the same reason the board's
+    do: a 24:30 on yesterday's calendar is half past midnight tonight.
+    """
+    raw = tt.stop_times_for(stop_id)
+    stop_name = (tt.stops.get(stop_id) or {}).get("name", stop_id)
+    today = now.date()
+    out, seen, runs = [], set(), {}
+    filled_on = None
+    for offset in range(-1, days):
+        service_day = today + timedelta(days=offset)
+        day_start = _service_day_start(service_day)
+        for dep_secs, trip_id in raw:
+            trip = tt.trips.get(trip_id, {})
+            route = tt.routes.get(trip.get("route_id", ""), {})
+            short_name = route.get("short_name", "?")
+            if service and short_name != service:
+                continue
+            noc = tt.noc_for_route(trip.get("route_id", ""))
+            if operator and noc != operator:
+                continue
+            dep_dt = (day_start + timedelta(seconds=dep_secs)).astimezone(UK_TZ)
+            if dep_dt <= now:
+                continue
+            sid = trip.get("service_id", "")
+            if (sid, service_day) not in runs:
+                runs[(sid, service_day)] = tt.runs_on(sid, service_day)
+            if not runs[(sid, service_day)]:
+                continue
+            headsign = trip.get("headsign", "")
+            key = (noc, short_name, headsign, dep_dt)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"service": short_name, "operator": noc,
+                        "destination": _destination_of(headsign, stop_name),
+                        "aimed_departure": dep_dt.isoformat(), "trip_id": trip_id})
+        # One more service day after the list fills: its small-hours times
+        # can come before the last of the day that filled it.
+        if filled_on is None and len(out) >= limit:
+            filled_on = offset
+        elif filled_on is not None:
+            break
+    out.sort(key=lambda d: d["aimed_departure"])
+    return {"atco": stop_id, "stop_name": stop_name, "service": service, "operator": operator,
+            "departures": out[:limit], "days_searched": days,
+            "searched_until": (today + timedelta(days=days - 1)).isoformat(),
+            "source": "timetable"}
+
+
+@app.get("/api/next-departures")
+async def get_next_departures(
+    stopId: str = Query(...),
+    service: Optional[str] = Query(None),
+    operator: Optional[str] = Query(None),
+    lat: Optional[float] = Query(None),
+    lon: Optional[float] = Query(None),
+):
+    """
+    The next timetabled departures from a stop, beyond the board's two hours:
+    for one service (`service`, and `operator` where two companies share a
+    number) or for all. Timetable only: a local SQLite read with no upstream
+    call, cached for a minute.
+    """
+    if not stopId or len(stopId) > 30:
+        raise HTTPException(status_code=400, detail="Invalid stopId.")
+    if service is not None and not re.fullmatch(r"[A-Za-z0-9 ]{1,12}", service):
+        raise HTTPException(status_code=400, detail="Invalid service.")
+    if operator is not None and not re.fullmatch(r"[A-Z0-9]{2,6}", operator):
+        raise HTTPException(status_code=400, detail="Invalid operator.")
+    tt = await _get_timetable()
+    resolved = _resolve_stop_id(tt, stopId, lat, lon)
+    if resolved not in tt.stops:
+        raise HTTPException(status_code=404, detail=f"Unknown stop id: {resolved}")
+    now = datetime.now(UK_TZ)
+    cache_key = f"next:{resolved}:{service or ''}:{operator or ''}:{now:%Y%m%d%H%M}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+    result = await off_loop(_next_departures, tt, resolved, now, service, operator)
+    cache_set(cache_key, result, 60)
     return result
 
 
@@ -3495,6 +3619,7 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
         return {
             "stop_name":  stop_name,
             "departures": [],
+            "services_here": [],
             "note": (
                 f"No timetable entry for stop {stop_id}. "
                 "This stop may be served by an operator not yet in the "
@@ -3592,6 +3717,11 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
     upcoming = [d for d in departures if _aimed_key(d) >= now_local]
     return {"stop_name": stop_name,
             "departures": due + upcoming[:BOARD_ROWS],
+            # Every service calling here in the next week, for the board's
+            # route buttons: a route with nothing in the next two hours still
+            # stops here, and its button opens its next timetabled times.
+            "services_here": (tt.services_at_stop(matched, today)
+                              if hasattr(tt, "services_at_stop") else []),
             # Every line the timetable has here in the next two hours, so the
             # live overlay can tell a line we hold from one we do not, however
             # few of its rows made the board.

@@ -657,6 +657,9 @@
               <!-- Rows injected by app.js -->
             </tbody>
           </table>
+          <!-- A route with nothing on the board: its next times from the
+               timetable, dated. Filled by app.js showBoardNext. -->
+          <div class="board-next" id="board-next" hidden aria-live="polite"></div>
           <!-- The column header is hidden on a phone, so the key is repeated
                here where everyone can see it. -->
           <p class="board-key"><span class="live-dot" aria-hidden="true"></span>
@@ -681,7 +684,9 @@
                 directions.</li>
               <li>Tap a route number to see that bus on the map and the stops it
                 calls at next.</li>
-              <li>Not listed? The board covers the next two hours. For fares, see
+              <li>Not listed? The board covers the next two hours. The route
+                buttons list every bus that stops here: choose one with nothing on
+                the board to see its next times from the timetable. For fares, see
                 <a href="#view=t" data-view-link="tickets">Tickets &amp; fares</a>;
                 for where the data comes from, see <a href="about.html#live-times">how live times work</a>.</li>
             </ul>
@@ -788,6 +793,10 @@
 
         <!-- ── ABOUT TAB ── -->
         <div class="panel-tab-content" id="tab-content-about" role="tabpanel" aria-labelledby="tab-about">
+          <!-- A stop chosen on the map: every service calling there, when and
+               how often, the last bus home, tickets and access. Filled by
+               app.js openRouteStop; first in the tab so it is what you see. -->
+          <section class="route-stop" id="route-stop" hidden aria-labelledby="route-stop-name"></section>
           <!-- The route list comes first. It is what this tab is for — the
                map is a picture of it — and it was below three paragraphs of
                prose that only make sense once you have seen the list. -->

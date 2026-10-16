@@ -959,6 +959,100 @@ async function checkStaticPages() {
   }
 }
 
+/**
+ * report.html: one route's report, laid out from a fixture served in place of
+ * the published build (no route report is published until the first nightly
+ * run after this change), at a phone and a desktop width, in both themes.
+ */
+async function checkReportPage() {
+  const base = new URL(SITE);
+  const origin = `${base.origin}${base.pathname.replace(/[^/]*$/, "")}`;
+  const build = "f".repeat(64);
+  const counts = (judged, on_time, days, sufficient = true) => ({ judged, on_time, early: 0,
+    late: judged - on_time, very_late: 0, days, sample_sufficient: sufficient });
+  const doc = {
+    schema_version: 1, method_version: 1, as_of: "2026-10-15T03:30:00+00:00", service: "700", operator: "SCSO",
+    window: ["2026-09-25", "2026-10-14"], days: ["2026-09-25", "2026-10-14"],
+    identification: { scheduled: 3548, tracked: 3370, by: { journey_id: 1302, start: 1370, position: 698 } },
+    punctuality: { definition: { standard: 0.95 }, timings: 13995, disrupted_timings: 6364, rows: [
+      { direction: "westbound", day_type: "weekday", ...counts(5871, 4297, 12),
+        excluding_disruptions: counts(791, 600, 12), daily: { days: 11, min: 0.62, median: 0.714, max: 0.846 } },
+      { direction: "eastbound", day_type: "weekend", ...counts(12, 10, 2, false),
+        excluding_disruptions: counts(12, 10, 2, false), daily: null }],
+      by_period: [{ direction: "westbound", day_type: "weekday", period: "16-18", ...counts(900, 520, 12) }] },
+    trend: [{ week: "2026-W41", ...counts(6284, 4823, 7), median_lateness_secs: 90 }],
+    waits: [{ direction: "eastbound", day_type: "weekday", atco: "4400WO0254", stop_name: "Marine Parade",
+      swt_secs: 266, awt_secs: 267, ewt_secs: 1, days_eligible: 6, gaps_over_15: 0, gaps_tested: 48,
+      sample_sufficient: true }],
+    bottlenecks: [{ direction: "westbound", from_name: "Churchill Square", to_name: "King Alfred Leisure Centre",
+      day_type: "weekday", period: "16-18", median_gained_secs: 401, journeys: 44, distinct_days: 8 }],
+    disruptions: [{ id: "x", label: "the Western Road diversion", from: "2026-09-28T07:00:00+01:00",
+      to: "2026-11-12T23:59:00+00:00", journeys_marked: 1259 }],
+    floor: { judged: 30, distinct_days: 5 }, method: "Punctuality counts departures from GTFS timing points.",
+    caveats: ["Stop times have not yet been checked against times someone saw."],
+    data_versions: ["c4a758f1abfd1d1f"], method_versions: [5, 7], sources: [{ day: "2026-10-14", sha256: "a".repeat(64) }],
+  };
+  const index = { build_id: build, artifacts: { "route-report-700-SCSO.json": { file: `builds/${build}/route-report-700-SCSO.json` } },
+    observation_sources: [{ day: "2026-10-14", sha256: "a".repeat(64), url: "https://example.org/observations-2026-10-14.json.gz" }] };
+  const body = (obj) => Buffer.from(JSON.stringify(obj)).toString("base64");
+  for (const vp of [{ label: "mobile", width: 390, height: 844, mobile: true },
+                    { label: "desktop", width: 1440, height: 900, mobile: false }]) {
+    const page = await connect("about:blank");
+    try {
+      await page.send("Page.enable");
+      await page.send("Runtime.enable");
+      await page.send("Network.enable");
+      await page.send("Network.setCacheDisabled", { cacheDisabled: true });
+      await page.send("Emulation.setDeviceMetricsOverride",
+        { width: vp.width, height: vp.height, deviceScaleFactor: 2, mobile: vp.mobile });
+      await page.send("Fetch.enable", { patterns: [{ urlPattern: "*/journey-times/*", requestStage: "Request" }] });
+      page.ws.addEventListener("message", async (e) => {
+        const m = JSON.parse(e.data);
+        if (m.method !== "Fetch.requestPaused") return;
+        const url = m.params.request.url;
+        const served = url.endsWith("/index.json") ? index : url.endsWith("route-report-700-SCSO.json") ? doc : null;
+        try {
+          if (served) {
+            await page.send("Fetch.fulfillRequest", { requestId: m.params.requestId, responseCode: 200,
+              responseHeaders: [{ name: "Content-Type", value: "application/json" },
+                                { name: "Access-Control-Allow-Origin", value: "*" }], body: body(served) });
+          } else {
+            await page.send("Fetch.failRequest", { requestId: m.params.requestId, errorReason: "Aborted" });
+          }
+        } catch {}
+      });
+      for (const scheme of ["light", "dark"]) {
+        await page.send("Emulation.setEmulatedMedia",
+          { features: [{ name: "prefers-color-scheme", value: scheme }] });
+        await page.send("Page.navigate", { url: `${origin}report.html?service=700&operator=SCSO` });
+        await waitFor(page, "/Route report: 700/.test(document.querySelector('h1')?.textContent || '')", 15000, 300);
+        const where = `report.html, ${vp.label}, ${scheme}`;
+        const r = JSON.parse(await page.evaluate(`JSON.stringify({
+          h1: document.querySelector("h1")?.textContent || "",
+          draft: !!document.querySelector(".draft"),
+          actions: !document.getElementById("report-actions").hidden,
+          picked: document.getElementById("report-service").value,
+          text: document.getElementById("report").textContent.replace(/\\s+/g, " ") })`));
+        check(`the route report renders with its counts and draft label — ${where}`,
+          /Route report: 700, Stagecoach South/.test(r.h1) && r.draft && r.actions
+            && r.picked === "route-report-700-SCSO.json" && /4,297 of 5,871 \(73%\)/.test(r.text)
+            && /needs 30 over 5/.test(r.text), JSON.stringify({ ...r, text: r.text.slice(0, 160) }));
+        const over = await page.evaluate(OVERFLOW_SCAN);
+        check(`nothing overflows the viewport — ${where}`, over.length === 0, over.join(", "));
+        const small = await page.evaluate(TARGET_SCAN);
+        check(`touch targets are at least 44px — ${where}`, small.length === 0, small.join(", "));
+        const bad = await page.evaluate(CONTRAST_SCAN);
+        check(`text meets WCAG AA contrast — ${where}`, bad.length === 0, bad.join(", "));
+      }
+      const errors = page.consoleErrors.filter((e) => JS_ERROR.test(e));
+      check(`no JavaScript exceptions — report.html, ${vp.label}`, errors.length === 0, errors.slice(0, 2).join(" | "));
+    } finally {
+      try { await page.send("Fetch.disable"); } catch {}
+      page.ws.close();
+    }
+  }
+}
+
 async function checkFirstUsefulAction(page, where) {
   // A genuinely fresh Live view: no stop, no rail board, default detent.
   // Without closePanel() this inherited whatever the previous check left
@@ -1861,6 +1955,99 @@ async function checkLastBusHome(page, where) {
   }
   check(`the stop panel shows the last bus home from Brighton — ${where}`,
     r.headers.includes("Day bus") && r.headers.includes("Night bus"), JSON.stringify(r));
+  // Both towns where both serve the stop, named as towns: never "central
+  // Brighton" or "Marine Parade" (asked for 16 October 2026).
+  const towns = JSON.parse(await page.evaluate(`(() => {
+    const host = document.getElementById("stop-span");
+    return JSON.stringify({
+      captions: [...host.querySelectorAll(".stop-lastbus-title")].map(c => c.textContent.trim()),
+      text: host.textContent.replace(/\\s+/g, " ") });
+  })()`));
+  check(`the last bus home names Brighton and Worthing, and no stop — ${where}`,
+    towns.captions.includes("Last bus home from Brighton") && towns.captions.includes("Last bus home from Worthing")
+      && !/central|Marine Parade/i.test(towns.text.replace(/When buses run here[\s\S]*$/, "")),
+    JSON.stringify(towns.captions));
+  await page.evaluate(`(() => { closePanel(); return ""; })()`);
+  await sleep(400);
+}
+
+/**
+ * Every service at the stop has a route button, and one with nothing on the
+ * board opens its next times from the timetable, dated (asked for 16 October
+ * 2026). The board is a fixture; the next times come from the local API.
+ */
+async function checkBoardNext(page, where) {
+  const r = JSON.parse(await page.evaluate(`(async () => {
+    setViewMode("live");
+    await openDepartures("4400AD0204", "High Street");
+    const soon = (m) => new Date(Date.now() + m * 60000).toISOString();
+    renderDepartures({ stop_name: "High Street", live: false, live_reason: "not_configured",
+      services_here: [{ service: "2", operator: "BHBC" }, { service: "60", operator: "BHBC" },
+                      { service: "700", operator: "SCSO" }],
+      departures: [{ service: "700", operator: "SCSO", destination: "Old Steine",
+        aimed_departure: soon(6), expected_departure: null, status: "Scheduled", delay_seconds: null }] });
+    const buttons = [...document.querySelectorAll("#board-filter button")].map(b => b.textContent.trim());
+    document.querySelector('#board-filter button[data-service="60"]').click();
+    return JSON.stringify({ buttons });
+  })()`));
+  const arrived = await waitFor(page, "!!document.querySelector('#board-next .board-next-day, #board-next .board-next-title:not(:only-child)') || /timetable has no/.test(document.getElementById('board-next')?.textContent || '')", 45000);
+  const next = JSON.parse(await page.evaluate(`(() => {
+    const host = document.getElementById("board-next");
+    const vis = ${VISIBLE_FN};
+    return JSON.stringify({ shown: !!host && !host.hidden && vis(host),
+      days: [...host.querySelectorAll(".board-next-day")].map(d => d.textContent.trim()),
+      times: host.querySelectorAll(".board-next-list li").length,
+      count: document.getElementById("departures-count").textContent });
+  })()`));
+  check(`every service at the stop has a route button — ${where}`,
+    r.buttons.join(",") === "All,2,60,700", JSON.stringify(r.buttons));
+  check(`a route with nothing on the board shows its next times, dated — ${where}`,
+    arrived && next.shown && next.days.length > 0 && next.times > 0
+      && /^(Today|Tomorrow, \w+day \d+ \w+|\w+day \d+ \w+)$/.test(next.days[0]),
+    JSON.stringify(next));
+  await checkLayout(page, `next times from the timetable — ${where}`);
+  await checkContrastBothThemes(page, `next times from the timetable — ${where}`);
+  await page.evaluate(`(() => { document.querySelector('#board-filter button[data-service=""]')?.click(); closePanel(); return ""; })()`);
+  const hidden = await page.evaluate(`document.getElementById("board-next").hidden`);
+  check(`the next-times block goes when All is chosen again — ${where}`, hidden === true, String(hidden));
+  await sleep(400);
+}
+
+/**
+ * Route view: a stop clicked on the map opens what serves it, in the panel,
+ * and its "Live departures" button takes the reader to that stop's board
+ * (asked for 16 October 2026). Reads the local API's timetable.
+ */
+async function checkRouteViewStop(page, where) {
+  await page.evaluate(`(() => { setViewMode("improvements"); return ""; })()`);
+  await sleep(1000);
+  await page.evaluate(`(() => { openDepartures("4400AD0204", "High Street"); return ""; })()`);
+  const loaded = await waitFor(page, "!!document.querySelector('#route-stop .route-stop-services, #route-stop .route-stop-head')", 45000);
+  await sleep(500);
+  const r = JSON.parse(await page.evaluate(`(() => {
+    const box = document.getElementById("route-stop");
+    const vis = ${VISIBLE_FN};
+    return JSON.stringify({ shown: !!box && !box.hidden && vis(box), view: state.viewMode,
+      services: [...box.querySelectorAll(".route-stop-service .service-badge")].map(b => b.textContent.trim()),
+      days: (box.querySelector(".route-stop-days") || {}).textContent?.replace(/\\s+/g, " ").trim().slice(0, 120) || "",
+      lastBus: [...box.querySelectorAll(".stop-lastbus-title")].map(c => c.textContent.trim()),
+      tickets: box.querySelectorAll(".route-stop-tickets li").length,
+      access: !!box.querySelector(".stop-access-title") });
+  })()`));
+  check(`Route view: a clicked stop lists every service with its days — ${where}`,
+    loaded && r.shown && r.view === "improvements" && r.services.includes("700") && /Mon–Fri/.test(r.days),
+    JSON.stringify(r));
+  check(`Route view: the stop shows the last bus home, tickets and access — ${where}`,
+    r.lastBus.length >= 1 && r.tickets >= 1 && r.access, JSON.stringify(r));
+  await checkLayout(page, `Route view stop — ${where}`);
+  await checkReachable(page, `Route view stop — ${where}`);
+  await checkContrastBothThemes(page, `Route view stop — ${where}`);
+  await page.evaluate(`(() => { document.querySelector('#route-stop [data-act="live"]').click(); return ""; })()`);
+  await sleep(1500);
+  const after = JSON.parse(await page.evaluate(`JSON.stringify({ view: state.viewMode,
+    stop: state.selectedStop && state.selectedStop.atcoCode, routeStopHidden: document.getElementById("route-stop").hidden })`));
+  check(`Route view: "Live departures" opens that stop's board and closes the Route view stop — ${where}`,
+    after.view === "live" && after.stop === "4400AD0204" && after.routeStopHidden, JSON.stringify(after));
   await page.evaluate(`(() => { closePanel(); return ""; })()`);
   await sleep(400);
 }
@@ -2951,23 +3138,29 @@ async function checkJourneyReview(page, viewport) {
 async function checkJourneySimple(page, viewport) {
   const result = JSON.parse(await page.evaluate(`(async () => {
     const build = "c".repeat(64), file = "builds/" + build + "/700-SCSO.json";
-    const day = "2026-09-21", origin = Date.parse(day + "T00:00:00+01:00") / 1000;
+    // Five weekdays alike: a figure needs ten buses over five days.
+    const days = ["2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25"];
     const stops = [{atco:"4400AD0064",name:"Lancing",lat:50.823,lon:-.321},
                   {atco:"149000007830",name:"Brighton",lat:50.820,lon:-.136}];
     const journeys = [], trips = [];
-    for (let i = 0; i < 12; i++) {
-      const dep = 25200 + i * 1800, took = 1500 + (i % 4) * 120, sched = 1320;
-      journeys.push({day, start: "", trip_id: "s-" + i, direction: "eastbound", headsign: "Brighton",
-        route_pattern: "p", data_version: "t", method_version: 4, match: "declared", source_files: ["h"], quality_flags: [],
-        calls: [[0, dep, dep, 0, 0, origin + dep, origin + dep, [origin + dep, origin + dep + 30], [], "declared"],
-                [1, dep + took, dep + sched, 0, 1, origin + dep + took, origin + dep + sched, [origin + dep + took, origin + dep + took + 30], [], "declared"]]});
-      trips.push(["s-" + i, 0, dep, "Brighton"]);
-    }
+    for (let i = 0; i < 12; i++) trips.push(["s-" + i, 0, 25200 + i * 1800, "Brighton"]);
     trips.push(["unseen", 0, 25200 + 12 * 1800, "Brighton"]);
-    const doc = {build_id: build, service: "700", operator: "SCSO", days: [day], window_days: [day], stops, journeys,
+    for (const day of days) {
+      const origin = Date.parse(day + "T00:00:00+01:00") / 1000;
+      for (let i = 0; i < 12; i++) {
+        const dep = 25200 + i * 1800, took = 1500 + (i % 4) * 120, sched = 1320;
+        journeys.push({day, start: "", trip_id: "s-" + i, direction: "eastbound", headsign: "Brighton",
+          route_pattern: "p", data_version: "t", method_version: 4, match: "declared", source_files: ["h"], quality_flags: [],
+          calls: [[0, dep, dep, 0, 0, origin + dep, origin + dep, [origin + dep, origin + dep + 30], [], "declared"],
+                  [1, dep + took, dep + sched, 0, 1, origin + dep + took, origin + dep + sched, [origin + dep + took, origin + dep + took + 30], [], "declared"]]});
+      }
+    }
+    const day = days[days.length - 1];
+    const doc = {build_id: build, service: "700", operator: "SCSO", days, window_days: days, stops, journeys,
       method: "Simple fixture", as_of: day, caveats: [], source_methods: [],
-      schedule: {profiles: [[[0, 0, 1], [1, 1320, 1], [2, 1800, 1]]], sets: [trips], days: {[day]: 0}, unrecorded_days: []}};
-    const index = {build_id: build, days: [day], services: [{file, service: "700", operator: "SCSO", journeys: 12}]};
+      schedule: {profiles: [[[0, 0, 1], [1, 1320, 1], [2, 1800, 1]]], sets: [trips],
+        days: Object.fromEntries(days.map(d => [d, 0])), unrecorded_days: []}};
+    const index = {build_id: build, days, services: [{file, service: "700", operator: "SCSO", journeys: journeys.length}]};
     journeyTimesCache.set("index.json", index); journeyTimesCache.set(file, doc);
     CONFIG.JOURNEY_TIMES_DETAILED_PUBLIC = false; jtEntry.view = undefined; jtEntry.section = "journey";
     jtEntry.period = "any"; jtEntry.runs = null;
@@ -3027,17 +3220,17 @@ async function checkJourneySimple(page, viewport) {
   check(`journey simple ${viewport}: the line is the recorded timetable`, result.line === 1
     && /Timetable/.test(result.legend) && !/from the buses we timed/.test(result.legend), result.legend.slice(0, 160));
   check(`journey simple ${viewport}: it says how many scheduled buses were tracked`,
-    /13 scheduled → 12 tracked between these stops → 12 with measured endpoints → 12 eligible/.test(result.trust), result.trust.slice(0, 1400));
+    /65 scheduled → 60 tracked between these stops → 60 with measured endpoints → 60 eligible/.test(result.trust), result.trust.slice(0, 1400));
   check(`journey simple ${viewport}: the hour slider says in words what an hour shows`,
     result.moved && /^Leaving between \d\d:00 and \d\d:00 on weekdays/.test(result.tapped), result.tapped);
   check(`journey simple ${viewport}: no bus on the chart is its own tab stop`, result.dotStops === 0, `${result.dotStops} tab stops`);
   // The fixture's timetable runs every 30 minutes, which is "some buses".
   // Its buses take 25 to 31 min against 22 promised: the 7 and 9 minute ones,
-  // 6 of the 12, are over five minutes late, and the bus half an hour before
-  // always got there in time.
+  // 6 of the 12 each day, are over five minutes late, and the bus half an hour
+  // before always got there in time.
   check(`journey simple ${viewport}: how often buses run, and whether to catch the bus before, are in words`,
     result.badge === "Some buses · every 30 min"
-      && /^Catch the bus before if you need to be there on time\. 6 of the 12 buses we timed left Brighton more than 5 min after they were due there\. The bus before, usually 30 min earlier, had left Brighton by then on 6 of the 6 occasions we could check\.$/.test(result.allow)
+      && /^Catch the bus before if you need to be there on time\. 30 of the 60 buses we timed left Brighton more than 5 min after they were due there\. The bus before, usually 30 min earlier, had left Brighton by then on 30 of the 30 occasions we could check\.$/.test(result.allow)
       && !/Allow \d/.test(result.allow),
     `${result.badge} | ${result.allow}`);
   check(`journey simple ${viewport}: the time-of-day choice responds`, result.pressed === "true");
@@ -3964,6 +4157,8 @@ await checkObjectiveLead(page, VIEWPORTS[0].name);
 await checkBoundaryLiveButton(page, VIEWPORTS[0].name);
 await checkChipPriority(page, VIEWPORTS[0].name);
 await checkLastBusHome(page, VIEWPORTS[0].name);
+await checkBoardNext(page, VIEWPORTS[0].name);
+await checkRouteViewStop(page, VIEWPORTS[0].name);
 await checkGapMonitor(page, VIEWPORTS[0].name);
 await checkBusJourney(page, VIEWPORTS[0].name);
 await checkStopBoardPolish(page, VIEWPORTS[0].name);
@@ -3994,6 +4189,7 @@ await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
 await checkDeepLinkIndependence();   // own page + request interception; keep it apart
 await checkStaticPages();           // own pages: about, privacy, terms
+await checkReportPage();            // own page, fixture served in place of the build
 
 // The other two viewports get the layout assertions whether or not
 // screenshots were asked for — an assertion that only runs with --shots is
@@ -4013,6 +4209,8 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkHomeLink(p, vp.name);
   await checkDepartureJourneys(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
+  await checkBoardNext(p, vp.name);
+  await checkRouteViewStop(p, vp.name);
   await checkStopClosure(p, vp.name);
   await checkUpcomingStops(p, vp.name);
   await checkContrastBothThemes(p, vp.name);

@@ -28,8 +28,10 @@ INDEX = (ROOT / "index.html").read_text()
 ABOUT = (ROOT / "about.html").read_text()
 PRIVACY = (ROOT / "privacy.html").read_text()
 TERMS = (ROOT / "terms.html").read_text()
+REPORT = (ROOT / "report.html").read_text()
 PAGE_LOADER = (ROOT / "analytics-page.js").read_text()
-PAGES = {"index.html": INDEX, "about.html": ABOUT, "privacy.html": PRIVACY, "terms.html": TERMS}
+PAGES = {"index.html": INDEX, "about.html": ABOUT, "privacy.html": PRIVACY, "terms.html": TERMS,
+         "report.html": REPORT}
 CONTACT = "privacy@worthingbrightonbus.co.uk"
 
 # How the notice refers to each outside host a script comes from. A host that

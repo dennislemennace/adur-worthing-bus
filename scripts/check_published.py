@@ -30,6 +30,7 @@ publishing. Usage:
 import argparse
 import gzip
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -280,6 +281,95 @@ def check_diversions(doc, name, fails, raw=None):
                             or (cell.get("days") or 0) < floor.get("distinct_days", 5)):
                         fails.add("diversion allowance is below its floor",
                                   f"{where} {point.get('atco')} {cell_name}")
+
+
+IDENTIFICATION_MAX_BYTES = 512 * 1024
+IDENTIFICATION_WAYS = ("journey_id", "start", "position")
+
+
+def check_identification(doc, name, fails, raw=None):
+    """How each operator's journeys were identified (scripts/build_identification.py).
+
+    Counts the site divides with their denominators beside them, so each must
+    be a whole non-negative number, and the three ways a journey was known
+    must add up to the journeys tracked: a journey known two ways, or none,
+    would make a share that is not one.
+    """
+    if raw is not None and len(raw) > IDENTIFICATION_MAX_BYTES:
+        fails.add("identification counts are too large", f"{name}: {len(raw)} bytes")
+    if doc.get("schema_version") != 1 or not isinstance(doc.get("operators"), dict):
+        fails.add("identification counts have no readable operators", name)
+        return
+    for field in ("method", "caveats", "as_of"):
+        if not doc.get(field):
+            fails.add("identification counts are missing their provenance", f"{name}: no {field}")
+    days = doc.get("days")
+    if (not isinstance(days, list) or not days or days != sorted(set(days))
+            or not all(isinstance(d, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) for d in days)):
+        fails.add("identification counts name no readable days", name)
+
+    def counts(c, where):
+        by = c.get("by") if isinstance(c, dict) else None
+        values = [c.get("scheduled"), c.get("tracked")] + [(by or {}).get(w) for w in IDENTIFICATION_WAYS]
+        if not by or not all(type(v) is int and v >= 0 for v in values):
+            fails.add("identification counts are not whole counts", where)
+        elif sum(by[w] for w in IDENTIFICATION_WAYS) != c["tracked"]:
+            fails.add("identification ways do not add up to the journeys tracked", where)
+
+    for op, c in doc["operators"].items():
+        counts(c, f"{name} {op}")
+    for key, c in (doc.get("services") or {}).items():
+        counts(c, f"{name} {key}")
+    for op, by_day in (doc.get("by_day") or {}).items():
+        for day, c in by_day.items():
+            counts(c, f"{name} {op} {day}")
+
+
+ROUTE_REPORT_MAX_BYTES = 256 * 1024
+ROUTE_REPORT_BANDS = ("on_time", "early", "late", "very_late")
+
+
+def check_route_report(doc, name, fails, raw=None):
+    """One route's report (scripts/build_route_reports.py).
+
+    Each punctuality count must add up to the timings it rests on, each claim
+    of sufficiency must clear the floor the report states, and the report must
+    carry its method, caveats, date and the observation files behind it: a
+    page a councillor prints has to name its evidence.
+    """
+    if raw is not None and len(raw) > ROUTE_REPORT_MAX_BYTES:
+        fails.add("route report is too large", f"{name}: {len(raw)} bytes")
+    punct = doc.get("punctuality")
+    if doc.get("schema_version") != 1 or not isinstance(punct, dict):
+        fails.add("route report has no readable punctuality", name)
+        return
+    for field in ("method", "caveats", "as_of", "sources", "window"):
+        if not doc.get(field):
+            fails.add("route report is missing its provenance", f"{name}: no {field}")
+    floor = doc.get("floor") or {}
+
+    def counts(c, where):
+        values = [c.get("judged")] + [c.get(b) for b in ROUTE_REPORT_BANDS]
+        if not all(type(v) is int and v >= 0 for v in values):
+            fails.add("route report counts are not whole counts", where)
+            return
+        if sum(c[b] for b in ROUTE_REPORT_BANDS) != c["judged"]:
+            fails.add("route report bands do not add up to the timings", where)
+        clears = (c["judged"] >= floor.get("judged", 30)
+                  and (c.get("days") or 0) >= floor.get("distinct_days", 5))
+        if c.get("sample_sufficient") and not clears:
+            fails.add("route report claims sufficiency below the floor", where)
+
+    for row in punct.get("rows") or []:
+        where = f"{name} {row.get('direction')} {row.get('day_type')}"
+        counts(row, where)
+        if isinstance(row.get("excluding_disruptions"), dict):
+            counts(row["excluding_disruptions"], where + " excluding disruptions")
+        daily = row.get("daily")
+        if daily and not (0 <= daily.get("min", -1) <= daily.get("median", -1) <= daily.get("max", -1) <= 1):
+            fails.add("route report's day-to-day spread is not a spread", where)
+    for row in (punct.get("by_period") or []) + (doc.get("trend") or []):
+        counts(row, f"{name} {row.get('period') or row.get('week')}")
 
 
 HEADWAYS_MAX_BYTES = 2 * 1024 * 1024

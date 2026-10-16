@@ -239,6 +239,49 @@ the verification record and scoped commits.
   `docs/ASSET_RIGHTS.md`.
 - The project has no `LICENSE` file while describing itself as open source.
 
+## Stop board, last bus home and Route view's stops
+
+**Route buttons.** The buttons above a stop's board list every service that
+calls at that pole on any of the next eight days (`services_here` on
+`/api/departures`, `Timetable.services_at_stop`), not only those in the
+board's two hours. Choosing one with nothing on the board shows its next
+timetabled times below it, dated by the day they run (`/api/next-departures`,
+`app.js` `showBoardNext`): a weekday-only route asked about on a Saturday
+answers with Monday. An empty board shows the next times of every route.
+
+**Last bus home.** From Brighton (Old Steine, Churchill Square, North Street)
+and from Worthing (the eight Marine Parade poles by the pier), whichever serve
+the stop; a stop in one town shows only the other. The boxes are
+`Timetable.HUBS`. Coaches are left out, and the last day bus is the one before
+the night's longest break in service, so the first 700 of the morning, filed
+by GTFS as 03:45 on the day before, is not offered as the last of the evening
+(`_last_before_the_night`, tests in `tests/test_stop_services.py`).
+
+**Route view.** Clicking a stop opens a panel at the top of the About tab
+(`openRouteStop`): every service calling there with its first and last times
+and usual frequency on a weekday, Saturday and Sunday (`services` on
+`/api/stop-span`, `Timetable.stop_services`), the last bus home, which day
+tickets are valid at the stop, what OpenStreetMap records about it, and a link
+to its live departures. All from the timetable and the site's own files: no
+live-prediction quota is spent.
+
+## Route reports and live-estimate accuracy
+
+**Route reports** (`report.html?service=700&operator=SCSO`). Built nightly by
+`scripts/build_route_reports.py` from the window, `identification.json`, the
+headways files and the delay maps, one `route-report-*.json` per service,
+checked by `check_published.check_route_report`. Linked from Bus Performance
+only with `?preview=1` until stop times have been checked against times
+someone saw (the roadmap's hand-timed check); the page itself carries a Draft
+banner. To make the link public, drop the `previewEnabled()` test in
+`jtRouteReportLink`.
+
+**Live-estimate accuracy.** `scripts/backtest_live_eta.py` replays the live
+estimate (`api/live_eta.projected_lateness`) from every timing point a declared
+bus was recorded leaving, against when it really left each later stop. Run it
+by hand on downloaded observation files; the first results are
+`docs/reliability/live-eta-accuracy-2026-10-16.md`.
+
 ## Journey times: Simple, Detailed and the delay map
 
 The journey-time view has three parts, each with its own switch in `CONFIG`
@@ -308,7 +351,10 @@ departures in the chosen time, from the timetable recorded each night; until a
 day type has one, from the tracked buses' departures pooled over at least three
 days of that type, so weekends show no badge until a recorded Saturday and
 Sunday are in the window. How much evidence sits behind the answer is in its
-"Based on" line, and a rough-guide warning below ten journeys.
+"Based on" line, and a rough-guide warning below ten journeys over five days
+(`JT_PERCENTILE_FLOOR`, `JT_MIN_DAYS`). Below that floor there is no "9 in
+10" figure, no "do I need the bus before?" verdict and no slowest time of
+day: ten buses timed on one day describe that day.
 
 **The timetable line.** Every observations file now carries the day's timetable
 (`schedule`), and service documents fold it in. Charts draw it as a step line
@@ -473,6 +519,22 @@ Three safeguards let the record run for months without anyone watching:
   Each deletion is logged as `retiring unreferenced object <key>`. An unreadable
   manifest prevents cleanup and emits a workflow warning. Evidence can continue
   growing; publication still stops at the 4 GiB cap rather than breaking links.
+
+- **Warnings reach a person.** A `::warning::` in the log reaches nobody, so
+  each check that can warn also writes a notice (`$NOTICES`), and the run's last
+  step, `scripts/notify_warnings.py`, turns it into an issue on this repository
+  that mentions the owner: an operator's journeys not matching our timetable,
+  hours the recorder missed, a catch-up started, the published bucket over 80%,
+  or retention unable to delete. One issue per condition: while it continues
+  the issue's "Last seen" line is updated silently, and the first night it has
+  cleared the issue closes itself with a comment. To mute a known condition,
+  close its issue as **not planned**; it stays quiet until it clears and comes
+  back. The issues are public, as the repository is.
+- **How each journey was identified is published.** `identification.json`
+  (`scripts/build_identification.py`) counts, per operator and service over the
+  window, the timetabled journeys, those tracked, and how each was known: by
+  journey ID, by line, first stop and start time (method 7), or from position.
+  Journey times show it under "How we measure" and "Evidence and limitations".
 
 Re-running a day that is already published replaces it. When its raw objects
 may have started to expire, demand complete feeds:

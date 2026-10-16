@@ -43,6 +43,13 @@ permissions:
   contents: write
   # To start a catch-up run for a day a previous night missed.
   actions: write
+  # To tell the maintainer about a warning (scripts/notify_warnings.py).
+  issues: write
+
+env:
+  # Warnings and all-clears for the last step to send: one line each,
+  # key<TAB>warn<TAB>message or key<TAB>clear.
+  NOTICES: ${{ github.workspace }}/notices.tsv
 
 # Serialise builds so each manifest names the previous complete generation.
 concurrency:
@@ -214,7 +221,26 @@ jobs:
       # timetable, as it did then, a rebuild only fails validation. Look at the
       # operator's BODS dataset, then rebuild by hand if BODS has it.
       - name: Check every operator's journeys are in our timetable
-        run: python scripts/check_declared_journeys.py "observations-${{ steps.day.outputs.day }}.json.gz"
+        run: |
+          OBS="observations-${{ steps.day.outputs.day }}.json.gz"
+          python scripts/check_declared_journeys.py "$OBS" --notices "$NOTICES"
+          # Hours the recorder only partly captured, or missed: published with
+          # the day, and worth a person's look at the recorder.
+          # Read from the day's small summary, which carries the same coverage
+          # block, rather than parsing the whole observations file again.
+          python - "data/reliability/${{ steps.day.outputs.day }}.json" <<'PYGAPS'
+          import json, os, sys
+          doc = json.load(open(sys.argv[1]))
+          cov = doc.get("coverage") or {}
+          gaps = sorted(set(cov.get("hours_partial") or []) | set(cov.get("hours_absent") or []))
+          with open(os.environ["NOTICES"], "a") as out:
+              if gaps:
+                  msg = f"{doc.get('day')}: hours only partly recorded or missing: {', '.join(gaps)}"
+                  print(f"::warning::{msg}")
+                  out.write(f"recording-gaps\twarn\t{msg}\n")
+              else:
+                  out.write("recording-gaps\tclear\n")
+          PYGAPS
 
       - name: Restore every known input and archive replay evidence
         env:
@@ -271,10 +297,18 @@ jobs:
           # when no event asks for one, so an old file is always replaced.
           python scripts/build_diversion_adjustments.py --observations inputs/window \
             --out diversion-adjustments.json --today "$DAY"
+          # How each operator's journeys were identified: by journey ID, by
+          # start time or from position. Shown beside the journey times.
+          python scripts/build_identification.py --observations inputs/window --out identification.json
+          # One report per route, drawing the figures above together with
+          # their denominators, method and sources (report.html reads them).
+          python scripts/build_route_reports.py --observations inputs/window \
+            --identification identification.json --headways-dir headways \
+            --map-dir hotspot-map --out-dir route-reports
           # One artifact per service map and waiting file, validated with the rest of the candidate.
           MAP_ARTIFACTS=()
           shopt -s nullglob    # an empty folder adds nothing, not a literal '*.json'
-          for f in hotspot-map/*.json headways/*.json; do MAP_ARTIFACTS+=(--artifact "$(basename "$f")=$f"); done
+          for f in hotspot-map/*.json headways/*.json route-reports/*.json; do MAP_ARTIFACTS+=(--artifact "$(basename "$f")=$f"); done
           python scripts/check_published.py --journey-times journey-times \
             --summaries "data/reliability/$DAY.json" "rollup-$MONTH.json"
           python scripts/publication_bundle.py --journey-times journey-times \
@@ -283,6 +317,7 @@ jobs:
             --artifact "rollup-$MONTH.json=rollup-$MONTH.json" \
             --artifact "hotspot-preview.json.gz=hotspot-preview.json.gz" \
             --artifact "diversion-adjustments.json=diversion-adjustments.json" \
+            --artifact "identification.json=identification.json" \
             "${MAP_ARTIFACTS[@]}" \
             --sources inputs/sources.json --evidence evidence.json \
             --previous-index previous-index.json --out candidate > build-id.txt
@@ -320,8 +355,10 @@ jobs:
           python scripts/prune_published.py --listing published-builds.txt \
             --index live-index.json --keep 7 --objects --endpoint "$ENDPOINT" > retire.txt || {
               echo '::warning::Retention could not verify dependencies; deleting nothing'
+              printf 'retention\twarn\tRetention could not verify dependencies; nothing was deleted\n' >> "$NOTICES"
               : > retire.txt
             }
+          grep -q '^retention' "$NOTICES" 2>/dev/null || printf 'retention\tclear\n' >> "$NOTICES"
           while read -r OLD; do
             [ -n "$OLD" ] || continue
             echo "retiring unreferenced object $OLD"
@@ -347,6 +384,10 @@ jobs:
           fi
           if [ "$TOTAL" -gt $((BUDGET * 8 / 10)) ]; then
             echo "::warning::The published bucket will be at $(gib "$TOTAL"), over 80% of its $(gib "$BUDGET") budget"
+            printf 'published-budget\twarn\tThe published bucket will be at %s, over 80%% of its %s budget\n' \
+              "$(gib "$TOTAL")" "$(gib "$BUDGET")" >> "$NOTICES"
+          else
+            printf 'published-budget\tclear\n' >> "$NOTICES"
           fi
           aws s3 cp "candidate/builds/$BUILD/" \
             "s3://adur-worthing-published/journey-times/builds/$BUILD/" \
@@ -402,7 +443,20 @@ jobs:
           )
           if [ -n "$NEXT" ]; then
             echo "::notice::$NEXT was recorded but never published — starting a catch-up run"
+            printf 'backlog\twarn\t%s was recorded but never published; a catch-up run was started\n' "$NEXT" >> "$NOTICES"
             gh workflow run process-snapshots.yml -f day="$NEXT" -f catch_up=true
           else
             echo "Every recorded day before today is published."
+            printf 'backlog\tclear\n' >> "$NOTICES"
           fi
+
+      # Last, whatever happened above: a warning in this log reaches nobody,
+      # so each one becomes an issue for the maintainer, once, and closes
+      # itself when a later night finds it cleared.
+      - name: Tell the maintainer about tonight's warnings
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/notify_warnings.py --notices "$NOTICES" --day "${{ steps.day.outputs.day }}" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

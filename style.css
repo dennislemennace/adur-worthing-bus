@@ -2359,6 +2359,96 @@ html.dark-mode .btn-text {
   color: var(--color-text-muted);
 }
 
+/* A route with nothing on the board: its next times from the timetable. */
+.board-next {
+  margin: var(--space-sm) 0;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+}
+.board-next-title { margin: 0 0 var(--space-xs); font-weight: 600; color: var(--color-text); }
+.board-next-day {
+  margin: var(--space-sm) 0 2px;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text);
+}
+.board-next-list { margin: 0; padding: 0; list-style: none; }
+.board-next-list li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 var(--space-xs);
+  padding: 2px 0;
+}
+.board-next-list time { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--color-text); }
+.board-next-dest { color: var(--color-text-muted); overflow-wrap: anywhere; }
+.board-next-note { margin: var(--space-xs) 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+
+/* Route view: a stop chosen on the map. */
+.route-stop {
+  flex: none;
+  margin: 0 0 var(--space-md);
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+.route-stop-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-sm); }
+.route-stop-name { margin: 0; font-size: var(--font-size-md, 1.05rem); font-weight: 700; color: var(--color-text); }
+.route-stop-where,
+.route-stop-note { margin: 2px 0 var(--space-xs); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.route-stop-actions { margin: var(--space-xs) 0 var(--space-sm); }
+.route-stop-heading {
+  margin: var(--space-md) 0 var(--space-xs);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text);
+}
+.route-stop-services,
+.route-stop-tickets { margin: 0; padding: 0; list-style: none; }
+.route-stop-service { padding: var(--space-xs) 0; border-top: 1px solid var(--color-border); }
+.route-stop-service:first-child { border-top: 0; }
+.route-stop-service-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--space-xs);
+  margin: 0 0 2px;
+}
+.route-stop-operator { font-weight: 600; color: var(--color-text); }
+.route-stop-towards { color: var(--color-text-muted); }
+.route-stop-days { margin: 0; display: grid; gap: 1px; }
+.route-stop-days > div { display: grid; grid-template-columns: 4.2em 1fr; gap: var(--space-xs); }
+.route-stop-days dt { font-weight: 600; color: var(--color-text); }
+.route-stop-days dd { margin: 0; color: var(--color-text); font-variant-numeric: tabular-nums; }
+.route-stop-days dd.route-stop-none { color: var(--color-text-muted); }
+.route-stop-tickets li { margin: 0 0 var(--space-xs); color: var(--color-text); }
+.route-stop a,
+.route-stop .jt-link { color: var(--color-link); }
+/* Targets a finger can hit (WCAG 2.5.8 and the house 44px rule). */
+.route-stop .route-stop-close,
+.route-stop .jt-link { min-height: 44px; }
+.route-stop .route-stop-close { min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+.route-stop .jt-link { display: inline-flex; align-items: center; text-align: left; }
+.route-stop-live {
+  min-height: 44px;
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-on-fill);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.route-stop-live:focus-visible { outline: 3px solid var(--color-link); outline-offset: 2px; }
+.route-stop .stop-lastbus { margin-top: var(--space-md); }
+
 /* The invitation to check the timetable figures against the live map. Set
    apart from the standfirst, because it is an action rather than more
    explanation, and it is the one thing in the dialog a reader can do next. */

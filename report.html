@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1a4b82" />
+  <title>Route report | Worthing Brighton Bus</title>
+  <meta name="description" content="One bus route's recorded performance: punctuality at timing points, waiting, where buses lose time, and the evidence behind each figure." />
+  <link rel="canonical" href="https://worthingbrightonbus.co.uk/report.html" />
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="stylesheet" href="fonts/fonts.css" />
+  <style>
+    /* Self-contained, like about.html: a report should open and print without
+       the map, the API or the application script. */
+    :root { color-scheme: light dark; --ink: #12202f; --muted: #4a5868; --bg: #fbfaf7; --rule: #d8d3c8;
+            --link: #1a4b82; --panel: #f1eee6; --warn: #8a5a00; }
+    @media (prefers-color-scheme: dark) {
+      :root { --ink: #e8eef5; --muted: #a9b6c6; --bg: #090e1a; --rule: #263349; --link: #7fb3e8;
+              --panel: #121a2b; --warn: #f0c060; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink);
+           font: 16px/1.6 Outfit, system-ui, -apple-system, sans-serif; }
+    .wrap { max-width: 56rem; margin: 0 auto; padding: 1.5rem 16px 4rem; }
+    h1, h2 { font-family: Fraunces, Georgia, serif; line-height: 1.2; }
+    h1 { font-size: 1.8rem; margin: 1rem 0 .25rem; }
+    h2 { font-size: 1.25rem; margin: 2rem 0 .5rem; }
+    h3 { font-size: 1rem; margin: 1.25rem 0 .4rem; }
+    .lede { margin-top: 0; color: var(--muted); }
+    a { color: var(--link); }
+    .back { display: inline-block; font-weight: 600; }
+    .controls { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin: 1rem 0; }
+    .controls label { font-weight: 600; }
+    select, button { font: inherit; min-height: 44px; padding: .25rem .6rem; border: 1px solid var(--rule);
+                     border-radius: 6px; background: var(--panel); color: var(--ink); }
+    button { cursor: pointer; }
+    .draft { border-left: 4px solid var(--warn); background: var(--panel); padding: .6rem .9rem; border-radius: 4px; }
+    .thin { color: var(--muted); }
+    .scroll { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+    th, td { text-align: left; vertical-align: top; padding: .4rem .5rem; border-bottom: 1px solid var(--rule); }
+    thead th { font-weight: 700; }
+    tbody th { font-weight: 600; }
+    code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .85em; }
+    .sources { columns: 2 14rem; padding-left: 1.1rem; }
+    footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); font-size: .875rem; }
+    @media print {
+      .back, .controls, #report-actions { display: none !important; }
+      body { background: #fff; color: #000; font-size: 11pt; }
+      .scroll { overflow: visible; }
+      a { color: #000; }
+    }
+  </style>
+  <script src="analytics-page.js" defer></script>
+  <script src="report.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="./">← Back to the map</a>
+  <div class="controls">
+    <label for="report-service">Route</label>
+    <select id="report-service"><option value="">Loading routes…</option></select>
+    <span id="report-actions" hidden>
+      <button type="button" id="report-csv">Download CSV</button>
+      <button type="button" id="report-print">Print or save as PDF</button>
+      <a id="report-json" href="#" target="_blank" rel="noopener">The data as JSON</a>
+    </span>
+  </div>
+  <main id="report" aria-live="polite"><p>Loading…</p></main>
+  <footer>
+    <p>Built each night from the buses' own location reports (Bus Open Data Service) by
+      Worthing Brighton Bus, an independent site. How these figures are made:
+      <a href="about.html#journey-times">about our method</a>.</p>
+    <a href="contact.html">Contact</a> ·
+    <a href="about.html">About and corrections</a> ·
+    <a href="privacy.html">Privacy</a> ·
+    <a href="terms.html">Terms</a> ·
+    <a href="./">Back to the map</a>
+  </footer>
+</div>
+</body>
+</html>

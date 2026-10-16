@@ -431,8 +431,9 @@ class Timetable:
         self._noc_by_rid = None
         self._stops_by_name = None
         self._span_cache = {}
-        self._hub_sids_cache = None
+        self._hub_sids_cache = {}
         self._last_bus_cache = {}
+        self._services_cache = {}
 
     def _open_and_preload(self) -> None:
         if self._allow_fetch:
@@ -1848,19 +1849,27 @@ class Timetable:
     # The same box app.js calls CENTRAL_BRIGHTON, covering Old Steine, Churchill
     # Square, North Street and the Royal Pavilion. (min_lat, max_lat, min_lon, max_lon)
     CENTRAL_BRIGHTON = (50.815, 50.830, -0.158, -0.130)
+    # Worthing's equivalent: the eight Marine Parade poles by the pier, where
+    # the 700, 9, 16, 23 and the night 700 all call. Measured against
+    # data/stops.json on 16 October 2026: nothing else falls inside.
+    WORTHING_MARINE_PARADE = (50.8088, 50.8106, -0.3712, -0.3668)
+    HUBS = {"brighton": CENTRAL_BRIGHTON, "worthing": WORTHING_MARINE_PARADE}
 
-    def _hub_sids(self) -> frozenset:
-        cached = getattr(self, "_hub_sids_cache", None)
-        if cached is None:
-            lo_lat, hi_lat, lo_lon, hi_lon = self.CENTRAL_BRIGHTON
-            cached = self._hub_sids_cache = frozenset(
+    def _hub_sids(self, hub: str = "brighton") -> frozenset:
+        cache = getattr(self, "_hub_sids_cache", None)
+        if not isinstance(cache, dict):
+            cache = self._hub_sids_cache = {}
+        if hub not in cache:
+            lo_lat, hi_lat, lo_lon, hi_lon = self.HUBS[hub]
+            cache[hub] = frozenset(
                 s["_sid"] for s in self.stops.values()
                 if s.get("lat") is not None and s.get("lon") is not None
                 and lo_lat <= s["lat"] <= hi_lat and lo_lon <= s["lon"] <= hi_lon)
-        return cached
+        return cache[hub]
 
-    def last_bus_from_hub(self, stop_id: str, from_day=None) -> dict:
-        """The last scheduled direct bus home from central Brighton, by day.
+    def last_bus_from_hub(self, stop_id: str, from_day=None, hub: str = "brighton") -> dict:
+        """The last scheduled direct bus home from central Brighton, by day,
+        or from Worthing's Marine Parade with `hub="worthing"`.
 
         For each day of a concrete week: the latest trip that leaves a stop in
         CENTRAL_BRIGHTON and *later* calls at `stop_id` or one of its sibling
@@ -1895,13 +1904,13 @@ class Timetable:
         cache = getattr(self, "_last_bus_cache", None)
         if cache is None:
             cache = self._last_bus_cache = {}
-        key = (stop_id, from_day)
+        key = (stop_id, from_day, hub)
         if key in cache:
             return cache[key]
 
         week = self.sample_week(from_day)
         result = {"inside_hub": False, "week_of": week["monday"].isoformat(), "days": {}}
-        hub = self._hub_sids()
+        hub = self._hub_sids(hub)
         stop = self.stops.get(stop_id)
         if not stop:
             cache[key] = result
@@ -1948,14 +1957,29 @@ class Timetable:
                 "from": (self.stops.get(self._sid_to_stop.get(hub_sid)) or {}).get("name", ""),
             }
 
+        # Coaches are not a way home on a bus ticket: National Express and the
+        # rest sell their own seats, and the 025's small-hours runs through
+        # Brighton were shown as the last "day bus" at every stop on the coast.
+        from api.trip_match import COACH_NOCS
+        coach = {}
+
+        def is_coach(tid):
+            if tid not in coach:
+                trip = self.trips.get(self._tid_to_trip.get(tid)) or {}
+                coach[tid] = self.noc_for_route(trip.get("route_id", "")) in COACH_NOCS
+            return coach[tid]
+
         runs = {}
         for day in self._DAY_COLS:
             best = {"day_bus": None, "night_bus": None}
+            # Every day-bus departure for the gap rule below, the latest hub
+            # stop each trip leaves from.
+            day_trips = {}
             for tid, arr, dep, hub_sid, service_id, short_name in rows:
                 k = (service_id, day)
                 if k not in runs:
                     runs[k] = self.runs_on(service_id, week[day])
-                if not runs[k]:
+                if not runs[k] or is_coach(tid):
                     continue
                 leave, reach = late(dep), late(arr)
                 # The night ends at NIGHT_ENDS_SECS. GTFS lets a service day run
@@ -1971,14 +1995,44 @@ class Timetable:
                 if leave is None or reach is None or reach < leave:
                     continue
                 kind = "night_bus" if re.match(r"N\d", short_name or "") else "day_bus"
-                if best[kind] is None or leave > best[kind][0]:
+                if kind == "day_bus":
+                    if tid not in day_trips or leave > day_trips[tid][0]:
+                        day_trips[tid] = (leave, reach, tid, hub_sid, short_name)
+                elif best[kind] is None or leave > best[kind][0]:
                     best[kind] = (leave, reach, tid, hub_sid, short_name)
+            best["day_bus"] = self._last_before_the_night(sorted(day_trips.values()))
             if best["day_bus"] is None and best["night_bus"] is None:
                 result["days"][day] = None
                 continue
             result["days"][day] = {k: (describe(v) if v else None) for k, v in best.items()}
         cache[key] = result
         return result
+
+    @staticmethod
+    def _last_before_the_night(departures):
+        """The last day bus: the departure before the longest break in service.
+
+        `departures` are `(leave, ...)` sorted by leave, on one service day with
+        small-hours times read as the end of it (`late` above). The latest of
+        them is not always the last bus home: the first 700 of the morning
+        leaves Worthing at 03:45, which GTFS files under the day before, and it
+        was shown as the last bus of the evening at every stop it reaches. The
+        night's break is the longest gap, counting the one from the last
+        departure round to the first of the next day; the bus before it is the
+        last of the evening. A service that never stops has no break worth the
+        name, and its latest departure is used.
+        """
+        if not departures:
+            return None
+        if len(departures) == 1:
+            return departures[0]
+        leaves = [d[0] for d in departures]
+        gaps = [(b - a, i) for i, (a, b) in enumerate(zip(leaves, leaves[1:]))]
+        wrap = leaves[0] + DAY_SECS - leaves[-1]
+        longest, at = max(gaps)
+        if wrap >= longest or longest < 2 * 3600:
+            return departures[-1]
+        return departures[at]
 
     def service_span(self, stop_id: str) -> dict:
         """When buses actually run from a stop, by day of week.
@@ -2079,6 +2133,128 @@ class Timetable:
                 "routes": sorted(routes, key=_route_sort_key),
             }
         cache[stop_id] = out
+        return out
+
+    # Daytime, for "every N minutes": the hours a frequency is quoted for.
+    # Early and late buses run less often everywhere, and folding them in
+    # makes every service look sparser than a passenger finds it at noon.
+    FREQUENCY_FROM_SECS = 7 * 3600
+    FREQUENCY_TO_SECS = 19 * 3600
+
+    def _stop_rows(self, stop_id: str) -> list:
+        """`[(dep_secs, service_id, short_name, operator, headsign)]` at one pole,
+        one row per departure a passenger could tell apart (operators publish
+        the same journey under several trip ids, as the board notes)."""
+        stop = self.stops.get(stop_id)
+        if self._con is None or not stop or "_sid" not in stop:
+            return []
+        out, seen = [], set()
+        for dep, tid, service_id, short_name in self._conn().execute(
+                """SELECT st.dep_secs, st.tid, t.service_id, r.short_name
+                     FROM stop_times st
+                     JOIN trips  t ON t.tid = st.tid
+                     JOIN routes r ON r.rid = t.rid
+                    WHERE st.sid = ?""", (stop["_sid"],)):
+            trip = self.trips.get(self._tid_to_trip.get(tid)) or {}
+            operator = self.noc_for_route(trip.get("route_id", ""))
+            headsign = trip.get("headsign", "")
+            key = (dep, service_id, short_name, operator, headsign)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(key)
+        return out
+
+    def services_at_stop(self, stop_id: str, from_day=None, days: int = 8) -> list:
+        """Every service that calls at this pole on any of the next `days` days,
+        as `[{"service": "700", "operator": "SCSO"}]`, in timetable order.
+
+        The board's route buttons come from here, not from the departures in
+        its two-hour window: a stop served by a bus that has finished for the
+        night, or runs only on Saturdays, still has it.
+        """
+        import datetime as _dt
+        base = from_day or _dt.date.today()
+        key = (stop_id, base, days)
+        cache = getattr(self, "_services_cache", None)
+        if cache is None:
+            cache = self._services_cache = {}
+        if key in cache:
+            return cache[key]
+        dates = [base + _dt.timedelta(days=i) for i in range(days)]
+        runs, found = {}, set()
+        for _dep, service_id, short_name, operator, _head in self._stop_rows(stop_id):
+            if (short_name, operator) in found:
+                continue
+            if service_id not in runs:
+                runs[service_id] = any(self.runs_on(service_id, d) for d in dates)
+            if runs[service_id]:
+                found.add((short_name, operator))
+        out = [{"service": svc, "operator": op}
+               for svc, op in sorted(found, key=lambda so: (_route_sort_key(so[0] or ""), so[1] or ""))]
+        cache[key] = out
+        return out
+
+    def stop_services(self, stop_id: str, from_day=None) -> list:
+        """Each service at this pole: where it goes, and when and how often it
+        calls on a weekday, a Saturday and a Sunday of a concrete week.
+
+            [{"service": "700", "operator": "SCSO", "towards": ["Littlehampton", "Worthing"],
+              "days": {"weekday":  {"date": "2026-10-20", "first": "05:40", "last": "23:50",
+                                    "count": 64, "night": 2, "every_min": 10},
+                       "saturday": {...}, "sunday": None}}]
+
+        The weekday is the sample week's Tuesday, as service_frequency's is:
+        Monday is a bank holiday often enough to be unrepresentative. `None`
+        for a day is no service that day. `every_min` is the median gap between
+        departures from 07:00 to 19:00, given only where four or more fall in
+        those hours; first and last leave out the small hours, as service_span
+        does, and count them as `night`.
+        """
+        if self._con is None:
+            return []
+        week = self.sample_week(from_day)
+        samples = {"weekday": week["tuesday"], "saturday": week["saturday"], "sunday": week["sunday"]}
+        grouped = {}
+        for dep, service_id, short_name, operator, headsign in self._stop_rows(stop_id):
+            grouped.setdefault((short_name, operator), []).append((dep, service_id, headsign))
+        runs = {}
+        out = []
+        for (svc, op), rows in sorted(grouped.items(),
+                                      key=lambda kv: (_route_sort_key(kv[0][0] or ""), kv[0][1] or "")):
+            days, heads = {}, {}
+            for label, date in samples.items():
+                times, night = set(), 0
+                for dep, service_id, headsign in rows:
+                    if (service_id, date) not in runs:
+                        runs[(service_id, date)] = self.runs_on(service_id, date)
+                    if not runs[(service_id, date)] or dep is None:
+                        continue
+                    if headsign:
+                        heads[headsign] = heads.get(headsign, 0) + 1
+                    if dep < NIGHT_ENDS_SECS or dep >= DAY_SECS:
+                        night += 1
+                        continue
+                    times.add(dep)
+                if not times and not night:
+                    days[label] = None
+                    continue
+                ordered = sorted(times)
+                day_times = [t for t in ordered if self.FREQUENCY_FROM_SECS <= t <= self.FREQUENCY_TO_SECS]
+                gaps = sorted(b - a for a, b in zip(day_times, day_times[1:]))
+                days[label] = {
+                    "date": date.isoformat(),
+                    "first": _span_hhmm(ordered[0]) if ordered else "",
+                    "last": _span_hhmm(ordered[-1]) if ordered else "",
+                    "count": len(ordered) + night,
+                    "night": night,
+                    "every_min": (round(gaps[(len(gaps) - 1) // 2] / 60)
+                                  if len(day_times) >= 4 and gaps else None),
+                }
+            if not any(days.values()):
+                continue
+            towards = [h for h, _ in sorted(heads.items(), key=lambda kv: (-kv[1], kv[0]))][:3]
+            out.append({"service": svc, "operator": op, "towards": towards, "days": days})
         return out
 
     def has_stop_times(self, stop_id: str) -> bool:

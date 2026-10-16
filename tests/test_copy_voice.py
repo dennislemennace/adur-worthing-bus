@@ -73,7 +73,9 @@ def reader_facing_text():
     out["about.html"] = strip_html_comments((ROOT / "about.html").read_text())
     out["privacy.html"] = strip_html_comments((ROOT / "privacy.html").read_text())
     out["terms.html"] = strip_html_comments((ROOT / "terms.html").read_text())
+    out["report.html"] = strip_html_comments((ROOT / "report.html").read_text())
     out["app.js"] = strip_js_comments((ROOT / "app.js").read_text())
+    out["report.js"] = strip_js_comments((ROOT / "report.js").read_text())
     for p in sorted((ROOT / "data").glob("*.json")):
         if p.name in SKIP_FILES:
             continue

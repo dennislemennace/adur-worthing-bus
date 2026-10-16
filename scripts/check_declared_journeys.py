@@ -17,7 +17,9 @@ which SHARE or more were not named by a held id.
 
 Prints a GitHub `::warning::` for each such operator. Exit status is always 0:
 the night's data is good, and the cure is the operator's BODS dataset or our
-next timetable build, which a person should look at.
+next timetable build, which a person should look at. With `--notices`, also
+appends a line per operator checked, warned or clear, which
+scripts/notify_warnings.py turns into an issue for that person.
 """
 
 import argparse
@@ -53,6 +55,7 @@ def stale_operators(doc, min_journeys=MIN_JOURNEYS, share=SHARE):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("observations")
+    ap.add_argument("--notices", help="append warn/clear lines for scripts/notify_warnings.py")
     args = ap.parse_args(argv)
     path = Path(args.observations)
     raw = path.read_bytes()
@@ -60,11 +63,21 @@ def main(argv=None):
     counts = unresolved_by_operator(doc)
     for op, (n, bad) in sorted(counts.items()):
         print(f"{op}: {bad} of {n} journeys were not named by a journey id our timetable holds")
-    for op in stale_operators(doc):
+    stale = stale_operators(doc)
+    notices = []
+    for op in stale:
         n, bad = counts[op]
-        print(f"::warning::{op}: {bad} of {n} journeys on {doc.get('day')} were not named by a "
-              "journey id our timetable holds. Check the operator's BODS timetable dataset "
-              "and, if BODS has the new timetable, rebuild ours.")
+        message = (f"{op}: {bad} of {n} journeys on {doc.get('day')} were not named by a "
+                   "journey id our timetable holds. Check the operator's BODS timetable dataset "
+                   "and, if BODS has the new timetable, rebuild ours.")
+        print(f"::warning::{message}")
+        notices.append(f"declared-journeys:{op.lower()}\twarn\t{message}")
+    # An operator too small to judge tonight says nothing either way.
+    notices += [f"declared-journeys:{op.lower()}\tclear" for op, (n, _) in sorted(counts.items())
+                if n >= MIN_JOURNEYS and op not in stale]
+    if args.notices:
+        with open(args.notices, "a", encoding="utf-8") as handle:
+            handle.writelines(line + "\n" for line in notices)
     return 0
 
 

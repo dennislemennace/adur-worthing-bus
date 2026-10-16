@@ -527,6 +527,20 @@ weeks of method-5 recordings (the reliability window began 16 Sep, and only
   instead of the timetable's, and say how often buses make up time. Replace
   the method in one place (`project_trip`), keep its tests, and update the
   wording in about.html#live-times and under the Bus tab list.
+- **Check our stop times against an independent record.** Raised by the
+  16 October 2026 benchmark review, and the largest gap in the method: every
+  stop time is inferred from location reports within 150 m, and nothing yet
+  compares it with a time someone saw. A person (or volunteers) times 100–200
+  departures by hand, stratified across operators, town-centre stops, termini,
+  timing points where buses wait, and evenings, then compares each with the
+  site's timing for the same journey: median and 90th-percentile error, the
+  bias (do we read buses as later than they left?), and how many we did not
+  time at all. Publish the result with its method beside the journey times,
+  and repeat a smaller sample after any change to the matching method. Until
+  this is done, delay maps and punctuality figures should not be presented as
+  decision-grade findings. Needs: a simple way to log a departure (a phone
+  stopwatch and a spreadsheet are enough to start), and an owner decision on
+  who times.
 
 ---
 

@@ -1156,8 +1156,10 @@ def main(argv=None):
         out = Path(args.summary_out)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(summary, indent=1, sort_keys=True) + "\n", encoding="utf-8")
-        print(f'{summary["bands"]["on_time"]} of {len(observations)} arrivals on time '
-              f'→ {out}')
+        # The summary's own denominator: measured rows only. All rows would
+        # include interpolated stops, which cannot be on time or late.
+        print(f'{summary["bands"]["on_time"]} of {summary["observations"]} measured '
+              f'arrivals on time ({len(observations)} rows in all) → {out}')
 
     text = json.dumps(payload, indent=1, sort_keys=True)
     if args.out:

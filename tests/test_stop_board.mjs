@@ -540,3 +540,96 @@ test("a journey not yet on the road is shown from the timetable, and says so", (
   const hidden = vm.runInContext("buildDeparturePlanHtml", app)({ service: "700", calls: [] }, { onRoad: true, service: "700" });
   assert.match(hidden, /is not on the map[\s\S]*bus filter may be hiding it/);
 });
+
+// ── Every service at the stop, and the next times of one with none ──
+
+const plainText = (html) => html.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&#39;/g, "'")
+  .replace(/\s+/g, " ").trim();
+
+test("a route with nothing on the board shows its next times, dated the day they run", () => {
+  // Saturday 17 October 2026, 21:00 in London. The 60 runs on weekdays only,
+  // so its next bus is Monday's, and must say Monday.
+  const now = new Date("2026-10-17T20:00:00Z");
+  const data = { days_searched: 8, departures: [
+    { service: "60", operator: "BHBC", destination: "Old Steine", aimed_departure: "2026-10-19T09:16:00+01:00" },
+    { service: "60", operator: "BHBC", destination: "Old Steine", aimed_departure: "2026-10-20T09:16:00+01:00" },
+  ] };
+  const text = plainText(app.boardNextHtml(data, "60", now));
+  assert.match(text, /^Next 60 from this stop, from the timetable: Monday 19 October 60 09:16 to Old Steine Tuesday 20 October 60 09:16/);
+  assert.match(text, /from two hours before it is due/);
+  assert.equal(app.boardNextDayLabel("2026-10-17T22:10:00+01:00", now), "Today");
+  assert.equal(app.boardNextDayLabel("2026-10-18T06:12:00+01:00", now), "Tomorrow, Sunday 18 October");
+  // Half past midnight is tomorrow, whatever service day GTFS files it under.
+  assert.equal(app.boardNextDayLabel("2026-10-18T00:30:00+01:00", now), "Tomorrow, Sunday 18 October");
+  assert.match(plainText(app.boardNextHtml({ days_searched: 8, departures: [] }, "60", now)),
+    /The timetable has no 60 from this stop in the next 8 days/);
+});
+
+test("the board's route buttons come from every service at the stop", () => {
+  assert.match(APP, /renderBoardFilter\(\[\.\.\.departures\.map\(d => d\.service \|\| "\?"\), \.\.\.here\.map\(h => h\.service\)\]/,
+    "the buttons are built from the departures alone");
+  assert.match(APP, /renderBoardFilter\(here\.map\(h => h\.service\), hereOperators\)/,
+    "an empty board offers no buttons");
+  assert.match(INDEX, /id="board-next"[^>]*aria-live="polite"/);
+});
+
+// ── The last bus home, from Brighton and from Worthing ──────
+
+const lastDays = (dayBus, nightBus = null) => Object.fromEntries(
+  ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    .map(d => [d, { day_bus: dayBus, night_bus: nightBus }]));
+
+test("the last bus home names Brighton and Worthing, never the stops", () => {
+  const bus = (depart, service) => ({ depart, service, after_midnight: false });
+  const html = app.lastBusesHomeHtml({
+    last_from_brighton: { inside_hub: false, week_of: "2026-10-19", days: lastDays(bus("23:58", "700"), bus("03:36", "N700")) },
+    last_from_worthing: { inside_hub: false, week_of: "2026-10-19", days: lastDays(bus("23:45", "700")) },
+  });
+  const text = plainText(html);
+  assert.match(text, /Last bus home from Brighton/);
+  assert.match(text, /Last bus home from Worthing/);
+  assert.doesNotMatch(text, /central|Marine Parade/i);
+  assert.match(text, /Mon–Sun 23:58 700 03:36 N700/);
+  // Worthing has no night bus here, so no column of "None".
+  assert.match(text, /Last bus home from Worthing Days Last bus Mon–Sun 23:45 700/);
+  assert.match(text, /or a coach, isn't counted/);
+});
+
+test("a stop in one town shows only the other; a stop neither serves says so once", () => {
+  const bus = { depart: "23:45", service: "700" };
+  const inBrighton = plainText(app.lastBusesHomeHtml({
+    last_from_brighton: { inside_hub: true, days: {} },
+    last_from_worthing: { inside_hub: false, week_of: "2026-10-19", days: lastDays(bus) } }));
+  assert.match(inBrighton, /Last bus home from Worthing/);
+  assert.doesNotMatch(inBrighton, /from Brighton/);
+  const none = Object.fromEntries(["monday"].map(d => [d, null]));
+  const neither = plainText(app.lastBusesHomeHtml({
+    last_from_brighton: { inside_hub: false, days: none }, last_from_worthing: { inside_hub: false, days: none } }));
+  assert.equal(neither, "Last bus home No direct bus from Brighton or Worthing calls here on any day.");
+  assert.equal(app.lastBusesHomeHtml({}), "", "an older API sends neither");
+});
+
+// ── Route view: a stop chosen on the map ────────────────────
+
+test("Route view's stop lists each service with when and how often it calls", () => {
+  const svc = { service: "700", operator: "SCSO", towards: ["Old Steine", "Worthing"], days: {
+    weekday: { first: "05:27", last: "23:56", count: 85, night: 2, every_min: 12 },
+    saturday: { first: "05:57", last: "23:56", count: 79, night: 0, every_min: 15 },
+    sunday: null } };
+  const text = plainText(app.routeStopServiceHtml(svc));
+  assert.match(text, /700 Stagecoach South to Old Steine or Worthing/);
+  assert.match(text, /Mon–Fri 05:27–23:56, every 12 min, and 2 at night/);
+  assert.match(text, /Sat 05:57–23:56, every 15 min/);
+  assert.match(text, /Sun No buses/);
+  assert.equal(app.routeStopFrequency({ first: "", last: "", count: 4, night: 4 }), "Night only, 4 buses");
+  assert.equal(app.routeStopFrequency({ first: "07:48", last: "17:07", count: 7, night: 0, every_min: 70 }),
+    "07:48–17:07, about hourly");
+  assert.equal(app.routeStopFrequency({ first: "09:16", last: "09:16", count: 1, night: 0, every_min: null }),
+    "09:16, 1 bus");
+});
+
+test("a stop clicked in Route view opens its panel, and leaving the view closes it", () => {
+  assert.match(APP, /if \(state\.viewMode === "improvements"\) \{\s*state\.map\.closePopup\(\);\s*openRouteStop\(atcoCode, stopName\);/);
+  assert.match(APP, /if \(state\.viewMode !== "improvements"\) closeRouteStop\(\);/);
+  assert.match(INDEX, /id="tab-content-about"[^>]*>\s*<!--[\s\S]*?-->\s*<section class="route-stop" id="route-stop" hidden/);
+});

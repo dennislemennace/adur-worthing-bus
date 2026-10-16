@@ -392,6 +392,10 @@ flag — the schema is a map of the surface.
 - At the Worker's own 200/day cap this is ~400 calls/day against a 120,000/day
   allowance — not a constraint, but don't add per-submission API chatter
   (label lookups, project-board moves) without rechecking.
+- The nightly run's notices (`scripts/notify_warnings.py`) use the run's own
+  `GITHUB_TOKEN`, not the PAT: one listing call, plus one or two per warning
+  that opens, updates or clears. A handful a night, against the token's 1,000
+  requests an hour.
 
 ## postcodes.io — postcode to councillor lookup
 
@@ -528,6 +532,12 @@ of provider pricing. No paid tier or increased raw retention is introduced.
   took 24 seconds and **1.9 GB peak memory** with compact rows; a 35-day window
   would need roughly three times that, inside a standard Actions runner's
   16 GB but not a small machine. No new external calls.
+- **Identification counts and route reports** (`identification.json`,
+  `route-report-*.json`; `scripts/build_identification.py`,
+  `scripts/build_route_reports.py`, added 16 October 2026). Measured on
+  25 September to 14 October (20 days): one 23 KB identification file and 96
+  route reports, 816 KB in all, the largest 10 KB. Each build reads the window
+  once, about 35 and 47 seconds locally. No new external calls.
 - Every new generation adds per-service documents, summaries and observations,
   then reads each uploaded object back once before switching the pointer.
   Service documents are written compact (`scripts/journey_times_codec.py`; the

@@ -438,10 +438,30 @@ test("a nine-in-ten figure is not offered over a handful of journeys", () => {
   assert.equal(thin.journeys, 4);
   assert.ok(thin.percentileFloor > 4, "the floor is not stated for the reader");
 
+  // Twelve buses on one day describe that day, however many there are.
+  const oneDay = [];
+  for (let i = 0; i < 12; i++) oneDay.push(trip("2026-09-17", 8 * 60 + i, 48 + i, 48));
+  const day = summarise(between({ journeys: oneDay }, 0, 3));
+  assert.equal(day.p90Secs, null, "a percentile was published from a single day");
+  assert.equal(day.enough, false);
+  assert.equal(day.dayFloor, 5, "the day floor is not stated for the reader");
+
   const many = [];
-  for (let i = 0; i < 12; i++) many.push(trip("2026-09-17", 8 * 60 + i, 48 + i, 48));
+  for (let i = 0; i < 12; i++) many.push(trip(`2026-09-${14 + (i % 6)}`, 8 * 60 + i, 48 + i, 48));
   assert.ok(summarise(between({ journeys: many }, 0, 3)).p90Secs > 0,
     "a well-evidenced percentile was suppressed too");
+});
+
+test("the time-of-day chips call a slot thin until it has five days", () => {
+  // Fifteen buses at 08:xx on two days: enough buses, too few days.
+  const twoDays = [];
+  for (let i = 0; i < 15; i++) twoDays.push(tracked(i % 2 ? "2026-09-22" : "2026-09-23", 8, i, 41, 20, `P${i}`));
+  const all = between({ stops: [{}, {}], journeys: twoDays }, 0, 1);
+  const s = vm.runInContext("journeyTimesSlotSummaries", app)(all, "weekday");
+  assert.deepEqual([s.get("08-10").journeys, s.get("08-10").days], [15, 2]);
+  const html = vm.runInContext("jtWhenChipsHtml", app)("weekday", "any", { summaries: s });
+  assert.match(html, /08–10 · 15 timed/, "a figure was shown from two days");
+  assert.match(html, /Morning peak, 08:00 to 10:00, only 15 buses timed, over 2 days/);
 });
 
 test("the days a figure rests on are the days left after filtering", () => {
@@ -1093,6 +1113,9 @@ function tracked(day, h, m, tookMins, promisedMins = 20, tripId = `T${h}${m}`) {
            calls: [[0, dep, dep, 0], [1, dep + tookMins * MIN, dep + promisedMins * MIN, 0]] };
 }
 
+// Six weekdays, one more than a figure needs (JT_MIN_DAYS).
+const SIX_WEEKDAYS = ["2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25", "2026-09-28"];
+
 test("the early-and-late period wraps midnight, and a day type combines with any time", () => {
   const doc = { stops: [{}, {}], journeys: [
     tracked("2026-09-22", 23, 0, 20), tracked("2026-09-22", 5, 0, 20),
@@ -1117,14 +1140,19 @@ test("the early-and-late period wraps midnight, and a day type combines with any
 
 test("the slowest time of day is only named from enough journeys", () => {
   const journeys = [];
-  for (let i = 0; i < 12; i++) journeys.push(tracked("2026-09-22", 8, i, 30, 20, `M${i}`));
-  for (let i = 0; i < 12; i++) journeys.push(tracked("2026-09-22", 12, i, 22, 20, `D${i}`));
+  for (let i = 0; i < 12; i++) journeys.push(tracked(SIX_WEEKDAYS[i % 6], 8, i, 30, 20, `M${i}`));
+  for (let i = 0; i < 12; i++) journeys.push(tracked(SIX_WEEKDAYS[i % 6], 12, i, 22, 20, `D${i}`));
   // Nine evening buses, one short of the floor: not enough to call it anything.
-  for (let i = 0; i < 9; i++) journeys.push(tracked("2026-09-22", 17, i, 60, 20, `E${i}`));
+  for (let i = 0; i < 9; i++) journeys.push(tracked(SIX_WEEKDAYS[i % 6], 17, i, 60, 20, `E${i}`));
   const found = insight(between({ stops: [{}, {}], journeys }, 0, 1), "weekday");
   assert.equal(found.slowest.period.key, "08-10");
   assert.equal(found.quickest.period.key, "10-16");
   assert.equal(found.compared, 2, "a period below the floor was compared");
+
+  // Twenty slow late buses, all on one day: that day, not the late evenings.
+  for (let i = 0; i < 20; i++) journeys.push(tracked("2026-09-24", 19, i, 90, 20, `X${i}`));
+  const oneBadDay = insight(between({ stops: [{}, {}], journeys }, 0, 1), "weekday");
+  assert.equal(oneBadDay.slowest.period.key, "08-10", "one bad day was named the slowest time of day");
 });
 
 function recorded(days) {
@@ -1487,7 +1515,7 @@ test("the bus before: under ten buses there is no verdict", () => {
   const all = between(doc, 0, 1);
   const eb = earlierBus(eightOClock(all).slice(0, 3), all, doc, 0, 1);
   assert.equal(eb.verdict, "thin");
-  assert.match(earlierHtml(eb, "X"), /We need 10 buses timed at X[\s\S]*We have 3 so far/);
+  assert.match(earlierHtml(eb, "X"), /We need 10 buses over 5 days timed at X[\s\S]*We have 3 so far, over 3 days/);
   assert.doesNotMatch(earlierHtml(eb, "X"), /catch the bus|Allow \d/i);
   assert.equal(earlierSentence(eb), "Too few buses timed yet to say whether you need an earlier one.");
 });
@@ -1567,13 +1595,13 @@ test("the night between the last bus and the first is not a gap in the service",
 });
 
 test("each time of day says how long it usually takes, and one with nothing is not offered", () => {
-  const journeys = [...many(12, "2026-09-22", 8, 5, 41), ...many(3, "2026-09-22", 11, 10, 30)];
+  const journeys = [...SIX_WEEKDAYS.flatMap(day => many(2, day, 8, 5, 41)), ...many(3, "2026-09-22", 11, 10, 30)];
   const all = between({ stops: [{}, {}], journeys }, 0, 1);
   const html = chips("weekday", "any", { summaries: slotSummaries(all, "weekday"),
     dayCounts: new Map([["weekday", 15], ["weekend", 0]]) });
   assert.match(html, /data-jt-period="08-10"[^>]*aria-label="Morning peak, 08:00 to 10:00, usually 41 min"/);
   assert.match(html, /08–10 · 41 min/);
-  assert.match(html, /data-jt-period="10-16"[^>]*aria-label="Daytime, 10:00 to 16:00, only 3 buses timed"/);
+  assert.match(html, /data-jt-period="10-16"[^>]*aria-label="Daytime, 10:00 to 16:00, only 3 buses timed, over 1 day"/);
   assert.match(html, /data-jt-period="16-18"[^>]*disabled/, "an evening with no buses timed is offered");
   assert.match(html, /data-jt-day="weekend"[^>]*disabled/, "weekends with nothing timed are offered");
   assert.doesNotMatch(chips("weekday", "08-10", { showAll: false }), /data-jt-period="any"/,
@@ -1870,4 +1898,31 @@ test("waiting, bunching and punctuality are said in counted words", () => {
   assert.match(late, /80% of buses left X on time<\/strong>[\s\S]*of 250 timed\. The Traffic Commissioners expect 95%/);
   assert.match(reliability(hwDoc, { ...hwDoc.cells[2] }, "X"), /Too few buses timed at X yet to judge punctuality:\s+5 of the 30 needed/);
   assert.match(reliability(hwDoc, null, "X"), /not a timing point/);
+});
+
+// ── Which journey each bus was running ─────────────────────────
+
+test("the evidence says how each operator's journeys were identified, counted", () => {
+  const html = vm.runInContext("jtIdentificationHtml", app);
+  const counts = (scheduled, tracked, journey_id, start, position) =>
+    ({ scheduled, tracked, by: { journey_id, start, position } });
+  const ident = {
+    days: ["2026-09-25", "2026-10-14"],
+    operators: { SCSO: counts(11635, 11106, 5749, 4533, 824), BHBC: counts(10, 9, 9, 0, 0) },
+    services: { "700|SCSO": counts(3548, 3370, 1302, 1370, 698) },
+  };
+  const plainText = h => h.replace(/<[^>]+>/g, "").replace(/&#39;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ");
+  const text = plainText(html(ident, "SCSC", "700", "https://example.org/builds/x/identification.json"));
+  assert.match(text, /Stagecoach South, .*: we tracked 11,106 of the 11,635 journeys timetabled while we were recording/,
+    "SCSC is Stagecoach South, counted with SCSO");
+  assert.match(text, /For 5,749 the operator's feed named the journey; 4,533 we matched by line, first stop and start time; and 824 we worked out from where and when the bus was\./);
+  assert.match(text, /The 700: we tracked 3,370 of the 3,548/);
+  assert.match(text, /never given to the wrong bus/, "start-time matching is explained where it was used");
+  assert.match(html(ident, "SCSO", "700", "javascript:alert(1)"), /^(?![\s\S]*javascript:)/, "only an http(s) link");
+  // Brighton & Hove: one way only, and no start-time sentence.
+  const bh = plainText(html(ident, "BHBC", "1", ""));
+  assert.match(bh, /Brighton & Hove Buses, .*recording\. For 9 the operator's feed named the journey\./);
+  assert.doesNotMatch(bh, /start time|The 1:/);
+  assert.equal(html(ident, "NATX", "X", ""), "", "an operator the file does not name says nothing");
+  assert.equal(html(null, "SCSO", "700", ""), "");
 });

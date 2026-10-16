@@ -135,6 +135,10 @@ def build_bundle(journey_dir, extras, out, sources, evidence, previous=None):
             checks.check_headways(doc, name, failures, raw=raw)
         elif name == "diversion-adjustments.json":
             checks.check_diversions(doc, name, failures, raw=raw)
+        elif name == "identification.json":
+            checks.check_identification(doc, name, failures, raw=raw)
+        elif name.startswith("route-report-"):
+            checks.check_route_report(doc, name, failures, raw=raw)
         binary[name] = raw
     if failures.items:
         raise ValueError(f"Candidate failed validation: {failures.items[:5]}")
