@@ -30,7 +30,10 @@ These keep their own terms and are not relicensed by anything in this repository
   (credited on `about.html`), including `data/timetable.json`,
   `data/timetable.sqlite`, `data/stops.json`, `data/council_boundaries.json`,
   `data/rail_stations.json` and `data/representatives.json`.
-- OpenStreetMap map data (© OpenStreetMap contributors, ODbL).
+- OpenStreetMap map data (© OpenStreetMap contributors, ODbL), and
+  `data/stop_osm.json`, the stop shelter, seating and access facts built from
+  it by `scripts/build_stop_osm.py`: a derived database, so it stays under the
+  Open Database Licence 1.0, not CC BY, and is credited wherever it is shown.
 - Operator names, logos, liveries and bus icons in `icons/`, which identify
   services and belong to their owners.
 - Fonts in `fonts/` (SIL Open Font License) and Leaflet in `vendor/` (BSD 2-Clause).

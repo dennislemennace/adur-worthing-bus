@@ -4073,6 +4073,21 @@
       ],
       "recommend": true
     },
+    "cashless_services": [
+      {
+        "operator": "BHBC",
+        "services": [
+          "1X",
+          "3X",
+          "25X"
+        ],
+        "from": "2026-05-26",
+        "label": "Cashless",
+        "note": "No cash on board: pay by contactless card, Apple Pay or Google Pay, or the Brighton & Hove Buses app. The Key and bus passes are accepted.",
+        "source_url": "https://www.buses.co.uk/cashless",
+        "checked_on": "2026-10-15"
+      }
+    ],
     "service_supplements": {
       "N700": {
         "price_pence": 200,

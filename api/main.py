@@ -22,6 +22,7 @@ import json
 import math
 import asyncio
 import functools
+import hashlib
 import os
 import threading
 import time
@@ -1238,7 +1239,7 @@ async def get_vehicle(vehicleRef: str = Query(...)):
         trip_id = _best_trip_for_vehicle(vehicle, tt) or vehicle.get("trip_id")
     headsign = tt.trips.get(trip_id, {}).get("headsign") or vehicle.get("trip_headsign")
     upcoming = await off_loop(live_eta.project_trip, tt, trip_id, vehicle,
-                              datetime.now(UK_TZ)) if trip_id else []
+                              datetime.now(UK_TZ), await _diversions_doc()) if trip_id else []
     source   = "trip"
     if not upcoming:
         upcoming = _upcoming_stops_from_calls(vehicle, tt)
@@ -1479,7 +1480,7 @@ async def get_departures(
 
     result = await _apply_live_overlay(base, resolved)
     result = await off_loop(_apply_own_feed_estimates, result, tt, resolved,
-                            datetime.now(UK_TZ))
+                            datetime.now(UK_TZ), await _diversions_doc())
     if "live" not in result and not (NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY):
         # Say so rather than letting scheduled times pass as live ones.
         result = {**result, "live": False, "live_reason": "not_configured"}
@@ -1491,7 +1492,8 @@ async def get_departures(
     return _public_departures(_drop_departed(result))
 
 
-def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime) -> dict:
+def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime,
+                              diversions_doc: Optional[dict] = None) -> dict:
     """Estimates from the buses themselves, for rows no prediction reached.
 
     TransportAPI's predictions are capped at 300 calls a day, which a busy day
@@ -1528,7 +1530,8 @@ def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime) ->
         else:
             bus = by_trip.get(dep.get("_trip_id"))
             aimed = _parse_iso_datetime(dep.get("aimed_departure"))
-            est = (live_eta.estimate_at(tt, dep["_trip_id"], bus, stop_id, aimed, now)
+            est = (live_eta.estimate_at(tt, dep["_trip_id"], bus, stop_id, aimed, now,
+                                        diversions_doc)
                    if bus and aimed else None)
             if est:
                 delay = int(est["lateness_secs"])
@@ -1536,6 +1539,9 @@ def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime) ->
                 new["delay_seconds"] = delay
                 new["status"] = _delay_to_status(delay)
                 new["live_source"] = "feed"
+                if est.get("allowance_secs"):
+                    new["allowance_secs"] = est["allowance_secs"]
+                    new["allowance_reason"] = est.get("allowance_reason", "")
                 estimated += 1
         out.append(new)
     result = {**payload, "departures": out}
@@ -2320,6 +2326,52 @@ async def _disruptions_state(wait: bool) -> Optional[dict]:
 
 
 _background_tasks: set = set()
+
+
+# ── Diversion allowances (scripts/build_diversion_adjustments.py) ──────
+# Measured each night from the buses that went round a recorded diversion and
+# published with the reliability build; api/diversions.py applies them. Read
+# from the published index, not this repository, because the nightly build
+# does not commit. An hour is plenty for a figure made once a night, and the
+# board never waits on it: without it, estimates are what they always were.
+DIVERSIONS_KEY = "diversion_adjustments"
+DIVERSIONS_TTL = 3600
+DIVERSIONS_ARTIFACT = "diversion-adjustments.json"
+PUBLISHED_INDEX_URL = os.environ.get(
+    "PUBLISHED_INDEX_URL",
+    "https://adur-worthing-submissions.dennislemennace.workers.dev/journey-times/index.json")
+
+
+async def _fetch_diversions() -> dict:
+    """Last night's allowances, checked against the index's hash. Never raises."""
+    if not PUBLISHED_INDEX_URL:
+        return {"adjustments": []}
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            resp = await client.get(PUBLISHED_INDEX_URL)
+            resp.raise_for_status()
+            entry = (resp.json().get("artifacts") or {}).get(DIVERSIONS_ARTIFACT)
+            if not entry or not entry.get("file"):
+                return {"adjustments": []}
+            resp = await client.get(f"{PUBLISHED_INDEX_URL.rsplit('/', 1)[0]}/{entry['file']}")
+            resp.raise_for_status()
+            if entry.get("sha256") and hashlib.sha256(resp.content).hexdigest() != entry["sha256"]:
+                raise ValueError("does not match the index's hash")
+            return resp.json()
+    except Exception as exc:                       # noqa: BLE001 — see docstring
+        log.warning("Diversion allowances unavailable: %s", exc)
+        return {"adjustments": []}
+
+
+async def _diversions_doc() -> Optional[dict]:
+    """The cached allowances; a miss starts a fetch and returns None meanwhile."""
+    hit = cache_get(DIVERSIONS_KEY)
+    if hit is None and DIVERSIONS_KEY not in _inflight_async:
+        task = asyncio.create_task(
+            cache_single_flight_async(DIVERSIONS_KEY, _fetch_diversions, DIVERSIONS_TTL))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+    return hit
 
 
 def _disruptions_now(state: Optional[dict]) -> list:

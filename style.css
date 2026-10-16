@@ -1926,6 +1926,40 @@ body.panel-collapsed .btn-collapse-panel .icon {
 }
 .panel-stop-where[hidden] { display: none; }
 
+/* "At this stop": shelter, seating, kerb and access, from OpenStreetMap. Below
+   the board, since what is coming next is the first question. */
+.stop-access {
+  margin: var(--space-md) 0 0;
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+.stop-access-title {
+  margin: 0 0 4px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+.stop-access-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text);
+}
+.stop-access-facts li {
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+}
+.stop-access-gap,
+.stop-access-source { margin: 0 0 4px; }
+.stop-access a { color: var(--color-link); }
+
 /* ===== PANEL STATES ===== */
 .panel-loading,
 .panel-error,

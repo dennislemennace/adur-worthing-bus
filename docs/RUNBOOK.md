@@ -78,6 +78,14 @@ operator's own page into `data/disruptions.json`:
    source.
 4. Run `pytest tests/test_local_disruptions.py`, commit the file and push. The
    API reads it on redeploy.
+5. If buses lose time going round it, let live estimates allow for that: in its
+   `data/analysis_exclusions.json` entry set `"adjust_predictions": true` and a
+   short `"label"` ("the Western Road diversion"). The nightly build measures
+   the allowance (`scripts/build_diversion_adjustments.py`) once 30 journeys over
+   5 days have gone round, and the API picks it up within the hour; it stops on
+   the entry's `to` date. Check it with
+   `scripts/backtest_diversion_adjustments.py` before relying on it
+   (docs/reliability/diversion-adjustments-backtest-2026-10-15.md).
 
 What it does on the site:
 - The entry shows as a notice on every board and Bus tab for its lines and stops.

@@ -64,6 +64,7 @@ jobs:
           python -m py_compile scripts/build_evidence.py
           python -m py_compile scripts/build_stops_json.py
           python -m py_compile scripts/build_stop_details.py
+          python -m py_compile scripts/build_stop_osm.py
           python -m py_compile scripts/build_fares.py
           python -m py_compile scripts/build_registrations.py
 
@@ -94,6 +95,14 @@ jobs:
         run: |
           python -u scripts/build_stop_details.py \
             || echo "::warning::NaPTAN unavailable; keeping the previous data/stop_details.json"
+
+      # Shelter, seating, kerb, tactile paving and wheelchair access, from
+      # OpenStreetMap (ODbL; much of it mapped with OpenStop). One keyless
+      # Overpass request a week; if it fails, keep last week's file.
+      - name: Refresh stop accessibility from OpenStreetMap
+        run: |
+          python -u scripts/build_stop_osm.py \
+            || echo "::warning::Overpass unavailable; keeping the previous data/stop_osm.json"
 
       # Each route's published adult single fares, from the operators' NeTEx
       # on BODS (no key needed). Someone else's service again: keep last
@@ -166,13 +175,13 @@ jobs:
       # prevent.
       - name: Commit refreshed statistics and stop list
         run: |
-          if git diff --quiet -- data/boundary_evidence.json data/stops.json data/stop_details.json data/fare_tables.json data/registrations.json; then
+          if git diff --quiet -- data/boundary_evidence.json data/stops.json data/stop_details.json data/stop_osm.json data/fare_tables.json data/registrations.json; then
             echo "Statistics and stop list unchanged — nothing to commit."
             exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/boundary_evidence.json data/stops.json data/stop_details.json data/fare_tables.json data/registrations.json
+          git add data/boundary_evidence.json data/stops.json data/stop_details.json data/stop_osm.json data/fare_tables.json data/registrations.json
           git commit -m "Refresh boundary statistics and stop list from the $(date -u +%Y-%m-%d) timetable"
           git push
 

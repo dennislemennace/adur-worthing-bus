@@ -113,6 +113,24 @@ test("the list shows where the bus is: the stop passed, then the next", () => {
     "an estimate that errs late went out without the advice that makes it safe");
 });
 
+test("a time that allows for a diversion says so, on the Bus tab and the board", () => {
+  const stops = [stopRow(1, { is_next: true }),
+                 stopRow(2, { allowance_secs: 180, allowance_reason: "the Western Road diversion" }),
+                 stopRow(3, { allowance_secs: 300, allowance_reason: "the Western Road diversion" })];
+  const html = upcoming({ source: "trip", upcoming_stops: stops,
+                          vehicle: { trip_source: "feed", recorded_at: at(-2) } });
+  assert.match(html, /Times past the Western Road diversion\s+include up to 5 min for it/);
+  const plain = upcoming({ source: "trip", upcoming_stops: [stopRow(1, { is_next: true })],
+                           vehicle: { trip_source: "feed" } });
+  assert.doesNotMatch(plain, /diversion/);
+  const board = row({ expected_departure: inMinutes(14), delay_seconds: 240, status: "Late",
+                      allowance_secs: 170, allowance_reason: "the Western Road diversion",
+                      disruption_ids: ["x"] });
+  assert.match(board, /Time allows 3 min for the Western Road diversion, see notice above/);
+  assert.doesNotMatch(row({ allowance_secs: 170 }), /Time allows/,
+    "a timetable-only row has no estimate for an allowance to be in");
+});
+
 test("a long route folds, and the end of the journey stays in view", () => {
   const stops = Array.from({ length: 20 }, (_, i) =>
     stopRow(i + 1, { is_next: i === 0, is_terminus: i === 19 }));
@@ -183,6 +201,53 @@ test("the ticket box reads prices from ticket_zones.json, not a second list", ()
   assert.match(app.buildTicketInfoHtml("METR", null, "270"), /Metrovoyager/,
     "Metrobus had no ticket box at all");
   assert.match(app.buildTicketInfoHtml("SCSO", null, "N700"), /N700 night bus/);
+});
+
+test("a stop says what OpenStreetMap records, credits it, and asks for what is missing", () => {
+  state.stopOsmMeta = { osm_base: "2026-10-13T19:33:34Z", licence_url: "https://opendatacommons.org/licenses/odbl/1-0/" };
+  state.stopOsm = {
+    FULL: { id: 42, shelter: "yes", bench: "no", lit: "yes", wheelchair: "limited", kerb: "raised",
+            tactile_paving: "yes", check_date: "2025-03" },
+    SOME: { id: 7, shelter: "yes" },
+    BARE: { id: 8 },
+  };
+  const full = app.stopAccessHtml("FULL");
+  for (const words of ["Shelter", "No seating", "Lit at night", "Partly wheelchair accessible",
+                       "Raised kerb", "Tactile paving"]) {
+    assert.match(full, new RegExp(words), words);
+  }
+  assert.doesNotMatch(full, /OpenStop/, "nothing to ask for when access is all recorded");
+  assert.match(full, /© OpenStreetMap contributors/);
+  assert.match(full, /openstreetmap\.org\/node\/42/);
+  assert.match(full, /checked Mar 2025/);
+
+  const some = app.stopAccessHtml("SOME");
+  assert.match(some, /Wheelchair access, kerb height and tactile paving aren't recorded/);
+  assert.match(some, /openstop\.app/);
+  assert.match(app.stopAccessHtml("BARE"), /Nothing is recorded about this stop/);
+  assert.match(app.stopAccessHtml("ABSENT"), /not in OpenStreetMap yet/);
+  assert.doesNotMatch(app.stopAccessHtml("ABSENT"), /openstop\.app/,
+    "OpenStop can only edit stops already on the map");
+  state.stopOsm = null;
+  assert.equal(app.stopAccessHtml("FULL"), "", "nothing before the file has loaded");
+});
+
+test("the cashless expresses say so, and only they do", () => {
+  const data = JSON.parse(readFileSync(join(ROOT, "data/ticket_zones.json"), "utf8"));
+  state.ticketZones = data.zones;
+  state.ticketFaresMeta = data.fares_meta;
+  state.ticketOperatorNotes = data.operator_notes;
+  for (const svc of ["1X", "3X", "25X"]) {
+    const html = app.buildTicketInfoHtml("BHBC", null, svc);
+    assert.match(html, /Cashless/, `${svc} should say it takes no cash`);
+    assert.doesNotMatch(html, /\(£[\d.]+ cash\)/, `${svc} should not quote a cash price`);
+  }
+  // The Coaster expresses and the ordinary routes still take cash.
+  for (const svc of ["12X", "13X", "1", "25"]) {
+    assert.doesNotMatch(app.buildTicketInfoHtml("BHBC", null, svc), /Cashless/, svc);
+  }
+  assert.doesNotMatch(app.buildTicketInfoHtml("SCSO", null, "1X"), /Cashless/,
+    "another operator's route sharing the number is not cashless");
 });
 
 // ── Where a stop is (NaPTAN) ────────────────────────────────

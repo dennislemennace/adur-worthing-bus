@@ -58,6 +58,10 @@ Loaded from Google Fonts. Full text: https://openfontlicense.org/
 
 © OpenStreetMap contributors. https://www.openstreetmap.org/copyright
 
+Also `data/stop_osm.json` (stop shelter, seating, kerb, tactile paving and
+wheelchair access), a derived database under the same licence:
+https://opendatacommons.org/licenses/odbl/1-0/
+
 ## Timetable and boundary data — Open Government Licence v3.0
 
 Bus Open Data Service (Department for Transport) and the ONS Open Geography

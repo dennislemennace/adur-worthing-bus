@@ -1207,3 +1207,39 @@ def test_stop_details_builder_reads_naptan_csv():
     assert parsed == {"4400AD0204": ["Stop D", "High Street", "Boots", "E"]}
     out = bsd.build([{"atco_code": "4400AD0204"}, {"atco_code": "MISSING"}], parsed)
     assert out["count"] == 1 and "MISSING" not in out["stops"]
+
+
+def test_cashless_services_are_cited():
+    """A route that takes no cash turns someone with coins away at the door, so
+    the claim carries its source and the date it was checked, like any fare."""
+    entries = _load("ticket_zones.json")["fares_meta"].get("cashless_services", [])
+    assert isinstance(entries, list)
+    for e in entries:
+        assert _nonempty_str(e.get("operator")), e
+        assert isinstance(e.get("services"), list) and e["services"], e
+        assert all(_nonempty_str(s) and s == s.upper() for s in e["services"]), e
+        assert _nonempty_str(e.get("note")), e
+        assert str(e.get("source_url", "")).startswith("https://"), e
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(e.get("checked_on", ""))), e
+
+
+def test_stop_osm_carries_its_licence_and_only_known_values():
+    """data/stop_osm.json is a derived OpenStreetMap database: ODbL, credited,
+    and every value one the stop panel has words for."""
+    path = DATA_DIR / "stop_osm.json"
+    if not path.exists():
+        pytest.skip("stop_osm.json not built yet")
+    data = json.loads(path.read_text())
+    assert data.get("licence") == "ODbL-1.0"
+    assert "OpenStreetMap contributors" in data.get("source", "")
+    assert str(data.get("licence_url", "")).startswith("https://")
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", data.get("generated_on", ""))
+    import sys as _sys
+    _sys.path.insert(0, str(ROOT / "scripts"))
+    import build_stop_osm
+    for atco, facts in data["stops"].items():
+        assert isinstance(facts.get("id"), int), atco
+        for key, value in facts.items():
+            if key in ("id", "check_date"):
+                continue
+            assert value in build_stop_osm.KEEP.get(key, ()), (atco, key, value)

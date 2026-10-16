@@ -227,6 +227,23 @@ lines and timetables are API calls too, and arrive with it.
   the site loads the file when a stop is opened or searched. If NaPTAN is
   down the workflow keeps last week's file.
 
+## OpenStreetMap Overpass — stop accessibility
+
+- `scripts/build_stop_osm.py`, weekly in update-timetable.yml, asks Overpass
+  once for the bus stops in the box (about 750 KB) and writes
+  `data/stop_osm.json` (about 90 KB, ODbL). No key. It tries overpass-api.de,
+  then one mirror, twice each, and if both fail the workflow keeps last week's
+  file. The site loads the file when a stop is opened; there are no live
+  Overpass calls.
+
+## Diversion allowances — the API reads the published build
+
+- `api/main.py` fetches the published `index.json` and
+  `diversion-adjustments.json` from the Worker at most once an hour per
+  instance (`PUBLISHED_INDEX_URL`; empty switches it off), about 50 Worker
+  requests a day against the free tier's 100,000. Never on a request's path:
+  a board reads the cache, and without the file estimates are as before.
+
 ## GoatCounter — visit counting
 
 (`loadAnalytics` and `track` in `app.js`, and `analytics-page.js` for the

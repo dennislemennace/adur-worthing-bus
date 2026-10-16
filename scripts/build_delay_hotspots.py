@@ -346,21 +346,68 @@ def stretch_geometry(tt, pattern, i, j, projected):
     return _decimate(chain), True
 
 
+# How many days of timetable, from the map's own day, say when each stretch
+# runs. Two weeks, so a school holiday week does not hide the school runs, and
+# forwards, because a weekly build reliably covers the days after it was made
+# and not always the ones before.
+TIMETABLED_DAYS = 14
+
+
+def timetabled_hours(schedules, sections):
+    """The London clock hours each stretch has a bus timetabled to enter it,
+    weekday and weekend apart: the hours a traversal would be filed under.
+
+    `schedules` is `(day, record_schedule(...))` pairs and `sections` maps
+    `(pattern, from_sequence, to_sequence)` to a stretch. A day type none of the
+    days had any trip on at all is left out rather than given as empty: that is
+    a timetable that does not cover it, not one that runs nothing, and the map
+    must not hide a stretch on a guess.
+    """
+    by_pattern = defaultdict(list)
+    for (pattern_id, i, _j), stretch in sections.items():
+        by_pattern[pattern_id].append((i, stretch))
+    known, hours = set(), defaultdict(lambda: defaultdict(set))
+    for day, schedule in schedules:
+        day_type = "weekday" if day.weekday() < 5 else "weekend"
+        if schedule["trips"]:
+            known.add(day_type)
+        for _trip, pattern_id, profile_ref, start, _headsign in schedule["trips"]:
+            offsets = schedule["profiles"][profile_ref]["offsets"]
+            for i, stretch in by_pattern.get(pattern_id, ()):
+                if i < len(offsets):
+                    # Past-midnight times run on past 24:00; the clock hour is
+                    # what the traversal's entry is grouped by.
+                    hours[stretch][day_type].add((start + offsets[i]) // 3600 % 24)
+    return {stretch: {t: sorted(hours[stretch][t]) for t in sorted(known)}
+            for stretch in set(sections.values())}
+
+
 def build_map(result, tt, day, out_dir):
     """Per-service map files: every timing-point stretch, and what was measured on it.
 
     Every stretch of the day's timetable is drawn, measured or not, so that an
     unmeasured one shows as "not enough journeys yet" rather than vanishing —
     a missing line reads as "no delay", which is the one thing it cannot mean.
-    Stretches are keyed by the stops they run through, so the several route
-    variants of one service that share a piece of road draw one line, not a
-    stack of them; every variant's figures are kept.
+    Each stretch also names the hours its buses are timetabled, so the map can
+    leave it off at a time no bus runs it, rather than wait for journeys that
+    will never come. Stretches are keyed by the stops they run through, so the
+    several route variants of one service that share a piece of road draw one
+    line, not a stack of them; every variant's figures are kept.
     """
-    from process_snapshots import record_schedule
+    from datetime import timedelta
+    from process_snapshots import record_schedule, stops_in_box
     from build_journey_times import document_name
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    schedule = record_schedule(tt, date.fromisoformat(day) if isinstance(day, str) else day)
+    # Routes run on past the recorded box — the Metrobus to Crawley, the 700 to
+    # Littlehampton — and a stretch with no stop inside it can never be
+    # measured, so it would wait for journeys forever. Measured evidence still
+    # lands wherever it is.
+    recorded = set(stops_in_box(tt))
+    first = date.fromisoformat(day) if isinstance(day, str) else day
+    schedule = record_schedule(tt, first)
+    fortnight = [(first, schedule)] + [(first + timedelta(days=n), record_schedule(tt, first + timedelta(days=n)))
+                                  for n in range(1, TIMETABLED_DAYS)]
 
     shaped_cache = {}
 
@@ -426,6 +473,8 @@ def build_map(result, tt, day, out_dir):
             flags = entry["timepoints"][pattern_id].most_common(1)[0][0]
             points = [i for i, f in enumerate(flags) if f == 1]
             for i, j in zip(points, points[1:]):
+                if recorded.isdisjoint(pattern["atcos"][i:j + 1]):
+                    continue
                 add_section(pattern_id, pattern, i, j, headsign, projected)
 
         cells = []
@@ -477,10 +526,13 @@ def build_map(result, tt, day, out_dir):
                     latest[sections[key]] = (newest, cell["schedule_era"])
         for cell in cells:
             cell["latest"] = latest.get(cell["stretch"], (None, None))[1] == cell.get("schedule_era")
+        for stretch_key, hours in timetabled_hours(fortnight, sections).items():
+            stretches[stretch_key]["timetabled_hours"] = hours
 
         name = f"hotspot-map-{document_name(service, operator)}.json"
         doc = {"schema_version": 1, "service": service, "operator": operator,
                "as_of": result["as_of"], "timetable_day": schedule["day"],
+               "timetabled_days": [fortnight[0][0].isoformat(), fortnight[-1][0].isoformat()],
                "floor": result["floor"], "method": result["method"], "pooling": result.get("pooling"),
                "caveats": result["caveats"],
                "analysis_events": result.get('analysis_events', []),

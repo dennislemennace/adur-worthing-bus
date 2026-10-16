@@ -1672,6 +1672,35 @@ test("a stretch is coloured by its own time slot, latest timetable, best evidenc
   assert.equal(cellFor(doc, "other", period), null);
 });
 
+const stretchRuns = vm.runInContext("delayStretchRuns", app);
+const stretchShown = vm.runInContext("delayShown", app);
+
+test("a stretch no bus is timetabled on at the time shown is left off, unless it was measured", () => {
+  // Weekday daytime and evenings only; the timetable covered no weekend.
+  const stretch = { id: "s", timetabled_hours: { weekday: [10, 11, 12, 18] } };
+  const at = (dayType, period) => ({ dayType, resolution: "period", period });
+  assert.equal(stretchRuns(stretch, at("weekday", "08-10")), false, "nothing runs it in the morning peak");
+  assert.equal(stretchRuns(stretch, at("weekday", "10-16")), true);
+  assert.equal(stretchRuns(stretch, at("weekday", "other")), true, "18:00 is early and late");
+  assert.equal(stretchRuns(stretch, at("weekday", "16-18")), false);
+  assert.equal(stretchRuns(stretch, { dayType: "weekday", resolution: "hour", hour: 11 }), true);
+  assert.equal(stretchRuns(stretch, { dayType: "weekday", resolution: "hour", hour: 9 }), false);
+  // A day type the timetable did not cover, and a map from before stretches
+  // carried their hours, say nothing: draw it rather than hide on a guess.
+  assert.equal(stretchRuns(stretch, at("weekend", "08-10")), true);
+  assert.equal(stretchRuns({ id: "s" }, at("weekday", "08-10")), true);
+  // An empty list is the timetable saying no bus at all that day type.
+  assert.equal(stretchRuns({ id: "s", timetabled_hours: { weekend: [] } }, at("weekend", "10-16")), false);
+
+  const peak = at("weekday", "08-10");
+  assert.equal(stretchShown({ stretch, cell: null }, peak), false);
+  assert.equal(stretchShown({ stretch, cell: cellAt({ journeys: 3, sample_sufficient: false }) }, peak), false,
+    "a stray late bus is not a reason to wait for thirty");
+  assert.equal(stretchShown({ stretch, cell: cellAt({}) }, peak), true, "measured evidence is never hidden");
+  assert.equal(stretchShown({ stretch, cell: cellAt({ journeys: 3, sample_sufficient: false }) }, peak, true), true,
+    "the exploratory view shows what little there is");
+});
+
 test("delay amounts are finer than whole minutes, because the bands are", () => {
   assert.equal(amount(40), "40 seconds");
   assert.equal(amount(-40), "40 seconds");

@@ -161,6 +161,7 @@ const state = {
   selectedStop:  null,  // { atcoCode, name }
   boardFilter:   null,  // service shown on the stop board, or null for all
   stopDetails:   null,  // data/stop_details.json stops: atco -> [indicator, street, landmark, bearing]
+  stopOsm:       null,  // data/stop_osm.json stops: atco -> {id, shelter, bench, wheelchair, ...}
   refreshTimer:  null,  // setInterval handle for bus positions
   isRefreshing:  true,
   busesVisible:  true,  // header toggle: show bus markers + run live refresh
@@ -5239,6 +5240,32 @@ const DELAY_PERIOD_LABELS = Object.freeze({
   "08-10": "morning peak", "10-16": "daytime", "16-18": "evening peak", other: "early and late",
 });
 
+// The clock hours in each period, as scripts/build_delay_hotspots.py files a
+// traversal; tests/test_delay_hotspots.py holds the two together.
+const DELAY_PERIOD_HOURS = Object.freeze({
+  "08-10": [8, 9], "10-16": [10, 11, 12, 13, 14, 15], "16-18": [16, 17],
+  other: [0, 1, 2, 3, 4, 5, 6, 7, 18, 19, 20, 21, 22, 23],
+});
+
+/** Whether the timetable has a bus on a stretch at the time being shown.
+ *
+ *  A stretch nothing is timetabled on then can never fill in, and drawing it
+ *  as "not enough journeys yet" promised evidence that would not come. A map
+ *  built before stretches carried their hours, or a day type the timetable did
+ *  not cover, says nothing either way, and then the stretch is drawn. */
+function delayStretchRuns(stretch, slot) {
+  const hours = stretch && stretch.timetabled_hours && stretch.timetabled_hours[slot.dayType];
+  if (!Array.isArray(hours)) return true;
+  const wanted = slot.resolution === "hour" ? [slot.hour] : (DELAY_PERIOD_HOURS[slot.period] || []);
+  return wanted.some(h => hours.includes(h));
+}
+
+/** Whether a stretch goes on the map: timetabled at the time shown, or
+ *  measured there anyway, since evidence is never hidden. */
+function delayShown({ stretch, cell }, slot, exploratory = false) {
+  return delayStretchRuns(stretch, slot) || Boolean(cell && (cell.sample_sufficient || exploratory));
+}
+
 const jtDelay = {
   // Simple's day and time, the same chips as My journey, which has an all-day
   // figure the map does not.
@@ -5493,7 +5520,9 @@ async function renderDelayMapPanel() {
       <span class="plan-preview-tag">Experimental</span></p>
     <p>Each stretch of road between two timing stops is coloured by how much time
       buses typically lose on it compared with the timetable. Grey dashes mean we
-      have not tracked enough journeys there yet to say.</p>
+      have not tracked enough journeys there yet to say. A stretch no bus is
+      timetabled on at the time you pick is left off, and so is any outside
+      the area we record.</p>
     <p class="jt-experimental-note">We started tracking in September 2026, and a
       stretch is shown only once 30 journeys over 5 days have run it. The busiest
       routes, like the 700, fill in within weeks; most of the map is months away
@@ -5560,7 +5589,7 @@ async function renderDelayMapPanel() {
   const floor = doc.floor || mapIndex.floor || { journeys: 30, distinct_days: 5 };
   const exploratory = view === "detailed" && jtDelay.exploratory;
   const rank = { red: 4, amber: 3, yellow: 2, green: 1, none: 0 };
-  const drawn = doc.stretches.filter(s => s.direction === jtDelay.direction).map(stretch => {
+  const way = doc.stretches.filter(s => s.direction === jtDelay.direction).map(stretch => {
     const cell = delayCellFor(doc, stretch.id, slot);
     let band = delayBand(cell, floor);
     let early = false;
@@ -5570,14 +5599,20 @@ async function renderDelayMapPanel() {
     }
     return { stretch, cell, band, exploratory: early };
   });
+  const drawn = way.filter(d => delayShown(d, slot, exploratory));
+  const idle = way.length - drawn.length;
   const sufficient = drawn.filter(d => d.band !== "none" && !d.exploratory).length;
   const collected = (doc.days_collected || []).length;
-  const status = sufficient
+  const idleNote = idle ? ` ${idle} ${idle === 1 ? "stretch has" : "stretches have"} no buses
+       timetabled at this time, so ${idle === 1 ? "it is" : "they are"} left off.` : "";
+  const status = !drawn.length && idle
+    ? `No buses are timetabled this way at this time (${slot.hint}).`
+    : sufficient
     ? `${sufficient} of ${drawn.length} stretches have enough journeys to colour
-       (at least ${floor.journeys} journeys over ${floor.distinct_days} days).`
+       (at least ${floor.journeys} journeys over ${floor.distinct_days} days).${idleNote}`
     : `Collecting evidence: ${Math.min(collected, floor.distinct_days)} of the
        ${floor.distinct_days} days needed so far. Stretches colour in as each
-       reaches ${floor.journeys} journeys.`;
+       reaches ${floor.journeys} journeys.${idleNote}`;
 
   const label = s => `${s.service}${services.filter(x => x.service === s.service).length > 1
     ? ` · ${getOperatorName(s.operator) || s.operator}` : ""}`;
@@ -7125,6 +7160,121 @@ function loadStopDetails() {
   return state._stopDetailsPromise;
 }
 
+// ── What is at a stop, from OpenStreetMap (data/stop_osm.json) ──────
+//
+// Shelter, seating, kerb, tactile paving, wheelchair access: none of it is in
+// NaPTAN or the timetable. OpenStreetMap volunteers record it, many with
+// OpenStop, which asks these questions at the stop; scripts/build_stop_osm.py
+// joins it to our stops each week. The file is ODbL, so wherever its facts are
+// shown, "© OpenStreetMap contributors" is too.
+
+function loadStopOsm() {
+  if (!state._stopOsmPromise) {
+    state._stopOsmPromise = (async () => {
+      const res = await fetch("data/stop_osm.json");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      state.stopOsm = (data && typeof data.stops === "object") ? data.stops : {};
+      state.stopOsmMeta = { generated_on: data?.generated_on || "", osm_base: data?.osm_base || "",
+                            licence_url: data?.licence_url || "" };
+    })().catch(err => {
+      state._stopOsmPromise = null;
+      throw err;
+    });
+  }
+  return state._stopOsmPromise;
+}
+
+// Each recorded value, as a person would say it. A value not listed here is
+// not shown: the build keeps only these, and the page must not guess either.
+const STOP_OSM_FACTS = {
+  wheelchair: { yes: "Wheelchair accessible", limited: "Partly wheelchair accessible",
+                no: "Not wheelchair accessible" },
+  kerb: { raised: "Raised kerb", regular: "Standard kerb", lowered: "Lowered kerb",
+          flush: "Level with the road", rolled: "Rolled kerb", no: "No kerb" },
+  tactile_paving: { yes: "Tactile paving", partial: "Some tactile paving",
+                    incorrect: "Tactile paving (laid wrongly)", no: "No tactile paving" },
+  shelter: { yes: "Shelter", no: "No shelter" },
+  bench: { yes: "Seating", no: "No seating" },
+  lit: { yes: "Lit at night", no: "Not lit" },
+  departures_board: { realtime: "Live departure screen", timetable: "Printed timetable",
+                      yes: "Departure board", no: "No timetable display" },
+};
+
+// The facts that decide whether someone can use the stop at all. OpenStop asks
+// about all three, so where any is missing, that is where to send people.
+const STOP_ACCESS_KEYS = { wheelchair: "wheelchair access", kerb: "kerb height",
+                           tactile_paving: "tactile paving" };
+
+const OPENSTOP_URL = "https://openstop.app/";
+
+/** "Mar 2025" or "13 Oct 2026" from an OSM date. */
+function osmDateText(iso) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
+  if (!m) return "";
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +(m[3] || 1), 12));
+  return d.toLocaleDateString("en-GB", { ...(m[3] ? { day: "numeric" } : {}), month: "short",
+                                         year: "numeric", timeZone: "Europe/London" });
+}
+
+/** The "At this stop" block: what OpenStreetMap records here, what it does not
+ *  yet, and where to add it. Empty until the file has loaded. */
+function stopAccessHtml(atcoCode) {
+  if (!state.stopOsm) return "";
+  const row = state.stopOsm[atcoCode];
+  const title = `<h3 class="stop-access-title">At this stop</h3>`;
+  if (!row) {
+    return `${title}<p class="stop-access-gap">This stop is not in OpenStreetMap yet, so we
+      cannot say whether it has a shelter or step-free access.</p>`;
+  }
+  const facts = [];
+  for (const [key, words] of Object.entries(STOP_OSM_FACTS)) {
+    const text = words[row[key]];
+    if (text) facts.push(text);
+  }
+  // A live screen recorded both ways is one screen.
+  if (row.passenger_information_display === "yes" && row.departures_board !== "realtime") {
+    facts.push("Live departure screen");
+  }
+  const missing = Object.keys(STOP_ACCESS_KEYS).filter(k => !STOP_OSM_FACTS[k][row[k]])
+    .map(k => STOP_ACCESS_KEYS[k]);
+  const list = missing.length > 1
+    ? `${missing.slice(0, -1).join(", ")} and ${missing[missing.length - 1]}` : missing[0];
+  const gap = missing.length
+    ? `<p class="stop-access-gap">${escapeHtml(list[0].toUpperCase() + list.slice(1))} ${
+        missing.length > 1 ? "aren't" : "isn't"} recorded for this stop yet.
+        <a href="${escapeAttr(OPENSTOP_URL)}" target="_blank" rel="noopener">Add ${
+          missing.length > 1 ? "them" : "it"} with OpenStop</a>, and ${
+          missing.length > 1 ? "they show" : "it shows"} here within a week.</p>`
+    : "";
+  const meta = state.stopOsmMeta || {};
+  const checked = osmDateText(row.check_date);
+  const asOf = osmDateText(meta.osm_base || meta.generated_on);
+  const node = Number.isFinite(Number(row.id)) ? `https://www.openstreetmap.org/node/${Number(row.id)}` : "";
+  return `${title}
+    ${facts.length ? `<ul class="stop-access-facts">${facts.map(f => `<li>${escapeHtml(f)}</li>`).join("")}</ul>`
+      : `<p class="stop-access-gap">Nothing is recorded about this stop's shelter, seating or access yet.</p>`}
+    ${gap}
+    <p class="stop-access-source">From ${node ? `<a href="${escapeAttr(node)}" target="_blank" rel="noopener">OpenStreetMap</a>`
+      : "OpenStreetMap"}${checked ? `, checked ${escapeHtml(checked)}` : ""}${asOf ? `, as of ${escapeHtml(asOf)}` : ""}.
+      © OpenStreetMap contributors, <a href="${escapeAttr(safeUrl(meta.licence_url || "https://opendatacommons.org/licenses/odbl/1-0/"))}"
+      target="_blank" rel="noopener">ODbL</a>.</p>`;
+}
+
+/** Fill the open stop's "At this stop" block, loading the file the first time. */
+function renderStopAccess(atcoCode) {
+  const el = document.getElementById("stop-access");
+  if (!el) return;
+  const html = stopAccessHtml(atcoCode);
+  el.innerHTML = html;
+  el.hidden = !html;
+  if (!state.stopOsm) {
+    loadStopOsm().then(() => {
+      if (state.selectedStop?.atcoCode === atcoCode) renderStopAccess(atcoCode);
+    }).catch(() => {});
+  }
+}
+
 /** `{indicator, street, landmark, bearing}` for a stop, or null. */
 function stopDetail(atcoCode) {
   const row = (state.stopDetails || {})[atcoCode];
@@ -7234,6 +7384,7 @@ window.openDepartures = async function(atcoCode, stopName) {
   }
   const idEl = document.getElementById("departures-stop-id");
   if (idEl) idEl.textContent = `Stop ID ${atcoCode}`;
+  renderStopAccess(atcoCode);
   if (changedStop) state.boardFilter = null;
 
   // Make sure the Stop tab is the one in front
@@ -7821,6 +7972,8 @@ function buildDepartureRow(dep) {
   // The stop is closed: the row says which bus would have called, and that
   // it will not. See the closure notice above the board.
   const notServed = !!dep.not_served;
+  // A diversion allowance in the estimate (api/diversions.py), said in minutes.
+  const allowMin = live && dep.allowance_secs > 0 ? Math.max(1, Math.round(dep.allowance_secs / 60)) : 0;
   const { label, cssClass } = notServed
     ? { label: "Not served", cssClass: "status-late" }
     : live || cancelled
@@ -7845,6 +7998,10 @@ function buildDepartureRow(dep) {
       <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span>${
         notServed
           ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Not stopping here, see above for where to catch it</span>`
+          : allowMin
+          ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Time allows ${
+              allowMin} min for ${escapeHtml(dep.allowance_reason || "a diversion")}${
+              (dep.disruption_ids || []).length ? ", see notice above" : ""}</span>`
           : (dep.disruption_ids || []).length
           ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Disruption, see notice above</span>`
           : ""}</td>
@@ -8604,7 +8761,11 @@ function buildTicketInfoHtml(operatorRef, liveData = null, service = "") {
   const svc = String(service || "").trim().toUpperCase();
   const supplement = (meta.service_supplements || {})[svc];
   const note = (state.ticketOperatorNotes || {})[op];
-  if (!info && !zones.length && !supplement && !note) return "";
+  // Brighton & Hove's 1X, 3X and 25X take no cash: someone with only coins
+  // needs to know before the bus comes, not at the door.
+  const cashless = (meta.cashless_services || []).find(c => c.operator === op
+    && (c.services || []).includes(svc));
+  if (!info && !zones.length && !supplement && !note && !cashless) return "";
 
   const rows = [];
   const dates = [];
@@ -8614,6 +8775,7 @@ function buildTicketInfoHtml(operatorRef, liveData = null, service = "") {
         <span class="ticket-value">${escapeHtml(value)}</span>
       </div>`);
 
+  if (cashless) row(cashless.label || "Cashless", cashless.note);
   if (supplement && (!supplement.applies_to_operators
                      || supplement.applies_to_operators.includes(op))) {
     row(`${svc} night bus`, supplement.note || supplement.label);
@@ -8628,7 +8790,8 @@ function buildTicketInfoHtml(operatorRef, liveData = null, service = "") {
   for (const z of zones) {
     const f = z.fares || {};
     if (f.adult_day && f.adult_day.price_pence != null) {
-      const cash = f.adult_day_cash && f.adult_day_cash.price_pence != null
+      // No cash price on a route that takes no cash.
+      const cash = !cashless && f.adult_day_cash && f.adult_day_cash.price_pence != null
         ? ` (${formatGbp(f.adult_day_cash.price_pence)} cash)` : "";
       row(f.adult_day.label || z.name, `${formatGbp(f.adult_day.price_pence)} a day${cash}`);
     } else if (f.adult_week && f.adult_week.price_pence != null) {
@@ -8789,12 +8952,19 @@ function buildUpcomingStopsHtml() {
 
   let note = "";
   if (estimated) {
+    // A diversion allowance (api/diversions.py): said once, as the largest
+    // the list holds, since every time after the diversion includes one.
+    const allowed = ahead.filter(s => s.allowance_secs > 0);
+    const most = allowed.length ? Math.max(...allowed.map(s => s.allowance_secs)) : 0;
+    const allowance = most ? ` Times past ${escapeHtml(allowed[0].allowance_reason || "the diversion")}
+      include up to ${Math.max(1, Math.round(most / 60))} min for it: most buses going round it
+      lose at least that.` : "";
     const at = vehicle.recorded_at ? new Date(vehicle.recorded_at) : null;
     const atText = at && !isNaN(at) ? ` at ${formatTimeOfDay(at)}` : "";
     note = `<span class="live-dot" aria-hidden="true"></span> Estimated from how late
       the bus was when it last reported${escapeHtml(atText)}, assuming it stays
       that late; a crossed-out time is the timetabled one it replaces. Early buses wait at timing points. Buses can
-      make up time, so be at your stop by the timetabled time.
+      make up time, so be at your stop by the timetabled time.${allowance}
       <a href="about.html#live-times">How this works</a>`;
   } else if (fromCalls) {
     note = "From the bus's own list of stops · may be partial.";

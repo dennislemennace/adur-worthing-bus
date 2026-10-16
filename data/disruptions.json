@@ -61,6 +61,74 @@
         }
       ],
       "notes": "Stagecoach's Coastliner 700 and N700 also use this stretch and are timetabled at Brunswick Place and Norfolk Square. They are not in this Brighton & Hove Buses notice, but the stops are on the closed road, so no bus can call at them."
+    },
+    {
+      "id": "scso-700-western-road-hove-2026-09-28",
+      "record_for_analysis": true,
+      "summary": "Western Road closed between Holland Road and Montpelier Road",
+      "description": "On 28 of September we will close Western Road between Holland Road and Montpelier Road for 45 days. Bus diversion westbound: Waitrose on Western Road, right onto Montpelier Road, around 7 dials, along Goldmids and Davigdor Road, left down Holland Road, right to rejoin Western Road for Palmeira Square bus stop. Bus diversion eastbound: Palmeria Square, left onto Holland Road, right onto Landsdowne Road, right onto Montpelier Road, left back onto Western Road for the Waitrose bus stop.",
+      "advice": "Brunswick Place and Norfolk Square are not served. Use Palmeira Square or Waitrose instead.",
+      "reason": "roadworks",
+      "severity": "severe",
+      "starts": "2026-09-28T07:00:00+01:00",
+      "ends": "2026-11-12T23:59:00+00:00",
+      "publisher": "Brighton & Hove City Council",
+      "source_url": "https://www.brighton-hove.gov.uk/travel-and-road-safety/roads-and-highways/road-maintenance-programme-2026-2027",
+      "checked_on": "2026-10-15",
+      "lines": [
+        {
+          "operator": "SCSO",
+          "line": "700"
+        },
+        {
+          "operator": "SCSO",
+          "line": "N700"
+        }
+      ],
+      "stops_not_served": [
+        {
+          "atco": "149000006101",
+          "as_named": "Brunswick Place"
+        },
+        {
+          "atco": "149000007101",
+          "as_named": "Brunswick Place"
+        },
+        {
+          "atco": "149000006946",
+          "as_named": "Norfolk Square"
+        },
+        {
+          "atco": "149000007945",
+          "as_named": "Norfolk Square"
+        }
+      ],
+      "diversion_stops": [],
+      "diversions": [
+        {
+          "towards": "Worthing",
+          "routes": "700 and N700",
+          "via": [
+            "Montpelier Road",
+            "Seven Dials",
+            "Goldsmid Road",
+            "Davigdor Road",
+            "Holland Road"
+          ],
+          "rejoins": "Palmeira Square"
+        },
+        {
+          "towards": "Brighton",
+          "routes": "700 and N700",
+          "via": [
+            "Holland Road",
+            "Lansdowne Road",
+            "Montpelier Road"
+          ],
+          "rejoins": "Waitrose"
+        }
+      ],
+      "notes": "The council's notice names no operator. Stagecoach has published no notice of its own; the 700 has run this diversion since 28 September (measured from its tracked buses), and Brunswick Place and Norfolk Square are on the closed road."
     }
   ]
 }

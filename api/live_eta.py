@@ -30,12 +30,18 @@ probably been by, even though its last report put it short of the stop.
 A bus whose journey is only inferred gets no estimate at all. Inference picks
 the right departure about four times in five, which is good enough to show the
 stops ahead but not to say how late the bus is running.
+
+**Diversions.** Where a recorded diversion is in force (api/diversions.py), a
+bus that has not yet reached it gets an allowance at the stops beyond: a low
+figure measured from the buses that went round it, so the estimate stays on
+the later side of the bus. A bus already on it counts for its own lateness or
+the allowance, whichever is more. Stops it does not call at get no estimate.
 """
 
 from datetime import datetime, timedelta
 from typing import Optional
 
-from api import trip_match
+from api import diversions, trip_match
 from api.trip_match import LONDON
 
 # How long after an estimated time a stop is treated as already passed.
@@ -91,11 +97,14 @@ def projected_lateness(lateness: int, timing_points: list, start: int, count: in
     return out
 
 
-def project_trip(tt, trip_id: str, vehicle: dict, now: datetime) -> list:
+def project_trip(tt, trip_id: str, vehicle: dict, now: datetime,
+                 diversions_doc: Optional[dict] = None) -> list:
     """The stops still ahead of `vehicle` on `trip_id`, with estimates where honest.
 
     Each row: `stop_id, stop_name, seq, scheduled, expected, lateness_secs,
-    timing_point, passed, is_next, is_terminus`. The first row is the last stop
+    timing_point, passed, is_next, is_terminus`, plus `allowance_secs` and
+    `allowance_reason` where a diversion allowance is included, and
+    `not_served` for a stop the diversion skips. The first row is the last stop
     the bus has passed, when there is one, so a reader can see where it is.
     `expected` and `lateness_secs` are None unless the feed named the journey
     and it carries a lateness.
@@ -122,11 +131,21 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime) -> list:
     if origin is None:
         origin = place_on_day(calls[start][0], now).timestamp() - calls[start][0]
 
+    allowance = _allowances(tt, trip_id, calls, start, origin, lateness, projected,
+                            diversions_doc, now)
+    closed = allowance.pop("not_served", set())
+    reason = allowance.pop("reason", "")
+
     def row(j, late, passed):
         secs, atco = calls[j]
+        if j in closed:
+            late = None
+        extra = allowance.get(j, 0) if late is not None else 0
+        late = late + extra if late is not None else None
         scheduled = datetime.fromtimestamp(origin + secs, LONDON)
         expected = datetime.fromtimestamp(origin + secs + late, LONDON) if late is not None else None
-        return {
+        return {**({"allowance_secs": extra, "allowance_reason": reason} if extra else {}),
+                **({"not_served": True} if j in closed else {}),
             "stop_id": atco,
             "stop_name": (tt.stops.get(atco) or {}).get("name", atco),
             "seq": j,
@@ -153,21 +172,59 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime) -> list:
     if last_passed is not None:
         rows = rows[last_passed:]
     for r in rows:
-        if not r["passed"]:
+        if not r["passed"] and not r.get("not_served"):
             r["is_next"] = True
             break
     return rows
 
 
+def _allowances(tt, trip_id, calls, start, origin, lateness, projected, doc, now) -> dict:
+    """`{call index: seconds}` to add for a diversion in force, plus
+    `not_served` (call indexes) and `reason`. Empty when none applies."""
+    if not doc:
+        return {}
+    trip = tt.trips.get(trip_id) or {}
+    route_id = trip.get("route_id", "")
+    service = (tt.routes.get(route_id) or {}).get("short_name", "")
+    operator = tt.noc_for_route(route_id) if hasattr(tt, "noc_for_route") else ""
+    plan = diversions.plan_for_trip(doc, operator, service,
+                                    [atco for _secs, atco in calls], now)
+    if not plan:
+        return {}
+    out = {"not_served": plan["not_served"], "reason": plan["reason"]}
+    if lateness is None or start > plan["points"][0][0]:
+        # No lateness to add to, or the bus is past the diversion and its own
+        # lateness already carries what it lost there.
+        return out
+    secs = [s for s, _atco in calls]
+    entry_at = origin + secs[plan["entry"]] + max(int(lateness), 0)
+    day = datetime.fromtimestamp(origin + 12 * 3600, LONDON).date()
+    day_type = "weekday" if day.weekday() < 5 else "weekend"
+    period = diversions.period_for(entry_at)
+    on_it = start > plan["entry"]
+    for k, j in enumerate(range(start, len(calls))):
+        extra = diversions.extra_at(plan, j, day_type, period, secs)
+        if extra <= 0:
+            continue
+        if on_it:
+            # Already going round: what it has lost so far is in its lateness,
+            # so it counts for that or the allowance, whichever is more.
+            extra = max(0, extra - max(projected[k] or 0, 0))
+        if extra:
+            out[j] = extra
+    return out
+
+
 def estimate_at(tt, trip_id: str, vehicle: dict, stop_id: str,
-                aimed: datetime, now: datetime) -> Optional[dict]:
+                aimed: datetime, now: datetime,
+                diversions_doc: Optional[dict] = None) -> Optional[dict]:
     """The estimate for one call of one journey, if it is still ahead of the bus.
 
     Matched on the stop and its timetabled time, because a looping journey can
     call at the same stop twice. None when there is no honest estimate: the
     journey is not declared, the bus has passed the stop, or it isn't on it.
     """
-    for r in project_trip(tt, trip_id, vehicle, now):
+    for r in project_trip(tt, trip_id, vehicle, now, diversions_doc):
         if r["stop_id"] != stop_id or r["passed"] or r["expected"] is None:
             continue
         if abs(datetime.fromisoformat(r["scheduled"]).timestamp() - aimed.timestamp()) <= 60:

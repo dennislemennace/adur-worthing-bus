@@ -390,3 +390,103 @@ def test_a_map_cell_carries_only_what_the_map_uses(tt, tmp_path):
     published = doc["cells"][0]
     assert "route_pattern" not in published and "status" not in published, published
     assert published["data_versions"] == ["c4a758f1abfd1d1f"], published["data_versions"]
+
+
+def test_each_stretch_names_the_hours_its_buses_are_timetabled(tt, tmp_path):
+    """So the map can leave a stretch off when no bus runs it, instead of
+    showing "not enough journeys yet" for evidence that will never come. The
+    fixture's eastbound 700 runs weekday daytime only, its westbound daytime
+    and evenings; nothing runs at weekends, and neither direction in the
+    morning peak."""
+    from datetime import timedelta
+    from build_delay_hotspots import TIMETABLED_DAYS, build_map
+    build_map(_empty_result(), tt, DAY, tmp_path)
+    doc = _json.loads((tmp_path / "hotspot-map-700-SCSO.json").read_text())
+    assert doc["timetabled_days"] == [DAY.isoformat(), (DAY + timedelta(days=TIMETABLED_DAYS - 1)).isoformat()]
+    for s in doc["stretches"]:
+        hours = s["timetabled_hours"]
+        # The fixture timetable has no weekend at all: unknown, not "never".
+        assert set(hours) == {"weekday"}, hours
+        assert not {8, 9, 16, 17} & set(hours["weekday"]), (s["direction"], hours)
+        assert {10, 11, 12, 13, 14} <= set(hours["weekday"]), (s["direction"], hours)
+        evening = {18, 19, 20, 21, 22} <= set(hours["weekday"])
+        assert evening == (s["direction"] == "westbound"), (s["direction"], hours)
+
+
+def test_timetabled_hours_read_the_clock_and_never_guess_a_day_type():
+    from datetime import date
+    from build_delay_hotspots import timetabled_hours
+    profiles = [{"offsets": [0, 300, 900], "timepoints": [1, 1, 1]}]
+    weekday = {"trips": [["t1", "P", 0, 9 * 3600 + 3540, ""],          # 09:59, 10:04 at stop 1
+                         ["t2", "P", 0, 24 * 3600 + 1200, ""]],        # 24:20: twenty past midnight
+               "profiles": profiles}
+    saturday = {"trips": [["t3", "Q", 0, 12 * 3600, ""]], "profiles": profiles}
+    sections = {("P", 0, 1): "a", ("P", 1, 2): "b", ("Q", 0, 1): "c"}
+    got = timetabled_hours([(date(2026, 10, 12), weekday), (date(2026, 10, 17), saturday)], sections)
+    assert got["a"] == {"weekday": [0, 9], "weekend": []}
+    assert got["b"] == {"weekday": [0, 10], "weekend": []}
+    assert got["c"] == {"weekday": [], "weekend": [12]}
+    # A Sunday with no trips at all on any route says the timetable did not
+    # cover it, not that nothing ran: the day type is left out.
+    got = timetabled_hours([(date(2026, 10, 12), weekday), (date(2026, 10, 18), {"trips": [], "profiles": []})],
+                           sections)
+    assert got["a"] == {"weekday": [0, 9]}
+
+
+def test_the_published_map_check_refuses_hours_that_cannot_mean_anything():
+    import check_published as checks
+
+    def failures_for(hours):
+        doc = {"floor": {"journeys": 30, "distinct_days": 5}, "cells": [],
+               "stretches": [{"id": "s1", "geometry": [[0, 0], [0, 1]], "timetabled_hours": hours}]}
+        failures = checks.Failures()
+        checks.check_hotspot_map(doc, "m.json", failures)
+        return failures.items
+
+    assert not failures_for({"weekday": [7, 8, 23], "weekend": []})
+    for bad in ({"weekday": [24]}, {"weekday": [9, 8]}, {"weekday": [8, 8]}, {"monday": [8]},
+                {"weekday": ["8"]}, {"weekday": [True]}, [8, 9]):
+        assert failures_for(bad), bad
+
+
+def test_the_map_leaves_stretches_off_by_the_same_hours_it_files_them_under():
+    """app.js decides a stretch runs in a period from DELAY_PERIOD_HOURS; the
+    builder files a traversal under entry_period. A stretch could otherwise be
+    hidden from the very period its buses are counted in."""
+    import re
+    from datetime import datetime
+    from build_delay_hotspots import entry_period
+    from observation_contract import LONDON
+    app = (Path(__file__).resolve().parents[1] / "app.js").read_text()
+    block = app[app.index("const DELAY_PERIOD_HOURS = Object.freeze({"):]
+    block = block[:block.index("});")]
+    table = {key: {int(h) for h in re.findall(r"\d+", hours)}
+             for key, hours in re.findall(r'"?([\w-]+)"?: \[([^\]]*)\]', block)}
+    assert set(table) == {"08-10", "10-16", "16-18", "other"}, table
+    for hour in range(24):
+        at = datetime(2026, 9, 22, hour, 30, tzinfo=LONDON).timestamp()
+        assert [k for k, hours in table.items() if hour in hours] == [entry_period(at)], hour
+
+
+def test_a_stretch_outside_the_recorded_box_is_not_drawn_unless_measured(tt, tmp_path, monkeypatch):
+    """Routes run on past the box the recorder watches, and a stretch with no
+    stop inside it could only ever say "not enough journeys yet". Here the box
+    is cut short at the westbound 700's 31st stop."""
+    import process_snapshots as ps
+    from build_delay_hotspots import build_map
+    pattern_id, pattern = _real_stretch(tt)
+    beyond = set(pattern["atcos"][31:])
+    inside = [a for a in ps.stops_in_box(tt) if a not in beyond]
+    monkeypatch.setattr(ps, "stops_in_box", lambda _tt: inside)
+
+    def westbound_ends(cells, out):
+        build_map(_empty_result(cells=cells), tt, DAY, out)
+        doc = _json.loads((out / "hotspot-map-700-SCSO.json").read_text())
+        return {(s["from_atco"], s["to_atco"]) for s in doc["stretches"] if s["direction"] == "westbound"}
+
+    a = pattern["atcos"]
+    ends = westbound_ends([], tmp_path / "plain")
+    assert (a[30], a[40]) in ends, "a stretch leaving the box from inside it is still measurable"
+    assert (a[40], a[50]) not in ends
+    measured = westbound_ends([_cell(pattern_id, pattern, 40, 50)], tmp_path / "measured")
+    assert (a[40], a[50]) in measured, "measured evidence lands wherever it is"

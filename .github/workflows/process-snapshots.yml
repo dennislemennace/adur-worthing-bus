@@ -266,6 +266,11 @@ jobs:
           # Waiting, bunching and punctuality at timing points: a preview, small
           # per-service files the Simple view reads behind ?preview=1.
           python scripts/build_headways.py --observations inputs/window --out-dir headways
+          # Allowances for recorded diversions, which the API adds to live
+          # estimates past them (api/diversions.py). Written every night, empty
+          # when no event asks for one, so an old file is always replaced.
+          python scripts/build_diversion_adjustments.py --observations inputs/window \
+            --out diversion-adjustments.json --today "$DAY"
           # One artifact per service map and waiting file, validated with the rest of the candidate.
           MAP_ARTIFACTS=()
           shopt -s nullglob    # an empty folder adds nothing, not a literal '*.json'
@@ -277,6 +282,7 @@ jobs:
             --artifact "summary-$DAY.json=data/reliability/$DAY.json" \
             --artifact "rollup-$MONTH.json=rollup-$MONTH.json" \
             --artifact "hotspot-preview.json.gz=hotspot-preview.json.gz" \
+            --artifact "diversion-adjustments.json=diversion-adjustments.json" \
             "${MAP_ARTIFACTS[@]}" \
             --sources inputs/sources.json --evidence evidence.json \
             --previous-index previous-index.json --out candidate > build-id.txt

@@ -31,6 +31,7 @@ import argparse
 import gzip
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -223,6 +224,14 @@ def check_hotspot_map(doc, name, fails, size=None, raw=None):
     for s in doc.get("stretches") or []:
         if len(s.get("geometry") or []) < 2:
             fails.add("delay map stretch has no line to draw", f"{name} {s.get('id')}")
+        # The map leaves a stretch off at an hour this omits, which says no bus
+        # runs it then: a claim too, so it must be one the file can mean.
+        hours = s.get("timetabled_hours")
+        if hours is not None and not (
+                isinstance(hours, dict) and set(hours) <= {"weekday", "weekend"}
+                and all(isinstance(v, list) and v == sorted(set(v))
+                        and all(type(h) is int and 0 <= h <= 23 for h in v) for v in hours.values())):
+            fails.add("delay map stretch gives timetabled hours it cannot mean", f"{name} {s.get('id')}")
     for cell in doc.get("cells") or []:
         where = f"{name} {cell.get('stretch')} {cell.get('period', cell.get('hour'))}"
         if cell.get("stretch") not in stretches:
@@ -231,6 +240,46 @@ def check_hotspot_map(doc, name, fails, size=None, raw=None):
                   and (cell.get("distinct_days") or 0) >= floor.get("distinct_days", 5))
         if cell.get("sample_sufficient") and not clears:
             fails.add("delay map cell claims sufficiency below the floor", where)
+
+
+DIVERSIONS_MAX_BYTES = 1024 * 1024
+
+
+def check_diversions(doc, name, fails, raw=None):
+    """Allowances added to live estimates past a diversion
+    (scripts/build_diversion_adjustments.py, api/diversions.py).
+
+    Every figure moves a time on a departure board, so each must be a whole,
+    non-negative number of seconds under an hour, from a cell that clears the
+    floor it states, inside an event with dates the API can read.
+    """
+    if raw is not None and len(raw) > DIVERSIONS_MAX_BYTES:
+        fails.add("diversion allowances are too large", f"{name}: {len(raw)} bytes")
+    floor = doc.get("floor") or {}
+    if doc.get("schema_version") != 1 or not isinstance(doc.get("adjustments"), list):
+        fails.add("diversion allowances have no readable adjustments", name)
+        return
+    for adj in doc["adjustments"]:
+        where = f"{name} {adj.get('disruption_id')}"
+        try:
+            start = datetime.fromisoformat(adj["from"])
+            if adj.get("to") and datetime.fromisoformat(adj["to"]) <= start:
+                fails.add("diversion allowance ends before it starts", where)
+        except (KeyError, TypeError, ValueError):
+            fails.add("diversion allowance has no readable dates", where)
+        for svc in adj.get("services") or []:
+            if not svc.get("entry_atco") or not svc.get("points"):
+                fails.add("diversion allowance has no entry point or points", where)
+            for point in svc.get("points") or []:
+                for cell_name, cell in (point.get("cells") or {}).items():
+                    extra = cell.get("extra_secs")
+                    if type(extra) is not int or not 0 <= extra < 3600:
+                        fails.add("diversion allowance is not a sane number of seconds",
+                                  f"{where} {point.get('atco')} {cell_name}")
+                    if ((cell.get("journeys") or 0) < floor.get("journeys", 30)
+                            or (cell.get("days") or 0) < floor.get("distinct_days", 5)):
+                        fails.add("diversion allowance is below its floor",
+                                  f"{where} {point.get('atco')} {cell_name}")
 
 
 HEADWAYS_MAX_BYTES = 2 * 1024 * 1024
