@@ -184,3 +184,27 @@ def test_the_endpoints_carry_the_new_fields(tt, monkeypatch):
     with pytest.raises(main.HTTPException):
         asyncio.run(main.get_next_departures(stopId="4400SH01", service="<script>", operator=None,
                                              lat=None, lon=None))
+
+
+def test_a_bus_running_half_an_hour_late_stays_on_the_board(tt, monkeypatch):
+    """The 700 ran 15 to 30 minutes late through the Western Road works, and a
+    bus more than 15 minutes behind its timetable fell off the board before its
+    live estimate was applied: at Shoreham Terminal on 17 October 2026 the
+    15:46, running 29 minutes late and four stops away, was missing between the
+    16:08 and the 16:24. The row has to survive until the estimate decides."""
+    real = main.datetime
+
+    class Clock(real):
+        @classmethod
+        def now(cls, tz=None):
+            return real(2026, 10, 20, 9, 46, tzinfo=main.UK_TZ)    # 30 min after the 09:16
+
+    monkeypatch.setattr(main, "datetime", Clock)
+    base = main._departures_for_stop(tt, "4400SH01")
+    late = [d for d in base["departures"] if d["service"] == "77"]
+    assert late, "a departure half an hour behind its timetable was dropped before any estimate"
+    now = Clock.now()
+    # With no estimate it has gone; with one still ahead it stays.
+    assert main._drop_departed({"departures": [dict(late[0])]}, now)["departures"] == []
+    ahead = {**late[0], "expected_departure": (now + main.timedelta(minutes=3)).isoformat()}
+    assert main._drop_departed({"departures": [ahead]}, now)["departures"] == [ahead]

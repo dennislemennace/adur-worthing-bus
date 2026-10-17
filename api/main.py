@@ -3508,10 +3508,16 @@ async def _get_timetable() -> Timetable:
     return await off_loop(_get_timetable_sync)
 
 # ── Departure calculation ─────────────────────────────────────
-# How long after its scheduled time a departure is still worth showing, so a
-# late-running bus survives to have its prediction applied. Buses more than
-# this far behind are either gone or not coming.
-DELAY_GRACE_SECS = 15 * 60
+# How long after its scheduled time a departure is kept, so a late-running bus
+# survives to have its estimate applied. Only a row the estimate puts still
+# ahead outlives its scheduled time: `_drop_departed` removes the rest, and a
+# bus that has passed the stop gets no estimate (`live_eta.estimate_at`).
+#
+# It was 15 minutes, on the reasoning that buses further behind were gone or
+# not coming. Through the Western Road works the 700 ran 15 to 30 minutes late,
+# and on 17 October 2026 a 15:46 running 29 minutes late, four stops from
+# Shoreham Terminal, was missing from its board between the 16:08 and 16:24.
+DELAY_GRACE_SECS = 90 * 60
 BOARD_ROWS = 15
 
 
