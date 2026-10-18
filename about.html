@@ -114,9 +114,23 @@
     bus has probably already passed is shown as passed.
   </p>
   <p>
-    We only estimate for buses that tell us which timetabled journey they are
-    running, about seven in ten. For the others the Bus tab lists the stops
-    ahead with their timetable times, labelled as such.
+    We only estimate for buses whose own feed tells us which timetabled journey
+    they are running. In the recordings from 25 September to 14 October 2026
+    that was 96% of the journeys we tracked (Brighton &amp; Hove 97%, Stagecoach
+    93%, Compass 89%, Metrobus all of them). For the others the Bus tab lists
+    the stops ahead with their timetable times, labelled as such.
+  </p>
+  <p>
+    <strong>How close are the estimates?</strong> We replayed them against 20
+    recorded days (25 September to 14 October 2026, journeys outside recorded
+    disruptions): the estimate was within 2 minutes of when the bus actually left
+    the stop 71% of the time, against 47% for the timetable alone, and within 2
+    minutes 95% of the time when the bus was under 5 minutes away. About one
+    estimate in eight had the bus leave 2 minutes or more <em>earlier</em> than
+    it said, which is why we ask you to be at the stop by the timetabled time.
+    The replay starts from a fresh position, and the live feed arrives a few
+    minutes late, so real estimates are a little less accurate than this.
+    <a href="https://github.com/dennislemennace/adur-worthing-bus/blob/main/docs/reliability/live-eta-accuracy-2026-10-16.md">The full results and method</a>.
   </p>
   <p>
     Where a recorded diversion is in force, such as the Western Road closure in
@@ -200,14 +214,24 @@
     work out when each bus passed each stop. Then, for any two stops, we can
     say how long each tracked journey took between them.
   </p>
+  <p>
+    A bus's time at a stop is when it left: the last report that placed it within
+    150 metres of the stop, with the next report about a minute later as the
+    latest it could have gone. So a bus that waits at a stop is timed leaving
+    it, and times are good to about a minute, not to the second. In October
+    2026 we are checking these times against buses timed by hand at the
+    roadside, matched by the fleet number on each bus; the result will be
+    published here.
+  </p>
   <dl>
     <dt>Usually takes</dt>
     <dd>The middle value of every journey we timed between the two stops: half
       were quicker, half were slower. One bus stuck in traffic cannot move it.</dd>
     <dt>Allow</dt>
     <dd>How long to leave if you need to be on time: only 1 in 10 of the buses we
-      timed took longer. It is only shown once we have timed at least ten, and
-      with fewer than fifty it says exactly how many took longer.</dd>
+      timed took longer. It is only shown once we have timed at least ten, on at
+      least five different days, and with fewer than fifty it says exactly how
+      many took longer.</dd>
     <dt>When you travel</dt>
     <dd>Weekdays or weekends, then a time of day: the morning peak (08:00 to
       10:00), daytime (10:00 to 16:00), the evening peak (16:00 to 18:00), or

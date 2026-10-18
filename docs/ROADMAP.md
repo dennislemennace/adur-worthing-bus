@@ -499,13 +499,10 @@ plus View Transitions route suits this codebase better.
 
 ## Open decisions
 
-1. **Phase 1 scope** — gate debug, fix CORS, fix `render.yaml`. Any debug endpoint
-   that should stay reachable?
-2. **Pull Phase 1b forward?** 1–2 hours, and the Ticket view is currently a dead
-   end for mobile users who collapse the panel.
-3. **Aesthetic direction** — recommendation is the civic-transit re-theme.
-4. **Playwright** — set up the screenshot harness before Phase 3 so the restyle is
-   verifiable rather than hopeful.
+The four decisions this section listed (Phase 1 scope, pulling Phase 1b
+forward, the aesthetic direction and a screenshot harness) were all settled:
+Phases 1, 1b and 2 are done, the civic-transit theme shipped, and
+`scripts/browser_check.mjs` is the screenshot and layout harness.
 
 ---
 
@@ -551,16 +548,16 @@ Not part of the three phases, but still open:
 - **Delete the `fix-dark-basemap` branch.** Same fix as `main`, different SHA, so
   not an ancestor — merging it later would conflict for no reason.
   `git push origin --delete fix-dark-basemap && git branch -D fix-dark-basemap`
-- **GTFS midnight wraparound.** The builder wraps a 24:06 stop time to 00:06
-  mod 86400, so it sorts to the front of the trip — 460 of 39,528 trips (1.2%).
-  Currently *guarded* in `api/timetable_db.py` (`path_has_time_gap`,
-  `MAX_SECS_PER_STOP`), so affected journeys are excluded rather than shown
-  wrong. The real fix belongs in `scripts/build_timetable.py`.
+- ~~GTFS midnight wraparound.~~ Fixed in `scripts/build_timetable.py`, which
+  keeps times past 24:00 instead of taking them modulo a day, and
+  `scripts/check_timetable.py` refuses a build where they have been folded.
 - **`_noc_by_short_name` is last-row-wins** (`api/timetable_db.py:712`), so routes
   2/47/60 are misattributed to a Chichester Stagecoach service. Papered over with
   `_OPERATOR_OVERRIDES`; the TODO is still open.
-- **`app.js` is 6,539 lines** in one file.
-- **Env vars are still named `NEXTBUSES_*`** while pointing at TransportAPI.
+- **`app.js` is over 18,000 lines** in one file. Splitting it is the first step
+  of making the site a template for other regions.
+- **Env vars are still named `NEXTBUSES_*`** while pointing at TransportAPI. The
+  comments now say so; renaming the variables needs a coordinated Render change.
 - **Three-bus journeys cannot walk at the first change.** In
   `api/timetable_db.py`, the middle leg is searched only among trips calling at
   a stop the first bus reaches *exactly* (`trips_at(set(first))`), while the

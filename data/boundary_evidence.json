@@ -39,7 +39,7 @@
     ],
     "denominator": "Departures are divided by the number of stops in the same bucket, so the figure is departures per stop per day, not a total, which would only restate that one side has more stops.",
     "places": {
-      "summary": "The band shows the average effect of the line. The place comparison shows what it means somewhere specific: Lancing against South Portslade, six miles apart along the same coast road, one either side of the boundary.",
+      "summary": "The band shows the average effect of the line. The place comparison shows what it means somewhere specific: Lancing against South Portslade, about five miles apart along the same coast road, one either side of the boundary.",
       "pairing": "The nearest comparable place across the council boundary: both coastal, both on the same six-mile stretch of the A259 corridor, similar stop density. Chosen before the figures were computed.",
       "selection": "A stop belongs to a place when its coordinates fall inside that area's ONS polygon, tested by even-odd ray casting so enclosed holes count as outside.",
       "boundaries": {
@@ -431,7 +431,7 @@
   },
   "places": {
     "id": "lancing-vs-south-portslade",
-    "headline": "Six miles apart on the same coast road, and a quarter of the service.",
+    "headline": "About five miles apart on the same coast road, and a quarter of the service.",
     "west": {
       "id": "lancing",
       "name": "Lancing",

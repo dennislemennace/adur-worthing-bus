@@ -146,9 +146,13 @@ a lone failure is worth re-running before believing.
 
 ## Event travel guides
 
-The Green Party Conference guide (Brighton Centre, 2 to 4 October 2026) is
-kept as the template for the next event. It hid itself after its
-`show_until` date; the code stays in place.
+A travel guide for visitors to a large event in the area: how to reach the
+venue by bus and train, from where people stay, with tickets, late buses and
+access. The guide is neutral: it covers getting there, never the event's
+content, and any large event can have one (a conference, a match, a festival).
+The first was for the Green Party conference at the Brighton Centre (2 to 4
+October 2026); it hid itself after its `show_until` date and its data is kept
+as the template for the next.
 
 **Files.** `data/conference.json` (everything the guide says),
 `data/conference_stops.json` (built, for Find my nearest stop),
@@ -225,19 +229,14 @@ the verification record and scoped commits.
   services. The halves cover different stops, so no stop-pair time is counted
   twice, but journey counts include both. The same split will recur at each
   weekly timetable change.
-- The published R2 bucket will reach its 4 GiB budget within weeks: see
-  `LIMITS.md`. Choose a retention rule for old generations first.
+- ~~The published R2 bucket will reach its 4 GiB budget.~~ Retention keeps the
+  newest seven generations and prunes unreferenced objects
+  (`scripts/prune_published.py`); the nightly run warns past 80%.
 
-- The deployed timetable is rebuilt, but the old local `data/timetable.sqlite`
-  has not been replaced underneath the running API on port 8011. Stop that
-  local API before replacing its database with the verified release copy at
-  `/tmp/adur-timetable-published-20260908/timetable.sqlite`. The preview on
-  port 8765 proxies the deployed API and already uses the rebuilt timetable.
 - GitHub Pages domain verification (`_github-pages-challenge-*` TXT record) has
   not been added.
-- Two update photographs have no recorded provenance — see
+- Three update photographs have no recorded provenance: see
   `docs/ASSET_RIGHTS.md`.
-- The project has no `LICENSE` file while describing itself as open source.
 
 ## Stop board, last bus home and Route view's stops
 

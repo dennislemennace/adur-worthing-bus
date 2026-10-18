@@ -513,7 +513,7 @@ def main() -> None:
                 "summary": (
                     "The band shows the average effect of the line. The place "
                     "comparison shows what it means somewhere specific: Lancing "
-                    "against South Portslade, six miles apart along the same "
+                    "against South Portslade, about five miles apart along the same "
                     "coast road, one either side of the boundary."),
                 "pairing": areas.get("pairing", ""),
                 "selection": (
@@ -607,7 +607,7 @@ def main() -> None:
         "places": {
             "id": "lancing-vs-south-portslade",
             "headline": (
-                "Six miles apart on the same coast road, and a quarter of the "
+                "About five miles apart on the same coast road, and a quarter of the "
                 "service."),
             "west": {**{k: by_side["west"][k] for k in
                         ("id", "name", "council", "ons_code", "ons_name", "ons_type")},

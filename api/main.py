@@ -78,7 +78,9 @@ UK_TZ = ZoneInfo("Europe/London")
 # depot-parked buses that stop reporting (and BODS "zombie" vehicles).
 VEHICLE_STALE_SECONDS = 300
 
-# ── Traveline NextBuses (SIRI-SM real-time predictions) ───────
+# ── Live predictions: TransportAPI (formerly Traveline NextBuses) ──
+# The variables keep their NEXTBUSES_ names so the Render settings need no
+# change; the service behind them is TransportAPI.
 # Transport API (transportapi.com) — REST JSON live bus departures.
 # Set NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY in Render env vars.
 # Endpoint: GET {NEXTBUSES_BASE_URL}/{atcocode}/live.json?app_id=...&app_key=...
@@ -430,7 +432,8 @@ async def root():
         "ready":               ready,
         "bods_key_configured": bool(BODS_API_KEY),
         "timetable_loaded":    t is not None and t.ok(),
-        "timetable_file":      str(TIMETABLE_PATH),
+        # Whether the file is there, not where: the path is the server's
+        # business, and this answers anyone who asks.
         "timetable_exists":    TIMETABLE_PATH.exists(),
         "stops_in_timetable":  len(t.stops)  if t else 0,
         "routes_loaded":       len(t.routes) if t else 0,

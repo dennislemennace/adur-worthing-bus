@@ -1,5 +1,5 @@
 /**
- * app.js — Adur & Worthing Live Bus Tracker
+ * app.js — Worthing Brighton Bus
  *
  * Responsibilities:
  *  1. Initialise the Leaflet map centred on Adur & Worthing

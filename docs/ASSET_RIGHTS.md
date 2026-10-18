@@ -36,7 +36,7 @@ itself to the same standard for its pictures.
 | `media/updates/fare-cap-2-pounds.jpg` | Where did this photograph come from, and on what terms? The `credit` field is empty and marked `credit_status: "unconfirmed"` in `data/updates.json`. |
 | `media/updates/ticketer-contactless.jpg` | The same question. |
 | `media/updates/foi-act-2000.jpg` | Reported by the site owner as publicly licensed. Which licence, whose photograph, and the source link still need recording in `data/updates.json` before the credit can be filled in. |
-| Project licence | There is no `LICENSE` file, and the README describes the project as open source. Choosing a licence is the owner's decision, not one to make on their behalf — but the two statements should not both stand. |
+| Project licence | Settled: the code is under `LICENSE` (MIT) and the site's own words and data under `LICENSE-content.md`; third-party data keeps its own terms (`THIRD_PARTY_NOTICES.md`). |
 
 Operator liveries and route colours are used to identify services, which is
 descriptive use, not a claim of endorsement. The site says in its About page

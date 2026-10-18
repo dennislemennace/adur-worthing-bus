@@ -2,11 +2,31 @@
   "_comment": "Short articles about changes and news on the network. `official` is maintainer-written; `community` is published from submissions the same way ideas are — nothing reaches either file automatically. An `image` is optional: `src` is a path under media/updates/, `alt` describes it for anyone who cannot see it, `focus` is a CSS object-position keeping the important part in frame when the card crops it, and `credit` names whoever the photograph belongs to. Do not publish a third-party photograph without a credit and the right to use it.",
   "updates": [
     {
+      "id": "foi-west-sussex-overdue-complaint-to-ico",
+      "title": "West Sussex hasn't answered our FOI request, so we've complained to the ICO",
+      "date": "2026-10-18",
+      "author": "Connor R",
+      "summary": "The council's 20 working days to answer our request about bus planning ran out on 9 October. A reminder went unacknowledged, so we have complained to the Information Commissioner's Office.",
+      "topic": "Freedom of Information",
+      "body": "On 13 September we asked West Sussex County Council for its records on bus planning across the boundary with Brighton & Hove: where its bus funding goes, what it has discussed with Brighton & Hove, and who uses the Discovery ticket. The council acknowledged the request the same day, as FOI/13765.\n\nThe Freedom of Information Act gives a council 20 working days to answer, even if the answer is a refusal. For this request that ran out on 9 October. No answer came, and no explanation for the delay.\n\nWe then sent the council a reminder. That hasn't been acknowledged either.\n\nSo we have complained to the Information Commissioner's Office, which enforces the Act. Its guidance is that when an organisation does not respond, you follow up with it first and can then complain; no internal review is needed for a request that was never answered. The ICO can order the council to respond.\n\nNothing here says what the council will say, or that it is withholding anything. It says that a question about how buses are planned across the boundary has gone unanswered past the legal deadline. We'll publish the council's answer when it comes, alongside the timetable figures it will be read against.",
+      "links": [
+        {
+          "label": "The request and the council's replies (WhatDoTheyKnow)",
+          "url": "https://www.whatdotheyknow.com/request/bus_planning_strategy_and_data_o"
+        },
+        {
+          "label": "What to do if you are dissatisfied with the response (ICO)",
+          "url": "https://ico.org.uk/for-the-public/official-information/what-to-do-if-you-are-dissatisfied-with-the-response/"
+        }
+      ],
+      "status": "published"
+    },
+    {
       "id": "foi-request-to-west-sussex-on-bus-planning",
       "title": "We've asked West Sussex for its bus planning records",
       "date": "2026-09-13",
       "author": "Connor R",
-      "summary": "A Freedom of Information request asks West Sussex County Council where its bus money goes, what it has discussed with Brighton & Hove, and who uses the Discovery ticket. The council has until 9 October to reply.",
+      "summary": "A Freedom of Information request asks West Sussex County Council where its bus money goes, what it has discussed with Brighton & Hove, and who uses the Discovery ticket. The council had until 9 October to reply, and did not.",
       "topic": "Freedom of Information",
       "image": {
         "src": "media/updates/foi-act-2000.jpg",
@@ -42,6 +62,10 @@
       "body": "It matters more here than the headline suggests. Crossing the Worthing/Brighton DayRider boundary does not by itself require two buses, because the 700 runs straight through it. But a ticket boundary is where the day-ticket options stop covering you, so the fare cap is what keeps that journey at £6 return today and £4 from January. That is cheaper than every day ticket covering the same trip, which tells you something about how those zones are drawn.\n\nWhere two buses are needed, Lancing to Brighton say, it is two singles each way: £12 return today, £8 once the cap drops.\n\nThe Ticket view journey checker prices singles alongside day tickets, so you can see which is cheaper for a given trip.",
       "links": [
         {
+          "label": "£2 bus fares from January 2027 (GOV.UK, 22 July 2026)",
+          "url": "https://www.gov.uk/government/speeches/2-bus-fares-from-january-2027"
+        },
+        {
           "label": "£3 national bus fare cap (GOV.UK)",
           "url": "https://www.gov.uk/guidance/3-national-bus-fare-cap"
         }
@@ -52,7 +76,7 @@
       "id": "stagecoach-moves-to-ticketer-the-same-system-b-h-already-run",
       "title": "Stagecoach moves to Ticketer, the same system B&H already runs",
       "date": "2026-08-31",
-      "summary": "From September both major operators on this coast will run the same ticketing platform. That weakens the technical objection to accepting each other's tickets; it does not settle the commercial one.",
+      "summary": "Once Stagecoach's rollout, due to begin in September, reaches this coast, both major operators here will run the same ticketing platform. That weakens the technical objection to accepting each other's tickets; it does not settle the commercial one.",
       "topic": "Ticketing",
       "image": {
         "src": "media/updates/ticketer-contactless.jpg",
@@ -62,7 +86,7 @@
         "credit_status": "unconfirmed",
         "credit_note": "Source and permission not recorded. Needs the site owner to confirm where this came from and on what terms, or to be replaced. Not invented here: an attribution that is guessed is worse than one that is missing."
       },
-      "body": "Stagecoach has appointed Ticketer as its supplier of ticketing and real-time information technology, deploying the detachable TK300 ticket machine across its fleet. The national rollout begins in September. The platform combines electronic ticketing, vehicle location and real-time information in one system.\n\nEvery Brighton & Hove bus already runs Ticketer. So from September, the two operators that meet at Shoreham, where Brighton & Hove's network ends and Stagecoach's carries on west, will be issuing and reading tickets on the same equipment from the same supplier.\n\nWhat this changes is the strength of one argument, not the state of the network. Mutual ticket acceptance has always carried a technical objection: two different ticketing systems, two sets of hardware. A shared supplier makes that objection harder to sustain.\n\nIt does not by itself make acceptance possible. A rollout beginning in September is not the same as local completion, and common equipment is not the same as interoperable products or an agreed way of splitting the revenue between operators. Those are commercial decisions, and nobody has announced them. We are asking for them; we are not reporting them as done.",
+      "body": "Stagecoach has appointed Ticketer as its supplier of ticketing and real-time information technology, deploying the detachable TK300 ticket machine across its fleet. The national rollout was due to begin in September 2026. The platform combines electronic ticketing, vehicle location and real-time information in one system.\n\nEvery Brighton & Hove bus already runs Ticketer. So once the rollout reaches this coast, the two operators that meet at Shoreham, where Brighton & Hove's network ends and Stagecoach's carries on west, will be issuing and reading tickets on the same equipment from the same supplier.\n\nWhat this changes is the strength of one argument, not the state of the network. Mutual ticket acceptance has always carried a technical objection: two different ticketing systems, two sets of hardware. A shared supplier makes that objection harder to sustain.\n\nIt does not by itself make acceptance possible. A rollout beginning in September is not the same as local completion, and common equipment is not the same as interoperable products or an agreed way of splitting the revenue between operators. Those are commercial decisions, and nobody has announced them. We are asking for them; we are not reporting them as done.",
       "links": [
         {
           "label": "Stagecoach selects Ticketer for nationwide ticketing (routeone)",
