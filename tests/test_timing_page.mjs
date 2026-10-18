@@ -53,3 +53,12 @@ test("fleet numbers, stops near me and stop search", () => {
   const html = readFileSync(join(ROOT, "timing.html"), "utf8");
   assert.match(html, /<meta name="robots" content="noindex"/);
 });
+
+test("the stop's routes are buttons, the chosen one pressed, and nothing typed runs as markup", () => {
+  const html = fn("timingRouteChipsHtml")(["2", "700", "N700", "<b>"], "n700");
+  const pressed = [...html.matchAll(/data-route="([^"]+)"\s+aria-pressed="(true|false)"/g)]
+    .map(m => [m[1], m[2]]);
+  assert.deepEqual(pressed, [["2", "false"], ["700", "false"], ["N700", "true"], ["&lt;b&gt;", "false"]]);
+  assert.ok(!html.includes("<b>"), "a route name is text, not markup");
+  assert.equal(fn("timingRouteChipsHtml")(undefined, ""), "", "no stop chosen, no buttons");
+});

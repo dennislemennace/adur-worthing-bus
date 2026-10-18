@@ -227,6 +227,16 @@ lines and timetables are API calls too, and arrive with it.
   the site loads the file when a stop is opened or searched. If NaPTAN is
   down the workflow keeps last week's file.
 
+## bustimes.org — plate to fleet number (hand-timing check only)
+
+- `scripts/validate_hand_timings.py`, run by hand, never in a workflow. Only
+  when a timing log has a registration typed, and only when its cached
+  `fleet.json` is missing (or `--refresh-fleet`): one paged read of
+  `/api/vehicles/` for each of BHBC, METR, SCSO and COMT, about 4 requests of
+  500 vehicles, a second apart, with a User-Agent naming the site. The list is
+  community-maintained and is used only to read a typed plate; it is never
+  published or committed.
+
 ## OpenStreetMap Overpass — stop accessibility
 
 - `scripts/build_stop_osm.py`, weekly in update-timetable.yml, asks Overpass

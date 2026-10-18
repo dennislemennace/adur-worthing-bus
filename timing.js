@@ -3,9 +3,9 @@
  * A phone page for timing buses by hand at a stop, to check the site's own
  * stop times against times someone saw (docs/ROADMAP.md, "Check our stop
  * times against an independent record"). Tap when the doors open and when the
- * bus leaves; note its route and the fleet number or registration on it, which
- * is what lets each time be matched to exactly the bus we recorded
- * (scripts/validate_hand_timings.py).
+ * bus leaves, and note its route: scripts/validate_hand_timings.py matches each
+ * to the bus of that route we recorded at the same pole. A registration plate
+ * is optional, for telling apart two buses of one route at the stop together.
  *
  * Everything stays on the phone (localStorage) until it is exported. Nothing
  * is sent anywhere. Self-contained, like report.html: no app.js, no API.
@@ -48,6 +48,13 @@ function timingSearch(stops, text, n = 12) {
  *  "YX12_FRC". As scripts/validate_hand_timings.py normalises them. */
 function timingVehicleKey(text) {
   return String(text || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/** A button for each route at the stop, the one in `current` pressed. */
+function timingRouteChipsHtml(services, current) {
+  const now = String(current || "").trim().toUpperCase();
+  return (services || []).map(s => `<button type="button" class="chip" data-route="${tEsc(s)}"
+    aria-pressed="${String(s).toUpperCase() === now}">${tEsc(s)}</button>`).join("");
 }
 
 /** The London date of an instant, YYYY-MM-DD. */
@@ -132,8 +139,14 @@ function timingInit() {
       ? `<strong>${tEsc(stop.name)}</strong>${stop.towards ? `, towards ${tEsc(stop.towards)}` : ""}
          <span class="muted">${tEsc(stop.locality || "")} · ${tEsc(stop.atco_code)}</span>`
       : `<span class="muted">No stop chosen yet.</span>`;
-    $("route-list").innerHTML = (stop?.services || []).map(s => `<option value="${tEsc(s)}">`).join("");
+    $("route-chips").innerHTML = timingRouteChipsHtml(stop?.services, $("route").value);
     for (const b of document.querySelectorAll(".tap")) b.disabled = !stop;
+  };
+  const syncChips = () => {
+    const now = $("route").value.trim().toUpperCase();
+    for (const c of $("route-chips").querySelectorAll(".chip")) {
+      c.setAttribute("aria-pressed", String(c.dataset.route.toUpperCase() === now));
+    }
   };
   const choices = (list) => {
     $("stop-choices").innerHTML = list.map(s => `<li><button type="button" class="choice" data-atco="${tEsc(s.atco_code)}">
@@ -148,7 +161,7 @@ function timingInit() {
         <span>${e.arrived_at ? `doors ${timingClock(e.arrived_at)}` : ""}${e.arrived_at && e.departed_at ? " · " : ""}${
           e.departed_at ? `left ${timingClock(e.departed_at)}` : `<em>not left yet</em>`}</span></div>
       <label>Route <input data-field="route" value="${tEsc(e.route)}" autocomplete="off"></label>
-      <label>Fleet no. or reg <input data-field="vehicle" value="${tEsc(e.vehicle)}" autocomplete="off" autocapitalize="characters"></label>
+      <label>Registration <input data-field="vehicle" value="${tEsc(e.vehicle)}" autocomplete="off" autocapitalize="characters"></label>
       <label>Note <input data-field="note" value="${tEsc(e.note)}" autocomplete="off"></label>
       <button type="button" class="delete" data-act="delete">Delete</button></li>`).join("");
   };
@@ -192,6 +205,13 @@ function timingInit() {
     $("search").value = "";
     renderStop();
   });
+  $("route-chips").addEventListener("click", e => {
+    const c = e.target.closest("button.chip");
+    if (!c) return;
+    $("route").value = c.dataset.route;
+    syncChips();
+  });
+  $("route").addEventListener("input", syncChips);
   for (const b of document.querySelectorAll(".tap")) {
     b.addEventListener("click", () => {
       if (!stop) return;
@@ -199,7 +219,7 @@ function timingInit() {
         vehicle: $("vehicle").value.trim(), offsetMs });
       persist();
       renderLog();
-      if (b.dataset.kind === "departed") { $("route").value = ""; $("vehicle").value = ""; }
+      if (b.dataset.kind === "departed") { $("route").value = ""; $("vehicle").value = ""; syncChips(); }
       if (navigator.vibrate) navigator.vibrate(40);
     });
   }

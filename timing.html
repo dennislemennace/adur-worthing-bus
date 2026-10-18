@@ -13,10 +13,11 @@
     /* Self-contained, like report.html. Built for one hand at a bus stop:
        big targets, the clock in view, nothing to scroll past to tap. */
     :root { color-scheme: light dark; --ink: #12202f; --muted: #4a5868; --bg: #fbfaf7; --rule: #d8d3c8;
-            --link: #1a4b82; --panel: #f1eee6; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff; }
+            --link: #1a4b82; --panel: #f1eee6; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff;
+            --on-link: #ffffff; }
     @media (prefers-color-scheme: dark) {
       :root { --ink: #e8eef5; --muted: #a9b6c6; --bg: #090e1a; --rule: #263349; --link: #7fb3e8;
-              --panel: #121a2b; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff; }
+              --panel: #121a2b; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff; --on-link: #090e1a; }
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 Outfit, system-ui, sans-serif; }
@@ -46,6 +47,9 @@
     details { margin: .5rem 0; }
     summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
     .exports { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .25rem 0 .5rem; }
+    .chip { min-width: 56px; font-weight: 700; }
+    .chip[aria-pressed="true"] { background: var(--link); border-color: var(--link); color: var(--on-link); }
   </style>
   <script src="analytics-page.js" defer></script>
   <script src="timing.js" defer></script>
@@ -62,8 +66,10 @@
     <summary>How to time a bus</summary>
     <ol class="muted">
       <li>Choose the stop pole you are standing at: nearest, or search.</li>
-      <li>As a bus pulls in, type its route and the fleet number on the back or side (Stagecoach, Brighton &amp; Hove,
-        Metrobus), or its registration (Compass).</li>
+      <li>As a bus pulls in, tap its route (or type it). That is all most buses need: each is matched to the bus
+        of that route we recorded at this pole.</li>
+      <li>If two buses of the same route are at the stop together, also type the registration plate of the one you
+        are timing.</li>
       <li>Tap <strong>Doors open</strong> when they open, and <strong>Bus left</strong> the moment it pulls away.
         If you missed the doors, just tap Bus left.</li>
       <li>Fix any typing in the list below; it saves as you go. Export at the end of the session.</li>
@@ -80,11 +86,12 @@
   <ul id="stop-choices"></ul>
 
   <h2>This bus</h2>
+  <div class="chips" id="route-chips" role="group" aria-label="Routes at this stop"></div>
   <div class="row">
-    <label>Route <input id="route" list="route-list" autocomplete="off" inputmode="text" /></label>
-    <label>Fleet no. or reg <input id="vehicle" autocomplete="off" autocapitalize="characters" /></label>
+    <label>Route <input id="route" autocomplete="off" autocapitalize="characters" /></label>
+    <label>Registration <span class="muted">(optional)</span>
+      <input id="vehicle" autocomplete="off" autocapitalize="characters" placeholder="e.g. YX12 FRC" /></label>
   </div>
-  <datalist id="route-list"></datalist>
   <div class="row" style="margin-top:.5rem">
     <button type="button" class="tap" data-kind="arrived" disabled>Doors open</button>
     <button type="button" class="tap" data-kind="departed" disabled>Bus left</button>
