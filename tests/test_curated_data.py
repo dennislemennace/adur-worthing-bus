@@ -1084,9 +1084,14 @@ def test_a_published_image_has_a_credit_or_an_admitted_gap():
                     else entry.get("images") or []):
             credited = str(img.get("credit") or "").strip()
             admitted = img.get("credit_status") == "unconfirmed"
-            assert credited or admitted, (
-                f"{entry['id']}: {img.get('src')} has neither a credit nor an "
-                f"explicit credit_status of 'unconfirmed'")
+            # The owner can vouch for a photograph whose source they never
+            # noted, but only on the record: who confirmed it, and when.
+            vouched = (img.get("credit_status") == "owner_confirmed"
+                       and str(img.get("credit_note") or "").strip())
+            assert credited or admitted or vouched, (
+                f"{entry['id']}: {img.get('src')} has neither a credit, an "
+                f"explicit credit_status of 'unconfirmed', nor an "
+                f"'owner_confirmed' status with a credit_note")
 
 
 def test_the_asset_register_and_notices_exist():

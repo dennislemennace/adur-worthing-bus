@@ -76,11 +76,14 @@ or support particular councillors or candidates.
 - [ ] **Review the existing public issues** in `dennislemennace/adur-worthing-bus`
       that were filed by the old submission Worker. Delete any carrying someone's
       name, personal details or anything you would not publish today.
-- [ ] **ICO data protection fee**: run the ICO's self-assessment
+- [x] **ICO data protection fee**: the owner ran the ICO's self-assessment
       (<https://ico.org.uk/for-organisations/data-protection-fee/data-protection-fee-self-assessment/>)
-      and pay if it says so (tier 1 was £52 a year in 2026).
-- [ ] **Photo rights**: confirm the licence for the three photographs marked
-      unconfirmed in `docs/ASSET_RIGHTS.md`, or replace them.
+      and no fee is required (recorded 18 October 2026). Run it again if the
+      site starts processing personal data for a new purpose, such as a mailing
+      list or paid work.
+- [x] **Photo rights**: the owner confirmed on 18 October 2026 that the three
+      news photographs are free to use (`docs/ASSET_RIGHTS.md`). Their sources
+      are still not recorded; add a credit if any licence requires one.
 - [x] **Online Safety Act**: Ofcom's checker flagged "user-to-user service" and
       "search engine" to investigate. The site is treated as a small, low-risk
       user-to-user service and not a search service; the scope reasoning, the

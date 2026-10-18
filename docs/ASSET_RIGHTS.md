@@ -29,14 +29,25 @@ itself to the same standard for its pictures.
 | ONS boundary lookups | ONS Open Geography Portal | OGL v3.0, with the OS Crown copyright statement carried in `data/boundary_evidence.json`. |
 | Councillor names and published addresses | Each council's own member directory | Published by the councils for this purpose. `scripts/build_representatives.py` reads them and never derives an address from a name pattern. |
 
-## Unresolved — needs the owner's decision
+## Confirmed by the owner
 
-| Asset | Question |
+On 18 October 2026 the site owner confirmed that these three photographs are
+free to use. Each is marked `credit_status: "owner_confirmed"` in
+`data/updates.json`, with that confirmation in its `credit_note`.
+
+| Asset | Still not recorded |
 |---|---|
-| `media/updates/fare-cap-2-pounds.jpg` | Where did this photograph come from, and on what terms? The `credit` field is empty and marked `credit_status: "unconfirmed"` in `data/updates.json`. |
-| `media/updates/ticketer-contactless.jpg` | The same question. |
-| `media/updates/foi-act-2000.jpg` | Reported by the site owner as publicly licensed. Which licence, whose photograph, and the source link still need recording in `data/updates.json` before the credit can be filled in. |
-| Project licence | Settled: the code is under `LICENSE` (MIT) and the site's own words and data under `LICENSE-content.md`; third-party data keeps its own terms (`THIRD_PARTY_NOTICES.md`). |
+| `media/updates/fare-cap-2-pounds.jpg` | Photographer, licence name and source link. |
+| `media/updates/ticketer-contactless.jpg` | The same. |
+| `media/updates/foi-act-2000.jpg` | The same. It was first reported as "publicly licensed"; if that licence is a Creative Commons BY licence, a credit line is a condition of use, not a courtesy. |
+
+If any of the three needs attribution, record its source and fill in `credit`.
+
+## Settled
+
+| Asset | Terms |
+|---|---|
+| Project licence | The code is under `LICENSE` (MIT) and the site's own words and data under `LICENSE-content.md`; third-party data keeps its own terms (`THIRD_PARTY_NOTICES.md`). |
 
 Operator liveries and route colours are used to identify services, which is
 descriptive use, not a claim of endorsement. The site says in its About page
@@ -45,6 +56,7 @@ that it is independent of every operator and council named on it.
 ## The rule going forward
 
 `tests/test_curated_data.py` refuses an image that has neither a credit nor an
-explicit `credit_status: "unconfirmed"`. That is deliberately not the same as
+explicit `credit_status: "unconfirmed"`, or an `"owner_confirmed"` status
+with a `credit_note` saying who confirmed it and when. That is deliberately not the same as
 requiring a credit: it makes an unknown provenance a visible, recorded
 decision rather than an empty string nobody notices.

@@ -1,7 +1,7 @@
 # Online Safety Act 2023: scope and risk assessments
 
 Worthing Brighton Bus (worthingbrightonbus.co.uk). Assessed 15 September 2026
-by Connor R, who runs the site and is the person accountable for the duties
+by Connor Ranahan, who runs the site and is the person accountable for the duties
 below. This is the written record the Act and Ofcom's guidance expect. It is a
 volunteer's good-faith assessment, not legal advice; review it against Ofcom's
 current guidance and its risk assessment toolkit.
@@ -127,7 +127,7 @@ covered by the same review. **Overall: low risk.**
 
 ### Measures in place
 
-- **Accountability:** Connor R is responsible for compliance with the online
+- **Accountability:** Connor Ranahan is responsible for compliance with the online
   safety duties and for this record.
 - **Content moderation:** every submission is read before anything is
   published. Illegal content is not published; if something illegal is found
