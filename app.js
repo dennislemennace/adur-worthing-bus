@@ -12680,9 +12680,33 @@ function liveSearchIndex() {
   return out;
 }
 
+/** A stop letter typed with a name, before or after it, with or without
+ *  "stop": "brighton station b6", "b6 brighton station", "old steine stop c".
+ *  `{ base, letter }` to try, or null. */
+function stopSearchLetter(q) {
+  const words = q.split(/[\s,]+/).filter(Boolean);
+  const isLetter = w => /^([a-z]{1,2}\d{0,2}|\d{1,2})$/.test(w);
+  const tryAt = (letterAt, rest) => {
+    const base = rest.filter(w => !/^(stop|stand|bay)$/.test(w)).join(" ");
+    return base.length >= 2 ? { base, letter: words[letterAt] } : null;
+  };
+  if (words.length >= 2 && isLetter(words[words.length - 1])) {
+    return tryAt(words.length - 1, words.slice(0, -1));
+  }
+  if (words.length >= 2 && isLetter(words[0])) return tryAt(0, words.slice(1));
+  return null;
+}
+
+/** "b6" for a pole flagged "Stop B6", to compare with what was typed. */
+function stopLetterKey(atco) {
+  return stopLetter(atco).replace(/^(stop|stand|bay)\s+/i, "").toLowerCase();
+}
+
 function stopSearchMatches(query) {
   const q = (query || "").trim().toLowerCase();
   if (q.length < 2) return [];
+  // "Brighton Station B6": the name, and the letter on the flag.
+  const lettered = stopSearchLetter(q);
 
   // Gather everything, then rank. This used to return the moment the bus list
   // filled up, so railway stations were never even considered: "Worthing" and
@@ -12690,19 +12714,29 @@ function stopSearchMatches(query) {
   // station of that name entirely.
   const candidates = [];
   for (const c of liveSearchIndex()) {
-    if (!c.label.toLowerCase().includes(q)) continue;
+    const label = c.label.toLowerCase();
+    let atco = c.atcos[0], byLetter = false;
+    if (!label.includes(q)) {
+      if (!lettered || !label.includes(lettered.base)) continue;
+      atco = c.atcos.find(a => stopLetterKey(a) === lettered.letter);
+      if (!atco) continue;
+      byLetter = true;
+    }
     // "Stop D · towards Old Steine · 700, N700" — which pole, which way, and
     // what on.
-    const letter = c.atcos.length === 1 ? stopLetter(c.atcos[0]) : "";
+    const one = byLetter || c.atcos.length === 1;
+    const letter = one ? stopLetter(atco) : "";
+    const towards = byLetter ? (state.stopData?.[atco]?.towards || c.towards) : c.towards;
+    const services = byLetter ? (state.stopData?.[atco]?.services || c.services) : c.services;
     const bits = [letter || "Bus stop"];
-    if (c.towards) bits.push(`towards ${c.towards}`);
-    if (c.services && c.services.length) {
-      bits.push(c.services.slice(0, 4).join(", ")
-                + (c.services.length > 4 ? "…" : ""));
+    if (towards) bits.push(`towards ${towards}`);
+    if (services && services.length) {
+      bits.push(services.slice(0, 4).join(", ")
+                + (services.length > 4 ? "…" : ""));
     }
     candidates.push({
       kind: "stop", label: c.label, name: c.name || c.label,
-      atco: c.atcos[0], mode: bits.join(" · "),
+      atco, mode: bits.join(" · "), byLetter,
     });
   }
   for (const st of (state.railStations || [])) {
@@ -12714,7 +12748,8 @@ function stopSearchMatches(query) {
   }
 
   candidates.forEach((c, i) => {
-    c._rank = searchRank(c.name, c.label, q);
+    // The pole whose letter was typed is the most specific answer there is.
+    c._rank = c.byLetter ? -1 : searchRank(c.name, c.label, q);
     c._i = i;                                  // stable within a rank
   });
   candidates.sort((a, b) => (a._rank - b._rank) || (a._i - b._i));

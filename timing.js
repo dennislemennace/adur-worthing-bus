@@ -14,6 +14,7 @@
 
 const TIMING_KEY = "timing-log-v1";
 const TIMING_STOPS_URL = "data/stops.json";
+const TIMING_DETAILS_URL = "data/stop_details.json";
 
 function tEsc(value) {
   return String(value == null ? "" : value).replace(/[&<>"']/g, ch =>
@@ -34,14 +35,45 @@ function timingNearest(stops, lat, lon, n = 6) {
     .sort((a, b) => a.metres - b.metres).slice(0, n);
 }
 
-/** Stops whose name or place contains every word typed. */
+/** "B6" from NaPTAN's "Stop B6" (or "Stand 3", "Bay 2"); "" where the flag
+ *  carries no letter. As app.js's stopLetter. */
+function timingLetter(indicator) {
+  const m = /^(?:stop|stand|bay)\s+(\S{1,3})$/i.exec(String(indicator || "").trim());
+  return m ? m[1].toUpperCase() : "";
+}
+
+/** Stops matching every word typed, best first. A word that is this pole's
+ *  letter ("b6") counts most, then words in the stop's own name, then its
+ *  place or street, and least a word found only in where its buses go: a
+ *  search for "Brighton Station" is for the station's poles, not every stop
+ *  with buses heading there. "Stop" before a letter is ignored. */
 function timingSearch(stops, text, n = 12) {
-  const words = String(text || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const words = String(text || "").toLowerCase().split(/[\s,]+/)
+    .filter(w => w && !/^(stop|stand|bay)$/.test(w));
   if (!words.length) return [];
-  return stops.filter(s => {
-    const hay = `${s.name} ${s.locality || ""} ${s.towards || ""} ${s.atco_code}`.toLowerCase();
-    return words.every(w => hay.includes(w));
-  }).slice(0, n);
+  const scored = [];
+  for (const s of stops) {
+    const name = s.name.toLowerCase(), letter = (s.letter || "").toLowerCase();
+    const place = `${s.locality || ""} ${s.street || ""}`.toLowerCase();
+    const towards = (s.towards || "").toLowerCase(), code = s.atco_code.toLowerCase();
+    let score = 0;
+    for (const w of words) {
+      if (letter && w === letter) score += 100;
+      else if (name.includes(w)) score += 10;
+      else if (place.includes(w) || code.includes(w)) score += 3;
+      else if (towards.includes(w)) score += 1;
+      else { score = -1; break; }
+    }
+    if (score >= 0) scored.push({ s, score });
+  }
+  return scored.sort((a, b) => b.score - a.score || a.s.name.localeCompare(b.s.name))
+    .slice(0, n).map(x => x.s);
+}
+
+/** "Brighton Station, stop B6, towards George Street": the pole, said as the
+ *  flag says it. */
+function timingStopLabel(s) {
+  return `${tEsc(s.name)}${s.letter ? `, stop ${tEsc(s.letter)}` : ""}${s.towards ? `, towards ${tEsc(s.towards)}` : ""}`;
 }
 
 /** "10950", "SCSO-10950" and "scso 10950" are one bus; so are "YX12 FRC" and
@@ -136,7 +168,7 @@ function timingInit() {
 
   const renderStop = () => {
     $("stop-chosen").innerHTML = stop
-      ? `<strong>${tEsc(stop.name)}</strong>${stop.towards ? `, towards ${tEsc(stop.towards)}` : ""}
+      ? `<strong>${timingStopLabel(stop)}</strong>
          <span class="muted">${tEsc(stop.locality || "")} · ${tEsc(stop.atco_code)}</span>`
       : `<span class="muted">No stop chosen yet.</span>`;
     $("route-chips").innerHTML = timingRouteChipsHtml(stop?.services, $("route").value);
@@ -150,7 +182,7 @@ function timingInit() {
   };
   const choices = (list) => {
     $("stop-choices").innerHTML = list.map(s => `<li><button type="button" class="choice" data-atco="${tEsc(s.atco_code)}">
-      ${tEsc(s.name)}${s.towards ? `, towards ${tEsc(s.towards)}` : ""}
+      ${timingStopLabel(s)}
       <span class="muted">${tEsc(s.locality || "")}${s.metres != null ? ` · ${s.metres} m` : ""}</span></button></li>`).join("")
       || `<li class="muted">No stops found.</li>`;
   };
@@ -177,6 +209,17 @@ function timingInit() {
   fetch(TIMING_STOPS_URL).then(r => r.json()).then(doc => {
     stops = doc.stops || [];
     $("status").textContent = `${stops.length} stops loaded.`;
+    // The letters on the flags (NaPTAN), so "b6" finds stop B6. Search works
+    // without them, just less sharply.
+    return fetch(TIMING_DETAILS_URL).then(r => r.json()).then(details => {
+      const rows = details.stops || {};
+      for (const s of stops) {
+        const [indicator = "", street = ""] = rows[s.atco_code] || [];
+        s.letter = timingLetter(indicator);
+        s.street = street;
+      }
+      if ($("search").value.trim()) choices(timingSearch(stops, $("search").value));
+    }).catch(() => {});
   }).catch(() => { $("status").textContent = "The stop list did not load. Check your signal and reload."; });
 
   timingClockOffset().then(ms => {

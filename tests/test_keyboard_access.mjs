@@ -223,3 +223,32 @@ test("results name the services calling at the stop", () => {
   assert.ok(hits.every(h => /700/.test(h.mode)),
     "a result does not say what stops there");
 });
+
+test("a stop letter typed with the name finds that pole", () => {
+  // "Brighton Station B6": the letter on the flag is how people tell the
+  // station's eight poles apart, and typing it used to find nothing at all.
+  state.stopData = {
+    "149000006934": { name: "Brighton Station", lat: 50.8285, lon: -0.1412,
+                      towards: "Brighton Station B5", services: ["12"] },
+    "149000007932": { name: "Brighton Station", lat: 50.8287, lon: -0.1410,
+                      towards: "George Street (stop J)", services: ["7"] },
+    "149000099999": { name: "Queens Road", lat: 50.8260, lon: -0.1420,
+                      towards: "Brighton Station", services: ["7"] },
+  };
+  state.stopDetails = { "149000006934": ["Stop B5", "", "", ""], "149000007932": ["Stop B6", "", "", ""] };
+  state._stopIndex = null;
+  state._liveSearchIndex = null;
+  state.railStations = [{ crs: "BTN", name: "Brighton" }];
+  try {
+    for (const q of ["brighton station b6", "Brighton Station stop B6", "b6 brighton station"]) {
+      const hits = plain(app.stopSearchMatches(q));
+      assert.equal(hits[0] && hits[0].atco, "149000007932", q);
+      assert.match(hits[0].mode, /Stop B6/, "the result shows the letter it was found by");
+      assert.ok(!hits.some(h => h.atco === "149000006934"), `${q}: another pole's letter is not a match`);
+    }
+    const plainName = plain(app.stopSearchMatches("brighton station")).filter(h => h.kind === "stop");
+    assert.equal(plainName.length, 2, "without a letter, both poles");
+  } finally {
+    state.stopDetails = null;
+  }
+});

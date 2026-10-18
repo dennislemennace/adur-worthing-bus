@@ -49,7 +49,7 @@ test("fleet numbers, stops near me and stop search", () => {
   const near = fn("timingNearest")(stops, 50.8321, -0.2751, 1);
   assert.equal(near[0].atco_code, "4400AD0204");
   assert.ok(near[0].metres < 30);
-  assert.deepEqual(fn("timingSearch")(stops, "station portslade").map(s => s.atco_code), ["B"]);
+  assert.deepEqual([...fn("timingSearch")(stops, "station portslade")].map(s => s.atco_code), ["B"]);
   const html = readFileSync(join(ROOT, "timing.html"), "utf8");
   assert.match(html, /<meta name="robots" content="noindex"/);
 });
@@ -61,4 +61,24 @@ test("the stop's routes are buttons, the chosen one pressed, and nothing typed r
   assert.deepEqual(pressed, [["2", "false"], ["700", "false"], ["N700", "true"], ["&lt;b&gt;", "false"]]);
   assert.ok(!html.includes("<b>"), "a route name is text, not markup");
   assert.equal(fn("timingRouteChipsHtml")(undefined, ""), "", "no stop chosen, no buttons");
+});
+
+test("a stop letter typed finds that pole, and a stop's own name beats buses heading there", () => {
+  const letter = fn("timingLetter");
+  assert.deepEqual(["Stop B6", "stand 3", "Bay 12", "opp", "o/s 14", ""].map(letter), ["B6", "3", "12", "", "", ""]);
+  const pole = (atco_code, name, towards, l = "") => ({ atco_code, name, towards, letter: l, locality: "Brighton" });
+  const stops = [
+    pole("q1", "Queens Road", "Brighton Station"),
+    pole("b4", "Brighton Station", "Bottom of Davey Drive", "B4"),
+    pole("b6", "Brighton Station", "George Street (stop J)", "B6"),
+    pole("t1", "Trafalgar Street", "Brighton Station B6"),
+  ];
+  const search = q => [...fn("timingSearch")(stops, q)].map(s => s.atco_code);
+  for (const q of ["Brighton Station B6", "brighton station stop b6", "b6 brighton station"]) {
+    assert.equal(search(q)[0], "b6", q);
+  }
+  assert.ok(!search("brighton station b6").includes("b4"), "another pole's letter is not a match");
+  assert.deepEqual(search("brighton station").slice(0, 2).sort(), ["b4", "b6"],
+    "the station's own poles before stops whose buses go there");
+  assert.match(fn("timingStopLabel")(stops[2]), /Brighton Station, stop B6, towards George Street/);
 });
