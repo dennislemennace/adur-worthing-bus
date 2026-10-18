@@ -70,3 +70,15 @@ test("the page asks for the same file the nightly build writes", () => {
   assert.match(html, /<script src="report\.js" defer><\/script>/);
   assert.match(html, /@media print/);
 });
+
+test("the report says how often a bus left behind a later one, as a floor", () => {
+  const doc = { ...DOC, overtaking: { directions: [{ direction: "eastbound", day_type: "weekday", checked: 117, overtaken: 12 }],
+    worst: [{ direction: "eastbound", day_type: "weekday", period: "16-18", atco: "A", stop_name: "High Street",
+      checked: 97, overtaken: 7, days: 14 }] } };
+  const html = text(fn("reportHtml")(doc, {}));
+  assert.match(html, /Buses leaving behind a later one/);
+  assert.match(html, /Eastbound, weekdays 12 of 117 \(10%\)/);
+  assert.match(html, /High Street, eastbound, weekdays, evening peak, 16:00–18:00: 7 of 97 \(7%\) over 14 days/);
+  assert.match(html, /so these are floors/);
+  assert.doesNotMatch(text(fn("reportHtml")(DOC, {})), /Buses leaving behind/, "no section without the counts");
+});

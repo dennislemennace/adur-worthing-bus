@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1a4b82" />
+  <title>Key figures | Worthing Brighton Bus</title>
+  <meta name="description" content="The site's headline figures on bus service across the Brighton &amp; Hove and West Sussex boundary, each with its denominator, method, date and caveats." />
+  <link rel="canonical" href="https://worthingbrightonbus.co.uk/figures.html" />
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="stylesheet" href="fonts/fonts.css" />
+  <style>
+    /* Self-contained, like about.html and report.html. */
+    :root { color-scheme: light dark; --ink: #12202f; --muted: #4a5868; --bg: #fbfaf7; --rule: #d8d3c8;
+            --link: #1a4b82; --panel: #f1eee6; --accent: #1a4b82; }
+    @media (prefers-color-scheme: dark) {
+      :root { --ink: #e8eef5; --muted: #a9b6c6; --bg: #090e1a; --rule: #263349; --link: #7fb3e8;
+              --panel: #121a2b; --accent: #7fb3e8; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 Outfit, system-ui, sans-serif; }
+    .wrap { max-width: 46rem; margin: 0 auto; padding: 1.5rem 16px 4rem; }
+    h1 { font-family: Fraunces, Georgia, serif; font-size: 1.9rem; line-height: 1.2; margin: 1rem 0 .25rem; }
+    .lede { color: var(--muted); margin-top: 0; }
+    a { color: var(--link); }
+    .back { display: inline-block; font-weight: 600; }
+    .figure { border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 6px;
+              background: var(--panel); padding: .9rem 1rem; margin: 1rem 0; }
+    .claim { font-family: Fraunces, Georgia, serif; font-size: 1.2rem; line-height: 1.3; margin: 0 0 .4rem; }
+    .value { margin: 0 0 .6rem; }
+    dl { display: grid; grid-template-columns: 7.5rem 1fr; gap: .2rem .75rem; margin: 0 0 .5rem; font-size: .92rem; }
+    dt { font-weight: 600; color: var(--muted); }
+    dd { margin: 0; }
+    @media (max-width: 420px) { dl { grid-template-columns: 1fr; } dt { margin-top: .3rem; } }
+    .source { margin: 0; font-size: .92rem; }
+    footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); font-size: .875rem; }
+    @media print { .back { display: none; } body { background: #fff; color: #000; } .figure { break-inside: avoid; } }
+  </style>
+  <script src="analytics-page.js" defer></script>
+  <script src="figures.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="./">← Back to the map</a>
+  <h1>Key figures</h1>
+  <p class="lede">What the site has measured about buses either side of the Brighton &amp; Hove and West Sussex
+    boundary, and about its own accuracy. Every figure gives what it was divided by, how it was made, when, and
+    what would make it wrong. Quote them with that, and the date.</p>
+  <main id="figures" aria-live="polite"><p>Loading…</p></main>
+  <footer>
+    <p>From the published timetables and the buses' own location reports (Bus Open Data Service). The code, the
+      method and every input are public; <a href="about.html">about the site and how to correct it</a>.</p>
+    <a href="contact.html">Contact</a> ·
+    <a href="about.html">About and corrections</a> ·
+    <a href="privacy.html">Privacy</a> ·
+    <a href="terms.html">Terms</a> ·
+    <a href="./">Back to the map</a>
+  </footer>
+</div>
+</body>
+</html>

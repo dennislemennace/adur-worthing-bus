@@ -65,6 +65,10 @@ UNBOUNDED_SECS = 2 * 60
 LATE_SECS = 5 * 60
 # "Near the start": the journey's first three calls.
 START_CALLS = 3
+# How far after a bus to look for a later-timetabled one that left before
+# it. Wider than any frequent route's headway, narrow enough that a bus is
+# compared with the buses around it rather than the whole day.
+OVERTAKE_WINDOW_SECS = 90 * 60
 # A cell is offered once it rests on this much.
 MIN_DAYS = 5
 MIN_JUDGED = 30
@@ -260,7 +264,31 @@ def _new_cell():
             "bunched_definite": 0, "bunched_possible": 0, "left_together": 0, "closed_up": 0,
             "origin_unknown": 0, "judged": 0, "on_time": 0, "early": 0, "late": 0,
             "late_here": 0, "late_from_start": 0, "late_on_the_way": 0, "late_start_unknown": 0,
+            "order_checked": 0, "overtaken": 0,
             "excluded_by": set(), "days_marked": set()}
+
+
+def overtaken_at_stop(scheduled, passage_of):
+    """`{(trip, call): True or False}`: did a bus timetabled later leave this
+    timing point before this one?
+
+    Only buses identified from the operator's own feed, measured and without
+    flags, on either side: a journey inferred from position could be swapped
+    with its neighbour, and an interpolated time is our arithmetic. "Before"
+    means definitely before: the later bus's latest possible departure (the
+    next report after it left) is earlier than this bus's earliest (its last
+    report at the stop), so a minute's report spacing cannot fake it. A bus
+    is checked only when some later bus within OVERTAKE_WINDOW_SECS was
+    measured too; with nothing to compare, it says nothing either way.
+    """
+    out = {}
+    measured = [(secs, trip, call, passage_of(trip, call)) for secs, trip, call in scheduled]
+    measured = [m for m in measured if m[3] and m[3]["judged"] and m[3]["bounded"]]
+    for i, (secs, trip, call, mine) in enumerate(measured):
+        later = [p for s2, _t, _c, p in measured[i + 1:] if secs < s2 <= secs + OVERTAKE_WINDOW_SECS]
+        if later:
+            out[(trip, call)] = any(p["upper"] < mine["lower"] for p in later)
+    return out
 
 
 def _judge(cell, passage, journey_calls):
@@ -381,7 +409,7 @@ def _cell_out(key, c):
                                  "bunched_definite", "bunched_possible", "left_together", "closed_up",
                                  "origin_unknown")}})
     out.update({k: c[k] for k in ("judged", "on_time", "early", "late", "late_here", "late_from_start",
-                                  "late_on_the_way", "late_start_unknown")})
+                                  "late_on_the_way", "late_start_unknown", "order_checked", "overtaken")})
     out["sample_sufficient"] = (len(c["days_eligible"]) >= MIN_DAYS if kind == "frequent"
                                 else c["judged"] >= MIN_JUDGED and len(c["days_judged"]) >= MIN_DAYS)
     if c["excluded_by"]:
@@ -415,6 +443,9 @@ def build(rows, meta, exclusions=(), as_of=None):
         for passage in obs_day:
             seen_in[period_of(passage[0])].append(passage)
             seen_in["any"].append(passage)
+        # Across the whole day, so a bus is compared with the one due after it
+        # even when the two fall either side of a period boundary.
+        order = overtaken_at_stop(scheduled, lambda trip, call: seen.get((*key, trip, call)))
         for period, block in by_period.items():
             found = [(secs, trip, seen.get((*key, trip, call))) for secs, trip, call in block]
             runs, due = frequent_runs(block)
@@ -441,6 +472,10 @@ def build(rows, meta, exclusions=(), as_of=None):
                 _judge(cell, passage, calls.get((day, op, svc, direction, trip), []))
                 if passage and passage["judged"]:
                     cell["days_judged"].add(day)
+            for _secs, trip, call in block:
+                if (trip, call) in order:
+                    cell["order_checked"] += 1
+                    cell["overtaken"] += order[(trip, call)]
             if not frequent:
                 continue
             observed = [o for o in seen_in.get(period, []) if _in_runs(o[0], runs)]

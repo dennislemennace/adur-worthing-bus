@@ -126,3 +126,22 @@ def test_the_nightly_run_builds_and_publishes_them():
     assert 'name.startswith("route-report-")' in (ROOT / "scripts/publication_bundle.py").read_text()
     assert br.file_name("700", "SCSO") == "route-report-700-SCSO.json"
     assert br.file_name("N700", "SCSO") == "route-report-N700-SCSO.json"
+
+
+def test_overtaking_totals_by_direction_and_names_the_worst_timing_points():
+    hw = {"cells": [
+        {"period": "16-18", "direction": "eastbound", "day_type": "weekday", "atco": "A", "order_checked": 97,
+         "overtaken": 7, "days": 14},
+        {"period": "10-16", "direction": "eastbound", "day_type": "weekday", "atco": "B", "order_checked": 20,
+         "overtaken": 5, "days": 14},           # under the floor: totalled, never named
+        {"period": "any", "direction": "eastbound", "day_type": "weekday", "atco": "A", "order_checked": 117,
+         "overtaken": 12, "days": 14},          # the all-day cell repeats the others: not added again
+    ]}
+    got = br.overtaking(hw, {"A": "High Street"})
+    assert got["directions"] == [{"direction": "eastbound", "day_type": "weekday", "checked": 117, "overtaken": 12}]
+    assert [(w["stop_name"], w["overtaken"], w["checked"]) for w in got["worst"]] == [("High Street", 7, 97)]
+    doc = json.loads(json.dumps(report()))
+    doc["overtaking"] = {"directions": [{"direction": "x", "checked": 3, "overtaken": 4}], "worst": []}
+    fails = checks.Failures()
+    checks.check_route_report(doc, "route-report-700-SCSO.json", fails)
+    assert "route report's overtaking counts are not a share of the buses checked" in {c for c, _ in fails.items}

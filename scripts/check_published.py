@@ -370,6 +370,12 @@ def check_route_report(doc, name, fails, raw=None):
             fails.add("route report's day-to-day spread is not a spread", where)
     for row in (punct.get("by_period") or []) + (doc.get("trend") or []):
         counts(row, f"{name} {row.get('period') or row.get('week')}")
+    over = doc.get("overtaking") or {}
+    for row in (over.get("directions") or []) + (over.get("worst") or []):
+        checked, overtaken = row.get("checked"), row.get("overtaken")
+        if not (type(checked) is int and type(overtaken) is int and 0 <= overtaken <= checked):
+            fails.add("route report's overtaking counts are not a share of the buses checked",
+                      f"{name} {row.get('direction')} {row.get('atco', '')}")
 
 
 HEADWAYS_MAX_BYTES = 2 * 1024 * 1024

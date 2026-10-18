@@ -124,6 +124,24 @@ function waitsHtml(doc) {
       <th scope="col">Average wait</th><th scope="col">Long gaps</th></tr></thead><tbody>${rows}</tbody></table></div>` : "";
 }
 
+function overtakingHtml(doc) {
+  const over = doc.overtaking || {};
+  const totals = (over.directions || []).filter(d => d.checked);
+  if (!totals.length) return "";
+  const rows = totals.map(d => `<tr><th scope="row">${esc(direction(d.direction))}, ${
+      d.day_type === "weekday" ? "weekdays" : "weekends"}</th><td>${share(d.overtaken, d.checked)}</td></tr>`).join("");
+  const worst = (over.worst || []).map(w => `<li>${esc(w.stop_name || w.atco)}, ${esc(direction(w.direction).toLowerCase())},
+    ${w.day_type === "weekday" ? "weekdays" : "weekends"}, ${esc((REPORT_PERIODS[w.period] || w.period).toLowerCase())}:
+    ${share(w.overtaken, w.checked)} over ${w.days} days.</li>`).join("");
+  return `<h2>Buses leaving behind a later one</h2>
+    <p>How often a bus left a timing point after the bus timetabled to follow it: a late bus caught up and
+      passed, or a bus held while the next went by. Counted only when both buses were identified from the
+      operator's own feed and the later one certainly left first, so these are floors.</p>
+    <div class="scroll"><table><thead><tr><th scope="col">Direction and days</th><th scope="col">Left behind a later bus</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    ${worst ? `<h3>Where it happened most</h3><ul>${worst}</ul>` : ""}`;
+}
+
 function bottlenecksHtml(doc) {
   const rows = (doc.bottlenecks || []).map(b => `<tr><th scope="row">${esc(direction(b.direction))}</th>
     <td>${esc(b.from_name)} to ${esc(b.to_name)}</td>
@@ -175,6 +193,7 @@ function reportHtml(doc, index) {
     ${punctualityHtml(doc)}
     ${trendHtml(doc)}
     ${waitsHtml(doc)}
+    ${overtakingHtml(doc)}
     ${bottlenecksHtml(doc)}
     ${disruptionsHtml(doc)}
     ${sourcesHtml(doc, index)}`;

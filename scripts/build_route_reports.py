@@ -70,6 +70,8 @@ CAVEATS = [
     "Commissioners judge. Figures are measured against their published standard, not a compliance finding.",
     "Recorded disruptions are marked, not removed: the share of timings on disrupted journeys is given.",
     "Timings of one journey are not independent: a few bad journeys move a row more than its count suggests.",
+    "A bus counts as leaving behind a later one only when both were identified from the operator's feed and "
+    "the later bus certainly left first, by the reports' bounds, so the figure is a floor.",
 ]
 
 
@@ -180,6 +182,31 @@ def waits(headways, names):
     return out
 
 
+def overtaking(headways, names):
+    """How often a bus left a timing point behind one timetabled after it:
+    the total per direction, and the timing points where it happened most,
+    from the headways cells (scripts/build_headways.py, overtaken_at_stop)."""
+    if not headways:
+        return {"directions": [], "worst": []}
+    totals = defaultdict(lambda: [0, 0])
+    worst = []
+    for cell in headways.get("cells") or []:
+        if cell.get("period") == "any" or not cell.get("order_checked"):
+            continue
+        t = totals[(cell.get("direction"), cell.get("day_type"))]
+        t[0] += cell["order_checked"]
+        t[1] += cell.get("overtaken", 0)
+        if cell["order_checked"] >= MIN_JUDGED and (cell.get("days") or 0) >= MIN_DAYS and cell.get("overtaken"):
+            worst.append({"direction": cell.get("direction"), "day_type": cell.get("day_type"),
+                          "period": cell.get("period"), "atco": cell.get("atco"),
+                          "stop_name": names.get(cell.get("atco"), ""), "checked": cell["order_checked"],
+                          "overtaken": cell["overtaken"], "days": cell.get("days")})
+    worst.sort(key=lambda w: (-w["overtaken"] / w["checked"], -w["checked"]))
+    return {"directions": [{"direction": d, "day_type": dt, "checked": c, "overtaken": o}
+                           for (d, dt), (c, o) in sorted(totals.items(), key=lambda kv: [str(x) for x in kv[0]])],
+            "worst": worst[:3]}
+
+
 def bottlenecks(delay_map):
     """The stretches where buses lose most time, per direction, from cells at
     the map's floor in its latest timetable."""
@@ -255,6 +282,7 @@ def build(rows, meta, identification=None, headways_dir=None, map_dir=None, excl
             "identification": ((identification or {}).get("services") or {}).get(f"{svc}|{op}"),
             "punctuality": punct, "trend": trend,
             "waits": waits(hw, names), "bottlenecks": bottlenecks(dm),
+            "overtaking": overtaking(hw, names),
             "disruptions": [{"id": eid,
                              "label": by_id.get(eid, {}).get("label") or by_id.get(eid, {}).get("reason") or eid,
                              "from": by_id.get(eid, {}).get("from"), "to": by_id.get(eid, {}).get("to"),

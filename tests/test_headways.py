@@ -309,3 +309,31 @@ def test_a_loop_calling_twice_at_a_stop_is_two_passages():
     assert sum(c["scheduled_passages"] for c in at_a) == sum(c["accounted_passages"] for c in at_a) == 24
     assert sum(c["judged"] for c in at_a) == 24
     assert sum(c["late"] for c in at_a) == 12, "the return visit's own lateness, not the first visit's"
+
+
+def test_a_bus_that_leaves_after_a_later_timetabled_one_is_counted_as_overtaken():
+    """Through the Western Road works the 700 ran so late that a bus could leave
+    a stop behind the one timetabled after it. Counted only when it certainly
+    happened: both buses identified from the operator's feed, and the later
+    bus's latest possible departure before the earlier bus's earliest."""
+    import build_headways as bh
+
+    def passage(lower, upper, judged=True, bounded=True):
+        return {"lower": lower, "upper": upper, "judged": judged, "bounded": bounded}
+
+    h = 3600
+    scheduled = [(8 * h, "A", 1), (8 * h + 600, "B", 1), (8 * h + 1200, "C", 1), (8 * h + 1800, "D", 1)]
+    passages = {
+        ("A", 1): passage(8 * h + 1500, 8 * h + 1560),     # the 08:00 left at 08:25
+        ("B", 1): passage(8 * h + 720, 8 * h + 780),       # the 08:10 at 08:12
+        ("C", 1): passage(8 * h + 1460, 8 * h + 1520),     # the 08:20 at 08:24, bounds overlap A's
+        ("D", 1): passage(8 * h + 1800, 8 * h + 1860, judged=False),   # inferred: ignored
+    }
+    got = bh.overtaken_at_stop(scheduled, lambda trip, call: passages.get((trip, call)))
+    assert got[("A", 1)] is True, "the 08:10 certainly left before the 08:00"
+    assert got[("B", 1)] is False
+    assert ("C", 1) not in got, "nothing measured after it to compare with"
+    assert ("D", 1) not in got, "an inferred journey could be swapped with its neighbour"
+    # Overlapping bounds are not proof: C alone after A would not count.
+    only = bh.overtaken_at_stop([scheduled[0], scheduled[2]], lambda t, c: passages.get((t, c)))
+    assert only[("A", 1)] is False
