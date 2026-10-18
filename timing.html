@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#1a4b82" />
+  <title>Departure timing log | Worthing Brighton Bus</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="stylesheet" href="fonts/fonts.css" />
+  <style>
+    /* Self-contained, like report.html. Built for one hand at a bus stop:
+       big targets, the clock in view, nothing to scroll past to tap. */
+    :root { color-scheme: light dark; --ink: #12202f; --muted: #4a5868; --bg: #fbfaf7; --rule: #d8d3c8;
+            --link: #1a4b82; --panel: #f1eee6; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff; }
+    @media (prefers-color-scheme: dark) {
+      :root { --ink: #e8eef5; --muted: #a9b6c6; --bg: #090e1a; --rule: #263349; --link: #7fb3e8;
+              --panel: #121a2b; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 Outfit, system-ui, sans-serif; }
+    .wrap { max-width: 34rem; margin: 0 auto; padding: 12px 16px 48px; }
+    h1 { font-family: Fraunces, Georgia, serif; font-size: 1.35rem; margin: .25rem 0; }
+    h2 { font-size: 1rem; margin: 1.25rem 0 .4rem; }
+    a { color: var(--link); }
+    .muted { color: var(--muted); font-size: .9rem; }
+    #clock { font: 700 2.4rem/1.1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .02em; margin: .25rem 0; }
+    button, input { font: inherit; }
+    button { min-height: 44px; border-radius: 8px; border: 1px solid var(--rule); background: var(--panel);
+             color: var(--ink); padding: .4rem .8rem; cursor: pointer; }
+    input { min-height: 44px; width: 100%; padding: .4rem .6rem; border: 1px solid var(--rule); border-radius: 8px;
+            background: var(--bg); color: var(--ink); }
+    label { display: block; margin: .4rem 0; font-weight: 600; }
+    .row { display: flex; gap: .5rem; }
+    .row > * { flex: 1; min-width: 0; }
+    .tap { min-height: 88px; font-size: 1.2rem; font-weight: 700; border: 0; color: var(--on-fill); }
+    .tap[data-kind="arrived"] { background: var(--stop); }
+    .tap[data-kind="departed"] { background: var(--go); }
+    .tap:disabled { opacity: .45; cursor: not-allowed; }
+    #stop-choices, #log { list-style: none; margin: 0; padding: 0; }
+    .choice { width: 100%; text-align: left; margin: .25rem 0; display: block; }
+    #log li { border-top: 1px solid var(--rule); padding: .5rem 0; }
+    .row-head { display: flex; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+    .delete { margin-top: .25rem; }
+    details { margin: .5rem 0; }
+    summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
+    .exports { display: flex; flex-wrap: wrap; gap: .5rem; }
+  </style>
+  <script src="analytics-page.js" defer></script>
+  <script src="timing.js" defer></script>
+</head>
+<body>
+<div class="wrap" id="timing">
+  <h1>Departure timing log</h1>
+  <p class="muted">For checking our recorded stop times against times seen by hand. Everything stays on this
+    phone until you export it.</p>
+  <div id="clock" aria-live="off">--:--:--</div>
+  <p class="muted" id="offset">Checking this phone's clock…</p>
+
+  <details>
+    <summary>How to time a bus</summary>
+    <ol class="muted">
+      <li>Choose the stop pole you are standing at: nearest, or search.</li>
+      <li>As a bus pulls in, type its route and the fleet number on the back or side (Stagecoach, Brighton &amp; Hove,
+        Metrobus), or its registration (Compass).</li>
+      <li>Tap <strong>Doors open</strong> when they open, and <strong>Bus left</strong> the moment it pulls away.
+        If you missed the doors, just tap Bus left.</li>
+      <li>Fix any typing in the list below; it saves as you go. Export at the end of the session.</li>
+    </ol>
+  </details>
+
+  <h2>Stop</h2>
+  <div id="stop-chosen" aria-live="polite"></div>
+  <div class="row" style="margin-top:.5rem">
+    <button type="button" id="near">Nearest stops</button>
+  </div>
+  <label for="search">Or search</label>
+  <input id="search" type="search" placeholder="Stop name or place" autocomplete="off" />
+  <ul id="stop-choices"></ul>
+
+  <h2>This bus</h2>
+  <div class="row">
+    <label>Route <input id="route" list="route-list" autocomplete="off" inputmode="text" /></label>
+    <label>Fleet no. or reg <input id="vehicle" autocomplete="off" autocapitalize="characters" /></label>
+  </div>
+  <datalist id="route-list"></datalist>
+  <div class="row" style="margin-top:.5rem">
+    <button type="button" class="tap" data-kind="arrived" disabled>Doors open</button>
+    <button type="button" class="tap" data-kind="departed" disabled>Bus left</button>
+  </div>
+  <p class="muted" id="status" role="status" aria-live="polite"></p>
+
+  <h2 id="count">0 buses logged</h2>
+  <div class="exports">
+    <button type="button" id="share">Share or copy CSV</button>
+    <button type="button" id="download">Download CSV</button>
+    <button type="button" id="clear">Clear log</button>
+  </div>
+  <ul id="log"></ul>
+</div>
+</body>
+</html>

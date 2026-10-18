@@ -23,3 +23,7 @@ data/.nb_quota.json
 
 # Screenshot output from scripts/browser_check.mjs --shots
 shots/
+
+# Private Euro Bus Expo briefing pack (pitches, Q&A, exhibitor notes, deck).
+# Kept local on purpose: never committed to the public repo.
+expo-2026/
