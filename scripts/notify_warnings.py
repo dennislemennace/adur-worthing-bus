@@ -50,6 +50,8 @@ TITLES = {
     "backlog": "A recorded day was not published",
     "published-budget": "The published bucket is filling up",
     "retention": "Old published files could not be cleared",
+    "timetable-expiry": "The timetable runs out for {arg}",
+    "objective-drift": "A figure quoted in the objectives no longer matches the evidence",
 }
 
 ADVICE = {
@@ -69,6 +71,14 @@ ADVICE = {
     "retention": (
         "Retention could not verify what retained builds depend on, so it deleted nothing. The bucket "
         "grows until this is fixed: see `scripts/prune_published.py`."),
+    "timetable-expiry": (
+        "The timetable the site serves has no trips for this operator or route on some of the next 14 "
+        "days: its calendars have run out or the operator has dropped out of the feed. Look at why the "
+        "weekly `update-timetable.yml` has not replaced it, fix that, and run it by hand."),
+    "objective-drift": (
+        "The weekly rebuild published the new timetable and evidence, but a figure quoted in "
+        "data/objectives.json now differs from data/boundary_evidence.json. Update the `quoted` value and "
+        "its sentence to the new figure; until then CI on the next push fails the same check."),
 }
 
 

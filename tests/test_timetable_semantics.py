@@ -758,3 +758,56 @@ def test_a_build_describing_no_local_service_blocks_every_cohort(
                    "R25X": ("20261001", "20261003")})
     assert tt.uncovered_cohorts(date(2026, 9, 22), ["4400SH01"]) == [
         ["BHBC", "25X"], ["SCSO", "700"]]
+
+
+def _operators_db(path, end_date="20261101"):
+    """Two operators' worth of calendars: one weekday-and-weekend service that
+    ends on `end_date`, and one that runs on for months."""
+    con = sqlite3.connect(path)
+    con.executescript("""
+        CREATE TABLE routes (rid INTEGER, route_id TEXT, short_name TEXT, long_name TEXT, noc TEXT);
+        CREATE TABLE trips (tid INTEGER, trip_id TEXT, rid INTEGER, service_id TEXT, headsign TEXT,
+                            shape_id TEXT, block_id TEXT);
+        CREATE TABLE calendar (service_id TEXT, monday INT, tuesday INT, wednesday INT, thursday INT,
+                               friday INT, saturday INT, sunday INT, start_date TEXT, end_date TEXT);
+        CREATE TABLE calendar_dates (service_id TEXT, date TEXT, exception INT);
+        INSERT INTO routes VALUES (1, 'R1', '1', '', 'BHBC'), (2, 'R700', '700', '', 'SCSO');
+        INSERT INTO trips VALUES (1, 'T1', 1, 'BH', '', '', ''), (2, 'T700', 2, 'SC', '', '', '');
+    """)
+    con.execute("INSERT INTO calendar VALUES ('BH', 1,1,1,1,1,1,1, '20261004', ?)", (end_date,))
+    con.execute("INSERT INTO calendar VALUES ('SC', 1,1,1,1,1,1,1, '20261004', '20270704')")
+    con.commit()
+    return con
+
+
+def test_the_release_check_refuses_calendars_that_run_out_within_a_fortnight(tmp_path):
+    """The 4 October build's Brighton & Hove calendars ended on 1 November,
+    two days before Euro Bus Expo, and nothing noticed: three weekly rebuilds
+    had failed for other reasons and the old file kept serving."""
+    from datetime import date
+    import check_timetable
+
+    con = _operators_db(tmp_path / "t.sqlite")
+    required = ("BHBC", "SCSO", ("SCSO", "700"))
+    clear = check_timetable.forward_coverage(con, date(2026, 10, 18), 14, required)
+    assert clear == {"BHBC": [], "SCSO": [], ("SCSO", "700"): []}
+    gaps = check_timetable.forward_coverage(con, date(2026, 10, 25), 14, required)
+    assert [d.isoformat() for d in gaps["BHBC"]][:2] == ["2026-11-02", "2026-11-03"]
+    assert gaps["SCSO"] == [] and gaps[("SCSO", "700")] == []
+    missing = check_timetable.forward_coverage(con, date(2026, 10, 18), 14, ("METR",))
+    assert len(missing["METR"]) == 14, "an operator missing from the feed is a gap on every day"
+
+
+def test_the_nightly_watch_raises_a_notice_while_calendars_run_out(tmp_path):
+    from datetime import date
+    import check_timetable
+    import notify_warnings
+
+    _operators_db(tmp_path / "t.sqlite").close()
+    notices = tmp_path / "notices.tsv"
+    assert check_timetable.coverage_notices(tmp_path / "t.sqlite", notices, today=date(2026, 10, 25)) == 0
+    got = notify_warnings.read_notices(notices.read_text())
+    assert got["timetable-expiry:bhbc"].startswith("The timetable being served has no BHBC trips from 2026-11-02")
+    assert got["timetable-expiry:scso"] is None and got["timetable-expiry:scso-700"] is None
+    workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/process-snapshots.yml").read_text()
+    assert 'check_timetable.py data/timetable.sqlite --notices "$NOTICES"' in workflow

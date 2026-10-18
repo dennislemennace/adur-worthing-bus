@@ -7,6 +7,11 @@ on:
 
 permissions:
   contents: write
+  # To tell the maintainer when a quoted figure drifts (scripts/notify_warnings.py).
+  issues: write
+
+env:
+  NOTICES: ${{ github.workspace }}/notices.tsv
 
 # Two runs of this must not interleave: they both push to main and both move
 # the same rolling release tag.
@@ -123,8 +128,16 @@ jobs:
       - name: Recompute published statistics
         run: python -u scripts/build_evidence.py
 
+      # Everything except whether the objectives' prose still quotes the new
+      # figures exactly. A 0.1 drift in one quoted figure (South Portslade,
+      # 121.8 to 121.7 departures per stop) blocked the 18 October timetable,
+      # while the one being served ran out of Brighton & Hove trips on
+      # 1 November. The timetable must not wait for a sentence: the drift is
+      # reported after publishing, below, and push CI still enforces it.
       - name: Validate refreshed statistics
-        run: python -m pytest -q tests/test_curated_data.py
+        run: |
+          python -m pytest -q tests/test_curated_data.py \
+            --deselect tests/test_curated_data.py::test_objective_prose_matches_the_evidence_it_cites
 
       - name: Generate SHA-256 sidecar
         run: |
@@ -185,6 +198,16 @@ jobs:
           git commit -m "Refresh boundary statistics and stop list from the $(date -u +%Y-%m-%d) timetable"
           git push
 
+      # After publishing, so it can no longer hold the timetable back.
+      - name: Check the objectives still quote the evidence
+        run: |
+          if python -m pytest -q tests/test_curated_data.py::test_objective_prose_matches_the_evidence_it_cites; then
+            printf 'objective-drift\tclear\n' >> "$NOTICES"
+          else
+            echo "::warning::A figure quoted in data/objectives.json no longer matches the new evidence"
+            printf 'objective-drift\twarn\tA figure quoted in data/objectives.json no longer matches data/boundary_evidence.json after the %s rebuild; see the log of this run.\n' "$(date -u +%Y-%m-%d)" >> "$NOTICES"
+          fi
+
       # Dated releases are evidence inputs. Do not prune a timetable that an
       # immutable observation build may reference. Each reliability archive
       # also retains its exact input timetable and full hash.
@@ -198,3 +221,11 @@ jobs:
             exit 0
           fi
           curl -fsSL -X POST "$HOOK"
+
+      - name: Tell the maintainer about this run's notices
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/notify_warnings.py --notices "$NOTICES" --day "$(date -u +%Y-%m-%d)" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

@@ -224,6 +224,12 @@ jobs:
         run: |
           OBS="observations-${{ steps.day.outputs.day }}.json.gz"
           python scripts/check_declared_journeys.py "$OBS" --notices "$NOTICES"
+          # Does the timetable being served run for the next fortnight? Its
+          # Brighton & Hove calendars once ran out unnoticed (1 November 2026).
+          # Nightly runs only: a re-run of an old day may hold an old timetable.
+          if [ -z "${{ inputs.day }}" ]; then
+            python scripts/check_timetable.py data/timetable.sqlite --notices "$NOTICES"
+          fi
           # Hours the recorder only partly captured, or missed: published with
           # the day, and worth a person's look at the recorder.
           # Read from the day's small summary, which carries the same coverage
