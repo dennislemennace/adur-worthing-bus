@@ -802,9 +802,6 @@ html.dark-mode .map-loading {
   }
   .panel-mode[data-mode="live"] .panel-stop-name {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   /* Now the stop's direction ("Towards Florida Road · West Worthing") rather
      than its code, which a visitor needs more than the space. It sits beside
@@ -1902,9 +1899,11 @@ body.panel-collapsed .btn-collapse-panel .icon {
   font-size: var(--font-size-lg);
   font-weight: 700;
   color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* A long name wraps rather than losing its end: "Brighton Rail Station
+     Stroudley Road opposite" cut to "…Stroudley Road oppo…" no longer says
+     which pole it is. Short names still take one line. */
+  line-height: 1.25;
+  overflow-wrap: break-word;
 }
 
 .panel-stop-id {
