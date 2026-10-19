@@ -196,8 +196,14 @@ jobs:
               echo "::warning::only $COUNT snapshots for $DAY — coverage will be partial"
             else
               echo "::error::only $COUNT snapshots for $DAY (download sanity floor 600 combined feed objects) — not publishing"
+              # Said before failing: the run stops here, and an empty day
+              # otherwise reaches nobody but the Actions tab.
+              printf 'recording-stopped\twarn\t%s: only %s snapshots (%s SIRI-VM, %s GTFS-RT); the day was not published\n' \
+                "$DAY" "$COUNT" "$SIRI" "$RT" >> "$NOTICES"
               exit 1
             fi
+          elif [ -z "${{ inputs.day }}" ]; then
+            printf 'recording-stopped\tclear\n' >> "$NOTICES"
           fi
 
       - name: Measure the day

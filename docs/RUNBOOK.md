@@ -28,6 +28,21 @@ stops — a short file is worse than none, because the frontend falls back to th
 API only when the *fetch* fails, and a successful download of a near-empty list
 would give every visitor a blank map.
 
+**If the recorder stops.** The nightly run fails with "only N snapshots" and
+opens a *The recorder saved nothing for a day* issue. Every minute it is down is
+lost: BODS keeps no history. From `worker/`, `npx wrangler tail
+adur-worthing-submissions` shows each minute's result.
+
+- **`feed returned HTTP 403`** means BODS is refusing the recorder's key. A
+  wrong key gets 401, from Cloudflare's network as from anywhere else, so 403
+  is that key, not the network (checked 19 October 2026, the last time it
+  happened). Check the account at bus-data.dft.gov.uk, then set a working
+  key with `npx wrangler secret put BODS_API_KEY`. The Render API has its own
+  copy of a key: if the key is regenerated, update Render too, or the live
+  map stops.
+- **`snapshots paused: …`** means the storage budget: see `worker/src/recorder.js`
+  and `npx wrangler kv key get r2-usage --binding RATE_LIMIT --remote`.
+
 **If cold starts come back.** The Cloudflare Worker's cron trigger pings the
 API every 10 minutes between 07:30 and 23:30 Europe/London. Outside those hours
 a cold start is expected, not a fault. Inside them, check the Worker first: in

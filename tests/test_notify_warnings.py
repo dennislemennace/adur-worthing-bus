@@ -130,5 +130,14 @@ def test_the_nightly_workflow_sends_its_notices_last_whatever_happened():
     assert "notify_warnings.py" in last["run"] and last.get("if") == "always()"
     runs = "\n".join(s.get("run") or "" for s in steps)
     assert '--notices "$NOTICES"' in runs, "the declared check does not record its notices"
-    for kind in ("recording-gaps", "backlog", "published-budget", "retention"):
+    for kind in ("recording-gaps", "recording-stopped", "backlog", "published-budget", "retention"):
         assert f"{kind}\\twarn" in runs and f"{kind}\\tclear" in runs, f"{kind} cannot both warn and clear"
+
+
+def test_a_day_with_nothing_recorded_says_where_to_look():
+    # 18 October 2026: BODS refused the recorder's key (HTTP 403) from the
+    # Saturday evening, the next night's run found no snapshots and failed,
+    # and no issue said so: the failure stopped the run before any notice.
+    assert nw.title_for("recording-stopped", "x") == "The recorder saved nothing for a day"
+    advice = nw.ADVICE["recording-stopped"]
+    assert "wrangler tail" in advice and "BODS_API_KEY" in advice and "403" in advice

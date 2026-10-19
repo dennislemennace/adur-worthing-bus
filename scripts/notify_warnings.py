@@ -47,6 +47,7 @@ KEY = re.compile(r"[a-z0-9:_-]{1,80}")
 TITLES = {
     "declared-journeys": "{arg}'s live journey IDs are not in our timetable",
     "recording-gaps": "The recorder missed part of a day",
+    "recording-stopped": "The recorder saved nothing for a day",
     "backlog": "A recorded day was not published",
     "published-budget": "The published bucket is filling up",
     "retention": "Old published files could not be cleared",
@@ -64,6 +65,13 @@ ADVICE = {
         "Some clock hours were only partly recorded, or not at all. Check the recorder "
         "(`worker/src/recorder.js`) and the raw bucket. The day was still published; its coverage block "
         "names the hours."),
+    "recording-stopped": (
+        "Too few snapshots reached the bucket to publish the day, so the recorder has probably stopped. "
+        "Every minute it is down is lost for good: BODS keeps no history. Watch what it says each minute "
+        "with `cd worker && npx wrangler tail adur-worthing-submissions`. HTTP 403 from the feed means BODS "
+        "refuses the recorder's key: check the account at bus-data.dft.gov.uk, then set a working key with "
+        "`npx wrangler secret put BODS_API_KEY`. \"snapshots paused\" means the storage budget "
+        "(`worker/src/recorder.js`)."),
     "backlog": (
         "A recorded day never reached the site, so a catch-up run was started for it. If the catch-up "
         "fails it is left for a person: see docs/RUNBOOK.md."),
