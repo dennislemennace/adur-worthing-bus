@@ -280,7 +280,7 @@ export async function recordSnapshot(env, when, fetchImpl = fetch) {
   try {
     const res = await fetchImpl(url, { signal: AbortSignal.timeout(45_000) });
     if (!res.ok) {
-      console.error(`snapshot ${key}: feed returned HTTP ${res.status}`);
+      console.error(`snapshot ${key}: feed returned ${await describeRefusal(res, env.BODS_API_KEY)}`);
       return { recorded: false, reason: "upstream", status: res.status, key, rt };
     }
     // The bytes are read before they are stored, which looks wasteful and is
@@ -306,6 +306,23 @@ export async function recordSnapshot(env, when, fetchImpl = fetch) {
 }
 
 /**
+ * What a refusal said and where it was sent from, for the log. "HTTP 403" on
+ * its own could not tell a dead key from a blocked origin in October 2026;
+ * cf-ray ends in the code of the data centre the request left from. The key
+ * is cut out of anything the feed echoes back.
+ */
+export async function describeRefusal(res, key) {
+  let text = "";
+  // Only the first bytes are decoded, as for the feed itself: an error page is
+  // small, but this path must not become the one that decodes a whole body.
+  try { text = new TextDecoder().decode((await res.arrayBuffer()).slice(0, 200)); }
+  catch { /* the status is enough */ }
+  if (key) text = text.split(key).join("<key>");
+  const ray = res.headers.get("cf-ray");
+  return `HTTP ${res.status}${ray ? ` (ray ${ray})` : ""}${text ? `: ${text.replace(/\s+/g, " ").trim()}` : ""}`;
+}
+
+/**
  * Fetch one feed and store it. Never throws, and never reports a failure as a
  * stored object: a feed that answers with an error page is not a snapshot.
  */
@@ -313,7 +330,7 @@ async function storeFeed(env, fetchImpl, key, when, url, contentType) {
   try {
     const res = await fetchImpl(url, { signal: AbortSignal.timeout(45_000) });
     if (!res.ok) {
-      console.error(`snapshot ${key}: feed returned HTTP ${res.status}`);
+      console.error(`snapshot ${key}: feed returned ${await describeRefusal(res, env.BODS_API_KEY)}`);
       return { stored: false, reason: `http_${res.status}` };
     }
     const body = await res.arrayBuffer();

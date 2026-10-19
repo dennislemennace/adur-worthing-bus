@@ -596,3 +596,28 @@ test("weeks of recording never refuse themselves", () => {
   }
   assert.equal(refused, 0, "recording would stop itself within three weeks");
 });
+
+test("a refusal says what the feed said and where the request came from", async () => {
+  // October 2026: BODS answered 403 to the scheduled recorder every minute
+  // while the same key worked from Cloudflare's London edge. The log said
+  // only "HTTP 403", which could not tell a dead key from a blocked origin.
+  // cf-ray ends in the code of the data centre the request left from.
+  const e = env({ BODS_API_KEY: "secret-key-123" });
+  const lines = [];
+  const original = console.error;
+  console.error = (m) => lines.push(String(m));
+  try {
+    await recordSnapshot(e, at("2026-09-16T11:45:00Z"), async () =>
+      new Response("<html>Access denied for secret-key-123. error code: 1020</html>",
+                   { status: 403, headers: { "cf-ray": "8f1e2d3c4b5a6978-ORD" } }));
+  } finally {
+    console.error = original;
+  }
+  const refusals = lines.filter((l) => /HTTP 403/.test(l));
+  assert.equal(refusals.length, 2, "both feeds' refusals are logged");
+  for (const line of refusals) {
+    assert.match(line, /ray 8f1e2d3c4b5a6978-ORD/);
+    assert.match(line, /error code: 1020/);
+    assert.ok(!line.includes("secret-key-123"), "the key reached the log");
+  }
+});
