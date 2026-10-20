@@ -72,3 +72,14 @@ bucket_name = "adur-worthing-reliability"
 [[r2_buckets]]
 binding = "PUBLISHED"
 bucket_name = "adur-worthing-published"
+
+# The recorder's requests leave from Western Europe through this, because a
+# cron runs wherever Cloudflare has room and BODS refused Singapore (October
+# 2026; src/relay.js). SQLite-backed, which is what the Free plan allows.
+[[durable_objects.bindings]]
+name = "FEED_RELAY"
+class_name = "FeedRelay"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["FeedRelay"]

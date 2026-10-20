@@ -271,6 +271,9 @@ export async function recordSnapshot(env, when, fetchImpl = fetch) {
   // SIRI is the expensive one — 285 KB against 34 KB — so it keeps to the
   // hours buses run.
   if (!isRecordingTime(when)) {
+    // Said, so that a night that works is not silent: before this, only a
+    // failure showed in the log between 00:30 and 05:00.
+    if (rt.stored) console.log(`snapshot ${rt.key}: ${Math.round(rt.bytes / 1024)} KB (night: journey feed only)`);
     return { recorded: false, reason: "quiet_hours", rt };
   }
 

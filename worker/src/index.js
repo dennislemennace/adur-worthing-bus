@@ -31,6 +31,11 @@ const PER_HOUR_LIMIT = 5;          // per client
 const PER_DAY_LIMIT  = 20;         // per client
 const GLOBAL_DAY_LIMIT = 200;      // bounds the damage from a distributed flood
 import { recordSnapshot } from "./recorder.js";
+import { feedFetch } from "./relay.js";
+
+// The recorder's requests leave from Western Europe through this Durable
+// Object, not from wherever the cron runs (src/relay.js).
+export { FeedRelay } from "./relay.js";
 
 const GITHUB_API = "https://api.github.com";
 const USER_AGENT = "adur-worthing-bus-submissions";
@@ -109,7 +114,7 @@ export default {
   // awake (keepWarm). Both are no-ops outside their own hours.
   async scheduled(event, env, ctx) {
     const when = new Date(event.scheduledTime);
-    if (event.cron === RECORDER_CRON) ctx.waitUntil(recordSnapshot(env, when));
+    if (event.cron === RECORDER_CRON) ctx.waitUntil(recordSnapshot(env, when, feedFetch(env)));
     else ctx.waitUntil(keepWarm(env, when));
   },
 
