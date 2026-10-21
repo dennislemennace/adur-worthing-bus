@@ -571,6 +571,13 @@ it: `-f timetable_tag=timetable-YYYY-MM-DD-HHMM-corrected`. The run still checks
 the release covers the day. The nightly walk only takes plain dated tags, so a
 corrected copy is never picked up by accident.
 
+Once a published day's raw objects have left R2 (seven days), re-run it from
+its replay archive instead: `-f replay_from=reliability-run-<run>-<attempt>`,
+the release named in that day's `evidence.url` in the published index.
+`scripts/restore_recorded_day.py` checks the archive against its evidence
+record and every recording against the archive's manifest before the run
+reads any of them. The four days before 20 September 2026 have no archive.
+
 ### Replay and rollback
 
 Download the source catalog's day-specific replay archive and observation

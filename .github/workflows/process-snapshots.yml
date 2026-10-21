@@ -42,6 +42,10 @@ on:
         description: "Re-runs only: measure against this timetable release instead of searching for one, such as a corrected copy of the build that was in force. Blank means search."
         required: false
         type: string
+      replay_from:
+        description: "Re-runs only: take the day's recordings from this reliability-run-* release's archive instead of R2, which keeps them seven days. Blank means R2."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -80,7 +84,7 @@ jobs:
       # The matcher these figures rest on. If it is broken, publishing a
       # punctuality number is worse than publishing nothing at all.
       - name: Test the matcher and the processor
-        run: python -m pytest -q tests/test_trip_match.py tests/test_process_snapshots.py tests/test_review_accuracy.py tests/test_delay_hotspots.py tests/test_publication_bundle.py tests/test_schedule_record.py
+        run: python -m pytest -q tests/test_trip_match.py tests/test_process_snapshots.py tests/test_review_accuracy.py tests/test_delay_hotspots.py tests/test_publication_bundle.py tests/test_schedule_record.py tests/test_restore_recorded_day.py
 
       - name: Choose the day
         id: day
@@ -176,7 +180,10 @@ jobs:
           echo "::error::no archived timetable covers $DAY — not publishing an empty day"
           exit 1
 
-      - name: Fetch the day's snapshots from R2
+      # R2 keeps a published day's recordings for seven days. After that, a
+      # re-run takes them from the replay archive that day's run attached to
+      # its release, checked object by object (scripts/restore_recorded_day.py).
+      - name: Fetch the day's snapshots
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -185,20 +192,35 @@ jobs:
           # default, with an error that never mentions checksums.
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          GH_TOKEN: ${{ github.token }}
+          REPLAY_FROM: ${{ inputs.replay_from }}
         run: |
           DAY="${{ steps.day.outputs.day }}"
-          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           mkdir -p "snapshots/$DAY" "gtfs-rt/$DAY"
-          aws s3 sync \
-            "s3://adur-worthing-reliability/raw/$DAY/" "snapshots/$DAY/" \
-            --endpoint-url "$ENDPOINT" --no-progress
-          # The other feed of the same minutes. It states which journey each
-          # bus is running, which is the one thing SIRI-VM does not say. Days
-          # recorded before it existed simply have none, and are measured the
-          # old way.
-          aws s3 sync \
-            "s3://adur-worthing-reliability/rt/$DAY/" "gtfs-rt/$DAY/" \
-            --endpoint-url "$ENDPOINT" --no-progress
+          if [ -n "$REPLAY_FROM" ]; then
+            if ! [[ "$REPLAY_FROM" =~ ^reliability-run-[0-9]+-[0-9]+$ ]]; then
+              echo "::error::'$REPLAY_FROM' is not a reliability-run release tag"
+              exit 1
+            fi
+            gh release download "$REPLAY_FROM" --pattern 'evidence.tar.gz' \
+              --pattern 'evidence.json' --dir replay --clobber
+            python scripts/restore_recorded_day.py --archive replay/evidence.tar.gz \
+              --evidence replay/evidence.json --day "$DAY" --snapshots snapshots --rt gtfs-rt
+            rm -rf replay
+            echo "::notice::$DAY's recordings restored from $REPLAY_FROM"
+          else
+            ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+            aws s3 sync \
+              "s3://adur-worthing-reliability/raw/$DAY/" "snapshots/$DAY/" \
+              --endpoint-url "$ENDPOINT" --no-progress
+            # The other feed of the same minutes. It states which journey each
+            # bus is running, which is the one thing SIRI-VM does not say. Days
+            # recorded before it existed simply have none, and are measured the
+            # old way.
+            aws s3 sync \
+              "s3://adur-worthing-reliability/rt/$DAY/" "gtfs-rt/$DAY/" \
+              --endpoint-url "$ENDPOINT" --no-progress
+          fi
           SIRI=$(find "snapshots/$DAY" -name '*.xml' 2>/dev/null | wc -l)
           RT=$(find "gtfs-rt/$DAY" -name '*.pb' 2>/dev/null | wc -l)
           echo "SIRI-VM objects: $SIRI"
