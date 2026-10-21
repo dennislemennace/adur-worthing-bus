@@ -564,6 +564,13 @@ Re-running a day that is already published replaces it. When its raw objects
 may have started to expire, demand complete feeds:
 `gh workflow run process-snapshots.yml -f day=YYYY-MM-DD -f min_objects_per_feed=1150`.
 
+When the timetable that was in force was itself wrong, publish a corrected
+copy of it under a suffixed tag (`timetable-YYYY-MM-DD-HHMM-corrected`, with
+its `.sha256` sidecar, the script that made it and what it changed) and name
+it: `-f timetable_tag=timetable-YYYY-MM-DD-HHMM-corrected`. The run still checks
+the release covers the day. The nightly walk only takes plain dated tags, so a
+corrected copy is never picked up by accident.
+
 ### Replay and rollback
 
 Download the source catalog's day-specific replay archive and observation

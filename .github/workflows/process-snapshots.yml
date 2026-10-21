@@ -38,6 +38,10 @@ on:
         description: "Set by the pipeline itself when it processes a day a previous night missed."
         required: false
         type: string
+      timetable_tag:
+        description: "Re-runs only: measure against this timetable release instead of searching for one, such as a corrected copy of the build that was in force. Blank means search."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -107,9 +111,16 @@ jobs:
       # walk those newest-first and take the first one that was actually in
       # force. Failing that, stop: process_snapshots.py would refuse the day
       # anyway, and stopping is the point.
+      #
+      # A re-run can name the release instead. The build in force can itself
+      # be wrong: the 18 October 2026 build counted every Stagecoach and
+      # Compass wait twice, and 20 October was measured against it. A corrected
+      # copy is published under a suffixed tag, which the dated walk below
+      # never picks up by itself, and named here.
       - name: Fetch a timetable that covers the day
         env:
           GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.timetable_tag }}
         run: |
           set -euo pipefail
           DAY="${{ steps.day.outputs.day }}"
@@ -122,6 +133,22 @@ jobs:
             ( cd data && sha256sum -c \
                 <(printf '%s  timetable.sqlite\n' "$(cat timetable.sqlite.sha256)") )
           }
+
+          if [ -n "$REQUESTED_TAG" ]; then
+            if ! [[ "$REQUESTED_TAG" =~ ^timetable-[A-Za-z0-9.-]+$ ]]; then
+              echo "::error::'$REQUESTED_TAG' is not a timetable release tag"
+              exit 1
+            fi
+            fetch "$REQUESTED_TAG"
+            if ! python scripts/timetable_covers.py \
+                 --timetable data/timetable.sqlite --day "$DAY"; then
+              echo "::error::$REQUESTED_TAG does not cover $DAY — not measuring against it"
+              exit 1
+            fi
+            echo "::notice::measuring $DAY against $REQUESTED_TAG, as asked"
+            echo "TIMETABLE_TAG=$REQUESTED_TAG" >> "$GITHUB_ENV"
+            exit 0
+          fi
 
           fetch timetable-latest
           if python scripts/timetable_covers.py \
