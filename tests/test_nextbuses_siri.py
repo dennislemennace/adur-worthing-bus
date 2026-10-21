@@ -171,3 +171,45 @@ def test_our_own_estimate_does_not_overrule_a_cancellation(monkeypatch):
     out = main._apply_own_feed_estimates(board, None, "STOP", datetime.now(timezone.utc))
     assert out["departures"][0]["status"] == "Cancelled"
     assert out["departures"][0]["expected_departure"] is None
+
+
+# ── When TransportAPI's timetable and ours disagree ─────────
+# 21 October 2026: our timetable had every 700 east of Worthing five minutes
+# late (a BODS fault). TransportAPI's, from the operator's own system, did not.
+# Its prediction for a bus nobody was tracking yet repeated its own time, and
+# the board called every 700 at Shoreham Port five minutes early. Lateness is
+# a fact about a bus, not about two timetables.
+
+def test_a_prediction_that_only_repeats_another_timetable_says_nothing_about_the_bus(monkeypatch):
+    ours = _soon(20)
+    theirs = ours - timedelta(minutes=5)
+    pred = {"service": "700", "aimed": theirs.isoformat(), "expected": theirs.isoformat()}
+    row = {"service": "700", "operator": "SCSO", "aimed_departure": ours.isoformat(),
+           "expected_departure": None, "status": "Scheduled"}
+    dep = _overlay(monkeypatch, [pred], [row])["departures"][0]
+    assert dep["status"] == "Scheduled", "a timetable difference was shown as the bus running early"
+    assert dep["expected_departure"] is None and "delay_seconds" not in dep
+
+
+def test_a_live_bus_is_late_or_early_against_the_timetable_its_prediction_was_made_from(monkeypatch):
+    ours = _soon(20)
+    theirs = ours - timedelta(minutes=5)
+    expected = theirs + timedelta(minutes=3)
+    pred = {"service": "700", "aimed": theirs.isoformat(), "expected": expected.isoformat()}
+    row = {"service": "700", "operator": "SCSO", "aimed_departure": ours.isoformat(),
+           "expected_departure": None, "status": "Scheduled"}
+    dep = _overlay(monkeypatch, [pred], [row])["departures"][0]
+    assert main._parse_iso_datetime(dep["expected_departure"]) == expected
+    assert dep["delay_seconds"] == 180 and dep["status"] == "Late"
+
+
+def test_when_the_timetables_agree_lateness_is_measured_as_before(monkeypatch):
+    ours = _soon(20)
+    for theirs, expected, delay in ((ours, ours + timedelta(minutes=4), 240),
+                                    (ours + timedelta(seconds=60), ours + timedelta(minutes=2), 120),
+                                    (ours, ours, 0)):
+        pred = {"service": "700", "aimed": theirs.isoformat(), "expected": expected.isoformat()}
+        row = {"service": "700", "operator": "SCSO", "aimed_departure": ours.isoformat(),
+               "expected_departure": None, "status": "Scheduled"}
+        dep = _overlay(monkeypatch, [pred], [row])["departures"][0]
+        assert dep["delay_seconds"] == delay

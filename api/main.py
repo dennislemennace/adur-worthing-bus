@@ -2952,7 +2952,19 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
             overlaid.append(new)
             continue
 
-        delay                    = int((expected_dt - aimed_dt).total_seconds())
+        # Lateness is measured against the timetable the prediction was made
+        # from. When TransportAPI's and ours disagree by more than a minute, a
+        # prediction that only repeats its own time says nothing about the bus
+        # (21 October 2026: ours had the 700 five minutes late east of
+        # Worthing, and the board called every one of them early).
+        delay = int((expected_dt - aimed_dt).total_seconds())
+        pred_aimed = _parse_iso_datetime(best.get("aimed"))
+        if pred_aimed is not None and abs((pred_aimed - aimed_dt).total_seconds()) > 60:
+            delay = int((expected_dt - pred_aimed).total_seconds())
+            if delay == 0:
+                overlaid.append(new)
+                continue
+
         new["expected_departure"] = expected_dt.isoformat()
         new["delay_seconds"]      = delay
         new["status"]             = _delay_to_status(delay)
