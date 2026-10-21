@@ -20,6 +20,16 @@ the test suites first, builds, checks the result semantically
 (`scripts/check_timetable.py`), commits refreshed evidence, publishes a dated
 release, then moves the `timetable-latest` tag onto it.
 
+The build takes out timed waits the BODS GTFS counts twice. Since 18 October
+2026 every Stagecoach wait also appears at the stop before the timing point,
+and Compass's do too; left in, the 700 east of Worthing was timetabled five
+minutes after the buses run, and every board and measurement called those
+buses early. The log line `waits counted twice, now counted once, on N kept
+trips` says how many journeys were corrected, by operator. If the count drops
+to zero, the feed has probably been fixed upstream; if a new operator appears
+in it, check one of its journeys against bustimes.org before trusting it. The
+rule is in `scripts/build_timetable.py` (`DUPLICATE_WAIT_MAX_GAP_SECS`).
+
 **Rebuild the static stop list.** `python scripts/build_stops_json.py` writes
 `data/stops.json` from `data/timetable.sqlite`. The *Update Timetable Data*
 workflow already runs it and commits the result, so this is only for when you

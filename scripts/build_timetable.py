@@ -338,6 +338,9 @@ def parse_gtfs(zip_path: str) -> dict:
         #   • any stop in bbox_stop_ids (inside the map box) — all routes
         log.info("Parsing stop_times.txt (this is the big one)…")
         needed_trip_ids = set()
+        # Every timed wait in the feed, at any stop: a wait counted twice
+        # outside the map box still delays every stop after it inside.
+        waits: dict = {}
         row_count = 0
         kept_count = 0
         with zf.open("stop_times.txt") as f:
@@ -351,6 +354,7 @@ def parse_gtfs(zip_path: str) -> dict:
                     )
                 stop_id = row.get("stop_id", "")
                 trip_id = row.get("trip_id", "")
+                _note_wait(waits, row)
                 if stop_id not in ws_stop_ids and stop_id not in bbox_stop_ids:
                     continue
                 dep_time = (row.get("departure_time")
@@ -384,6 +388,18 @@ def parse_gtfs(zip_path: str) -> dict:
             "  processed %s rows total; kept %s entries across %d trips",
             f"{row_count:,}", f"{kept_count:,}", len(needed_trip_ids),
         )
+        repeats = _duplicate_waits(waits)
+        del waits
+        _remove_duplicate_waits(timetable["stop_times"], repeats)
+        by_operator: dict = {}
+        for trip_id in repeats.keys() & needed_trip_ids:
+            route = all_routes.get((all_trips.get(trip_id) or {}).get("route_id", ""))
+            noc = (route or {}).get("noc") or "?"
+            by_operator[noc] = by_operator.get(noc, 0) + 1
+        log.info("  waits counted twice, now counted once, on %d kept trips: %s",
+                 sum(by_operator.values()),
+                 ", ".join(f"{noc} {n}" for noc, n in sorted(by_operator.items(),
+                                                             key=lambda kv: -kv[1])) or "none")
 
         # ── Phase 5: filter trips & routes to only what's needed ─
         log.info("Filtering trips and routes…")
@@ -567,6 +583,74 @@ def parse_gtfs(zip_path: str) -> dict:
         times.sort(key=lambda t: t[0])
 
     return timetable
+
+
+# ── Waits counted twice ───────────────────────────────────────
+# From the 18 October 2026 feed, every Stagecoach journey with a timed wait
+# carried it twice: at the timing point, and again at the stop before. The
+# 12:06 700 from Durrington stood five minutes at The Lido (12:29-12:34) and
+# five more at Worthing Marine Parade (12:36-12:41), so everything east of
+# Worthing was timetabled five minutes after the buses run it, and the board
+# called every eastbound 700 five minutes early. The operator's TransXChange
+# as bustimes.org reads it has the one wait (Marine Parade 12:31-12:36), as do
+# TransportAPI and the buses' own positions; the 4 October feed had it once.
+# Compass's journeys carry the same repeat, sometimes on a timing point a
+# minute before the real one (South Street, then Marine Parade).
+#
+# The repeat is the same length as the wait after it and sits on the call
+# before. Two waits of one length at consecutive calls are one wait when the
+# first is not a timing point (a driver has no time to wait for there) or the
+# two are at most this far apart. Coaches genuinely stand at consecutive
+# timing points: the 025 at Heathrow and again at Gatwick, fifty minutes on.
+# Measured on the 21 October feed, every repeat in our area was 0-4 minutes
+# from the wait it copied, bar 18 on non-timing points, and every genuine
+# coach pair was 5 or more.
+DUPLICATE_WAIT_MAX_GAP_SECS = 180
+
+
+def _note_wait(waits: dict, row: dict) -> None:
+    """Record a stop_times row whose departure is after its arrival."""
+    arr, dep = row.get("arrival_time") or "", row.get("departure_time") or ""
+    if not arr or not dep or arr == dep:
+        return
+    a, d = _hms_to_secs(arr), _hms_to_secs(dep)
+    try:
+        seq = int(row.get("stop_sequence", ""))
+    except (TypeError, ValueError):
+        return
+    trip_id = row.get("trip_id", "")
+    if a < 0 or d <= a or not trip_id:
+        return
+    tp = (row.get("timepoint") or "").strip()
+    waits.setdefault(trip_id, {})[seq] = (a, d, int(tp) if tp in ("0", "1") else None)
+
+
+def _duplicate_waits(waits: dict) -> dict:
+    """{trip_id: [(stop_sequence, seconds)]} for each wait that repeats the next call's."""
+    out: dict = {}
+    for trip_id, calls in waits.items():
+        for seq, (arr, dep, timepoint) in calls.items():
+            following = calls.get(seq + 1)
+            if following is None or following[1] - following[0] != dep - arr:
+                continue
+            if timepoint != 0 and following[0] - dep > DUPLICATE_WAIT_MAX_GAP_SECS:
+                continue
+            out.setdefault(trip_id, []).append((seq, dep - arr))
+    return out
+
+
+def _remove_duplicate_waits(stop_times: dict, repeats: dict) -> None:
+    """Take each repeated wait out of the call it sits on and every call after."""
+    if not repeats:
+        return
+    for entries in stop_times.values():
+        for i, entry in enumerate(entries):
+            dep_secs, trip_id, seq, timepoint = read_stop_time(entry)
+            if seq < 0 or trip_id not in repeats:
+                continue
+            back = sum(secs for at, secs in repeats[trip_id] if at <= seq)
+            if back:
+                entries[i] = (dep_secs - back, trip_id, seq, timepoint)
 
 
 # ── Helpers ───────────────────────────────────────────────────
