@@ -69,6 +69,53 @@ WEEKEND = ("saturday", "sunday")
 WEEK_OF = None
 
 
+# Without `--week-of`, the coming week, unless it is short: a week whose Monday
+# runs fewer routes in the band than the busiest of the next three (half term,
+# a bank holiday, Christmas) is passed over for the first full one. The build
+# of 21 October 2026 measured half term, when the school-day routes stop, and
+# the weekday route count fell from 20 and 39 to 13 and 27 with nothing about
+# the service changed.
+FULL_WEEK_LOOK_AHEAD = 3
+PASSED_OVER: list = []
+
+
+def first_full_service(route_counts: list, ahead: int = FULL_WEEK_LOOK_AHEAD) -> int:
+    """Index of the first Monday running as many routes as the busiest of the
+    `ahead` Mondays after it. 0 when nothing can be compared: the timetable
+    runs out, so the coming week is all there is."""
+    for i, n in enumerate(route_counts):
+        if not n:
+            break
+        later = [m for m in route_counts[i + 1:i + 1 + ahead] if m]
+        if not later or n >= max(later):
+            return i
+    return 0
+
+
+def band_monday_routes(con: sqlite3.Connection, areas: dict, mondays: list) -> list:
+    """How many routes call in the band on each of these Mondays."""
+    members, _ = bucket_stops(con, areas)
+    band = {sid for sid, where in members.items() if any(g == "band" for g, _ in where)}
+    pairs = {(service_id, short) for sid, service_id, short in con.execute(
+        "SELECT DISTINCT st.sid, t.service_id, r.short_name FROM stop_times st "
+        "JOIN trips t ON t.tid = st.tid JOIN routes r ON r.rid = t.rid")
+        if sid in band and short}
+    out = []
+    for monday in mondays:
+        runs = service_runner(con, {"monday": monday})
+        out.append(len({short for service_id, short in pairs if runs(service_id, "monday")}))
+    return out
+
+
+def choose_week(con: sqlite3.Connection, areas: dict, today: date = None) -> tuple:
+    """(Monday to measure, Mondays passed over for it)."""
+    from datetime import timedelta
+    coming = sample_week(today or date.today())["monday"]
+    mondays = [coming + timedelta(weeks=i) for i in range(8)]
+    pick = first_full_service(band_monday_routes(con, areas, mondays))
+    return mondays[pick], mondays[:pick]
+
+
 def sample_week(from_day: date = None) -> dict:
     """A concrete week to measure, so a figure can be quoted with its date.
 
@@ -435,13 +482,17 @@ def night_caveats(night: dict) -> list:
 
 
 def main() -> None:
-    global WEEK_OF
+    global WEEK_OF, PASSED_OVER
     if "--week-of" in sys.argv:
         WEEK_OF = date.fromisoformat(sys.argv[sys.argv.index("--week-of") + 1])
     if not DB.exists():
         sys.exit(f"{DB} is missing. Run scripts/json_to_sqlite.py first.")
     con = sqlite3.connect(DB)
     areas = load_areas()
+    if WEEK_OF is None:
+        WEEK_OF, PASSED_OVER = choose_week(con, areas)
+        for monday in PASSED_OVER:
+            print(f"  passed over the week of {monday}: fewer routes than the weeks after it")
     measured, counts = measure(con, areas)
     days = measured["band"]
     by_side = {a["side"]: a for a in areas["areas"] if not a.get("night_only")}
@@ -471,6 +522,13 @@ def main() -> None:
                 "Stops in a 4 km band either side of the council boundary, along "
                 "the same coastal strip, bucketed east or west of the line and "
                 "compared per stop."),
+            "week": (
+                "The coming week, unless its Monday runs fewer routes in the band "
+                "than the busiest of the three Mondays after it, as in half term, "
+                "a bank holiday week or Christmas: then the first week that does. "
+                "Route counts include school-day routes, so a holiday week is not "
+                "a like-for-like week."),
+            "passed_over": [m.isoformat() for m in PASSED_OVER],
             "band": {
                 "line_lon": LINE_LON,
                 "half_width_lon_deg": BAND_LON,
