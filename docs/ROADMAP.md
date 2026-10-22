@@ -541,6 +541,44 @@ weeks of method-5 recordings (the reliability window began 16 Sep, and only
 
 ---
 
+## What ABOD does that this site could learn from
+
+Read 20 October 2026 from the Department's two public repositories,
+[`abods`](https://github.com/department-for-transport-BODS/abods) and
+[`abods-itm`](https://github.com/department-for-transport-BODS/abods-itm), while
+preparing the Expo tour. ABOD (Analyse Bus Open Data) is the free,
+invitation-only analytics service for officers and operators; the tour calls
+it "the free baseline this builds on". Where it is ahead, and what that
+suggests here, after the Expo:
+
+- **Sampling.** ABOD reads locations every 10 seconds; the recorder here keeps
+  one snapshot a minute, which is why stop times are "good to about a minute".
+  Two or three reads inside each cron run would tighten every stop time. Check
+  `LIMITS.md` first: it multiplies BODS calls, Worker subrequests and R2 writes.
+- **A lingering guard at the start.** ABOD does not count a bus as departed
+  while it is still sitting at its first stop. The Metrobus
+  `unbounded_departure` cases at the Brighton termini are the same problem
+  here, handled today by leaving the departure unbounded rather than by a rule.
+- **Real journeys as regression tests.** ABOD keeps recorded journeys with the
+  answer each should produce. A small library of ours (the Stagecoach
+  start-time case, a diverted bus, a terminus layover) would catch a matching
+  regression before a nightly publishes it; the hand timings are the obvious
+  source.
+- **A reader-set on-time window.** ABOD lets the reader choose what counts as
+  on time. Here the thresholds are fixed by the method; letting the reader set
+  them is a small change to the journey-times view.
+- **Feed health in public.** ABOD monitors each operator's feed for its
+  signed-in users. The recorder already keeps each operator's snapshots; a
+  public per-operator page would turn the October outage notes into something
+  anyone can check.
+
+Where this site is already ahead (public access, every operator's tickets and
+live times in one place, three-tier identification that kept Stagecoach's
+buses when their IDs stopped matching, published coverage, an open licence) is
+in `data/tour.json`, step "Beyond the baseline".
+
+---
+
 ## Carried over from earlier work
 
 Not part of the three phases, but still open:

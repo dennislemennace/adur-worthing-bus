@@ -1,0 +1,323 @@
+{
+  "_comment": "The guided tour (tour.js in the app, tour.html as slides and PDF). One file drives all three, so the words are written once. In the app the tour is a walk through the site: each view a step opens is a stop, where a card names the step, gives its headline and says what to try (hint). A headline is one figure (value, label) or a comparison (figures, each with its label), and may lead with a claim it supports and say what was measured (measure); a step that opens no view is one card on its own. Numbers are never typed here: a {placeholder} is filled at runtime from data/boundary_evidence.json and the published journey-times index (tourFigureValues in tour.js), so a weekly rebuild cannot leave the tour quoting stale figures. Every money or planning claim names its source and the date it was checked. preview_only keeps the tour behind ?preview=1 until its copy is approved. Titles, leads and the opening were chosen by the maintainer on 20 October 2026; the points under each step were picked by the maintainer in the 'Tour copy review' doc on 20 October 2026.",
+  "schema_version": 1,
+  "preview_only": true,
+  "checked_on": "2026-10-20",
+  "menu": {
+    "label": "Take the tour",
+    "badge": "New"
+  },
+  "event": {
+    "name": "Euro Bus Expo 2026",
+    "show_until": "2026-11-05"
+  },
+  "opening": {
+    "headline": "Passengers deserve one network. This one is built from open data.",
+    "lead": "On this coast, four bus companies run four apps and their own day tickets, and two councils plan up to a line through Portslade. This proof of concept joins it all up from the government's open bus data, and measures how the buses really run.",
+    "modes": [
+      {
+        "id": "explore",
+        "label": "Start the tour"
+      },
+      {
+        "id": "present",
+        "label": "Slides for presenting",
+        "href": "tour.html"
+      },
+      {
+        "id": "pdf",
+        "label": "Download the PDF",
+        "href": "media/tour/worthing-brighton-bus-tour.pdf"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "passengers-today",
+      "title": "What passengers face today",
+      "lead": "Four operators each run their own apps and tickets. With a council boundary through the community, services in the west are weaker on every measure.",
+      "headline": {
+        "claim": "The council border between West Sussex and Brighton & Hove has a measurable impact on passenger services west of the line.",
+        "measure": "Average weekday buses per stop, over every stop within 4 km of the line along the coast. The west gets {band_share}% of the east's service.",
+        "figures": [
+          { "value": "{band_west_dps}", "label": "West of the line, in West Sussex" },
+          { "value": "{band_east_dps}", "label": "East of the line, in Brighton & Hove" }
+        ]
+      },
+      "badge": {
+        "kind": "timetable",
+        "label": "Published timetable, week of {evidence_week}"
+      },
+      "points": [
+        "Weekday departures per stop: {band_west_dps} west of the line against {band_east_dps} east, in a band 4 km either side ({band_share}%).",
+        "Routes on a weekday: {routes_west_weekday} against {routes_east_weekday}. On Saturday {routes_west_sat} against {routes_east_sat}; on Sunday {routes_west_sun} against {routes_east_sun}.",
+        "Departures after 11pm on a weekday: {late_west} west of the line against {late_east} east.",
+        "Lancing and South Portslade, about five miles apart on the same coast road: {lancing_dps} against {sportslade_dps} weekday departures per stop.",
+        "Joint working pays: up to 43% more passengers on the two routes the councils improved together. The coast west of Portslade wasn't one of them."
+      ],
+      "try": [
+        {
+          "action": "route-view",
+          "label": "The whole network",
+          "hint": "Tap the council line's label at Portslade for its figures, or switch to Night buses."
+        },
+        {
+          "action": "evidence",
+          "label": "The figures behind this"
+        }
+      ],
+      "sources": [
+        {
+          "label": "Brighton & Hove Bus Service Improvement Plan, 2025 refresh (joint scheme with West Sussex on routes 17 and 273, PDF page 22)",
+          "url": "https://www.brighton-hove.gov.uk/sites/default/files/2025-06/8205%20Bus%20Service%20Improvement%20Plan%20new%20r18.pdf",
+          "checked_on": "2026-10-20"
+        },
+        {
+          "label": "The generated boundary evidence",
+          "url": "data/boundary_evidence.json",
+          "checked_on": "2026-10-20"
+        }
+      ]
+    },
+    {
+      "id": "network-as-people-use-it",
+      "title": "The network as people use it",
+      "lead": "Each operator's buses on one map and one departure board. Every operator's ticket zones in one place, and a cross-operator journey checker.",
+      "headline": {
+        "value": "All operators",
+        "label": "in the region, on one map, one departure board and one ticket checker"
+      },
+      "badge": {
+        "kind": "live",
+        "label": "Live"
+      },
+      "points": [
+        "Every operator on one departure board: at St Peter's Church in Brighton, Brighton & Hove, Metrobus, Stagecoach and Compass departures are listed together, with live times marked.",
+        "Every operator's day-ticket zones on one map, and a checker that finds the cheapest ticket that covers a whole journey, across companies.",
+        "Door-to-door planning across operators, still experimental."
+      ],
+      "try": [
+        {
+          "action": "live-map",
+          "label": "Every bus on one map",
+          "hint": "Each operator's buses, live from the government's open feed. Tap any bus to see where it is heading next."
+        },
+        {
+          "action": "board",
+          "label": "One board, every operator",
+          "atco": "149000007936",
+          "name": "St Peter's Church",
+          "hint": "Tap any departure to see where that bus is now."
+        },
+        {
+          "action": "tickets",
+          "label": "Cheapest ticket: Lancing to Brighton",
+          "preset": "lancing-to-brighton",
+          "hint": "The cheapest ticket that covers the whole journey, across companies. Change either stop to try your own."
+        },
+        {
+          "action": "planner",
+          "label": "Plan a journey (experimental)",
+          "hint": "Door to door, across operators. Experimental, so check before you travel."
+        }
+      ],
+      "sources": []
+    },
+    {
+      "id": "what-the-buses-did",
+      "title": "What the buses actually did",
+      "lead": "The same open feed, kept: real journey times, where buses lose time, and how reliable each route is, published for anyone to check.",
+      "headline": {
+        "value": "{recorded_days} days",
+        "label": "of the live feed kept and matched to the timetable"
+      },
+      "badge": {
+        "kind": "recorded",
+        "label": "Recorded: {recorded_days} days, {recorded_from} to {recorded_to}"
+      },
+      "points": [
+        "Each minute the live feed is saved, and each bus is matched to the timetabled journey it is running.",
+        "Journey times between any two stops, by day and time of day, with the slow end shown as well as the usual.",
+        "A delay map of where buses lose time against the timetable; a stretch is only coloured once it has enough journeys behind it.",
+        "Gaps in the record are listed, not hidden: {recorded_gaps}."
+      ],
+      "try": [
+        {
+          "action": "journey-times",
+          "label": "Worthing to Portslade, measured",
+          "from": "4400WO0254",
+          "to": "149000006115",
+          "hint": "Each dot is one bus we timed from Worthing to Portslade, across the council line. The solid line is the usual time and the dashed line the timetable. Change the day or the time of day to compare."
+        },
+        {
+          "action": "delay-map",
+          "label": "Where buses lose time",
+          "hint": "Each stretch is coloured by the time buses lose there. Tap one for its figures."
+        }
+      ],
+      "sources": []
+    },
+    {
+      "id": "beyond-the-baseline",
+      "title": "Beyond the baseline",
+      "lead": "ABOD, the Department's free analytics service, is for officers with an invitation. This is for everyone: the same kind of evidence, plus passenger tools, under an open licence.",
+      "headline": {
+        "value": "{identified_share}%",
+        "label": "of tracked journeys named by the operator's own feed"
+      },
+      "badge": {
+        "kind": "sourced",
+        "label": "From ABOD's published code and documents"
+      },
+      "points": [
+        "Anyone can open it: no login, no invitation. Councillors, passengers and journalists see the same figures.",
+        "It joins the evidence to the passenger side: live times for every operator, every operator's ticket zones, and the cheapest ticket across them.",
+        "ABOD matches a bus to its journey by the operator's journey reference and skips it when that does not match the timetable. This site tries three ways, reads the trip feed as well as the location feed, and names {identified_share}% of tracked journeys by the operator's own feed.",
+        "ABOD's code can be read on GitHub, but its licence lets only KPMG firms reuse it. This site's code is MIT-licensed: anyone may copy it."
+      ],
+      "try": [
+        {
+          "action": "link",
+          "label": "How each figure is made",
+          "href": "figures.html"
+        }
+      ],
+      "sources": [
+        {
+          "label": "Analyse Bus Open Data (RTIG)",
+          "url": "https://www.rtig.org.uk/abod",
+          "checked_on": "2026-10-20"
+        },
+        {
+          "label": "ABOD's matching method (OTP Matching)",
+          "url": "https://github.com/department-for-transport-BODS/abods-itm/blob/sandbox/docs/OTP%20Matching.md",
+          "checked_on": "2026-10-20"
+        },
+        {
+          "label": "ABOD's licence",
+          "url": "https://github.com/department-for-transport-BODS/abods/blob/sandbox/LICENSE",
+          "checked_on": "2026-10-20"
+        }
+      ]
+    },
+    {
+      "id": "public-return",
+      "title": "Public money, public return",
+      "lead": "The data is free from the Bus Open Data Service; everything else costs under £20 a year. Open-source software at its finest: any developer can spin up the most powerful bus information resource in their area.",
+      "headline": {
+        "value": "Under £20",
+        "label": "a year to run: the data is free, and so is the hosting"
+      },
+      "badge": {
+        "kind": "sourced",
+        "label": "From published contract notices"
+      },
+      "points": [
+        "Every figure on this site is built on that data, on free hosting, for under £20 a year: the cost of the web address."
+      ],
+      "try": [],
+      "sources": [
+        {
+          "label": "PublicTechnology: DfT to spend £37m on real-time bus data service (4 September 2023)",
+          "url": "https://www.publictechnology.net/2023/09/04/transport/dft-to-spend-37m-on-real-time-bus-data-service/",
+          "checked_on": "2026-10-20"
+        },
+        {
+          "label": "ITS UK: Department for Transport chooses Kainos to run the Bus Open Data Service (17 November 2025)",
+          "url": "https://www.its-uk.org/department-for-transport-chooses-kainos-to-enhance-bus-data-platform/",
+          "checked_on": "2026-10-20"
+        }
+      ]
+    },
+    {
+      "id": "trust",
+      "title": "How far to trust it",
+      "lead": "Every figure says what it was divided by, how it was made, and what would make it wrong.",
+      "headline": {
+        "claim": "The live times on this site are closer to when the bus really leaves than the timetable is.",
+        "measure": "How often each was within two minutes of when the bus actually left the stop, replayed over 20 recorded days (25 September to 14 October), outside recorded disruptions.",
+        "figures": [
+          { "value": "71%", "label": "Our live estimate" },
+          { "value": "47%", "label": "The timetable alone" }
+        ]
+      },
+      "badge": {
+        "kind": "recorded",
+        "label": "Recorded and replayed"
+      },
+      "points": [
+        "Live estimates are within two minutes of when the bus left 71% of the time, against 47% for the timetable alone, and we publish how often we are wrong.",
+        "Good to about a minute, not a second; fewer than 10 journeys over 5 days shows \"too few\", never a number.",
+        "{identified_share}% of {identified_tracked} tracked journeys are matched to their journey by the operator's own feed.",
+        "We are timing buses by hand to check our stop times; the result will be published here.",
+        "A bus we did not see is \"missing\", never \"cancelled\": its tracker may simply have been off."
+      ],
+      "try": [
+        {
+          "action": "link",
+          "label": "Key figures, with their method",
+          "href": "figures.html"
+        }
+      ],
+      "sources": [
+        {
+          "label": "Live-estimate accuracy: a replay of 20 recorded days (16 October 2026)",
+          "url": "https://github.com/dennislemennace/adur-worthing-bus/blob/main/docs/reliability/live-eta-accuracy-2026-10-16.md",
+          "checked_on": "2026-10-20"
+        }
+      ]
+    },
+    {
+      "id": "one-coast",
+      "title": "What one coast shows",
+      "lead": "If one volunteer can do this for one coast, an authority or a partner can do it for a region. The template is coming; the code is already open.",
+      "headline": {
+        "value": "Open, public and free",
+        "label": "for anyone to use, distribute or edit"
+      },
+      "badge": {
+        "kind": "about",
+        "label": "About the project"
+      },
+      "points": [
+        "The data is national; only the questions are local.",
+        "Open by default: MIT-licensed code, CC BY words and data, and every day's evidence archived in public.",
+        "A template for other regions is on the way, and a company that wants to develop this further would have full support."
+      ],
+      "try": [
+        {
+          "action": "link",
+          "label": "The code on GitHub",
+          "href": "https://github.com/dennislemennace/adur-worthing-bus"
+        }
+      ],
+      "sources": []
+    },
+    {
+      "id": "build-it-together",
+      "title": "Let's build it together",
+      "lead": "The code is open and the data is public. Operators: check our figures. Councils: plan the coast as one corridor. Technology firms and other regions: help turn this into a template.",
+      "badge": {
+        "kind": "about",
+        "label": "Get in touch"
+      },
+      "points": [
+        "Connor Ranahan, privacy@worthingbrightonbus.co.uk"
+      ],
+      "try": [
+        {
+          "action": "link",
+          "label": "Email Connor",
+          "href": "mailto:privacy@worthingbrightonbus.co.uk"
+        }
+      ],
+      "sources": []
+    }
+  ],
+  "contact": {
+    "name": "Connor Ranahan",
+    "email": "privacy@worthingbrightonbus.co.uk",
+    "site": "https://worthingbrightonbus.co.uk",
+    "code": "https://github.com/dennislemennace/adur-worthing-bus"
+  }
+}

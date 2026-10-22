@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#1a4b82" />
+  <title>The tour | Worthing Brighton Bus</title>
+  <meta name="description" content="Worthing Brighton Bus in a few slides: what passengers face on the Sussex coast, what open bus data can join up, and what the buses actually did." />
+  <link rel="canonical" href="https://worthingbrightonbus.co.uk/tour.html" />
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="stylesheet" href="fonts/fonts.css" />
+  <style>
+    /* Self-contained, like figures.html. One slide at a time on a wide
+       screen, every slide one under another on a phone, one slide to a 16:9
+       page in print. Slide type is sized against the slide (container query
+       units), so it reads the same on a laptop, a projector and paper. */
+    :root { color-scheme: light dark; --ink: #12202f; --muted: #4a5868; --bg: #fbfaf7; --rule: #d8d3c8;
+            --link: #1a4b82; --panel: #f1eee6; --accent: #1a4b82; --on-accent: #ffffff;
+            --live: #1d6b3a; --late: #8a3b00; --stage: #e9e5db; }
+    @media (prefers-color-scheme: dark) {
+      :root { --ink: #e8eef5; --muted: #a9b6c6; --bg: #090e1a; --rule: #263349; --link: #7fb3e8;
+              --panel: #121a2b; --accent: #7fb3e8; --on-accent: #090e1a; --live: #5fc187; --late: #f0a35e;
+              --stage: #04070e; }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--stage); color: var(--ink); }
+    body { font: 16px/1.5 Outfit, system-ui, sans-serif; }
+    a { color: var(--link); }
+
+    .deck { min-height: 100vh; display: flex; flex-direction: column; }
+    .slides { flex: 1; display: grid; place-items: center; padding: 12px; }
+    .slide {
+      display: none; width: min(100%, calc((100vh - 96px) * 16 / 9)); aspect-ratio: 16 / 9;
+      container-type: size; background: var(--bg); border: 1px solid var(--rule); border-radius: 10px;
+      padding: 5cqh 6cqw; gap: 4cqw; grid-template-columns: 1fr auto; overflow: hidden;
+    }
+    .slide.is-current { display: grid; }
+    .slide:focus { outline: none; }
+    .slide-body { display: flex; flex-direction: column; min-width: 0; }
+    .slide-kicker { margin: 0 0 1.6cqh; font-size: 2.3cqh; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+    .slide-title { margin: 0 0 2cqh; font-family: Fraunces, Georgia, serif; font-size: 6.4cqh; line-height: 1.15; }
+    .slide--opening .slide-title { font-size: 7.6cqh; }
+    .slide-lead { margin: 0 0 2.2cqh; font-size: 3.2cqh; line-height: 1.4; }
+    .slide-points { margin: 0; padding-left: 1.2em; font-size: 2.65cqh; line-height: 1.4; }
+    .slide-points li { margin: 0 0 1.1cqh; }
+    .slide-sources { margin: auto 0 0; padding-top: 1.6cqh; font-size: 1.7cqh; color: var(--muted); }
+    .slide-badge { display: inline-flex; align-items: center; gap: .5em; padding: .1em .7em; border-radius: 999px;
+                   border: 1px solid var(--rule); background: var(--panel); color: var(--ink); }
+    .slide-badge::before { content: ""; width: .6em; height: .6em; border-radius: 50%; background: var(--muted); }
+    .slide-badge--live::before { background: var(--live); }
+    .slide-badge--recorded::before { background: var(--accent); }
+    .slide-badge--experimental::before { background: var(--late); }
+    .slide-side { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2cqh; width: 30cqh; }
+    .slide-qr { margin: 0; text-align: center; }
+    .slide-qr img { width: 28cqh; height: 28cqh; display: block; border-radius: 6px; background: #fff; }
+    .slide-qr figcaption { margin-top: 1cqh; font-size: 1.9cqh; color: var(--muted); }
+    .slide-contact { margin: 0; font-size: 2.3cqh; line-height: 1.5; text-align: center; }
+
+    .deck-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg);
+                border-top: 1px solid var(--rule); }
+    .deck-bar button, .deck-bar a { min-height: 44px; min-width: 44px; padding: 0 14px; border-radius: 8px;
+                border: 1px solid var(--rule); background: var(--panel); color: var(--ink); font: inherit;
+                font-weight: 600; display: inline-flex; align-items: center; text-decoration: none; cursor: pointer; }
+    .deck-bar .deck-next { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    .deck-counter { min-width: 4.5em; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .deck-spacer { flex: 1; }
+    .deck-track { height: 4px; background: var(--rule); }
+    .deck-progress { height: 4px; width: 0; background: var(--accent); }
+    .deck-error { padding: 2rem; }
+    .deck-hint { color: var(--muted); font-size: .875rem; }
+
+    /* A phone: every slide, one under another, read by scrolling. */
+    @media (max-width: 760px) {
+      .slides { display: block; padding: 12px; }
+      .slide { display: grid; width: 100%; aspect-ratio: auto; container-type: inline-size;
+               grid-template-columns: 1fr; padding: 20px 16px; margin: 0 0 12px; }
+      .slide-kicker { font-size: .875rem; margin-bottom: .5rem; }
+      .slide-title, .slide--opening .slide-title { font-size: 1.5rem; margin-bottom: .6rem; }
+      .slide-lead { font-size: 1.05rem; margin-bottom: .8rem; }
+      .slide-points { font-size: 1rem; }
+      .slide-points li { margin-bottom: .4rem; }
+      .slide-sources { font-size: .8rem; padding-top: .6rem; }
+      .slide-side { width: auto; gap: .8rem; }
+      .slide-qr img { width: 160px; height: 160px; }
+      .slide-qr figcaption, .slide-contact { font-size: .9rem; }
+      .deck-prev, .deck-next, .deck-counter, .deck-full, .deck-hint { display: none !important; }
+      .deck-track { display: none; }
+    }
+    @media (prefers-reduced-motion: no-preference) { .deck-progress { transition: width .2s ease; } }
+
+    /* Print and PDF: every slide, one to a widescreen page, nothing to press.
+       Sizes here are in pt and mm, not container units: Chrome's print path
+       did not resolve cqh against the slide, and the PDF came out with its
+       type at half size and almost no margin. These match the screen's
+       proportions on a 190.5mm-high page. */
+    @page { size: 338.67mm 190.5mm; margin: 0; }
+    @media print {
+      :root { color-scheme: light; --ink: #12202f; --muted: #4a5868; --bg: #ffffff; --rule: #d8d3c8;
+              --link: #1a4b82; --panel: #f1eee6; --accent: #1a4b82; --live: #1d6b3a; --late: #8a3b00; }
+      html, body { background: #fff; }
+      .deck-bar, .deck-track { display: none !important; }
+      .slides { display: block; padding: 0; }
+      .slide, .slide.is-current { display: grid !important; width: 338.67mm; height: 190.5mm; aspect-ratio: auto;
+               container-type: normal; border: 0; border-radius: 0; margin: 0; padding: 10mm 20mm; gap: 13mm;
+               grid-template-columns: 1fr auto; break-after: page; page-break-after: always; }
+      .slide:last-child { break-after: auto; page-break-after: auto; }
+      .slide-kicker { font-size: 11pt; margin-bottom: 7.5pt; }
+      .slide-title { font-size: 30pt; margin-bottom: 9.5pt; }
+      .slide--opening .slide-title { font-size: 36pt; }
+      .slide-lead { font-size: 15pt; margin-bottom: 10.5pt; }
+      .slide-points { font-size: 13pt; }
+      .slide-points li { margin-bottom: 5pt; }
+      .slide-sources { font-size: 8pt; padding-top: 7.5pt; }
+      .slide-side { width: 50mm; gap: 5mm; }
+      .slide-qr img { width: 47mm; height: 47mm; }
+      .slide-qr figcaption { font-size: 9pt; margin-top: 2.5mm; }
+      .slide-contact { font-size: 11pt; }
+      a { color: var(--ink); text-decoration: none; }
+    }
+  </style>
+  <script src="analytics-page.js" defer></script>
+  <script src="tour-figures.js" defer></script>
+  <script src="tour-page.js" defer></script>
+</head>
+<body>
+<div class="deck">
+  <main class="slides" id="slides" aria-live="polite">
+    <p class="deck-error">Loading the tour…</p>
+  </main>
+  <div class="deck-track" aria-hidden="true"><div class="deck-progress" id="deck-progress"></div></div>
+  <nav class="deck-bar" aria-label="Slides">
+    <a href="./#view=tour">Back to the site</a>
+    <span class="deck-spacer"></span>
+    <span class="deck-hint">Arrow keys to move, F for full screen</span>
+    <button type="button" class="deck-prev" id="deck-prev" aria-label="Previous slide">‹</button>
+    <span class="deck-counter" id="deck-counter" aria-live="polite"></span>
+    <button type="button" class="deck-next" id="deck-next" aria-label="Next slide">›</button>
+    <button type="button" class="deck-full" id="deck-full">Full screen</button>
+    <button type="button" id="deck-print">Print or save as PDF</button>
+  </nav>
+</div>
+<noscript><p class="deck-error">The slides need JavaScript. The same tour is on the site at
+  <a href="./#view=tour">worthingbrightonbus.co.uk</a>.</p></noscript>
+</body>
+</html>

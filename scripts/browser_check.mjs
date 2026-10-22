@@ -906,7 +906,7 @@ async function checkDeepLinkIndependence() {
 async function checkStaticPages() {
   const base = new URL(SITE);
   const origin = `${base.origin}${base.pathname.replace(/[^/]*$/, "")}`;
-  for (const name of ["about.html", "privacy.html", "terms.html", "contact.html", "timing.html", "figures.html"]) {
+  for (const name of ["about.html", "privacy.html", "terms.html", "contact.html", "timing.html", "figures.html", "tour.html"]) {
     for (const vp of [{ label: "mobile", width: 390, height: 844, mobile: true },
                       { label: "desktop", width: 1440, height: 900, mobile: false }]) {
       const page = await connect("about:blank");
@@ -1650,6 +1650,332 @@ async function checkConference(page, where) {
   await sleep(400);
   const left = await page.evaluate("document.querySelectorAll('.conf-pin').length");
   check(`the conference markers leave with the view — ${where}`, left === 0, String(left));
+}
+
+/**
+ * The guided tour (tour.js): in the menu only once approved; its own page a
+ * short way in (the opening, Start, the steps by name), not the old scrolling
+ * list; and the walk itself. Start, then Next through the stops: each opens
+ * the real view it names with the tour's card beside it (clear of the panel
+ * on a wide screen, above the sheet on a phone), the ring round what the card
+ * is talking about, the menu still on the tour and the stop in the address.
+ * The page under the card stays usable, the card's Back and the browser's
+ * Back walk back, and End, Escape, Finish and the menu all leave. `full`
+ * walks every stop; otherwise the first three, which cover a stop with no
+ * view, one with a ring in the panel and one over the map.
+ */
+const TOUR_EXPECT = {
+  board: "live", "live-map": "live", "route-view": "improvements",
+  tickets: "tickets", planner: "live", "journey-times": "journeytimes", "delay-map": "journeytimes",
+};
+
+/** Where the tour is and where its card sits. */
+const TOUR_STATE = `(() => {
+  const r = (el) => { if (!el) return null; const b = el.getBoundingClientRect();
+    return { top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), right: Math.round(b.right) }; };
+  const shown = (el) => !!el && !el.hidden && getComputedStyle(el).display !== "none" && el.getBoundingClientRect().width > 0;
+  const card = document.getElementById("tour-coach");
+  const ring = document.getElementById("tour-ring");
+  const demo = state.tourDemo;
+  const step = demo && tour.data.steps[demo.step];
+  const t = step && demo.tryIndex != null ? step.try[demo.tryIndex] : null;
+  const sel = t && TOUR_TARGETS[t.action];
+  const target = sel ? document.querySelector(sel) : null;
+  return JSON.stringify({ view: state.viewMode, demo, hash: location.hash,
+    label: document.getElementById("section-nav-label").textContent,
+    card: shown(card) ? r(card) : null,
+    title: card && card.querySelector(".tour-coach-title") ? card.querySelector(".tour-coach-title").textContent : "",
+    panel: r(document.getElementById("departure-panel")),
+    headerBottom: Math.round(document.querySelector(".site-header").getBoundingClientRect().bottom),
+    w: innerWidth, h: innerHeight, sheet: isSheetLayout(), wants: !!sel,
+    target: target && target.getClientRects().length ? r(target) : null,
+    ring: shown(ring) ? r(ring) : null, attr: document.body.hasAttribute("data-tour-coach") });
+})()`;
+
+/** True when the card is wholly on screen and out of the way: beside the
+ *  panel, never over it (the panel is on the right on a wider screen), or
+ *  above the sheet on a phone. */
+function tourCardPlaced(s) {
+  const c = s.card, p = s.panel;
+  if (!c) return false;
+  const onScreen = c.top >= s.headerBottom - 1 && c.bottom <= s.h + 1 && c.left >= -1 && c.right <= s.w + 1;
+  const panelShown = p && p.right - p.left > 40 && p.left < s.w && p.right > 0;
+  const clear = s.sheet ? c.bottom <= p.top + 1
+    : !panelShown || c.right <= p.left + 1 || c.left >= p.right - 1;
+  return onScreen && clear;
+}
+
+/** The ring is round what the card points at, and wholly in the window so
+ *  none of its line is cut off. */
+function tourRinged(s) {
+  return Boolean(s.ring && s.target) && s.ring.top <= s.target.bottom && s.ring.bottom >= s.target.top
+    && s.ring.left >= 0 && s.ring.right <= s.w && s.ring.top >= 0 && s.ring.bottom <= s.h;
+}
+
+async function tourStopReady(page, stop) {
+  const want = stop.tryIndex == null ? "null" : String(stop.tryIndex);
+  await waitFor(page, `!!state.tourDemo && state.tourDemo.step === ${stop.step} && state.tourDemo.tryIndex === ${want}
+    && (${stop.view ? `state.viewMode === "${stop.view}"` : `state.viewMode !== "tour"`})`, 20000).catch(() => {});
+  // A ring waits for what it points at, which can arrive after the view.
+  if (stop.target) {
+    await waitFor(page, `!document.getElementById("tour-ring").hidden`, 10000).catch(() => {});
+  }
+  await sleep(900);
+  return JSON.parse(await page.evaluate(TOUR_STATE));
+}
+
+async function checkTour(page, where, { full = false } = {}) {
+  await waitFor(page, "typeof tour !== 'undefined' && !!tour.data", 15000);
+  const menu = JSON.parse(await page.evaluate(`(() => {
+    const item = document.querySelector('#section-nav-menu [data-mode="tour"]');
+    return JSON.stringify({ hidden: !item || item.hidden, offered: tourOffered(tour.data),
+      badge: (item && item.querySelector(".section-nav-new") || {}).textContent || "" });
+  })()`));
+  check(`the tour is in the menu only once approved, with its badge — ${where}`,
+    menu.hidden === !menu.offered && menu.badge === "New", JSON.stringify(menu));
+
+  // The way in.
+  await page.evaluate("setViewMode('tour')");
+  await waitFor(page, "!!document.querySelector('#tab-content-tour .tour-opening')", 20000);
+  await sleep(800);
+  const r = JSON.parse(await page.evaluate(`(() => {
+    const host = document.getElementById("tab-content-tour");
+    const modes = [...host.querySelectorAll("[data-tour-mode]")].map(m => m.dataset.tourMode);
+    const contents = host.querySelectorAll(".tour-contents-item[data-tour-start]").length;
+    const points = host.querySelectorAll(".tour-points li").length;
+    const unfilled = /\\{[a-z_]+\\}/.test(host.textContent);
+    const label = document.getElementById("section-nav-label").textContent;
+    const card = !document.getElementById("tour-coach").hidden;
+    return JSON.stringify({ modes, contents, points, want: tour.data.steps.length, unfilled, label, card, hash: location.hash });
+  })()`));
+  check(`the tour's page is a way in: Start, slides, PDF and the steps by name — ${where}`,
+    r.modes.join(",") === "explore,present,pdf" && r.contents === r.want && r.points === 0 && !r.card, JSON.stringify(r));
+  check(`no placeholder reaches the tour unfilled — ${where}`, !r.unfilled, JSON.stringify(r));
+  check(`the header names the tour and the address says so — ${where}`,
+    r.label === "Take the tour" && r.hash.includes("view=tour"), JSON.stringify(r));
+  // The opening never offers a file that is not there.
+  const pdf = JSON.parse(await page.evaluate(`(async () => {
+    const a = document.querySelector('#tab-content-tour a[data-tour-mode="pdf"]');
+    if (!a) return JSON.stringify({ missing: true });
+    const res = await fetch(a.getAttribute("href"), { method: "HEAD", cache: "no-store" }).catch(() => null);
+    return JSON.stringify({ exists: !!(res && res.ok), hidden: a.hidden });
+  })()`));
+  check(`the PDF is offered only when it exists — ${where}`,
+    !pdf.missing && pdf.hidden === !pdf.exists, JSON.stringify(pdf));
+  await checkLayout(page, `the tour — ${where}`);
+  await checkReachable(page, `the tour — ${where}`);
+  await checkContrastBothThemes(page, `the tour — ${where}`);
+
+  // The walk.
+  const stops = JSON.parse(await page.evaluate(`JSON.stringify(tourStops(tour.data).map((x, n) => {
+    const t = x.tryIndex == null ? null : tour.data.steps[x.step].try[x.tryIndex];
+    return { n, step: x.step, tryIndex: x.tryIndex, action: t ? t.action : null, from: t && t.from, to: t && t.to,
+      title: t ? t.label : tour.data.steps[x.step].title, target: !!(t && TOUR_TARGETS[t.action]) };
+  }))`)).map(x => ({ ...x, view: x.action ? TOUR_EXPECT[x.action] : null }));
+  const walk = full ? stops : stops.slice(0, 3);
+  await page.evaluate(`document.querySelector('#tab-content-tour [data-tour-mode="explore"]').click()`);
+  let audited = false;
+  for (const stop of walk) {
+    if (stop.n > 0) await page.evaluate(`document.querySelector('#tour-coach [data-tour-coach="next"]').click()`);
+    const s = await tourStopReady(page, stop);
+    const got = JSON.parse(await page.evaluate(`(() => {
+      const plan = document.querySelector("#plan-journey .plan-preview-tag");
+      return JSON.stringify({ stop: state.selectedStop && state.selectedStop.atcoCode,
+        planTag: !!plan && plan.getBoundingClientRect().height > 0, a: jtEntry.a, b: jtEntry.b, section: jtEntry.section,
+        chart: (() => { const c = document.querySelector(".jt-simple-chart .jt-chart--day");
+          if (!c) return null; const b = c.getBoundingClientRect();
+          return { top: Math.round(b.top), bottom: Math.round(b.bottom), h: innerHeight }; })(),
+        lines: document.querySelectorAll(".route-network-line").length });
+    })()`));
+    const extra = stop.action === "board" ? got.stop === "149000007936"
+      : stop.action === "planner" ? got.planTag
+      // The journey's chart is the stop: all of it on screen, and on a phone
+      // below the card rather than under it.
+      : stop.action === "journey-times" ? (got.a === stop.from && got.b === stop.to && !!got.chart
+        && got.chart.top >= s.headerBottom && got.chart.bottom <= got.chart.h + 1
+        && (!s.sheet || !s.card || got.chart.top >= s.card.bottom))
+      : stop.action === "delay-map" ? got.section === "delays"
+      : stop.action === "route-view" ? got.lines > 0
+      : true;
+    const address = `tour=${stop.step + 1}${stop.tryIndex == null ? "" : `-${stop.tryIndex + 1}`}`;
+    const inTour = s.demo && s.label === "Take the tour" && s.attr && new RegExp(`${address}(&|$)`).test(s.hash);
+    const ringed = !stop.target || tourRinged(s);
+    check(`tour stop ${stop.n + 1} "${stop.title}" opens ${stop.view || "its card"} inside the tour — ${where}`,
+      (!stop.view || s.view === stop.view) && extra && inTour && s.title === stop.title, JSON.stringify({ ...got, ...s }));
+    check(`tour stop ${stop.n + 1}: the card is on screen and clear of the panel, the ring on its target — ${where}`,
+      tourCardPlaced(s) && ringed, JSON.stringify(s));
+    if (!audited && stop.target) {
+      audited = true;
+      await checkLayout(page, `a stop of the tour — ${where}`);
+      await checkReachable(page, `a stop of the tour — ${where}`);
+      await checkContrastBothThemes(page, `a stop of the tour — ${where}`);
+    }
+    if (stop.action === "route-view") {
+      // The page under the card is the reader's: the real control works, and
+      // the tour waits where it was.
+      await page.evaluate("document.getElementById('service-mode-night').click()");
+      await sleep(600);
+      const used = JSON.parse(await page.evaluate(`JSON.stringify({ mode: state.serviceMode, s: ${TOUR_STATE} })`));
+      const u = JSON.parse(used.s);
+      check(`the view under the tour's card is usable, and the tour waits — ${where}`,
+        used.mode === "night" && u.demo && u.demo.step === stop.step && !!u.card, JSON.stringify(used));
+      await page.evaluate("document.getElementById('service-mode-day').click()");
+      // The evidence opens over the stop and leaves it where it was.
+      const ev = await page.evaluate(`!!document.querySelector('#tour-coach .tour-coach-extra')`);
+      if (ev) {
+        await page.evaluate(`document.querySelector('#tour-coach .tour-coach-extra').click()`);
+        await waitFor(page, `document.getElementById("evidence-dialog").open`, 10000).catch(() => {});
+        const evs = JSON.parse(await page.evaluate(`(() => { const d = document.getElementById("evidence-dialog");
+          const o = { open: d.open, demo: state.tourDemo, view: state.viewMode }; d.close(); return JSON.stringify(o); })()`));
+        check(`the evidence opens over a stop and leaves it as it was — ${where}`,
+          evs.open && evs.demo && evs.demo.step === stop.step && evs.view === "improvements", JSON.stringify(evs));
+      }
+    }
+  }
+
+  // The browser's Back, then Back on the card, each walk back one stop. (In
+  // that order: the card's Back is a step of its own in the history, so the
+  // browser's Back after it returns to where the reader pressed it.)
+  if (walk.length >= 3) {
+    const was = (s, stop) => Boolean(s.demo) && s.demo.step === stop.step && s.demo.tryIndex === stop.tryIndex && !!s.card;
+    await page.evaluate("history.back()");
+    const b1 = await tourStopReady(page, walk[walk.length - 2]);
+    check(`the browser's Back walks back through the tour — ${where}`, was(b1, walk[walk.length - 2]), JSON.stringify(b1));
+    await page.evaluate(`document.querySelector('#tour-coach [data-tour-coach="back"]').click()`);
+    const b2 = await tourStopReady(page, walk[walk.length - 3]);
+    check(`the card's Back returns to the stop before — ${where}`, was(b2, walk[walk.length - 3]), JSON.stringify(b2));
+  }
+
+  // The ways out: End, Escape, the menu, and Finish at the last stop.
+  const out = async (how) => {
+    await sleep(800);
+    const s = JSON.parse(await page.evaluate(TOUR_STATE));
+    check(`${how} leaves the tour where it is — ${where}`,
+      !s.demo && !s.card && !s.ring && !s.attr && s.view !== "tour" && s.label !== "Take the tour" && !/tour=/.test(s.hash),
+      JSON.stringify(s));
+  };
+  await page.evaluate(`document.querySelector('#tour-coach [data-tour-coach="end"]').click()`);
+  await out("End");
+  const restart = async () => {
+    await page.evaluate("setViewMode('tour')");
+    await waitFor(page, "!!document.querySelector('#tab-content-tour [data-tour-mode=\"explore\"]')", 15000);
+    await page.evaluate(`document.querySelector('#tab-content-tour [data-tour-mode="explore"]').click()`);
+    await tourStopReady(page, stops[0]);
+  };
+  await restart();
+  await page.evaluate(`(() => { const c = document.getElementById("tour-coach");
+    c.querySelector(".tour-coach-title").focus();
+    c.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); })()`);
+  await out("Escape on the card");
+  await restart();
+  await page.evaluate(`document.querySelector('#section-nav-menu [data-mode="live"]').click()`);
+  await out("Choosing a section from the menu");
+  if (full) {
+    const last = stops[stops.length - 1];
+    await page.evaluate(`tourGoTo(${last.step}, ${last.tryIndex == null ? "null" : last.tryIndex})`);
+    const s = await tourStopReady(page, last);
+    const label = await page.evaluate(`document.querySelector('#tour-coach [data-tour-coach="next"]').textContent.trim()`);
+    check(`the last stop finishes the tour — ${where}`, !!s.card && label === "Finish", JSON.stringify({ label, s }));
+    await page.evaluate(`document.querySelector('#tour-coach [data-tour-coach="next"]').click()`);
+    await out("Finish");
+  }
+  await page.evaluate("setViewMode('live')");
+  await sleep(300);
+}
+
+/**
+ * Back after choosing a section from the menu returns to the section before.
+ * Opening Tickets, Route view or Bus Performance closes the panel, which
+ * rewrites the address in place; done before the new page was made, it
+ * overwrote the live map's, and Back left the site. On its own page, since a
+ * failure navigates away from it.
+ */
+async function checkViewBack() {
+  const p = await openPage(VIEWPORTS.find(v => v.name === "desktop"));
+  for (const mode of ["tickets", "improvements", "journeytimes", "updates"]) {
+    await p.evaluate(`document.querySelector('#section-nav-menu [data-mode="${mode}"]').click()`);
+    await sleep(1200);
+    const went = await p.evaluate("state.viewMode").catch(() => null);
+    await p.evaluate("history.back()").catch(() => {});
+    await sleep(1500);
+    const back = await p.evaluate("typeof state === 'object' ? state.viewMode : null").catch(() => null);
+    check(`Back after choosing ${mode} from the menu returns to the live map`, went === mode && back === "live",
+      JSON.stringify({ went, back }));
+    if (back !== "live") break;
+  }
+  p.ws.close();
+}
+
+/**
+ * tour.html: one slide at a time on a wide screen, keys that move between
+ * them, every slide stacked on a phone, and in print every slide on its own
+ * 16:9 page with nothing cut off. Layout, targets and contrast run with the
+ * static pages.
+ */
+// A slide is overfull when anything in it reaches past its padding, which is
+// where overflow: hidden starts cutting. Not the body's own scrollHeight: the
+// body grows with its text, and it is the slide that clips it.
+const SLIDE_OVERFULL = `(s => { const cs = getComputedStyle(s), r = s.getBoundingClientRect();
+  const bottom = r.bottom - parseFloat(cs.paddingBottom) + 1, right = r.right - parseFloat(cs.paddingRight) + 1;
+  return [...s.children].some(c => { const q = c.getBoundingClientRect(); return q.bottom > bottom || q.right > right; }); })`;
+
+async function checkTourSlides() {
+  const base = new URL(SITE);
+  const origin = `${base.origin}${base.pathname.replace(/[^/]*$/, "")}`;
+  for (const vp of [{ label: "desktop", width: 1440, height: 900, mobile: false },
+                    { label: "mobile", width: 390, height: 844, mobile: true }]) {
+    const page = await connect("about:blank");
+    try {
+      await page.send("Page.enable");
+      await page.send("Runtime.enable");
+      await page.send("Network.enable");
+      await page.send("Network.setCacheDisabled", { cacheDisabled: true });
+      await page.send("Emulation.setDeviceMetricsOverride",
+        { width: vp.width, height: vp.height, deviceScaleFactor: 2, mobile: vp.mobile });
+      await page.send("Page.navigate", { url: origin + "tour.html" });
+      await waitFor(page, "document.querySelectorAll('.slide').length > 1", 20000);
+      await sleep(800);
+      const shown = () => page.evaluate(`[...document.querySelectorAll('.slide')]
+        .filter(s => getComputedStyle(s).display !== 'none').length`);
+      const total = await page.evaluate("document.querySelectorAll('.slide').length");
+      if (vp.label === "desktop") {
+        check("tour.html shows one slide at a time on a wide screen", await shown() === 1, String(await shown()));
+        await page.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39 });
+        await page.send("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39 });
+        await sleep(200);
+        const second = await page.evaluate("document.getElementById('deck-counter').textContent");
+        await page.send("Input.dispatchKeyEvent", { type: "keyDown", key: "End", code: "End", windowsVirtualKeyCode: 35 });
+        await sleep(200);
+        const last = await page.evaluate("document.getElementById('deck-counter').textContent");
+        check("tour.html moves with the arrow keys and End", second === `2 / ${total}` && last === `${total} / ${total}`,
+          JSON.stringify({ second, last }));
+        // Each slide on screen fits its 16:9 frame.
+        const clipped = [];
+        for (let i = 0; i < total; i++) {
+          const c = await page.evaluate(`(() => { const s = document.querySelectorAll('.slide')[${i}];
+            document.querySelectorAll('.slide').forEach(x => x.classList.toggle('is-current', x === s));
+            return ${SLIDE_OVERFULL}(s) ? s.dataset.slide : ''; })()`);
+          if (c) clipped.push(c);
+        }
+        check("every slide fits its 16:9 frame on screen", clipped.length === 0, clipped.join(", "));
+        await page.send("Emulation.setEmulatedMedia", { media: "print" });
+        await sleep(400);
+        const print = JSON.parse(await page.evaluate(`JSON.stringify([...document.querySelectorAll('.slide')].map(s => ({
+          id: s.dataset.slide, shown: getComputedStyle(s).display !== 'none', clipped: ${SLIDE_OVERFULL}(s),
+          bar: getComputedStyle(document.querySelector('.deck-bar')).display })))`));
+        check("in print every slide is on its page and nothing is cut off",
+          print.every(p => p.shown && !p.clipped && p.bar === "none"),
+          JSON.stringify(print.filter(p => !p.shown || p.clipped || p.bar !== "none")));
+        await page.send("Emulation.setEmulatedMedia", { media: "" });
+      } else {
+        check("tour.html stacks every slide on a phone", await shown() === total, `${await shown()} of ${total}`);
+      }
+      const errors = page.consoleErrors.filter((e) => JS_ERROR.test(e));
+      check(`no JavaScript exceptions — tour.html, ${vp.label}`, errors.length === 0, errors.slice(0, 2).join(" | "));
+    } finally {
+      page.ws.close();
+    }
+  }
 }
 
 /**
@@ -4149,6 +4475,7 @@ await checkClusterDensity(page, VIEWPORTS[0].name);
 await checkProposalFitsAboveSheet(page, VIEWPORTS[0].name);
 await checkPresetsDraw(page, VIEWPORTS[0].name);
 await checkConference(page, VIEWPORTS[0].name);
+await checkTour(page, VIEWPORTS[0].name, { full: true });
 await checkHomeLink(page, VIEWPORTS[0].name);
 await checkDepartureJourneys(page, VIEWPORTS[0].name);
 await checkTicketZonesPicker(page, VIEWPORTS[0].name);
@@ -4190,6 +4517,7 @@ await checkPanelCollapse(page);   // must stay last — see the note on the func
 await checkDeepLinkIndependence();   // own page + request interception; keep it apart
 await checkStaticPages();           // own pages: about, privacy, terms
 await checkReportPage();            // own page, fixture served in place of the build
+await checkTourSlides();            // own page: slides, keys, print
 
 // The other two viewports get the layout assertions whether or not
 // screenshots were asked for — an assertion that only runs with --shots is
@@ -4206,6 +4534,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   if (vp.mobile) await checkTicketZonesPicker(p, vp.name);
   await checkMapTaps(p, vp.name);
   await checkConference(p, vp.name);
+  await checkTour(p, vp.name, { full: vp.name === "desktop" });
   await checkHomeLink(p, vp.name);
   await checkDepartureJourneys(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
@@ -4226,6 +4555,8 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkDelayMap(p, vp.name);
   p.ws.close();
 }
+
+await checkViewBack();
 
 const jsErrors = page.consoleErrors.filter((e) => JS_ERROR.test(e));
 check("no JavaScript exceptions on the page", jsErrors.length === 0,

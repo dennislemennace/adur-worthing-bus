@@ -219,6 +219,7 @@ const state = {
 
   // ── Improvements view (network/proposals mode) ──
   viewMode:                "live", // "live" | "improvements" | "tickets" | "network" | "updates"
+  tourDemo:                null,   // { step, tryIndex }: the tour's stop the reader is on (tour.js)
   updatesTab:              "official", // "official" | "community"
   officialUpdates:         null,   // data/updates.json
   communityUpdates:        null,   // data/community_updates.json
@@ -426,7 +427,14 @@ function buildUrlHash() {
   else if (state.viewMode === "network") parts.push("view=n");
   else if (state.viewMode === "updates") parts.push("view=u");
   else if (state.viewMode === "conference") parts.push("view=c");
+  else if (state.viewMode === "tour")       parts.push("view=tour");
   else if (state.viewMode === "journeytimes") parts.push("view=j");
+  // A view open inside the tour names the step it was opened from, so a
+  // reload or Back lands inside the tour rather than in the view on its own.
+  if (state.tourDemo && state.viewMode !== "tour") {
+    const { step, tryIndex } = state.tourDemo;
+    parts.push(`tour=${step + 1}${tryIndex == null ? "" : `-${tryIndex + 1}`}`);
+  }
   if (state.serviceMode === "night")     parts.push("svc=n");
   if (state.viewMode === "live") {
     if (state.selectedStop && state.selectedStop.atcoCode) {
@@ -470,11 +478,15 @@ async function applyUrlState(parsed) {
                : parsed.view === "n" ? "network"
                : parsed.view === "u" ? "updates"
                : parsed.view === "c" ? "conference"
+               : parsed.view === "tour" ? "tour"
                : parsed.view === "j" ? "journeytimes"
                : "live";
     if (view === "journeytimes") jtEntry.sharedApplied = false;
-    if (state.viewMode !== view) setViewMode(view);
+    // The address decides whether this is inside the tour, not the view the
+    // reader happened to be in (tour.js).
+    if (state.viewMode !== view) setViewMode(view, { chosen: true });
     else if (view === "journeytimes") await renderJourneyTimes();
+    if (typeof tourSetDemo === "function") tourSetDemo(tourDemoFromAddress(parsed.tour, view));
 
     if (view === "network" && parsed.objective) {
       state.selectedObjectiveId = parsed.objective;
@@ -1736,7 +1748,7 @@ const COUNCIL_LABEL_MIN_ZOOM = 11;
  */
 function reconcileCouncilBoundaries() {
   if (!state.map) return;
-  const show = state.viewMode === "improvements" || state.viewMode === "live";
+  const show = state.viewMode === "improvements" || state.viewMode === "live" || state.viewMode === "tour";
   // The hit line is reconciled with the line it belongs to, not separately:
   // one left behind is an invisible strip of map that opens a dialog.
   for (const layer of [...Object.values(state.councilBoundaryLayers),
@@ -1848,7 +1860,7 @@ const analytics = { enabled: false, queue: [], once: new Set() };
 const VIEW_EVENT_NAMES = {
   live: "live", improvements: "route", tickets: "tickets",
   network: "better-buses", updates: "news", journeytimes: "journey-times",
-  conference: "conference",
+  conference: "conference", tour: "tour",
 };
 
 // Set by the switch on privacy.html. The analytics exemption in PECR, as
@@ -4634,7 +4646,9 @@ function journeyTimesDayChart(timings, opts = {}) {
   const typical = opts.typical || jtHourlyTypical(timings);
   const period = jtPeriod(opts.periodKey || "any");
   const narrow = width < 480;
-  const H = narrow ? 230 : 270, L = 38, R = 10, T = 14, B = 30;
+  // Room above for the minutes' title and below for the times', so each axis
+  // says what it counts rather than leaving the reader to work it out.
+  const H = narrow ? 258 : 298, L = 38, R = 10, T = 26, B = 46;
 
   const departOf = t => jtChartSecs(jtClockMinutes(t.start) * 60);
   const series = (schedule.series || []).filter(s => s.points.length);
@@ -4708,12 +4722,16 @@ function journeyTimesDayChart(timings, opts = {}) {
     `<path class="jt-timetable jt-timetable--${s.dayType}" d="${jtStepPath(s.points, x, y)}"></path>`).join("");
 
   const label = opts.label || `How long each bus took, ${jtDay(opts.dayKey).plural}`;
+  const leftFrom = opts.fromName ? `Time the bus left ${escapeHtml(opts.fromName)}` : "Time the bus left";
+  // The timetable is drawn over the typical time: where the two agree, its
+  // dashes still show on top instead of vanishing underneath.
   const svg = `<svg class="jt-chart jt-chart--day" viewBox="0 0 ${width} ${H}" role="img" aria-label="${escapeAttr(label)}">
     ${bands.join("")}${grid.join("")}${selected}
     <g class="jt-dots">${dots}</g>
-    ${lines}${typicalPath ? `<path class="jt-typical" d="${typicalPath}"></path>` : ""}
+    ${typicalPath ? `<path class="jt-typical" d="${typicalPath}"></path>` : ""}${lines}
     <g class="jt-hour-cols">${cols.join("")}</g>
-    <text class="jt-axis jt-axis-title" x="${L}" y="${T - 4}">minutes</text>
+    <text class="jt-axis jt-axis-title" x="0" y="${T - 12}">Minutes taken</text>
+    <text class="jt-axis jt-axis-title" x="${px((L + width - R) / 2)}" y="${H - 6}" text-anchor="middle">${leftFrom}</text>
   </svg>`;
 
   const ttLabel = s => series.length > 1 ? `Timetable, ${JT_DAY_TYPE_LABELS[s.dayType] || s.dayType}` : "Timetable";
@@ -4808,7 +4826,8 @@ function renderJourneyTimesSimple(ctx) {
       "The slider below describes any hour in words, and the table below it lists every hour."]
       .filter(Boolean).join(" ");
     const chart = journeyTimesDayChart(dayAll, { width: host.clientWidth || 640, schedule, typical,
-      periodKey, dayKey, hour, span, label: chartWords });
+      periodKey, dayKey, hour, span, label: chartWords,
+      fromName: prettifyName(doc.stops[fromIndex]?.name || "") });
     const first = summary.days[0], last = summary.days[summary.days.length - 1];
     const hourWords = h => `${String(h % 24).padStart(2, "0")}:00 to ${String((h + 1) % 24).padStart(2, "0")}:00`;
     answer = `
@@ -4828,7 +4847,7 @@ function renderJourneyTimesSimple(ctx) {
       </div>
       ${insightText ? `<p class="jt-simple-insight">${insightText}</p>` : ""}
       <figure class="jt-simple-chart">
-        <figcaption>How long each bus took on ${jtDay(dayKey).plural}, through the day</figcaption>
+        <figcaption>How long each bus took from ${name(fromIndex)} to ${name(toIndex)}, on ${jtDay(dayKey).plural}</figcaption>
         ${chart.key}
         <div class="jt-chart-content">${chart.svg}</div>
         <label class="jt-hour-pick">
@@ -9751,6 +9770,16 @@ function sheetOverlapPx() {
   return Math.round(dom.departurePanel.getBoundingClientRect().height);
 }
 
+/** How much of the top of the map the tour's card covers: on a phone it
+ *  docks under the header (tour.js). Nothing, the rest of the time. */
+function mapTopCoverPx() {
+  if (!isSheetLayout() || !state.map || !document.body.hasAttribute("data-tour-coach")) return 0;
+  const card = document.getElementById("tour-coach");
+  if (!card || card.hidden) return 0;
+  const top = state.map.getContainer().getBoundingClientRect().top;
+  return Math.max(0, Math.round(card.getBoundingClientRect().bottom - top));
+}
+
 /**
  * fitBoundsAboveSheet (below): fit a shape into the band of map above the
  * sheet and centre it there.
@@ -9777,13 +9806,14 @@ function sheetOverlapPx() {
  */
 function fitBoundsInVisibleMap(bounds, options) {
   const overlap = sheetOverlapPx();
-  if (!overlap) {
+  const cover = mapTopCoverPx();
+  if (!overlap && !cover) {
     state.map.fitBounds(bounds, options);
     return;
   }
   state.map.fitBounds(bounds, {
     ...options,
-    paddingTopLeft: [(options && options.padding && options.padding[0]) || 20, 20],
+    paddingTopLeft: [(options && options.padding && options.padding[0]) || 20, 20 + cover],
     paddingBottomRight: [(options && options.padding && options.padding[0]) || 20,
                          overlap + 20],
     padding: undefined,
@@ -9797,8 +9827,10 @@ const ROUTE_VIEW_HOME = [50.8225, -0.1372];
 /** Put `latlng` in the middle of the map the sheet leaves showing. */
 function centreAboveSheet(latlng, zoom) {
   const overlap = sheetOverlapPx();
+  const cover = mapTopCoverPx();
   const size = state.map.getSize();
-  const shift = overlap > 0 && size.y - overlap >= 60 ? overlap / 2 : 0;
+  // The middle of what shows between the tour's card (if any) and the sheet.
+  const shift = (overlap > 0 || cover > 0) && size.y - overlap - cover >= 60 ? (overlap - cover) / 2 : 0;
   const point = state.map.project(latlng, zoom).add([0, shift]);
   state.map.setView(state.map.unproject(point, zoom), zoom, { animate: false });
 }
@@ -9807,15 +9839,18 @@ function fitBoundsAboveSheet(bounds, options = {}) {
   // animate:false matters: an animated fit settles after anything applied
   // straight after it, and put the shape back underneath the sheet.
   let overlap = sheetOverlapPx();
+  // The tour's card over the top of the map, on a phone: the strip that
+  // shows is between it and the sheet.
+  const cover = mapTopCoverPx();
   const size = state.map.getSize();
   // On a small phone the half-open sheet leaves a strip of map barely 100px
   // tall, too little to show a zone in. Lower the sheet first: the reader
   // asked to see the zone, and pulling the sheet back up is one drag.
-  if (overlap > 0 && size.y - overlap < 150 && state.sheetDetent !== "peek") {
+  if (overlap > 0 && size.y - overlap - cover < 150 && state.sheetDetent !== "peek") {
     setSheetDetent("peek");
     overlap = sheetOverlapPx();
   }
-  if (overlap <= 0 || size.y - overlap < 60) {
+  if ((overlap <= 0 && cover <= 0) || size.y - overlap - cover < 60) {
     state.map.fitBounds(bounds, { ...options, animate: false });
     return;
   }
@@ -9824,14 +9859,14 @@ function fitBoundsAboveSheet(bounds, options = {}) {
   // a compact zone's zoom, but a tall one (networkSAVER's reach, Devil's Dyke
   // to Lewes) filled the whole height and half of it sat under the sheet.
   // One zoom level further out is the price of seeing all of it.
-  const band = size.y - overlap;
+  const band = size.y - overlap - cover;
   const want = options.padding || [20, 20];
   // Padding in proportion to the strip, or a 30px margin eats a small one.
   const pad = [Math.min(want[0], size.x / 8), Math.min(want[1], band / 8)];
   let zoom = state.map.getBoundsZoom(bounds, false,
-    L.point(pad[0] * 2, pad[1] * 2 + overlap));
+    L.point(pad[0] * 2, pad[1] * 2 + overlap + cover));
   if (typeof options.maxZoom === "number") zoom = Math.min(zoom, options.maxZoom);
-  const centre = state.map.project(bounds.getCenter(), zoom).add([0, overlap / 2]);
+  const centre = state.map.project(bounds.getCenter(), zoom).add([0, (overlap - cover) / 2]);
   state.map.setView(state.map.unproject(centre, zoom), zoom, { animate: false });
 }
 
@@ -10656,9 +10691,13 @@ function setNetworkTab(tab) {
  * swaps from Stop/Bus tabs to About/Proposals tabs. Stop markers stay
  * visible but don't react to clicks.
  */
-function setViewMode(mode) {
+function setViewMode(mode, { chosen = false } = {}) {
   if (!["live", "improvements", "tickets", "network", "updates",
-        "journeytimes", "conference"].includes(mode)) return;
+        "journeytimes", "conference", "tour"].includes(mode)) return;
+  // `chosen`: the reader picked this section (the menu, the header, the
+  // address), which is the way out of the tour. A view reached from inside the
+  // tour any other way stays inside it (tour.js).
+  if (typeof tourCarry === "function") tourCarry(state.viewMode, mode, chosen);
   if (state.viewMode === mode) return;
   state.viewMode = mode;
   track(`view-${VIEW_EVENT_NAMES[mode]}`);
@@ -10673,11 +10712,17 @@ function setViewMode(mode) {
   // stretch landed behind the panel.
   if (state.map) state.map.invalidateSize();
 
-  // Side-effects wired in later tasks (vehicle refresh, polylines, panel).
-  applyViewMode();
-
-  // View mode is a major shift — users expect Back to return to live.
+  // View mode is a major shift — users expect Back to return to live. The
+  // new page is made before the view is applied: applying it can close the
+  // panel, which rewrites the address in place. Done first, that overwrote
+  // the page being left, so this push found nothing new and Back left the
+  // site. Afterwards, those rewrites land on the new page, as they should.
   pushUrlState({ major: true });
+
+  // Side-effects wired in later tasks (vehicle refresh, polylines, panel).
+  // Kept, so something that switches view on the reader's behalf (the tour's
+  // "Show me") can wait for the view to finish drawing before acting in it.
+  state.viewApplied = applyViewMode();
 }
 
 /** Update the section-nav trigger label + listbox aria-selected to match
@@ -10686,8 +10731,10 @@ function setViewMode(mode) {
 function syncSectionNavToViewMode() {
   if (!dom.sectionNavMenu || !dom.sectionNavLabel) return;
   const items = dom.sectionNavMenu.querySelectorAll('[role="option"]');
+  // A view open inside the tour is still the tour (tour.js).
+  const current = state.tourDemo ? "tour" : state.viewMode;
   for (const li of items) {
-    const selected = li.dataset.mode === state.viewMode;
+    const selected = li.dataset.mode === current;
     li.setAttribute("aria-selected", selected ? "true" : "false");
     if (!selected) continue;
     // The first span is the name; a "New" badge after it stays in the list.
@@ -10712,7 +10759,7 @@ function initHomeLink() {
   home.addEventListener("click", event => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    setViewMode("live");
+    setViewMode("live", { chosen: true });
   });
 }
 
@@ -10748,7 +10795,7 @@ function initSectionNav() {
   menu.addEventListener("click", (e) => {
     const li = e.target.closest('[role="option"]');
     if (!li) return;
-    setViewMode(li.dataset.mode);
+    setViewMode(li.dataset.mode, { chosen: true });
     close(true);
   });
 
@@ -10763,7 +10810,7 @@ function initSectionNav() {
     else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       const li = document.activeElement;
-      if (li && li.dataset.mode) { setViewMode(li.dataset.mode); close(true); }
+      if (li && li.dataset.mode) { setViewMode(li.dataset.mode, { chosen: true }); close(true); }
     }
   });
 
@@ -10791,6 +10838,7 @@ async function applyViewMode() {
   // Route-view map and nothing to explain them.
   // The conference guide's markers belong to its view alone.
   if (state.viewMode !== "conference" && typeof conferenceHide === "function") conferenceHide();
+  if (state.viewMode !== "tour" && typeof tourHide === "function") tourHide();
   // Route view's chosen stop belongs to Route view.
   if (state.viewMode !== "improvements") closeRouteStop();
 
@@ -10903,6 +10951,21 @@ async function applyViewMode() {
     hideCouncilBoundaries();
     clearJourneyLayers();
     if (typeof conferenceShow === "function") await conferenceShow(mine);
+  } else if (state.viewMode === "tour") {
+    // The guided tour (tour.js): the panel tells the story; the map keeps the
+    // council boundary in view, since the first step is about that line.
+    if (state.editor) closeEditor({ skipSave: false });
+    hideRouteLines();
+    hideAllProposalLayers();
+    hideTicketZones();
+    clearJourneyLayers();
+    try {
+      await loadCouncilBoundaries();
+      if (mine()) reconcileCouncilBoundaries();
+    } catch (err) {
+      console.warn("Council boundary unavailable:", err);
+    }
+    if (typeof tourShow === "function") await tourShow(mine);
   } else if (state.viewMode === "updates") {
     // Panel-only, like the network view — no map layers of its own.
     if (state.editor) closeEditor({ skipSave: false });

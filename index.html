@@ -260,6 +260,7 @@
             <li role="option" data-mode="journeytimes" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-gauge"/></svg><span>Bus Performance</span></li>
             <li role="option" data-mode="updates" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-newspaper"/></svg><span>News &amp; notes</span></li>
             <li role="option" data-mode="conference" aria-selected="false" tabindex="-1" hidden><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-pin"/></svg><span class="section-nav-text">Conference travel info</span><span class="section-nav-new">New</span></li>
+            <li role="option" data-mode="tour" aria-selected="false" tabindex="-1" hidden><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-play"/></svg><span class="section-nav-text">Take the tour</span><span class="section-nav-new">New</span></li>
           </ul>
         </div>
         <!-- Live-data status: connecting/updated text + bus visibility toggle, grouped -->
@@ -1203,6 +1204,28 @@
         </div>
       </div><!-- /panel-mode[data-mode="conference"] -->
 
+      <!-- === GUIDED TOUR ===
+           The way into the tour, for anyone meeting the project for the first
+           time: the opening, a start button and the steps by name, drawn from
+           data/tour.json by tour.js. The tour itself walks through the real
+           views, with its card (#tour-coach) beside each one. -->
+      <div class="panel-mode" data-mode="tour">
+        <div class="panel-tabs-bar">
+          <div class="panel-tabs">
+            <span class="panel-tab panel-tab-static active">
+              <span class="panel-tab-label">The tour</span>
+            </span>
+          </div>
+          <button class="btn-collapse-panel" type="button" aria-label="Hide panel" aria-pressed="false">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </button>
+        </div>
+        <div class="panel-tab-content tour-guide" id="tab-content-tour" role="tabpanel"
+             aria-label="The tour">
+          <p class="proposals-empty">Loading the tour…</p>
+        </div>
+      </div><!-- /panel-mode[data-mode="tour"] -->
+
       <div class="panel-mode" data-mode="updates">
 
         <!-- Tab strip (Official / Community) + mobile collapse -->
@@ -1460,6 +1483,15 @@
 
   </main>
 
+  <!-- ===== THE TOUR'S CARD (tour.js) =====
+       One stop of the guided tour, over the real view it opened: beside the
+       panel on a wider screen, under the header on a phone. Not modal: the
+       page behind it stays usable, which is the point. The ring marks the
+       control the card is talking about and never takes a tap. -->
+  <section class="tour-coach" id="tour-coach" aria-labelledby="tour-coach-title" hidden></section>
+  <div class="tour-ring" id="tour-ring" aria-hidden="true" hidden></div>
+  <p class="visually-hidden" id="tour-coach-status" role="status" aria-live="polite"></p>
+
   <!-- ===== WAKING UP (free-tier cold start) ===== -->
   <!-- The backend sleeps after 15 minutes idle and takes about 20 seconds to
        start. Saying so is better than a silent spinner followed by a claim
@@ -1522,6 +1554,8 @@
   <!-- Main application script -->
   <script src="app.js"></script>
   <script src="conference.js"></script>
+  <script src="tour-figures.js"></script>
+  <script src="tour.js"></script>
 
 </body>
 </html>
