@@ -333,6 +333,33 @@ test("a closed stop says so, until when, and where to go instead", () => {
   assert.match(html, /Towards Hove<\/strong>: All routes except 1X, 2 and 46 go via Montpelier Road, Davigdor Road and Holland Road, back on the usual route at Palmeira Square/);
   assert.match(html, /From Brighton &amp; Hove Buses&#39; own notice, checked 28 Sept? 2026|From Brighton &amp; Hove Buses' own notice, checked 28 Sept? 2026/);
   assert.equal(app.buildStopClosureHtml(null), "");
+  assert.doesNotMatch(html, /all stops on the diversion are served/,
+    "the board claimed what this notice never said");
+  assert.match(app.buildStopClosureHtml({ ...closure, diversion_stops_served: true }),
+    /The operator says all stops on the diversion are served/);
+});
+
+test("routes that skip a stop others still serve are named, with today's end time", () => {
+  const html = app.buildStopClosureHtml({ ...closure, id: "c1-25", lines: ["25", "25X", "78"],
+    until: "2026-10-24T17:00:00+00:00", daily: { from: "07:00", to: "18:00" },
+    final_ends: "2026-10-27T23:59:00+00:00" });
+  assert.match(html, /Routes 25, 25X and 78 don(&#39;|')t stop here until 18:00/);
+  assert.doesNotMatch(html, /No buses stop here/, "a stop other buses still serve was called closed");
+  assert.match(app.buildStopClosureHtml({ ...closure, lines: ["700"] }),
+    /Route 700 doesn(&#39;|')t stop here until Fri 6 Nov/);
+});
+
+test("a notice seen on the road says nobody published it, not whose words it is", () => {
+  const seen = { id: "s1", summary: "700 turning at Brighton Station", source: "curated", observed: true,
+    publisher: "Stagecoach", checked_on: "2026-10-24", link: "https://www.stagecoachbus.com/service-updates",
+    lines: [{ operator: "SCSO", line: "700" }], operators: [], ends: "2026-10-27T23:59:00+00:00" };
+  const html = app.buildDisruptionsHtml([seen]);
+  assert.match(html, /Seen on the road: Stagecoach has posted no notice \(checked 24 Oct/);
+  assert.doesNotMatch(html, /own notice/, "our own words were put in Stagecoach's mouth");
+  assert.match(app.buildStopClosureHtml({ ...closure, ...seen, source_url: seen.link }), /Their updates page/);
+  const daily = app.buildDisruptionsHtml([{ ...seen, observed: false, daily: { from: "07:00", to: "18:00" },
+    final_ends: "2026-10-27T23:59:00+00:00", ends: "2026-10-24T17:00:00+00:00" }]);
+  assert.match(daily, /07:00 to 18:00 daily, until Tue 27 Oct/);
 });
 
 test("a row at a closed stop is not served, and promises no live time", () => {

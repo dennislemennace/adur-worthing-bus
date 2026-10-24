@@ -121,6 +121,24 @@ What it does on the site:
 - A bus nearest a closed stop reads "on diversion".
 - Entries stop showing after their end time, and `--prune` removes them.
 
+**One notice, different words for different routes.** The Old Steine notice
+of October 2026 (`bhbc-old-steine-2026-10-23`) closed one stop to every bus, but
+kept routes towards Imperial Arcade off five more, the 1, 1X, 2 and 7 off two
+westbound, and the 25, 25X and 78 off the Old Steine only from 07:00 to 18:00.
+Record the notice once, with every route it lists and `--affected-stops` for
+the stops it lists as affected, and close with `--not-served` only the stops
+no bus calls at. Then add one sub-entry per group with `--parent <the notice's
+id>`. A sub-entry's `--not-served` stops are not served by its own `--lines`
+only, so other routes' rows on the same board stay live, and the board names
+the routes that skip the stop. Narrow it with `--only-journeys-via <stop>` to
+journeys calling at that stop (one direction of a route), and with
+`--daily 07:00-18:00` to those hours each day, UK time; outside them it is not
+shown at all. A route the operator has not published anything for, but which
+is plainly affected (the 700, which Stagecoach did not post), is a sub-entry
+with `--observed`: its description is ours, and the site says it was seen on
+the road, not that it is anyone's notice. Use `--diversion-stops-served` only
+when the notice says every stop on the diversion is served.
+
 **Recording it for analysis.** A closure that lasts days or weeks, or changes
 the route buses take, distorts the journey times and delay map for as long as it
 runs. Add `--record-for-analysis --area "lat,lon;lat,lon;lat,lon;lat,lon"`, the

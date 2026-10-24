@@ -135,7 +135,8 @@ def test_the_recorded_file_is_sound():
     ids = [e["id"] for e in doc["disruptions"]]
     assert len(ids) == len(set(ids)), "two entries share an id"
     for e in doc["disruptions"]:
-        assert add_disruption.validate(e, stops) == [], (e["id"], add_disruption.validate(e, stops))
+        problems = add_disruption.validate(e, stops, set(ids))
+        assert problems == [], (e["id"], problems)
 
 
 def test_the_validator_catches_what_would_mislead():
@@ -147,3 +148,117 @@ def test_the_validator_catches_what_would_mislead():
     assert "source_url" in bad, "an entry with no source would be accepted"
     assert "ZZ" in bad, "a stop code that does not exist would be accepted"
     assert "offset" in bad, "a time with no UTC offset would be accepted"
+
+
+# Sub-entries: one notice, different words for different routes (the Old
+# Steine works, October 2026). See api/local_disruptions.py.
+
+def a_sub_entry(**over):
+    e = an_entry(id="test-closure-route-2", parent="test-closure",
+                 summary="Route 2 not serving Stop B",
+                 lines=[{"operator": "BHBC", "line": "2"}],
+                 stops_not_served=[{"atco": "B", "as_named": "Stop B"}], diversions=[])
+    e.update(over)
+    return e
+
+
+def test_a_sub_entry_closes_its_stops_to_its_own_routes_only(tmp_path):
+    path = a_file(tmp_path, an_entry(stops_not_served=[]), a_sub_entry())
+    assert ld.closures_now(NOW, path) == {}, "a route's stop was closed to every bus"
+    assert set(ld.closed_for(NOW, "BHBC", "2", path=path)) == {"B"}
+    assert ld.closed_for(NOW, "BHBC", "1", path=path) == {}, "route 1 still calls at B"
+    assert ld.closed_for(NOW, "BHBC", "N2", path=path) == {}, \
+        "a notice about the 2 said which stops the N2 calls at"
+
+
+def test_a_sub_entry_can_be_one_direction_only(tmp_path):
+    path = a_file(tmp_path, an_entry(stops_not_served=[]), a_sub_entry(only_journeys_via=["E"]))
+    assert set(ld.closed_for(NOW, "BHBC", "2", lambda: ["A", "B", "E"], path=path)) == {"B"}
+    assert ld.closed_for(NOW, "BHBC", "2", lambda: ["A", "B", "C"], path=path) == {}, \
+        "a journey that never reaches E was taken off B"
+    assert ld.closed_for(NOW, "BHBC", "2", None, path=path) == {}, \
+        "with no journey to look at, a one-way closure was applied both ways"
+
+
+def test_a_daily_sub_entry_is_in_force_only_in_its_hours_across_the_clock_change(tmp_path):
+    entry = a_sub_entry(daily={"from": "07:00", "to": "18:00"},
+                        starts="2026-10-23T00:00:00+01:00", ends="2026-10-27T23:59:00+00:00")
+    path = a_file(tmp_path, an_entry(stops_not_served=[]), entry)
+    at = lambda *a: datetime(*a, tzinfo=timezone.utc)                       # noqa: E731
+    assert ld.closed_for(at(2026, 10, 24, 6, 30), "BHBC", "2", path=path), "07:30 BST is in"
+    assert not ld.closed_for(at(2026, 10, 24, 17, 30), "BHBC", "2", path=path), "18:30 BST is out"
+    assert not ld.closed_for(at(2026, 10, 26, 6, 30), "BHBC", "2", path=path), "06:30 GMT is out"
+    assert ld.closed_for(at(2026, 10, 26, 17, 30), "BHBC", "2", path=path), "17:30 GMT is in"
+    situations = ld.as_situations(ld.load(path))
+    assert [d["id"] for d in sx.current(situations, at(2026, 10, 24, 12))] == \
+        ["test-closure", "test-closure-route-2"]
+    evening = sx.current(situations, at(2026, 10, 24, 19))
+    assert [d["id"] for d in evening] == ["test-closure"], "a daily notice showed outside its hours"
+    noon = {d["id"]: d for d in sx.current(situations, at(2026, 10, 24, 12))}
+    assert datetime.fromisoformat(noon["test-closure-route-2"]["ends"]) == at(2026, 10, 24, 17), \
+        "until 18:00 BST today"
+    assert noon["test-closure-route-2"]["final_ends"] == "2026-10-27T23:59:00+00:00"
+
+
+def test_a_sub_entry_reaches_boards_through_its_routes_not_its_stops(tmp_path):
+    path = a_file(tmp_path, an_entry(stops_not_served=[], stops_affected=[{"atco": "C"}]), a_sub_entry())
+    now = sx.current(ld.as_situations(ld.load(path)), NOW)
+    by_id = {d["id"]: d for d in now}
+    assert by_id["test-closure"]["stops"] == ["C"], "the notice's affected stops lost their board"
+    assert by_id["test-closure-route-2"]["stops"] == [] and by_id["test-closure-route-2"]["parent"] == "test-closure"
+    board = {"departures": [{"service": "1", "operator": "BHBC"}]}
+    assert [d["id"] for d in sx.affecting(now, stop_id="B", services={("BHBC", "1")})] == ["test-closure"], \
+        "route 2's notice showed at a board route 2 does not serve"
+    assert main._attach_disruptions(board, "B", now)["departures"][0]["disruption_ids"] == ["test-closure"]
+
+
+def test_a_board_marks_only_the_routes_a_sub_entry_keeps_off(tmp_path, monkeypatch):
+    monkeypatch.setattr(ld, "PATH", a_file(tmp_path, an_entry(stops_not_served=[]),
+                                          a_sub_entry(lines=[{"operator": "BHBC", "line": "1"}])))
+    monkeypatch.setattr(main, "datetime", _frozen())
+    monkeypatch.setattr(main, "cache_get", lambda _k: None)
+    monkeypatch.setattr(main, "cache_set", lambda *_a: None)
+    live = {"aimed_departure": "x", "expected_departure": "y", "delay_seconds": 60,
+            "live_source": "feed", "status": "Late"}
+    board = {"departures": [{"service": "1", "operator": "BHBC", **live},
+                            {"service": "2", "operator": "BHBC", **live}]}
+    out = main._apply_stop_closure(board, LineTimetable(), "B")
+    one, two = out["departures"]
+    assert one["not_served"] is True and "expected_departure" not in one
+    assert two == board["departures"][1], "a route still calling here lost its live time"
+    assert "stop_closure" not in out, "the board said no buses stop here"
+    [note] = out["line_closures"]
+    assert note["lines"] == ["1"] and note["id"] == "test-closure-route-2"
+    assert {a["atco"] for a in note["still_served"]} == {"A", "C"}
+    assert main._apply_stop_closure(board, LineTimetable(), "D") is board
+
+
+def test_the_validator_checks_a_sub_entry():
+    stops = {"B": {}, "C": {}, "D": {}}
+    assert add_disruption.validate(a_sub_entry(), stops, {"test-closure"}) == []
+    bad = " ".join(add_disruption.validate(
+        a_sub_entry(parent="nope", daily={"from": "18:00", "to": "07:00"}, lines=[]), stops, {"test-closure"}))
+    assert "nope" in bad and "daily" in bad and "--lines" in bad
+    assert "parent" in " ".join(add_disruption.validate(an_entry(only_journeys_via=["C"]), stops))
+
+
+def test_a_sub_entry_notice_rides_only_its_own_journeys(tmp_path):
+    path = a_file(tmp_path, an_entry(stops_not_served=[]),
+                  a_sub_entry(lines=[{"operator": "BHBC", "line": "1"}], only_journeys_via=["A"]))
+    now = sx.current(ld.as_situations(ld.load(path)), NOW)
+    board = {"departures": [{"service": "1", "operator": "BHBC", "_trip_id": "WEST"},
+                            {"service": "1", "operator": "BHBC", "_trip_id": "EAST"},
+                            {"service": "N1", "operator": "BHBC", "_trip_id": "WEST"}]}
+
+    class OneWay(LineTimetable):
+        def trip_stops_for(self, trip_id):          # EAST stops short of A here
+            calls = super().trip_stops_for(trip_id)
+            return calls[1:] if trip_id == "EAST" else calls
+    out = main._attach_disruptions(board, "C", now, OneWay())
+    west, east, night = (d.get("disruption_ids") for d in out["departures"])
+    assert west == ["test-closure", "test-closure-route-2"]
+    assert east == ["test-closure"], "the other direction was given a one-way notice"
+    assert night == ["test-closure"], "the N1 was given the 1's sub-entry"
+    alone = main._attach_disruptions({"departures": board["departures"][1:]}, "C", now, OneWay())
+    assert [d["id"] for d in alone["disruptions"]] == ["test-closure"], \
+        "the board listed a sub-entry none of its journeys is under"

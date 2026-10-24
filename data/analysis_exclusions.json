@@ -8,9 +8,49 @@
       "from": "2026-09-28T07:00:00+01:00",
       "to": "2026-11-06T23:59:00+00:00",
       "operator": "BHBC",
-      "routes": ["1", "1X", "2", "5", "5A", "5B", "6", "21", "25", "46", "49", "60", "71", "71A", "N1", "N5"],
-      "stops_not_served": ["149000006101", "149000007101", "149000006946", "149000007945", "149000007100"],
-      "area": [[50.8240, -0.1622], [50.8315, -0.1622], [50.8315, -0.1518], [50.8240, -0.1518]],
+      "routes": [
+        "1",
+        "1X",
+        "2",
+        "5",
+        "5A",
+        "5B",
+        "6",
+        "21",
+        "25",
+        "46",
+        "49",
+        "60",
+        "71",
+        "71A",
+        "N1",
+        "N5"
+      ],
+      "stops_not_served": [
+        "149000006101",
+        "149000007101",
+        "149000006946",
+        "149000007945",
+        "149000007100"
+      ],
+      "area": [
+        [
+          50.824,
+          -0.1622
+        ],
+        [
+          50.8315,
+          -0.1622
+        ],
+        [
+          50.8315,
+          -0.1518
+        ],
+        [
+          50.824,
+          -0.1518
+        ]
+      ],
       "note": "Buses on these routes skip Norfolk Square, Brunswick Place and Montpelier Road (Waitrose) and take longer between Palmeira Square and Waitrose; lateness picked up there carries on down the route. Journey times and delay-map cells through the area during the dates are not typical of the route.",
       "adjust_predictions": true,
       "source_url": "https://www.buses.co.uk/service-updates",
@@ -59,6 +99,180 @@
       "label": "the Western Road diversion",
       "disruption_id": "scso-700-western-road-hove-2026-09-28",
       "recorded_on": "2026-10-15"
+    },
+    {
+      "id": "bhbc-old-steine-2026-10-23-bhbc",
+      "kind": "diversion",
+      "summary": "Old Steine, Brighton, roadworks; southbound buses diverted via Edward Street, Rock Gardens and the seafront, routes towards Imperial Arcade via Grand Parade, Church Street and North Road, and the 25, 25X and 78 kept off the Old Steine 07:00 to 18:00.",
+      "from": "2026-10-23T00:00+01:00",
+      "to": "2026-10-27T23:59+00:00",
+      "operator": "BHBC",
+      "routes": [
+        "1",
+        "1X",
+        "2",
+        "5",
+        "5A",
+        "5B",
+        "7",
+        "12",
+        "12X",
+        "14",
+        "20",
+        "21",
+        "22",
+        "24",
+        "25",
+        "25X",
+        "26",
+        "27",
+        "28",
+        "29",
+        "29A",
+        "48",
+        "49",
+        "60",
+        "77",
+        "78",
+        "79"
+      ],
+      "stops_not_served": [
+        "149000007835"
+      ],
+      "area": [
+        [
+          50.817,
+          -0.1455
+        ],
+        [
+          50.8285,
+          -0.1455
+        ],
+        [
+          50.8285,
+          -0.1285
+        ],
+        [
+          50.817,
+          -0.1285
+        ]
+      ],
+      "note": "Journey times and delay-map cells through central Brighton (Old Steine, North Street, Grand Parade, Edward Street, Queens Road) during the dates are not typical of these routes: buses skip stops there and go round by other streets, and lateness picked up there carries on down the route. Compass (52) and Metrobus (271, 272) share Brighton & Hove Buses' service updates, so the notice covers them too.",
+      "source_url": "https://www.buses.co.uk/service-updates",
+      "disruption_id": "bhbc-old-steine-2026-10-23",
+      "recorded_on": "2026-10-24"
+    },
+    {
+      "id": "bhbc-old-steine-2026-10-23-comt",
+      "kind": "diversion",
+      "summary": "Old Steine, Brighton, roadworks; southbound buses diverted via Edward Street, Rock Gardens and the seafront, routes towards Imperial Arcade via Grand Parade, Church Street and North Road, and the 25, 25X and 78 kept off the Old Steine 07:00 to 18:00.",
+      "from": "2026-10-23T00:00+01:00",
+      "to": "2026-10-27T23:59+00:00",
+      "operator": "COMT",
+      "routes": [
+        "52"
+      ],
+      "stops_not_served": [
+        "149000007835"
+      ],
+      "area": [
+        [
+          50.817,
+          -0.1455
+        ],
+        [
+          50.8285,
+          -0.1455
+        ],
+        [
+          50.8285,
+          -0.1285
+        ],
+        [
+          50.817,
+          -0.1285
+        ]
+      ],
+      "note": "Journey times and delay-map cells through central Brighton (Old Steine, North Street, Grand Parade, Edward Street, Queens Road) during the dates are not typical of these routes: buses skip stops there and go round by other streets, and lateness picked up there carries on down the route. Compass (52) and Metrobus (271, 272) share Brighton & Hove Buses' service updates, so the notice covers them too.",
+      "source_url": "https://www.buses.co.uk/service-updates",
+      "disruption_id": "bhbc-old-steine-2026-10-23",
+      "recorded_on": "2026-10-24"
+    },
+    {
+      "id": "bhbc-old-steine-2026-10-23-metr",
+      "kind": "diversion",
+      "summary": "Old Steine, Brighton, roadworks; southbound buses diverted via Edward Street, Rock Gardens and the seafront, routes towards Imperial Arcade via Grand Parade, Church Street and North Road, and the 25, 25X and 78 kept off the Old Steine 07:00 to 18:00.",
+      "from": "2026-10-23T00:00+01:00",
+      "to": "2026-10-27T23:59+00:00",
+      "operator": "METR",
+      "routes": [
+        "271",
+        "272"
+      ],
+      "stops_not_served": [
+        "149000007835"
+      ],
+      "area": [
+        [
+          50.817,
+          -0.1455
+        ],
+        [
+          50.8285,
+          -0.1455
+        ],
+        [
+          50.8285,
+          -0.1285
+        ],
+        [
+          50.817,
+          -0.1285
+        ]
+      ],
+      "note": "Journey times and delay-map cells through central Brighton (Old Steine, North Street, Grand Parade, Edward Street, Queens Road) during the dates are not typical of these routes: buses skip stops there and go round by other streets, and lateness picked up there carries on down the route. Compass (52) and Metrobus (271, 272) share Brighton & Hove Buses' service updates, so the notice covers them too.",
+      "source_url": "https://www.buses.co.uk/service-updates",
+      "disruption_id": "bhbc-old-steine-2026-10-23",
+      "recorded_on": "2026-10-24"
+    },
+    {
+      "id": "scso-700-old-steine-2026-10-23",
+      "kind": "diversion",
+      "summary": "Old Steine, Brighton, roadworks; Stagecoach 700 turning at Brighton Station instead of running to the Old Steine.",
+      "from": "2026-10-23T00:00+01:00",
+      "to": "2026-10-27T23:59+00:00",
+      "operator": "SCSO",
+      "routes": [
+        "700"
+      ],
+      "stops_not_served": [
+        "149000006081",
+        "149000006839",
+        "149000007828",
+        "149000007834"
+      ],
+      "area": [
+        [
+          50.817,
+          -0.1455
+        ],
+        [
+          50.8285,
+          -0.1455
+        ],
+        [
+          50.8285,
+          -0.1285
+        ],
+        [
+          50.817,
+          -0.1285
+        ]
+      ],
+      "note": "Journeys into Brighton end at Brighton Station after Churchill Square, and journeys out start there, so times through North Street and the Old Steine are missing and those past Churchill Square are not typical. Reported by a rider on 24 October 2026; Stagecoach published no notice, and it is not yet checked against tracked buses.",
+      "source_url": "https://www.stagecoachbus.com/service-updates",
+      "disruption_id": "scso-700-old-steine-2026-10-23",
+      "recorded_on": "2026-10-24"
     }
   ]
 }

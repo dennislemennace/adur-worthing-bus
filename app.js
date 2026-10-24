@@ -8011,9 +8011,13 @@ function renderDepartures(data) {
     // The closure first: at a stop no bus calls at, where to go instead is
     // the only thing on the board that matters.
     // The notice the closure came from is already said in full above.
-    const closureId = data?.stop_closure?.id;
+    // Then routes that skip this stop while others still call, one notice
+    // each (api/main.py, _apply_line_closures).
+    const lineClosures = data?.line_closures || [];
+    const shownIds = new Set([data?.stop_closure?.id, ...lineClosures.map(c => c.id)].filter(Boolean));
     const html = buildStopClosureHtml(data?.stop_closure)
-      + buildDisruptionsHtml((data?.disruptions || []).filter(d => d.id !== closureId));
+      + lineClosures.map(buildStopClosureHtml).join("")
+      + buildDisruptionsHtml((data?.disruptions || []).filter(d => !shownIds.has(d.id)));
     noticesHost.innerHTML = html;
     noticesHost.hidden = !html;
     if (!noticesHost.dataset.bound) {
@@ -8245,6 +8249,9 @@ function disruptionWhen(d) {
     return withTime ? `${day}, ${londonClock(t)}` : day;
   };
   if (d.starts) return `From ${fmt(d.starts, true)}`;
+  // In force only some hours a day: those hours, and the last day.
+  if (d.daily) return `${d.daily.from} to ${d.daily.to} daily${
+    d.final_ends ? `, until ${fmt(d.final_ends, false)}` : ""}`;
   if (d.ends) return `Until ${fmt(d.ends, false)}`;
   return "Until further notice";
 }
@@ -8280,9 +8287,16 @@ function buildDiversionsHtml(diversions) {
 function buildStopClosureHtml(c) {
   if (!c) return "";
   const until = c.until ? new Date(c.until) : null;
+  // A daily closure ends at a time today; any other on a day.
   const untilText = until && !isNaN(until)
-    ? until.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" })
+    ? c.daily ? londonClock(until)
+      : until.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" })
     : "";
+  // Some routes skip the stop and others still call (a sub-entry): say which.
+  const lines = [...new Set(c.lines || [])];
+  const title = !lines.length ? "No buses stop here"
+    : lines.length === 1 ? `Route ${lines[0]} doesn't stop here`
+    : `Routes ${lines.slice(0, -1).join(", ")} and ${lines[lines.length - 1]} don't stop here`;
   const alts = (c.still_served || []).map(a => `
       <li><button type="button" class="stop-closure-alt" data-atco="${escapeAttr(a.atco)}"
                   data-name="${escapeAttr(a.name)}"
@@ -8293,22 +8307,33 @@ function buildStopClosureHtml(c) {
           escapeHtml((a.routes || []).join(", "))}</span>
       </button></li>`).join("");
   const link = c.source_url && safeUrl(c.source_url)
-    ? ` <a href="${escapeAttr(safeUrl(c.source_url))}" target="_blank" rel="noopener">Their notice</a>` : "";
+    ? ` <a href="${escapeAttr(safeUrl(c.source_url))}" target="_blank" rel="noopener">${
+        c.observed ? "Their updates page" : "Their notice"}</a>` : "";
   return `
-    <section class="stop-closure" role="region" aria-label="This stop is not in use">
+    <section class="stop-closure" role="region" aria-label="${escapeAttr(lines.length ? title : "This stop is not in use")}">
       <p class="stop-closure-title">
         <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
-        <span>No buses stop here${untilText ? ` until ${escapeHtml(untilText)}` : " at the moment"}</span>
+        <span>${escapeHtml(title)}${untilText ? ` until ${escapeHtml(untilText)}` : " at the moment"}</span>
       </p>
       ${c.summary ? `<p class="stop-closure-why">${escapeHtml(c.summary)}.</p>` : ""}
       ${alts ? `<p class="stop-closure-sub">Nearest stops still served</p>
         <ul class="stop-closure-alts">${alts}</ul>` : ""}
       ${(c.diversions || []).length ? `<p class="stop-closure-sub">Where the buses go instead</p>
         ${buildDiversionsHtml(c.diversions)}
-        <p class="stop-closure-note">The operator says all stops on the diversion are served.</p>` : ""}
-      <p class="disruption-source">From ${escapeHtml(possessive(c.publisher || "the operator"))} own notice${
-        c.checked_on ? `, checked ${escapeHtml(formatCheckedDate(c.checked_on))}` : ""}.${link}</p>
+        ${c.diversion_stops_served ? `<p class="stop-closure-note">The operator says all stops on the diversion are served.</p>` : ""}` : ""}
+      <p class="disruption-source">${disruptionSourceText(c)}${link}</p>
     </section>`;
+}
+
+/** Whose word a hand-recorded notice is, and when we looked. One we saw on
+ *  the road, with nothing published, says that instead of quoting anyone. */
+function disruptionSourceText(d) {
+  const checked = d.checked_on ? escapeHtml(formatCheckedDate(d.checked_on)) : "";
+  return d.observed
+    ? `Seen on the road: ${escapeHtml(d.publisher || "the operator")} has posted no notice${
+        checked ? ` (checked ${checked})` : ""}.`
+    : `From ${escapeHtml(possessive(d.publisher || "the operator"))} own notice${
+        checked ? `, checked ${checked}` : ""}.`;
 }
 
 /**
@@ -8345,8 +8370,7 @@ function buildDisruptionsHtml(list) {
           <p class="disruption-source">${d.source === "curated"
             // Copied by hand from the operator's own page, because nobody
             // here publishes to BODS: say whose words, and when we looked.
-            ? `From ${escapeHtml(possessive(d.publisher || "the operator"))} own notice${
-                d.checked_on ? `, checked ${escapeHtml(formatCheckedDate(d.checked_on))}` : ""}.`
+            ? disruptionSourceText(d)
             : `Published${d.publisher ? ` by ${escapeHtml(d.publisher)}` : ""} through the Bus Open Data Service.`}${link}</p>
         </div>
       </details>`;

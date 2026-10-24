@@ -1250,7 +1250,12 @@ async def get_vehicle(vehicleRef: str = Query(...)):
         source   = "siri_onward_calls" if upcoming else "none"
     # Stops the bus will go round, not call at: kept in the list so the route
     # still reads as the route, marked, and with no time promised.
-    closed = local_disruptions.closures_now(datetime.now(timezone.utc))
+    # Stops closed to every bus, and those a sub-entry closes to this route
+    # (or to this journey, "towards Imperial Arcade").
+    closed = local_disruptions.closed_for(
+        datetime.now(timezone.utc), vehicle.get("operator_ref") or "", vehicle.get("service_ref") or "",
+        lambda: ([a for _s, a in tt.trip_stops_for(trip_id)] if trip_id
+                 else [r.get("stop_id") for r in upcoming]))
     if closed:
         upcoming = [{**row, "not_served": True, "expected": None, "lateness_secs": None,
                      "is_next": False}
@@ -1283,9 +1288,12 @@ async def get_vehicle(vehicleRef: str = Query(...)):
         # Only for a journey the bus names: an inferred one is a guess, and
         # the next journey would be a guess on a guess.
         "next_journey":   _next_journey(tt, trip_id) if declared else None,
-        "disruptions":    sx.affecting(
+        "disruptions":    [d for d in sx.affecting(
             _disruptions_now(await _disruptions_state(wait=False)),
-            services={(vehicle.get("operator_ref") or "", vehicle.get("service_ref") or "")}),
+            services={(vehicle.get("operator_ref") or "", vehicle.get("service_ref") or "")})
+            if local_disruptions.sub_entry_applies(
+                d, vehicle.get("operator_ref") or "", vehicle.get("service_ref") or "",
+                (lambda: [a for _s, a in tt.trip_stops_for(trip_id)]) if trip_id else None)],
     }
 
 
@@ -2523,7 +2531,7 @@ def _apply_stop_closure(payload: dict, tt, stop_id: str) -> dict:
     """
     now = datetime.now(timezone.utc)
     if not local_disruptions.closures_now(now).get(stop_id):
-        return payload
+        return _apply_line_closures(payload, tt, stop_id, now)
     key = f"closure:{stop_id}"
     closure = cache_get(key)
     if closure is None:
@@ -2537,6 +2545,37 @@ def _apply_stop_closure(payload: dict, tt, stop_id: str) -> dict:
                if k not in ("expected_departure", "delay_seconds", "live_source")}
         rows.append({**row, "status": "Not served", "not_served": True})
     return {**payload, "departures": rows, "stop_closure": closure}
+
+
+def _apply_line_closures(payload: dict, tt, stop_id: str, now: datetime) -> dict:
+    """Some routes skip this stop, others still call: only their rows change.
+
+    A sub-entry (api/local_disruptions.py) keeps its own routes off the stop,
+    or only their journeys one way, or only in its hours. Those rows say Not
+    served and lose any live estimate; every other row is left as it was, and
+    the board says which routes, until when, and where they call instead.
+    """
+    if not local_disruptions.line_closures_at(now, stop_id):
+        return payload
+    rows = []
+    for dep in payload.get("departures") or []:
+        trip_id = dep.get("_trip_id")
+        closed = local_disruptions.closed_for(
+            now, dep.get("operator") or "", dep.get("service") or "",
+            (lambda t=trip_id: [a for _s, a in tt.trip_stops_for(t)]) if trip_id and tt is not None else None)
+        if closed.get(stop_id) is None:
+            rows.append(dep)
+            continue
+        row = {k: v for k, v in dep.items()
+               if k not in ("expected_departure", "delay_seconds", "live_source")}
+        rows.append({**row, "status": "Not served", "not_served": True})
+    key = f"line-closures:{stop_id}:{now.astimezone(UK_TZ):%Y%m%d%H}"
+    notes = cache_get(key)
+    if notes is None:
+        notes = local_disruptions.line_closures_for(tt, stop_id, now) if tt is not None else []
+        cache_set(key, notes, 600)
+    # `line_closures_for` keeps only the sub-entries whose journeys call here.
+    return {**payload, "departures": rows, **({"line_closures": notes} if notes else {})}
 
 
 def _attach_disruptions(payload: dict, stop_id: str, disruptions: list, tt=None) -> dict:
@@ -2561,8 +2600,13 @@ def _attach_disruptions(payload: dict, stop_id: str, disruptions: list, tt=None)
                 (_parse_iso_datetime(origin), d["id"]))
     out = []
     for dep in rows:
+        trip_id = dep.get("_trip_id")
+        calls = ((lambda t=trip_id: [a for _s, a in tt.trip_stops_for(t)])
+                 if trip_id and tt is not None else None)
         ids = [d["id"] for d in here
-               if sx.row_matches(d, dep.get("operator") or "", dep.get("service") or "")]
+               if sx.row_matches(d, dep.get("operator") or "", dep.get("service") or "")
+               and local_disruptions.sub_entry_applies(
+                   d, dep.get("operator") or "", dep.get("service") or "", calls)]
         op = dep.get("operator") or ""
         called_off = cancelled.get((_NOC_FAMILIES.get(op, op), sx.service_key(dep.get("service") or "")))
         if called_off and tt is not None and dep.get("_trip_id"):
@@ -2574,7 +2618,10 @@ def _attach_disruptions(payload: dict, stop_id: str, disruptions: list, tt=None)
                     ids.append(sid)
                     break
         out.append({**dep, "disruption_ids": ids} if ids else dep)
-    return {**payload, "departures": out, "disruptions": here}
+    # A sub-entry is about some journeys: on the board only if one is here.
+    on_rows = {i for dep in out for i in dep.get("disruption_ids") or []}
+    here = [d for d in here if not d.get("parent") or d["id"] in on_rows]
+    return {**payload, "departures": out, **({"disruptions": here} if here else {})}
 
 
 def _journey_origin(tt, dep: dict):
@@ -3178,7 +3225,10 @@ def _attach_journey(v: dict, tt: Timetable, trip_id: str, source: str,
     # Near a stop no bus calls at, the bus is on a diversion around it:
     # "near Brunswick Place" said of a bus two streets away on Lansdowne
     # Road points a reader at the one place it will not stop.
-    if calls[idx][1] in local_disruptions.closures_now(datetime.now(timezone.utc)):
+    closed = local_disruptions.closed_for(
+        datetime.now(timezone.utc), v.get("operator_ref") or "", v.get("service_ref") or "",
+        lambda: [atco for _secs, atco in calls])
+    if calls[idx][1] in closed:
         v["nearest_stop_name"] = ""
         v["on_diversion"] = True
     else:

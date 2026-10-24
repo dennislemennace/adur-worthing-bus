@@ -38,8 +38,9 @@ import argparse
 import json
 import re
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "disruptions.json"
@@ -63,8 +64,11 @@ def stop_index() -> dict:
     return {s["atco_code"]: s for s in json.loads(STOPS.read_text())["stops"]}
 
 
-def validate(entry: dict, stops: dict) -> list:
-    """Every problem with one entry, as sentences. Empty when it is sound."""
+def validate(entry: dict, stops: dict, ids: Optional[set] = None) -> list:
+    """Every problem with one entry, as sentences. Empty when it is sound.
+
+    `ids`, the entries already recorded, lets a sub-entry's `parent` be
+    checked; see api/local_disruptions.py for what a sub-entry means."""
     problems = []
     for field in REQUIRED:
         if not str(entry.get(field) or "").strip():
@@ -96,6 +100,29 @@ def validate(entry: dict, stops: dict) -> list:
             problems.append(f"diversion {d!r} needs 'via', the streets it takes")
     if not (entry.get("lines") or entry.get("stops_not_served")):
         problems.append("name the lines affected, the stops not served, or both")
+    for s in entry.get("stops_affected", []):
+        if s.get("atco") not in stops:
+            problems.append(f"affected stop {s.get('atco')!r} is not in data/stops.json")
+    parent = entry.get("parent")
+    if parent:
+        if ids is not None and parent not in ids:
+            problems.append(f"parent {parent!r} is not recorded; add the notice itself first")
+        if parent == entry.get("id"):
+            problems.append("an entry cannot be its own parent")
+        if not entry.get("lines"):
+            problems.append("a sub-entry needs --lines: its stops are not served by those routes")
+    for atco in entry.get("only_journeys_via", []):
+        if atco not in stops:
+            problems.append(f"only-journeys-via stop {atco!r} is not in data/stops.json")
+    if entry.get("only_journeys_via") and not parent:
+        problems.append("only_journeys_via narrows a sub-entry; give it a parent")
+    daily = entry.get("daily")
+    if daily:
+        try:
+            if time.fromisoformat(daily["from"]) >= time.fromisoformat(daily["to"]):
+                problems.append("daily 'from' must be before 'to', both HH:MM on one day")
+        except (KeyError, TypeError, ValueError):
+            problems.append("daily needs 'from' and 'to' as HH:MM")
     return problems
 
 
@@ -188,6 +215,18 @@ def main() -> None:
     ap.add_argument("--diversion", action="append", default=[],
                     help="towards|routes|street;street;...|rejoins (repeatable)")
     ap.add_argument("--notes", default="")
+    ap.add_argument("--parent", default="",
+                    help="the notice this is part of: --lines then names the routes "
+                         "--not-served applies to, and other buses still call")
+    ap.add_argument("--daily", default="", help="in force only these hours each day, 'HH:MM-HH:MM' UK time")
+    ap.add_argument("--only-journeys-via", default="",
+                    help="with --parent: only journeys calling at one of these stops (one direction)")
+    ap.add_argument("--affected-stops", default="",
+                    help="stop ATCO codes the notice lists as affected; their boards show it")
+    ap.add_argument("--diversion-stops-served", action="store_true",
+                    help="the notice says every stop on the diversion is served")
+    ap.add_argument("--observed", action="store_true",
+                    help="seen on the road, with no notice published; the description is ours")
     ap.add_argument("--record-for-analysis", action="store_true",
                     help="also keep a permanent record in data/analysis_exclusions.json, "
                          "so journey times measured during it can be set apart later")
@@ -246,6 +285,20 @@ def main() -> None:
     }
     if args.notes:
         entry["notes"] = args.notes
+    if args.parent:
+        entry["parent"] = args.parent
+    if args.daily:
+        opens, _, shuts = args.daily.partition("-")
+        entry["daily"] = {"from": opens.strip(), "to": shuts.strip()}
+    if args.only_journeys_via:
+        entry["only_journeys_via"] = [a for a in args.only_journeys_via.split(",") if a]
+    if args.affected_stops:
+        entry["stops_affected"] = [{"atco": a, "as_named": stops.get(a, {}).get("name", "")}
+                                   for a in args.affected_stops.split(",") if a]
+    if args.diversion_stops_served:
+        entry["diversion_stops_served"] = True
+    if args.observed:
+        entry["observed"] = True
     area = []
     if args.record_for_analysis:
         entry["record_for_analysis"] = True
@@ -254,7 +307,7 @@ def main() -> None:
                     (pt.split(",") for pt in args.area.split(";") if pt.strip())]
         except ValueError:
             area = []
-    problems = validate(entry, stops)
+    problems = validate(entry, stops, {e["id"] for e in doc["disruptions"]})
     if args.record_for_analysis and len(area) < 3:
         problems.append("--record-for-analysis needs --area with at least three 'lat,lon' points")
     if args.record_for_analysis and not entry["lines"]:

@@ -278,6 +278,8 @@ def current(situations: list, now: datetime) -> list:
                       if s is not None and now < s <= now + UPCOMING_WINDOW)
         if sit["periods"] and not live and not soon:
             continue
+        if sit.get("only_while_live") and not live:
+            continue
         period = live[0] if live else (soon[0] if soon else (None, None))
         start, end = period
         out.append({
