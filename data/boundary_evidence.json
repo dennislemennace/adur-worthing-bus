@@ -6,12 +6,12 @@
     "east": "Brighton & Hove"
   },
   "headline": "Bus service is measurably thinner on the West Sussex side of the Brighton & Hove boundary.",
-  "as_of": "2026-10-21",
-  "computed_at": "2026-10-21T18:46:16+00:00",
+  "as_of": "2026-10-25",
+  "computed_at": "2026-10-25T08:20:00+00:00",
   "data_version": {
     "source": "Bus Open Data Service, South East regional GTFS bundle",
     "artefact": "data/timetable.sqlite",
-    "sha256": "c9916d986f3e0b99d7869b13a3884da5db0cd71c490234a5fa0e383e8d074011"
+    "sha256": "c008ac0db87b4e566a8d3fc86dc933be84eb016d587f172c360ff5f3f10a8fdf"
   },
   "measured_week": {
     "monday": "2026-11-02",
