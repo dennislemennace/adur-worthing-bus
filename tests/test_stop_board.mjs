@@ -362,6 +362,29 @@ test("a notice seen on the road says nobody published it, not whose words it is"
   assert.match(daily, /07:00 to 18:00 daily, until Tue 27 Oct/);
 });
 
+test("notices about the same works are one notice, each route's own words inside", () => {
+  const curated = { source: "curated", operators: [], checked_on: "2026-10-24" };
+  const western = { ...curated, id: "w", summary: "Western Road closed", publisher: "Brighton & Hove Buses",
+    lines: [{ operator: "BHBC", line: "1" }], ends: "2026-11-06T23:59:00+00:00" };
+  const council = { ...curated, id: "w700", same_event_as: "w", summary: "Western Road closed",
+    description: "Brunswick Place is not served.", publisher: "Brighton & Hove City Council",
+    lines: [{ operator: "SCSO", line: "700" }], ends: "2026-11-12T23:59:00+00:00" };
+  const steine = { ...curated, id: "o", summary: "Old Steine roadworks", publisher: "Brighton & Hove Buses",
+    lines: [{ operator: "BHBC", line: "7" }], ends: "2026-10-27T23:59:00+00:00" };
+  const turn = { ...curated, id: "o700", parent: "o", summary: "700 turning at Brighton Station",
+    publisher: "Stagecoach", observed: true, lines: [{ operator: "SCSO", line: "700" }],
+    ends: "2026-10-27T23:59:00+00:00" };
+  const html = app.buildDisruptionsHtml([western, steine, council, turn]);
+  assert.equal(html.match(/<details class="disruption">/g).length, 2, "one works showed as two notices");
+  assert.ok(html.indexOf("Western Road closed") < html.indexOf("Old Steine roadworks"), "the order changed");
+  assert.match(html, /Services 1, 700 · Until Fri 6 Nov/);
+  assert.match(html, /Service 700<\/strong> · Until Thu 12 Nov/, "the 700's own end date was lost");
+  assert.match(html, /Brunswick Place is not served[\s\S]*Brighton &amp; Hove City Council/);
+  assert.match(html, /700 turning at Brighton Station[\s\S]*Seen on the road: Stagecoach/);
+  assert.equal(app.buildDisruptionsHtml([turn]).match(/<details class="disruption">/g).length, 1,
+    "a route's notice with its main one not here vanished");
+});
+
 test("a row at a closed stop is not served, and promises no live time", () => {
   const html = row({ not_served: true, status: "Not served" });
   assert.match(html, /departure-row--cancelled/);

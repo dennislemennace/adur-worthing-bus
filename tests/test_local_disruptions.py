@@ -242,6 +242,23 @@ def test_the_validator_checks_a_sub_entry():
     assert "parent" in " ".join(add_disruption.validate(an_entry(only_journeys_via=["C"]), stops))
 
 
+def test_a_second_notice_of_the_same_works_says_which_it_joins(tmp_path):
+    """The council's Western Road notice for the 700 and Brighton & Hove
+    Buses' own are one closure: the board shows them as one notice."""
+    other = an_entry(id="test-closure-700", same_event_as="test-closure",
+                     lines=[{"operator": "SCSO", "line": "700"}])
+    path = a_file(tmp_path, an_entry(), other)
+    by_id = {d["id"]: d for d in sx.current(ld.as_situations(ld.load(path)), NOW)}
+    assert by_id["test-closure-700"]["same_event_as"] == "test-closure"
+    assert "same_event_as" not in by_id["test-closure"]
+    stops = {"B": {}, "C": {}, "D": {}}
+    assert add_disruption.validate(other, stops, {"test-closure"}) == []
+    assert "nope" in " ".join(add_disruption.validate(
+        {**other, "same_event_as": "nope"}, stops, {"test-closure"}))
+    assert "itself" in " ".join(add_disruption.validate(
+        {**other, "same_event_as": "test-closure-700"}, stops, {"test-closure-700"}))
+
+
 def test_a_sub_entry_notice_rides_only_its_own_journeys(tmp_path):
     path = a_file(tmp_path, an_entry(stops_not_served=[]),
                   a_sub_entry(lines=[{"operator": "BHBC", "line": "1"}], only_journeys_via=["A"]))

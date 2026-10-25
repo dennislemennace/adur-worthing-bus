@@ -140,6 +140,7 @@
     },
     {
       "id": "scso-700-western-road-hove-2026-09-28",
+      "same_event_as": "bhbc-western-road-hove-2026-09-28",
       "record_for_analysis": true,
       "summary": "Western Road closed between Holland Road and Montpelier Road",
       "description": "On 28 of September we will close Western Road between Holland Road and Montpelier Road for 45 days. Bus diversion westbound: Waitrose on Western Road, right onto Montpelier Road, around 7 dials, along Goldmids and Davigdor Road, left down Holland Road, right to rejoin Western Road for Palmeira Square bus stop. Bus diversion eastbound: Palmeria Square, left onto Holland Road, right onto Landsdowne Road, right onto Montpelier Road, left back onto Western Road for the Waitrose bus stop.",

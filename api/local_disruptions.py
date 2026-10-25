@@ -162,6 +162,9 @@ def as_situations(entries: list) -> list:
                 "stops_not_served": closed,
                 "diversions": e.get("diversions", []),
                 **({"parent": e["parent"]} if sub else {}),
+                # Another publisher's notice of the same works: one notice on
+                # the board, each author's words inside it.
+                **({"same_event_as": e["same_event_as"]} if e.get("same_event_as") else {}),
                 **({"only_journeys_via": list(e["only_journeys_via"])} if e.get("only_journeys_via") else {}),
                 **({"daily": e["daily"], "final_ends": e.get("ends")} if e.get("daily") else {}),
                 **({"observed": True} if e.get("observed") else {}),

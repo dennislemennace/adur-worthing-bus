@@ -8346,24 +8346,68 @@ function disruptionSourceText(d) {
  */
 function buildDisruptionsHtml(list) {
   if (!list || !list.length) return "";
-  const items = list.map(d => {
-    const lines = (d.lines || []).map(l => l.line).filter(Boolean);
-    const who = (d.operators || []).map(o => o.name || o.operator).filter(Boolean);
-    const scope = lines.length ? `Service${lines.length > 1 ? "s" : ""} ${[...new Set(lines)].join(", ")}`
-      : who.length ? `All ${who.join(", ")} services` : "This stop";
-    const link = d.link && safeUrl(d.link)
-      ? ` <a href="${escapeAttr(safeUrl(d.link))}" target="_blank" rel="noopener">${
-          d.source === "curated" ? "Their notice" : "More details"}</a>` : "";
-    return `
+  // One works can come as several notices: a route's own words under the
+  // main notice (`parent`), or another publisher's notice of it
+  // (`same_event_as`). They show as one, the others' words inside it, so a
+  // stop the 700 shares with Brighton & Hove's routes lists each diversion once.
+  const items = groupDisruptions(list).map(([d, ...also]) => `
       <details class="disruption">
         <summary>
           <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
           <span class="disruption-text">
             <span class="disruption-summary">${escapeHtml(d.summary || "Disruption")}</span>
-            <span class="disruption-when">${escapeHtml(scope)} · ${escapeHtml(disruptionWhen(d))}</span>
+            <span class="disruption-when">${escapeHtml(disruptionScope([d, ...also]))} · ${escapeHtml(disruptionWhen(d))}</span>
           </span>
         </summary>
         <div class="disruption-body">
+          ${disruptionPartHtml(d)}
+          ${also.map(x => `
+            <div class="disruption-part">
+              <p><strong>${escapeHtml(disruptionScope([x]))}</strong> · ${escapeHtml(disruptionWhen(x))}</p>
+              ${x.summary && x.summary !== d.summary ? `<p>${escapeHtml(x.summary)}</p>` : ""}
+              ${disruptionPartHtml(x)}
+            </div>`).join("")}
+        </div>
+      </details>`).join("");
+  return `<div class="disruptions" role="region" aria-label="Disruptions">${items}</div>`;
+}
+
+/** Notices in groups, one per works, each led by its main notice, in the
+ * order the first of each came. */
+function groupDisruptions(list) {
+  const byId = new Map(list.filter(d => d.id).map(d => [d.id, d]));
+  const lead = (d) => {
+    const seen = new Set();
+    while (!seen.has(d)) {
+      seen.add(d);
+      const up = (d.parent && byId.get(d.parent)) || (d.same_event_as && byId.get(d.same_event_as));
+      if (!up) break;
+      d = up;
+    }
+    return d;
+  };
+  const groups = new Map();
+  for (const d of list) {
+    const root = lead(d);
+    if (!groups.has(root)) groups.set(root, [root]);
+    if (d !== root) groups.get(root).push(d);
+  }
+  return [...groups.values()];
+}
+
+function disruptionScope(group) {
+  const lines = [...new Set(group.flatMap(d => (d.lines || []).map(l => l.line)).filter(Boolean))];
+  const who = [...new Set(group.flatMap(d => (d.operators || []).map(o => o.name || o.operator)).filter(Boolean))];
+  return lines.length ? `Service${lines.length > 1 ? "s" : ""} ${lines.join(", ")}`
+    : who.length ? `All ${who.join(", ")} services` : "This stop";
+}
+
+/** One notice's own words: the diversion, description, advice and source. */
+function disruptionPartHtml(d) {
+  const link = d.link && safeUrl(d.link)
+    ? ` <a href="${escapeAttr(safeUrl(d.link))}" target="_blank" rel="noopener">${
+        d.source === "curated" ? "Their notice" : "More details"}</a>` : "";
+  return `
           ${buildDiversionsHtml(d.diversions)}
           ${d.description && d.description !== d.summary ? `<p>${escapeHtml(d.description)}</p>` : ""}
           ${d.advice ? `<p><strong>Advice:</strong> ${escapeHtml(d.advice)}</p>` : ""}
@@ -8371,11 +8415,7 @@ function buildDisruptionsHtml(list) {
             // Copied by hand from the operator's own page, because nobody
             // here publishes to BODS: say whose words, and when we looked.
             ? disruptionSourceText(d)
-            : `Published${d.publisher ? ` by ${escapeHtml(d.publisher)}` : ""} through the Bus Open Data Service.`}${link}</p>
-        </div>
-      </details>`;
-  }).join("");
-  return `<div class="disruptions" role="region" aria-label="Disruptions">${items}</div>`;
+            : `Published${d.publisher ? ` by ${escapeHtml(d.publisher)}` : ""} through the Bus Open Data Service.`}${link}</p>`;
 }
 
 function buildDepartureRow(dep) {

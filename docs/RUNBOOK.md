@@ -139,6 +139,13 @@ with `--observed`: its description is ours, and the site says it was seen on
 the road, not that it is anyone's notice. Use `--diversion-stops-served` only
 when the notice says every stop on the diversion is served.
 
+**Two publishers, one works.** When a second notice covers the same works for
+other routes (the council's Western Road notice for the 700, beside Brighton &
+Hove Buses' own), record it as its own entry with `--same-event-as <the first
+notice's id>`. Each keeps its own dates, stops and words, but a board showing
+both shows one notice with the second's words inside it, as it does for a
+sub-entry under its parent.
+
 **Recording it for analysis.** A closure that lasts days or weeks, or changes
 the route buses take, distorts the journey times and delay map for as long as it
 runs. Add `--record-for-analysis --area "lat,lon;lat,lon;lat,lon;lat,lon"`, the

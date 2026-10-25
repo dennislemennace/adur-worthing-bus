@@ -111,6 +111,12 @@ def validate(entry: dict, stops: dict, ids: Optional[set] = None) -> list:
             problems.append("an entry cannot be its own parent")
         if not entry.get("lines"):
             problems.append("a sub-entry needs --lines: its stops are not served by those routes")
+    same = entry.get("same_event_as")
+    if same:
+        if ids is not None and same not in ids:
+            problems.append(f"same_event_as {same!r} is not recorded")
+        if same == entry.get("id"):
+            problems.append("an entry cannot be the same works as itself")
     for atco in entry.get("only_journeys_via", []):
         if atco not in stops:
             problems.append(f"only-journeys-via stop {atco!r} is not in data/stops.json")
@@ -218,6 +224,9 @@ def main() -> None:
     ap.add_argument("--parent", default="",
                     help="the notice this is part of: --lines then names the routes "
                          "--not-served applies to, and other buses still call")
+    ap.add_argument("--same-event-as", default="",
+                    help="another publisher's notice of the same works: the board shows "
+                         "the two as one notice")
     ap.add_argument("--daily", default="", help="in force only these hours each day, 'HH:MM-HH:MM' UK time")
     ap.add_argument("--only-journeys-via", default="",
                     help="with --parent: only journeys calling at one of these stops (one direction)")
@@ -287,6 +296,8 @@ def main() -> None:
         entry["notes"] = args.notes
     if args.parent:
         entry["parent"] = args.parent
+    if args.same_event_as:
+        entry["same_event_as"] = args.same_event_as
     if args.daily:
         opens, _, shuts = args.daily.partition("-")
         entry["daily"] = {"from": opens.strip(), "to": shuts.strip()}
