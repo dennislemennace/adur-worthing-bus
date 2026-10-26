@@ -894,11 +894,153 @@ html.board-preview .panel-mode .panel-stop-id {
 
 /* One notice per works, closed to its name, until when, and what changes
    here, with ?preview=1 (app.js compactDisruptionsHtml). */
-.disruption--compact summary { min-height: 0; padding: var(--space-2xs) var(--space-sm); }
+/* Two classes, to outrank .disruption summary's 44px floor further down:
+   at equal weight it won, and a one-line notice showed an empty second line. */
+.disruption.disruption--compact summary { min-height: 0; padding: var(--space-2xs) var(--space-sm); }
 .disruption--compact .disruption-text { gap: 0; }
 .disruption--compact .disruption-head .disruption-when { white-space: nowrap; }
 .disruption-detail { font-size: var(--font-size-xs); }
 .disruption--compact + .disruption--compact { margin-top: var(--space-2xs); }
+
+/* ---- The Bus tab in the board's style, with ?preview=1 ----
+   The heading is a departure row (app.js buildBusTabShell): the route tile,
+   where it is going with how late under it, and "Updated" on the right. */
+html.board-preview #tab-content-bus .panel-header.bus-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-sm);
+  padding: var(--space-sm);
+}
+html.board-preview .panel-mode[data-mode="live"] .bus-head .panel-header-text { display: block; min-width: 0; }
+/* Two classes, to outrank the .service-badge pill rules further down. */
+.bus-head .bus-head-tile {
+  min-width: 44px;
+  height: 44px;
+  padding: 0 6px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+}
+html.board-preview .bus-head #panel-bus-name {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  line-height: 1.25;
+}
+html.board-preview .bus-head #panel-bus-id {
+  margin-top: 2px;
+  font-size: var(--font-size-xs);
+  white-space: normal;
+}
+/* How late, in its colour: words, not a pill, as on the board. */
+html.board-preview .bus-head .status-chip {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--font-size-xs);
+}
+.bus-head .bus-info-near { margin-left: 0.35em; color: var(--color-text-muted); }
+.bus-head .bus-info-near::before { content: "· "; }
+.bus-head-updated {
+  margin: 0;
+  text-align: right;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bus-head-updated span { display: block; }
+
+/* Follow and Notify as two pills on one line. The checkbox stays a real,
+   focusable checkbox; the pill is its label. */
+.bus-pills { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.bus-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--target-min);
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.bus-pill input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.bus-pill .bus-pill-check { display: none; width: 14px; height: 14px; }
+.bus-pill:has(input:checked) {
+  border-color: var(--color-primary);
+  background: var(--tint-on-time-bg);
+}
+.bus-pill:has(input:checked) .bus-pill-check { display: inline-block; }
+.bus-pill:has(input:focus-visible) { outline: 2px solid var(--color-link); outline-offset: 2px; }
+/* The hint only once Notify is on. */
+.bus-pills + .follow-bus-hint { display: none; }
+.bus-pills:has(#notify-move-checkbox:checked) + .follow-bus-hint { display: block; }
+
+/* The stops ahead, as board rows: the live time big with its dot, and
+   "Scheduled" under it in grey. The stop just passed and the stops it goes
+   round are a line each. */
+.upcoming-stop-sched {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+html.board-preview .upcoming-stop-when { flex-direction: column; align-items: flex-end; gap: 0; }
+html.board-preview .upcoming-stop-time { font-family: var(--font-family); }
+html.board-preview .upcoming-stop--next .upcoming-stop-sub {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  color: var(--color-accent-text);
+}
+.upcoming-stop-line {
+  list-style: none;
+  /* Under the stop names: the 16px marker column and its gap. */
+  padding: var(--space-2xs) 0 var(--space-2xs) calc(16px + var(--space-sm));
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.upcoming-stop-line--skipped { color: var(--color-late); font-weight: 600; }
+
+/* The rest of the Bus tab, folded at its foot. */
+.bus-more {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2xs);
+}
+.bus-more > summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--target-min);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.bus-more > summary::-webkit-details-marker { display: none; }
+/* A chevron, so a closed section says it opens. */
+.bus-more > summary::after {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 0 var(--space-2xs) 0 auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.6;
+}
+.bus-more[open] > summary::after { transform: rotate(225deg); }
+.bus-more > summary:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.bus-more[hidden] { display: none; }
+.bus-more .ticket-info-title { display: none; }
+.bus-more-note { margin: 0 0 var(--space-xs); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.bus-report-meta--foot { border-top: 1px solid var(--color-border); padding-top: var(--space-2xs); }
 
 /* ===== SHEET SPACE BUDGET =====
    On a 405px sheet the chrome above the first departure came to 246px:

@@ -9006,7 +9006,7 @@ function latenessChip(secs, reportAgeSecs, atStop = false, plus = false) {
 
 /** `atStop`: the bus's time at one stop, as a board row gives it, rather
  *  than where the bus is now (see latenessChip). */
-function buildStatusChip(dep, atStop = false) {
+function buildStatusChip(dep, atStop = false, plus = atStop && boardPreview()) {
   const status = (dep.status || "").toLowerCase();
 
   // The operator's own verdict where it gave one and there is nothing to
@@ -9025,7 +9025,7 @@ function buildStatusChip(dep, atStop = false) {
   // feed publishes no Delay field here — 0 of 235 vehicles carried one), or
   // a prediction's distance from the timetable.
   const secs = dep.lateness_secs ?? dep.delay_seconds;
-  if (secs != null) return latenessChip(secs, dep.report_age_secs, atStop, atStop && boardPreview());
+  if (secs != null) return latenessChip(secs, dep.report_age_secs, atStop, plus);
 
   if (status === "early")      return { label: "Early",    cssClass: "status-early"   };
   if (status === "late" || status === "delayed") return { label: "Delayed", cssClass: "status-late" };
@@ -9101,7 +9101,36 @@ function setActiveTab(tab) {
  * openBusInfo — called when a bus marker is clicked.
  * Switches to the Bus tab and renders the latest known data.
  */
-function openBusInfo(vehicle) {
+/**
+ * With ?preview=1, a bus opened from a board row: the sheet comes down to
+ * half so the bus shows on the map, centred in the part left showing, and
+ * the Bus tab opens at its stops ahead (asked for 26 October 2026).
+ */
+function showBusFromBoard(vehicle) {
+  if (isSheetLayout()) setSheetDetent("half");
+  if (state.map && isFinite(vehicle.latitude) && isFinite(vehicle.longitude)) {
+    // The sheet is still easing to its new height, so centre for where it
+    // is going, not where it is.
+    const overlap = isSheetLayout() ? sheetDetentPixels()[state.sheetDetent] || 0 : 0;
+    centreAboveSheet([vehicle.latitude, vehicle.longitude], Math.max(state.map.getZoom(), 16), overlap);
+  }
+  state.busScrollToStops = vehicle.vehicle_ref;
+  scrollBusTabToStops();
+}
+
+/** Bring the Bus tab's stops ahead to the top of its scrolling list. Again
+ *  once the details arrive, since the route's notices above them come with
+ *  those and push them down. */
+function scrollBusTabToStops() {
+  const el = document.getElementById("bus-upcoming");
+  if (!el || typeof el.getBoundingClientRect !== "function") return;
+  let box = el.parentElement;
+  while (box && !(box.scrollHeight > box.clientHeight
+                  && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+  if (box) box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top;
+}
+
+function openBusInfo(vehicle, { fromBoard = false } = {}) {
   // Clear notify-on-move state when switching buses (latch + baseline are
   // per-vehicle; a stale baseline against a new bus would fire instantly).
   if (state.selectedVehicleRef !== vehicle.vehicle_ref) {
@@ -9117,12 +9146,14 @@ function openBusInfo(vehicle) {
   state.busDetails              = null;
   state.busDetailsLoading       = true;
   state.busTabShellRef          = null;
+  state.busScrollToStops        = null;
   pushUrlState();
 
-  revealPanelForSelection();
+  if (!(fromBoard && boardPreview())) revealPanelForSelection();
   setActiveTab("bus");
   renderBusTab();
   startBusInfoTicker();
+  if (fromBoard && boardPreview()) showBusFromBoard(vehicle);
 
   // Fetch the matched GTFS trip + upcoming stops. Fire-and-forget:
   // when it resolves we update state.busDetails and re-render, but
@@ -9141,6 +9172,10 @@ async function fetchBusDetails(vehicleRef) {
     state.busDetailsLoading = false;
     drawBusTrail(data && data.trail);
     renderBusTab();
+    if (state.busScrollToStops === vehicleRef) {
+      state.busScrollToStops = null;
+      scrollBusTabToStops();
+    }
   } catch (err) {
     if (state.selectedVehicleRef !== vehicleRef) return;
     state.busDetails        = null;
@@ -9156,6 +9191,13 @@ function buildNextJourneyHtml(next) {
   const svc = next.service ? `${escapeHtml(next.service)} ` : "";
   const to = next.headsign ? ` to ${escapeHtml(prettifyName(next.headsign))}` : "";
   const from = next.from_name ? `, from ${escapeHtml(prettifyName(next.from_name))}` : "";
+  // With ?preview=1, one line; "planned" keeps it the operator's plan.
+  if (boardPreview()) {
+    return `<p class="bus-next-journey">
+    <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
+    <span>Then it's planned to run the <strong>${escapeHtml(next.depart)}${
+      next.service ? ` ${escapeHtml(next.service)}` : ""}</strong>${to}${from}.</span></p>`;
+  }
   return `<p class="bus-next-journey">
     <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
     <span>After this journey, the operator plans for this bus to run the
@@ -9202,6 +9244,10 @@ function renderBusTab() {
     dom.busInfoContainer.classList.add("hidden");
     dom.panelBusName.textContent = "No bus selected";
     dom.panelBusId.textContent   = "";
+    // The redesign's route tile and "Updated" belong to a bus, not the prompt.
+    document.querySelectorAll("#tab-content-bus .bus-head-tile, #tab-content-bus .bus-head-updated")
+      .forEach(el => el.remove());
+    document.querySelector("#tab-content-bus .panel-header")?.classList?.remove("bus-head");
     state.busTabShellRef = null;
     return;
   }
@@ -9215,6 +9261,182 @@ function renderBusTab() {
 function buildBusTabShell(v) {
   const operatorName = getOperatorName(v.operator_ref);
   const service      = v.service_ref || "?";
+  const colour       = getRouteColour(service, v.operator_ref);
+  const badgeTextCls = pickTextOn(colour) === "dark"
+    ? "service-badge--dark-text"
+    : "service-badge--light-text";
+
+  dom.panelBusName.textContent = `Service ${service}`;
+  dom.panelBusId.textContent   = boardPreview() ? "" : operatorName;
+
+  // With ?preview=1 the heading is a departure-board row: the route's tile,
+  // where it is going with how late under it, and when it last said where
+  // it was. It stays put while the stops scroll under it.
+  const head = document.querySelector("#tab-content-bus .panel-header");
+  if (boardPreview() && head && typeof head.prepend === "function") {
+    head.classList.add("bus-head");
+    let tile = head.querySelector(".bus-head-tile");
+    if (!tile) { tile = document.createElement("span"); head.prepend(tile); }
+    tile.className = `service-badge bus-head-tile ${badgeTextCls}`;
+    tile.style.background = colour;
+    tile.textContent = service;
+    // The heading already says "Service 46 to …" to a screen reader.
+    tile.setAttribute("aria-hidden", "true");
+    let updated = head.querySelector(".bus-head-updated");
+    if (!updated) { updated = document.createElement("p"); head.append(updated); }
+    updated.className = "bus-head-updated";
+    updated.innerHTML = `<span>Updated</span> <span id="bus-info-updated"></span>`;
+  }
+
+  dom.busInfoContainer.innerHTML = busTabShellHtml(v);
+  state.busTabShellRef = v.vehicle_ref;
+
+  dom.busPanelPrompt.classList.add("hidden");
+  dom.busInfoContainer.classList.remove("hidden");
+
+  // innerHTML above replaced the form, so its listeners went with it.
+  bindReportBusForm();
+  bindUpcomingStops();
+
+  const cb = document.getElementById("follow-bus-checkbox");
+  if (cb) {
+    cb.addEventListener("change", (e) => {
+      state.followSelectedBus = e.target.checked;
+      if (state.followSelectedBus && state.selectedVehicle) {
+        state.map.panTo(
+          [state.selectedVehicle.latitude, state.selectedVehicle.longitude],
+          { animate: !motionReduced() }
+        );
+      }
+    });
+  }
+
+  const nb = document.getElementById("notify-move-checkbox");
+  if (nb) {
+    nb.addEventListener("change", (e) => armNotifyOnMove(e.target.checked, nb));
+  }
+
+  if (state.ticketZones == null) {
+    loadTicketZones().then(() => {
+      if (state.busTabShellRef === v.vehicle_ref) updateBusTabLive();
+    }).catch(() => {});
+  }
+  if (state.registrations == null) {
+    loadRegistrations().then(() => {
+      if (state.busTabShellRef === v.vehicle_ref) updateBusTabLive();
+    });
+  }
+}
+
+/** The Bus tab's report form, the same in either layout. */
+function reportBusFormHtml(v) {
+  return `
+    <!-- A bus fault is the operator's, not the council's, and it moves — so
+         this is its own form rather than a category on the stop one. The two
+         accessibility options exist because a missing next-stop announcement
+         is evidence about a legal deadline and had nowhere to be recorded. -->
+    <form class="report-stop-form hidden" id="report-bus-form" novalidate>
+      <div class="editor-field">
+        <label for="rb-category">What's wrong?</label>
+        <select id="rb-category" name="category">
+          <option value="full">Too full to board</option>
+          <option value="cancelled">Didn't turn up</option>
+          <option value="late">Badly late</option>
+          <option value="accessibility">Access problem (ramp, wheelchair space, driver help)</option>
+          <option value="onboard-info">No audible or visible next-stop information</option>
+          <option value="other">Something else</option>
+        </select>
+      </div>
+      <div class="editor-field">
+        <label for="rb-details">Tell us more</label>
+        <textarea id="rb-details" name="details" maxlength="1000" required
+                  placeholder="What happened, and where were you?"></textarea>
+      </div>
+      <div class="editor-field">
+        <label for="rb-name">Your name (optional)</label>
+        <input id="rb-name" name="name" type="text" maxlength="60">
+      </div>
+
+      <!-- Honeypot -->
+      <div class="suggest-honeypot" aria-hidden="true">
+        <label for="rb-botcheck">Leave this field empty</label>
+        <input id="rb-botcheck" name="botcheck" type="checkbox" tabindex="-1" autocomplete="off">
+      </div>
+
+      <div class="suggest-turnstile" id="rb-turnstile"></div>
+
+      <p class="suggest-privacy">
+        This goes privately to the project, so problems can be counted and, once a
+        person has reviewed them, quoted. It is not a complaint to the operator and it
+        does not reach the driver. For that, contact
+        ${operatorComplaintLinkHtml(v.operator_ref)}.
+        <a href="privacy.html">How submissions are handled</a>.
+      </p>
+      <label class="publish-ack" for="rb-ack">
+        <input type="checkbox" id="rb-ack" name="publishAck">
+        <span>I understand that if this is approved it will be published on this site, with the name I give.</span>
+      </label>
+
+      <div class="suggest-actions">
+        <button class="editor-action-btn primary" id="rb-submit" type="submit">
+          <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
+          <span>Send report</span>
+        </button>
+        <button class="editor-action-btn" id="rb-cancel" type="button">Cancel</button>
+        <span class="editor-status" id="rb-status" role="status" aria-live="polite"></span>
+      </div>
+    </form>`;
+}
+
+/**
+ * The Bus tab's body. With ?preview=1, in the departure board's manner
+ * (26 October 2026): the heading is the board row (buildBusTabShell), then
+ * two toggles on one line, the route's notices one per works, the stops
+ * ahead, the bus's next journey in a line, and the rest (fares, the route's
+ * registration, reporting a problem) folded away at the foot.
+ */
+function busTabShellHtml(v) {
+  const operatorName = getOperatorName(v.operator_ref);
+  const service      = v.service_ref || "?";
+  if (boardPreview()) {
+    const fleet = v.vehicle_ref || "";
+    return `
+    <div id="bus-info-lost-host"></div>
+    <div class="bus-pills" role="group" aria-label="This bus">
+      <label class="bus-pill"><input type="checkbox" id="follow-bus-checkbox" ${state.followSelectedBus ? "checked" : ""}>
+        <svg class="icon bus-pill-check" aria-hidden="true"><use href="#i-check"/></svg><span>Follow on map</span></label>
+      <label class="bus-pill"><input type="checkbox" id="notify-move-checkbox" ${state.notifyOnMove ? "checked" : ""}
+               aria-describedby="notify-move-hint">
+        <svg class="icon bus-pill-check" aria-hidden="true"><use href="#i-check"/></svg><span>Notify me when it moves</span></label>
+    </div>
+    <small class="follow-bus-hint" id="notify-move-hint">Notifications work while this site is open.</small>
+
+    <div id="bus-disruptions"></div>
+
+    <div id="bus-upcoming"></div>
+
+    <div id="bus-next-journey"></div>
+
+    <details class="bus-more" id="bus-more-tickets">
+      <summary>Fares and tickets</summary>
+      <div id="bus-tickets"></div>
+    </details>
+
+    <details class="bus-more">
+      <summary>About the ${escapeHtml(service)} · ${escapeHtml(operatorName)}${fleet ? `, fleet ${escapeHtml(fleet)}` : ""}</summary>
+      <p class="bus-more-note">Run by ${escapeHtml(operatorName)}${fleet ? `; this bus is fleet number ${escapeHtml(fleet)}` : ""}.</p>
+      <div id="bus-registration"></div>
+    </details>
+
+    <div class="bus-report-meta bus-report-meta--foot">
+      <button class="btn-text" id="report-bus-btn" type="button" aria-expanded="false"
+              aria-controls="report-bus-form">
+        <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+        <span>Report a problem with this bus</span>
+      </button>
+    </div>
+    ${reportBusFormHtml(v)}`;
+  }
   // The same livery the map draws, so the bus in the panel is the bus on the
   // map. OPERATOR_ICONS alone gave every Brighton & Hove route the generic
   // red bus while its marker wore the route's own colours.
@@ -9229,13 +9451,10 @@ function buildBusTabShell(v) {
     ? `<img class="bus-info-icon" src="${escapeAttr(safeUrl(iconUrl))}" alt="">`
     : `<div class="bus-info-icon bus-info-icon-fallback" style="background:${colour}"></div>`;
 
-  dom.panelBusName.textContent = `Service ${service}`;
-  dom.panelBusId.textContent   = operatorName;
-
   // Destination is the panel's heading and the journey's position sits by
   // its status, so the facts a rider scans for share one block beside the
   // route badge instead of five rows under it.
-  dom.busInfoContainer.innerHTML = `
+  return `
     <div id="bus-info-lost-host"></div>
     <div class="bus-info-hero">
       <div class="bus-info-identity">
@@ -9294,101 +9513,10 @@ function buildBusTabShell(v) {
       </button>
     </div>
 
-    <!-- A bus fault is the operator's, not the council's, and it moves — so
-         this is its own form rather than a category on the stop one. The two
-         accessibility options exist because a missing next-stop announcement
-         is evidence about a legal deadline and had nowhere to be recorded. -->
-    <form class="report-stop-form hidden" id="report-bus-form" novalidate>
-      <div class="editor-field">
-        <label for="rb-category">What's wrong?</label>
-        <select id="rb-category" name="category">
-          <option value="full">Too full to board</option>
-          <option value="cancelled">Didn't turn up</option>
-          <option value="late">Badly late</option>
-          <option value="accessibility">Access problem (ramp, wheelchair space, driver help)</option>
-          <option value="onboard-info">No audible or visible next-stop information</option>
-          <option value="other">Something else</option>
-        </select>
-      </div>
-      <div class="editor-field">
-        <label for="rb-details">Tell us more</label>
-        <textarea id="rb-details" name="details" maxlength="1000" required
-                  placeholder="What happened, and where were you?"></textarea>
-      </div>
-      <div class="editor-field">
-        <label for="rb-name">Your name (optional)</label>
-        <input id="rb-name" name="name" type="text" maxlength="60">
-      </div>
-
-      <!-- Honeypot -->
-      <div class="suggest-honeypot" aria-hidden="true">
-        <label for="rb-botcheck">Leave this field empty</label>
-        <input id="rb-botcheck" name="botcheck" type="checkbox" tabindex="-1" autocomplete="off">
-      </div>
-
-      <div class="suggest-turnstile" id="rb-turnstile"></div>
-
-      <p class="suggest-privacy">
-        This goes privately to the project, so problems can be counted and, once a
-        person has reviewed them, quoted. It is not a complaint to the operator and it
-        does not reach the driver. For that, contact
-        ${operatorComplaintLinkHtml(v.operator_ref)}.
-        <a href="privacy.html">How submissions are handled</a>.
-      </p>
-      <label class="publish-ack" for="rb-ack">
-        <input type="checkbox" id="rb-ack" name="publishAck">
-        <span>I understand that if this is approved it will be published on this site, with the name I give.</span>
-      </label>
-
-      <div class="suggest-actions">
-        <button class="editor-action-btn primary" id="rb-submit" type="submit">
-          <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
-          <span>Send report</span>
-        </button>
-        <button class="editor-action-btn" id="rb-cancel" type="button">Cancel</button>
-        <span class="editor-status" id="rb-status" role="status" aria-live="polite"></span>
-      </div>
-    </form>
+    ${reportBusFormHtml(v)}
 
     <p class="bus-info-footer">Live data · the map refreshes every 20s</p>
   `;
-  state.busTabShellRef = v.vehicle_ref;
-
-  dom.busPanelPrompt.classList.add("hidden");
-  dom.busInfoContainer.classList.remove("hidden");
-
-  // innerHTML above replaced the form, so its listeners went with it.
-  bindReportBusForm();
-  bindUpcomingStops();
-
-  const cb = document.getElementById("follow-bus-checkbox");
-  if (cb) {
-    cb.addEventListener("change", (e) => {
-      state.followSelectedBus = e.target.checked;
-      if (state.followSelectedBus && state.selectedVehicle) {
-        state.map.panTo(
-          [state.selectedVehicle.latitude, state.selectedVehicle.longitude],
-          { animate: !motionReduced() }
-        );
-      }
-    });
-  }
-
-  const nb = document.getElementById("notify-move-checkbox");
-  if (nb) {
-    nb.addEventListener("change", (e) => armNotifyOnMove(e.target.checked, nb));
-  }
-
-  if (state.ticketZones == null) {
-    loadTicketZones().then(() => {
-      if (state.busTabShellRef === v.vehicle_ref) updateBusTabLive();
-    }).catch(() => {});
-  }
-  if (state.registrations == null) {
-    loadRegistrations().then(() => {
-      if (state.busTabShellRef === v.vehicle_ref) updateBusTabLive();
-    });
-  }
 }
 
 /** Replace a host's markup only when it has changed, keeping keyboard focus
@@ -9423,31 +9551,48 @@ function updateBusTabLive() {
     : escapeHtml(svc);
   if (dom.panelBusName.innerHTML !== heading) dom.panelBusName.innerHTML = heading;
 
+  // With ?preview=1 the status sits under the heading, as on a board row.
+  const status = busStatusLineHtml(v, det);
+  if (boardPreview()) {
+    if (dom.panelBusId.innerHTML !== status) dom.panelBusId.innerHTML = status;
+  } else {
+    patchHtml(document.getElementById("bus-info-status"), status);
+  }
+
+  tickBusInfoUpdated();
+  const services = v.service_ref ? [{ service: v.service_ref, operator: v.operator_ref || "" }] : null;
+  patchHtml(document.getElementById("bus-disruptions"), boardPreview()
+    ? compactDisruptionsHtml(state.busDetails?.disruptions || [], services)
+    : buildDisruptionsHtml(state.busDetails?.disruptions || [], { services }));
+  patchHtml(document.getElementById("bus-upcoming"), buildUpcomingStopsHtml());
+  patchHtml(document.getElementById("bus-next-journey"),
+    buildNextJourneyHtml(state.busDetails && state.busDetails.next_journey));
+  const tickets = buildTicketInfoHtml(v.operator_ref, null, v.service_ref || "");
+  patchHtml(document.getElementById("bus-tickets"), tickets);
+  // Folded away with ?preview=1; a coach has no fares here, so no fold.
+  document.getElementById("bus-more-tickets")?.toggleAttribute?.("hidden", !tickets);
+  patchHtml(document.getElementById("bus-registration"),
+    buildRegistrationHtml(v.operator_ref, v.service_ref || ""));
+}
+
+/** How late the bus is and where, in the status chip's words. With
+ *  ?preview=1, "+3 mins" as on the board, read out as "3 min late". */
+function busStatusLineHtml(v, det = {}) {
   // report_age_secs goes in too: without it the "about" hedge on a stale
   // report never fired here, though the chip was written to give it.
   const chip = buildStatusChip({ delay_seconds: v.delay_seconds,
                                  lateness_secs: v.lateness_secs,
                                  waiting_to_start: v.waiting_to_start,
                                  journey_start: v.journey_start,
-                                 report_age_secs: v.report_age_secs });
+                                 report_age_secs: v.report_age_secs }, false, boardPreview());
   const near = v.on_diversion || det.on_diversion
     ? `<span class="bus-info-near">on diversion</span>`
     : v.nearest_stop_name
     ? `<span class="bus-info-near">near ${escapeHtml(prettifyName(v.nearest_stop_name))}</span>` : "";
-  patchHtml(document.getElementById("bus-info-status"),
-    `<span class="status-chip ${chip.cssClass}">${escapeHtml(chip.label)}</span>${near}`);
-
-  tickBusInfoUpdated();
-  patchHtml(document.getElementById("bus-disruptions"),
-    buildDisruptionsHtml(state.busDetails?.disruptions || [],
-      { services: v.service_ref ? [{ service: v.service_ref, operator: v.operator_ref || "" }] : null }));
-  patchHtml(document.getElementById("bus-upcoming"), buildUpcomingStopsHtml());
-  patchHtml(document.getElementById("bus-next-journey"),
-    buildNextJourneyHtml(state.busDetails && state.busDetails.next_journey));
-  patchHtml(document.getElementById("bus-tickets"),
-    buildTicketInfoHtml(v.operator_ref, null, v.service_ref || ""));
-  patchHtml(document.getElementById("bus-registration"),
-    buildRegistrationHtml(v.operator_ref, v.service_ref || ""));
+  const label = chip.spoken
+    ? `<span aria-hidden="true">${escapeHtml(chip.label)}</span><span class="visually-hidden">${escapeHtml(chip.spoken)}</span>`
+    : escapeHtml(chip.label);
+  return `<span class="status-chip ${chip.cssClass}">${label}</span>${near}`;
 }
 
 // ── The route's registration (data/registrations.json) ─────────
@@ -9728,6 +9873,7 @@ function buildUpcomingStopsHtml() {
   }
 
   const vehicle   = det.vehicle || {};
+  const fresh     = boardPreview();
   const estimated = stops.some(s => (s.expected ?? s.expected_departure) && !s.passed)
     && det.source === "trip";
   const fromCalls = det.source === "siri_onward_calls";
@@ -9761,8 +9907,12 @@ function buildUpcomingStopsHtml() {
     // smaller, the way a station board shows a late train. Only when they
     // differ: an on-time bus with its own time crossed out reads as a change.
     const live  = !!exp && !isNaN(exp) && !s.passed && !s.not_served;
-    const was   = live && sched && !isNaN(sched) && Math.abs(exp - sched) >= 60_000
+    // With ?preview=1, as on the board: the live time, and "Scheduled" under
+    // it in grey, not a time crossed out beside it.
+    const was   = !fresh && live && sched && !isNaN(sched) && Math.abs(exp - sched) >= 60_000
       ? `<s class="upcoming-stop-was">${escapeHtml(formatTimeOfDay(sched))}</s>` : "";
+    const schedLine = fresh && live && sched && !isNaN(sched)
+      ? `<span class="upcoming-stop-sched">Scheduled ${escapeHtml(formatTimeOfDay(sched))}</span>` : "";
     const chip  = !s.passed && s.lateness_secs != null
       ? latenessChip(s.lateness_secs, vehicle.report_age_secs, true) : null;
     const notes = [];
@@ -9787,19 +9937,45 @@ function buildUpcomingStopsHtml() {
                 aria-label="${escapeAttr(s.not_served
                   ? `${name}, not calling, the bus is on a diversion. Show this stop's board for where to catch it instead`
                   : `${name}, ${live ? "estimated " : ""}${time}${chip ? `, ${chip.label}` : ""}${
-                  was ? `, timetabled ${formatTimeOfDay(sched)}` : ""}. Show departures from this stop`)}">
+                  was || schedLine ? `, timetabled ${formatTimeOfDay(sched)}` : ""}. Show departures from this stop`)}">
           <span class="upcoming-stop-name">${escapeHtml(name)}</span>
           ${notes.length ? `<span class="upcoming-stop-sub">${escapeHtml(notes.join(" · "))}</span>` : ""}
         </button>
         <span class="upcoming-stop-when" aria-hidden="true">
           ${was}
           <span class="upcoming-stop-time${live ? " upcoming-stop-time--live" : ""}">${live
-            ? `<span class="live-dot"></span>` : ""}${escapeHtml(time)}</span>
+            ? `<span class="live-dot"></span>` : ""}${escapeHtml(time)}</span>${schedLine}
         </span>
       </li>`;
   };
 
-  const rows = [...passed.slice(-1), ...shown].map(row);
+  let rows = [...passed.slice(-1), ...shown].map(row);
+  if (fresh) {
+    // With ?preview=1, the stop just passed and each run of stops the bus
+    // goes round take a line each, not a row each: they are not where
+    // anyone is waiting for it.
+    const nameOf = s => prettifyName(s.stop_name) || s.stop_id;
+    const timeOf = s => {
+      const t = new Date(s.expected ?? s.expected_departure ?? s.scheduled ?? s.aimed_departure);
+      return isNaN(t) ? "" : ` · ${formatTimeOfDay(t)}`;
+    };
+    const orList = names => names.length > 1
+      ? `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}` : names[0];
+    const last = passed[passed.length - 1];
+    rows = last ? [`<li class="upcoming-stop-line">Passed ${escapeHtml(nameOf(last))}${escapeHtml(timeOf(last))}</li>`] : [];
+    let skipped = [];
+    const flush = () => {
+      if (skipped.length) rows.push(`<li class="upcoming-stop-line upcoming-stop-line--skipped">Not calling at ${
+        escapeHtml(orList(skipped.map(nameOf)))}: diversion</li>`);
+      skipped = [];
+    };
+    for (const s of shown) {
+      if (s.not_served) { skipped.push(s); continue; }
+      flush();
+      rows.push(row(s));
+    }
+    flush();
+  }
   const toggle = hiddenCount > 0 || expanded
     ? `<li class="upcoming-stop-toggle-row"><button type="button" class="upcoming-toggle"
           data-focus-key="toggle" aria-expanded="${expanded}">${expanded
@@ -9821,7 +9997,7 @@ function buildUpcomingStopsHtml() {
     const atText = at && !isNaN(at) ? ` at ${formatTimeOfDay(at)}` : "";
     note = `<span class="live-dot" aria-hidden="true"></span> Estimated from how late
       the bus was when it last reported${escapeHtml(atText)}, assuming it stays
-      that late; a crossed-out time is the timetabled one it replaces. Early buses wait at timing points. Buses can
+      that late; ${fresh ? "Scheduled is the timetabled time" : "a crossed-out time is the timetabled one it replaces"}. Early buses wait at timing points. Buses can
       make up time, so be at your stop by the timetabled time.${allowance}
       <a href="about.html#live-times">How this works</a>`;
   } else if (fromCalls) {
@@ -10284,8 +10460,7 @@ function fitBoundsInVisibleMap(bounds, options) {
 const ROUTE_VIEW_HOME = [50.8225, -0.1372];
 
 /** Put `latlng` in the middle of the map the sheet leaves showing. */
-function centreAboveSheet(latlng, zoom) {
-  const overlap = sheetOverlapPx();
+function centreAboveSheet(latlng, zoom, overlap = sheetOverlapPx()) {
   const cover = mapTopCoverPx();
   const size = state.map.getSize();
   // The middle of what shows between the tour's card (if any) and the sheet.
@@ -10603,7 +10778,7 @@ function bindUIEvents() {
     const bus = departureBus(tr);
     if (bus) {
       closeDeparturePlan();
-      openBusInfo(bus);
+      openBusInfo(bus, { fromBoard: true });
     } else if (tr.dataset.trip) {
       toggleDeparturePlan(tr);
     } else {

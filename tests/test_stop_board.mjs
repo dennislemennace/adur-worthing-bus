@@ -932,3 +932,64 @@ test("preview: the stop heading is one line, the street or the town, never the n
   assert.equal(app.stopHeadingLine("R1"), "Stop R1 · Towards Hollingbury Asda · On Old Steine");
   assert.equal(app.stopHeadingLine("HS"), "Towards Shoreham High Street · Shoreham-by-Sea");
 }));
+
+test("preview: a one-line notice is one line tall, not padded to two", () => {
+  // .disruption summary's 44px floor came later in style.css at the same
+  // specificity, so the compact card's own rule lost and Old Steine at
+  // Waitrose showed an empty second line (26 October 2026).
+  const css = readFileSync(join(ROOT, "style.css"), "utf8");
+  assert.match(css, /\.disruption\.disruption--compact summary\s*\{[^}]*min-height:\s*0/);
+});
+
+// ── The Bus tab, with ?preview=1, in the board's style (26 October 2026) ─
+
+const t = (hhmm) => `2026-10-26T${hhmm}:00Z`;
+const route46 = () => upcoming({ source: "trip", vehicle: { trip_source: "feed", recorded_at: t("16:20") },
+  upcoming_stops: [
+    stopRow(1, { stop_name: "Palmeira Square", passed: true, scheduled: t("16:19"), expected: null, lateness_secs: null }),
+    stopRow(2, { stop_name: "Brunswick Place", not_served: true, scheduled: t("16:20"), expected: null, lateness_secs: null }),
+    stopRow(3, { stop_name: "Norfolk Square", not_served: true, scheduled: t("16:21"), expected: null, lateness_secs: null }),
+    stopRow(4, { stop_name: "Waitrose", is_next: true, scheduled: t("16:22"), expected: t("16:23"), lateness_secs: 60 }),
+    stopRow(5, { stop_name: "Churchill Square", timing_point: true, scheduled: t("16:27"), expected: t("16:28"), lateness_secs: 60 }),
+  ] });
+
+test("preview: the stops ahead read like the board, with passed and skipped stops a line each", () => preview(() => {
+  const html = route46();
+  assert.match(html, /class="upcoming-stop-line">Passed Palmeira Square · 16:19</, "the passed stop took a full row");
+  assert.match(html, /class="upcoming-stop-line upcoming-stop-line--skipped">Not calling at Brunswick Place or Norfolk Square: diversion</,
+    "the stops it goes round took a row each");
+  assert.doesNotMatch(html, /upcoming-stop--not-served/);
+  assert.match(html, /class="upcoming-stop-time upcoming-stop-time--live"><span class="live-dot"><\/span>16:23</);
+  assert.match(html, /class="upcoming-stop-sched">Scheduled 16:22</, "the timetabled time is not under the live one");
+  assert.doesNotMatch(html, /upcoming-stop-was/, "a time is still crossed out");
+  loc.search = "";
+  assert.match(route46(), /<s class="upcoming-stop-was">16:22<\/s>/, "published changed");
+}));
+
+test("preview: the Bus tab's status is the board's, +3 mins and where", () => preview(() => {
+  const html = app.busStatusLineHtml({ lateness_secs: 200, nearest_stop_name: "Palmeira Square" });
+  assert.match(html, /status-late"><span aria-hidden="true">\+3 mins<\/span><span class="visually-hidden">3 min late</);
+  assert.match(html, /near Palmeira Square/);
+  assert.match(app.busStatusLineHtml({ lateness_secs: 0, on_diversion: true }), />On time<[\s\S]*on diversion/);
+}));
+
+test("preview: the Bus tab is a row, two toggles and the stops; the rest folds away", () => preview(() => {
+  const v = { vehicle_ref: "512", service_ref: "46", operator_ref: "BHBC" };
+  const html = app.busTabShellHtml(v);
+  assert.doesNotMatch(html, /bus-info-hero/, "the identity block came back");
+  assert.equal((html.match(/class="bus-pill"/g) || []).length, 2);
+  assert.match(html, /id="follow-bus-checkbox"/);
+  assert.match(html, /id="notify-move-checkbox"/);
+  assert.ok(html.indexOf('id="bus-disruptions"') < html.indexOf('id="bus-upcoming"'), "the notices are not above the stops");
+  assert.match(html, /<details class="bus-more"[^>]*>\s*<summary>Fares and tickets<\/summary>\s*<div id="bus-tickets">/);
+  assert.match(html, /<summary>About the 46 · Brighton &amp; Hove Buses, fleet 512<\/summary>/);
+  assert.match(html, /Report a problem with this bus/);
+  assert.doesNotMatch(html, /refreshes every 20s/);
+  loc.search = "";
+  assert.match(app.busTabShellHtml(v), /bus-info-hero/, "published changed");
+}));
+
+test("preview: the bus's next journey is one line", () => preview(() => {
+  const html = app.buildNextJourneyHtml({ depart: "16:58", service: "46", headsign: "Hangleton" });
+  assert.match(html, /Then it's planned to run the <strong>16:58 46<\/strong> to Hangleton\./);
+}));
