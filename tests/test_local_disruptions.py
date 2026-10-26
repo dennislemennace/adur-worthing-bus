@@ -229,6 +229,8 @@ def test_a_board_marks_only_the_routes_a_sub_entry_keeps_off(tmp_path, monkeypat
     assert "stop_closure" not in out, "the board said no buses stop here"
     [note] = out["line_closures"]
     assert note["lines"] == ["1"] and note["id"] == "test-closure-route-2"
+    # So the board can fold it into the works' main notice, not a box of its own.
+    assert note["parent"] == "test-closure"
     assert {a["atco"] for a in note["still_served"]} == {"A", "C"}
     assert main._apply_stop_closure(board, LineTimetable(), "D") is board
 

@@ -563,6 +563,8 @@ async function init() {
     document.querySelector('[data-mode="journeytimes"]')?.remove();
     document.querySelector('#section-nav-menu [data-mode="journeytimes"]')?.remove();
   }
+  // The redesigned stop board (boardPreview) is styled under this class.
+  document.documentElement.classList.toggle("board-preview", boardPreview());
   document.getElementById("jt-view-toggle")?.addEventListener("click", event => {
     const button = event.target.closest("[data-jt-view]");
     if (button && button.dataset.jtView !== jtView()) setJtView(button.dataset.jtView);
@@ -8024,8 +8026,13 @@ function renderDepartures(data) {
     if (!noticesHost.dataset.bound) {
       noticesHost.dataset.bound = "1";
       noticesHost.addEventListener("click", (e) => {
-        const alt = e.target.closest("button.stop-closure-alt");
-        if (alt && alt.dataset.atco) openDepartures(alt.dataset.atco, alt.dataset.name || alt.dataset.atco);
+        // A button, or with ?preview=1 a link, which can open in a new tab;
+        // here either opens that board.
+        const alt = e.target.closest(".stop-closure-alt");
+        if (alt && alt.dataset.atco && !(alt.tagName === "A" && (e.metaKey || e.ctrlKey || e.shiftKey))) {
+          e.preventDefault();
+          openDepartures(alt.dataset.atco, alt.dataset.name || alt.dataset.atco);
+        }
       });
       noticesHost.addEventListener("input", (e) => {
         if (e.target.closest(".disruption-find-input")) applyDisruptionFind(noticesHost);
@@ -8309,28 +8316,61 @@ function buildDiversionsHtml(diversions) {
  * own board a tap away. The diversion's streets are the operator's words;
  * its stops are not in any timetable, so they are named, not listed.
  */
-function buildStopClosureHtml(c) {
-  if (!c) return "";
-  const until = c.until ? new Date(c.until) : null;
-  // A daily closure ends at a time today; any other on a day.
-  const untilText = until && !isNaN(until)
-    ? c.daily ? londonClock(until)
-      : until.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" })
-    : "";
-  // Some routes skip the stop and others still call (a sub-entry): say which.
-  const lines = [...new Set(c.lines || [])];
-  const title = !lines.length ? "No buses stop here"
-    : lines.length === 1 ? `Route ${lines[0]} doesn't stop here`
-    : `Routes ${lines.slice(0, -1).join(", ")} and ${lines[lines.length - 1]} don't stop here`;
-  const alts = (c.still_served || []).map(a => `
-      <li><button type="button" class="stop-closure-alt" data-atco="${escapeAttr(a.atco)}"
+/** Until when a closure holds now: a daily one to a time today, any other
+ *  to a day. */
+function closureUntilText(c) {
+  const until = c?.until ? new Date(c.until) : null;
+  if (!until || isNaN(until)) return "";
+  return c.daily ? londonClock(until)
+    : until.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" });
+}
+
+/** "25, 25X and 78". */
+function andList(items) {
+  return items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}` : (items[0] || "");
+}
+
+/** The nearest stops still served, each a link to its own board: words,
+ *  not buttons, which took more of the board than the buses did. */
+function stillServedLinks(alts) {
+  return (alts || []).map(a => {
+    const letter = typeof stopLetter === "function" ? stopLetter(a.atco) : "";
+    return `<a class="stop-closure-alt" href="#stop=${escapeAttr(encodeURIComponent(a.atco))}" data-atco="${escapeAttr(a.atco)}" data-name="${
+      escapeAttr(a.name)}">${escapeHtml(prettifyName(a.name) || a.name)}${letter ? ` ${escapeHtml(letter)}` : ""}</a> <span class="stop-closure-alt-meta">(${
+      escapeHtml(`${a.metres} m ${a.direction}`)}${(a.routes || []).length ? ` · ${escapeHtml(a.routes.join(", "))}` : ""})</span>`;
+  });
+}
+
+/** As published: each stop still served a button the size of a row. */
+function stillServedButtons(alts) {
+  return (alts || []).map(a => `<button type="button" class="stop-closure-alt" data-atco="${escapeAttr(a.atco)}"
                   data-name="${escapeAttr(a.name)}"
                   aria-label="${escapeAttr(`${a.name}, ${a.metres} metres ${a.direction}. Show departures`)}">
         <span class="stop-closure-alt-name">${escapeHtml(prettifyName(a.name) || a.name)}${
           typeof stopLetter === "function" && stopLetter(a.atco) ? ` <span class="stop-closure-alt-letter">${escapeHtml(stopLetter(a.atco))}</span>` : ""}</span>
         <span class="stop-closure-alt-meta">${escapeHtml(`${a.metres} m ${a.direction}`)} · ${
           escapeHtml((a.routes || []).join(", "))}</span>
-      </button></li>`).join("");
+      </button>`);
+}
+
+/** The stop board's redesign (26 October 2026): rows after the user's
+ *  mockup, "+7 mins", and routes that skip the stop told inside their
+ *  works' notice with links to the stops still served. Only with
+ *  ?preview=1 until it is switched on for everyone. */
+function boardPreview() {
+  return previewEnabled();
+}
+
+function buildStopClosureHtml(c) {
+  if (!c) return "";
+  const untilText = closureUntilText(c);
+  // Some routes skip the stop and others still call (a sub-entry): say which.
+  const lines = [...new Set(c.lines || [])];
+  const title = !lines.length ? "No buses stop here"
+    : lines.length === 1 ? `Route ${lines[0]} doesn't stop here`
+    : `Routes ${andList(lines)} don't stop here`;
+  const alts = (boardPreview() ? stillServedLinks : stillServedButtons)(c.still_served).map(a => `
+      <li>${a}</li>`).join("");
   const link = c.source_url && safeUrl(c.source_url)
     ? ` <a href="${escapeAttr(safeUrl(c.source_url))}" target="_blank" rel="noopener">${
         c.observed ? "Their updates page" : "Their notice"}</a>` : "";
@@ -8389,6 +8429,7 @@ function buildDisruptionsHtml(list, { services } = {}) {
           <span class="disruption-text">
             <span class="disruption-summary">${escapeHtml(d.summary || "Disruption")}</span>
             <span class="disruption-when">${escapeHtml(disruptionScope([d, ...also]))} · ${escapeHtml(disruptionWhen(d))}</span>
+            ${closedHereLineHtml([d, ...also])}
           </span>
         </summary>
         <div class="disruption-body">${disruptionGroupBodyHtml([d, ...also])}</div>
@@ -8468,7 +8509,8 @@ function disruptionSectionHtml({ services, notices }) {
             ${badges ? `<span class="disruption-badges">${badges}</span>` : ""}
             ${groups.map(([d, ...also]) => `<span class="disruption-line"><span class="disruption-summary">${
               escapeHtml(d.summary || "Disruption")}</span> <span class="disruption-when">${
-              badges ? "" : `${escapeHtml(disruptionScope([d, ...also]))} · `}${escapeHtml(disruptionWhen(d))}</span></span>`).join("")}
+              badges ? "" : `${escapeHtml(disruptionScope([d, ...also]))} · `}${escapeHtml(disruptionWhen(d))}</span>${
+              closedHereLineHtml([d, ...also])}</span>`).join("")}
           </span>
         </summary>
         <div class="disruption-body">${groups.map((g, i) => `
@@ -8502,15 +8544,43 @@ function boardNoticesHtml(data) {
   // The notice the closure came from is already said in full above.
   // Then routes that skip this stop while others still call, one notice
   // each (api/main.py, _apply_line_closures).
-  const lineClosures = data?.line_closures || [];
-  const shownIds = new Set([data?.stop_closure?.id, ...lineClosures.map(c => c.id)].filter(Boolean));
-  const notices = buildDisruptionsHtml((data?.disruptions || []).filter(d => !shownIds.has(d.id)),
-    { services: data?.services_here });
-  const closures = lineClosures.map(c => buildStopClosureHtml(c)
-    .replace('class="stop-closure"', `class="stop-closure" data-services="${escapeAttr([...new Set(c.lines || [])].join(" "))}"`));
-  const parts = closures.length + (notices.match(/data-services=/g) || []).length
+  if (!boardPreview()) {
+    const lineClosures = data?.line_closures || [];
+    const shownIds = new Set([data?.stop_closure?.id, ...lineClosures.map(c => c.id)].filter(Boolean));
+    const notices = buildDisruptionsHtml((data?.disruptions || []).filter(d => !shownIds.has(d.id)),
+      { services: data?.services_here });
+    const closures = lineClosures.map(c => buildStopClosureHtml(c)
+      .replace('class="stop-closure"', `class="stop-closure" data-services="${escapeAttr([...new Set(c.lines || [])].join(" "))}"`));
+    const parts = closures.length + (notices.match(/data-services=/g) || []).length
+      + (notices && !/data-services=/.test(notices) ? 1 : 0);
+    return buildStopClosureHtml(data?.stop_closure) + disruptionFinderHtml(parts) + closures.join("") + notices;
+  }
+  // With ?preview=1, routes that skip this stop while others still call
+  // are told inside their works' notice, with where to catch them instead:
+  // in a box of their own (the 25, 25X and 78 at the Old Steine) they stood
+  // over the board and pushed the buses out of sight.
+  const list = (data?.disruptions || []).filter(d => d.id !== data?.stop_closure?.id);
+  for (const c of data?.line_closures || []) {
+    const closed_here = { lines: [...new Set(c.lines || [])], until: c.until, daily: c.daily,
+                          still_served: c.still_served || [] };
+    const i = list.findIndex(d => d.id === c.id);
+    if (i >= 0) list[i] = { ...list[i], closed_here };
+    // Its routes have no row in the next two hours: the notice comes from
+    // the closure itself, still under the works' main notice.
+    else list.push({ id: c.id, parent: c.parent, summary: c.summary, source: "curated",
+      publisher: c.publisher, link: c.source_url, checked_on: c.checked_on, observed: c.observed,
+      daily: c.daily, final_ends: c.final_ends, ends: c.until, diversions: c.diversions || [],
+      operators: [], lines: closed_here.lines.map(line => ({ line, operator: "" })), closed_here });
+  }
+  const notices = buildDisruptionsHtml(list, { services: data?.services_here });
+  const parts = (notices.match(/data-services=/g) || []).length
     + (notices && !/data-services=/.test(notices) ? 1 : 0);
-  const finder = parts > 1 ? `
+  return buildStopClosureHtml(data?.stop_closure) + disruptionFinderHtml(parts) + notices;
+}
+
+/** With more than one part to choose from, a box to find your bus. */
+function disruptionFinderHtml(parts) {
+  return parts > 1 ? `
     <label class="disruption-find">
       <span class="disruption-find-label">Find your bus</span>
       <input type="search" class="disruption-find-input" data-focus-key="disruption-find"
@@ -8518,7 +8588,28 @@ function boardNoticesHtml(data) {
              placeholder="Bus number, e.g. 700" aria-describedby="disruption-find-status">
     </label>
     <p class="disruption-find-status" id="disruption-find-status" role="status" aria-live="polite"></p>` : "";
-  return buildStopClosureHtml(data?.stop_closure) + finder + closures.join("") + notices;
+}
+
+/** "25, 25X and 78 not stopping here until 18:00": one line under a
+ *  works' summary, for the routes it keeps off this stop. */
+function closedHereText(c) {
+  const until = closureUntilText(c);
+  return `${andList(c.lines)} not stopping here${until ? ` until ${until}` : ""}`;
+}
+
+function closedHereLineHtml(group) {
+  return group.filter(d => d.closed_here?.lines?.length).map(d =>
+    `<span class="disruption-closed">${escapeHtml(closedHereText(d.closed_here))}</span>`).join("");
+}
+
+/** Inside the notice: that line again, and the nearest stops still served,
+ *  each a link to its board. */
+function closedHereHtml(d) {
+  const c = d.closed_here;
+  if (!c?.lines?.length) return "";
+  const alts = stillServedLinks(c.still_served);
+  return `<p class="disruption-closed-here"><strong>${escapeHtml(closedHereText(c))}.</strong>${
+    alts.length ? ` Nearest stops still served: ${andList(alts)}.` : ""}</p>`;
 }
 
 /** Show the parts of the notices for the bus typed into a board's box. */
@@ -8575,6 +8666,7 @@ function disruptionPartHtml(d) {
     ? ` <a href="${escapeAttr(safeUrl(d.link))}" target="_blank" rel="noopener">${
         d.source === "curated" ? "Their notice" : "More details"}</a>` : "";
   return `
+          ${closedHereHtml(d)}
           ${buildDiversionsHtml(d.diversions)}
           ${d.description && d.description !== d.summary ? `<p>${escapeHtml(d.description)}</p>` : ""}
           ${d.advice ? `<p><strong>Advice:</strong> ${escapeHtml(d.advice)}</p>` : ""}
@@ -8600,24 +8692,35 @@ function buildDepartureRow(dep) {
   // key under the board says what it means.
   const live = !!expected;
 
-  // Format due time (prefer expected if available, fall back to aimed)
-  const displayTime = expected || aimed || null;
-  const dueText     = displayTime ? formatDueTime(displayTime, clockNow(), live) : "–";
-  const isImminent  = displayTime ? isWithinMinutes(displayTime, 2) : false;
-  // The clock time under the countdown: a time is easier to check against a
-  // watch than "3 mins" is to add up (RTIGT041-1.0, 10.1).
-  const clockLine = live
-    ? `${londonClock(new Date(expected))}${aimed ? ` · timetable ${londonClock(new Date(aimed))}` : ""}`
-    : aimed ? `timetable ${londonClock(new Date(aimed))}` : "";
-
   const cancelled = (dep.status || "").toLowerCase() === "cancelled";
   // The stop is closed: the row says which bus would have called, and that
   // it will not. See the closure notice above the board.
   const notServed = !!dep.not_served;
+  // The redesign, with ?preview=1 (boardPreview): a dash, not a countdown,
+  // to a bus that will not stop, which a time would promise.
+  const fresh = boardPreview();
+  const blank = fresh && notServed;
+
+  // Format due time (prefer expected if available, fall back to aimed)
+  const displayTime = expected || aimed || null;
+  const dueText     = blank ? "–" : displayTime ? formatDueTime(displayTime, clockNow(), live) : "–";
+  const isImminent  = displayTime && !blank ? isWithinMinutes(displayTime, 2) : false;
+  // The clock time under the countdown: a time is easier to check against a
+  // watch than "3 mins" is to add up (RTIGT041-1.0, 10.1). In the redesign,
+  // live and scheduled one a line.
+  const clockLines = fresh
+    ? `${live ? `<span class="due-clock-live">Live ${escapeHtml(londonClock(new Date(expected)))}</span>` : ""}${
+        aimed ? `<span class="due-clock-sched">Scheduled ${escapeHtml(londonClock(new Date(aimed)))}</span>` : ""}`
+    : escapeHtml(live
+      ? `${londonClock(new Date(expected))}${aimed ? ` · timetable ${londonClock(new Date(aimed))}` : ""}`
+      : aimed ? `timetable ${londonClock(new Date(aimed))}` : "");
   // A diversion allowance in the estimate (api/diversions.py), said in minutes.
   const allowMin = live && dep.allowance_secs > 0 ? Math.max(1, Math.round(dep.allowance_secs / 60)) : 0;
-  const { label, cssClass } = notServed
-    ? { label: "Not calling", cssClass: "status-late" }
+  const { label, cssClass, spoken } = notServed
+    // In the redesign, once, in the status line, not under the destination too.
+    ? fresh ? { label: "Not calling here", cssClass: "status-late",
+                spoken: "Not calling here: the notice above says where to catch it" }
+      : { label: "Not calling", cssClass: "status-late" }
     : live || cancelled
     ? buildStatusChip(dep, true)
     : { label: "Timetable", cssClass: "status-scheduled" };
@@ -8639,7 +8742,7 @@ function buildDepartureRow(dep) {
           ><span class="service-badge ${badgeTextCls}" style="background:${badgeColour}">${escapeHtml(service)}</span></button></td>
       <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span>${
         notServed
-          ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Not calling here, see above for where to catch it</span>`
+          ? fresh ? "" : `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Not calling here, see above for where to catch it</span>`
           : allowMin
           ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Time allows ${
               allowMin} min for ${escapeHtml(dep.allowance_reason || "a diversion")}${
@@ -8648,7 +8751,8 @@ function buildDepartureRow(dep) {
           ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Disruption, see notice above</span>`
           : ""}</td>
       <td><span class="due-cell"><span class="due-time ${isImminent ? "due-imminent" : ""}"
-                ${displayTime ? `data-due-at="${escapeAttr(displayTime)}"` : ""} data-live="${live ? 1 : 0}"
+                ${displayTime ? `data-due-at="${escapeAttr(displayTime)}"` : ""} data-live="${live ? 1 : 0}"${
+                blank ? ` data-blank="1"` : ""}
           >${escapeHtml(dueText)}</span>${live && dep.live_source === "previous_journey"
             // Not yet on this journey: worked out from the bus's previous one
             // (RTIGT041 3.4), which a driver change or swapped bus can upset,
@@ -8656,9 +8760,13 @@ function buildDepartureRow(dep) {
             ? `<span class="live-dot live-dot--previous" aria-hidden="true" title="From the bus's previous journey"></span><span class="visually-hidden">, estimated from the bus's previous journey</span>`
             : live
             ? `<span class="live-dot" aria-hidden="true"></span><span class="visually-hidden">, live</span>`
-            : `<span class="visually-hidden">, timetable</span>`}</span>${clockLine
-            ? `<span class="due-clock">${escapeHtml(clockLine)}</span>` : ""}</td>
-      <td><span class="status-chip ${cssClass}">${escapeHtml(label)}</span></td>
+            : `<span class="visually-hidden">, timetable</span>`}</span>${clockLines
+            ? `<span class="due-clock">${clockLines}</span>` : ""}</td>
+      <td><span class="status-chip ${cssClass}">${spoken
+        // "+7 mins" to the eye; "7 min late" to a screen reader, which
+        // would read the sign as "plus".
+        ? `<span aria-hidden="true">${escapeHtml(label)}</span><span class="visually-hidden">${escapeHtml(spoken)}</span>`
+        : escapeHtml(label)}</span></td>
     </tr>`;
 }
 
@@ -8780,7 +8888,7 @@ const STALE_REPORT_SECS = 120;
 /** "4 min late", "On time", "about 3 min early": one reading of lateness,
  *  shared by the Bus tab, the stop board and the list of stops ahead, so a bus
  *  cannot be "On time" in one place and "1m late" in another. */
-function latenessChip(secs, reportAgeSecs, atStop = false) {
+function latenessChip(secs, reportAgeSecs, atStop = false, plus = false) {
   // Under a minute either way is on time. Rounding first made 59 seconds
   // late read as "1 min late", which is a claim the data does not support
   // at a resolution of one report every few minutes.
@@ -8803,8 +8911,12 @@ function latenessChip(secs, reportAgeSecs, atStop = false) {
   // hedged rather than asserted.
   const stale = reportAgeSecs != null && reportAgeSecs > STALE_REPORT_SECS;
   const about = stale ? "about " : "";
-  return secs < 0
-    ? { label: `${about}${mins} min early`, cssClass: "status-early" }
+  if (secs < 0) return { label: `${about}${mins} min early`, cssClass: "status-early" };
+  // The stop board says "+7 mins", short beside the countdown it qualifies,
+  // with the words kept for a screen reader.
+  return plus
+    ? { label: `${about}+${mins} ${mins === 1 ? "min" : "mins"}`, cssClass: "status-late",
+        spoken: `${about}${mins} min late` }
     : { label: `${about}${mins} min late`, cssClass: "status-late" };
 }
 
@@ -8829,7 +8941,7 @@ function buildStatusChip(dep, atStop = false) {
   // feed publishes no Delay field here — 0 of 235 vehicles carried one), or
   // a prediction's distance from the timetable.
   const secs = dep.lateness_secs ?? dep.delay_seconds;
-  if (secs != null) return latenessChip(secs, dep.report_age_secs, atStop);
+  if (secs != null) return latenessChip(secs, dep.report_age_secs, atStop, atStop && boardPreview());
 
   if (status === "early")      return { label: "Early",    cssClass: "status-early"   };
   if (status === "late" || status === "delayed") return { label: "Delayed", cssClass: "status-late" };
@@ -10244,6 +10356,8 @@ function ageDepartureBoard(now = clockNow()) {
       if (row && row.remove) { row.remove(); removed += 1; }
       return;
     }
+    // A bus that will not call here keeps its dash: no countdown to it.
+    if (cell.dataset.blank) return;
     cell.textContent = formatDueTime(iso, now, cell.dataset.live !== "0");
     if (cell.classList) {
       cell.classList.toggle("due-imminent", isWithinMinutes(iso, 2));

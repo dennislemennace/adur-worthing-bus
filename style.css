@@ -785,6 +785,72 @@ html.dark-mode .map-loading {
   #departures-tbody .status-chip { padding: 1px 6px; }
 }
 
+/* The redesigned board, with ?preview=1 (app.js, boardPreview), after the
+   user's mockup of 26 October 2026: the same at every width, a big badge,
+   where it goes with how late under it, and the countdown on the right with
+   its live and scheduled clock times stacked beneath. */
+html.board-preview #departures-container .departures-table,
+html.board-preview #departures-tbody,
+html.board-preview #departures-tbody tr,
+html.board-preview #departures-tbody td {
+  display: block;
+  width: auto;
+}
+html.board-preview #departures-container .departures-table thead { display: none; }
+html.board-preview #departures-tbody .departure-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "badge dest due"
+    "badge status due";
+  align-items: center;
+  column-gap: var(--space-sm);
+  row-gap: 2px;
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+html.board-preview #departures-tbody .departure-row td {
+  border-bottom: none;
+  padding: 0;
+}
+html.board-preview #departures-tbody .departure-row td:nth-child(1) { grid-area: badge; overflow: visible; }
+html.board-preview #departures-tbody .departure-row td:nth-child(2) { grid-area: dest;   min-width: 0; align-self: end; }
+html.board-preview #departures-tbody .departure-row td:nth-child(3) { grid-area: due;    text-align: right; }
+html.board-preview #departures-tbody .departure-row td:nth-child(4) { grid-area: status; align-self: start; }
+
+/* The route as a tile, as on a stop's own sign. The tile is the 44px target
+   itself, so the button's negative margin (for a small pill) is dropped: with
+   the cell's overflow hidden it cut the tile to a 24px strip. */
+html.board-preview #departures-tbody .service-badge-btn { margin: 0; }
+html.board-preview #departures-tbody .service-badge {
+  min-width: 44px;
+  height: 44px;
+  padding: 0 6px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+}
+html.board-preview #departures-tbody .destination-text {
+  font-weight: 600;
+  font-size: var(--font-size-base);
+}
+
+/* How late, in its colour under the destination: words, not a pill. */
+html.board-preview #departures-tbody .status-chip {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--font-size-xs);
+}
+
+/* The countdown is the time to read; the clock times are for checking. */
+html.board-preview #departures-tbody .due-time { font-family: var(--font-family); font-size: var(--font-size-lg); }
+/* A bus not calling has a dash, not a time to strike through. */
+html.board-preview #departures-tbody .due-time[data-blank] { text-decoration: none; }
+html.board-preview #departures-tbody .due-clock { margin-top: 2px; line-height: 1.35; }
+.due-clock-live,
+.due-clock-sched { display: block; }
+.due-clock-live { color: var(--color-text); }
+
 /* ===== SHEET SPACE BUDGET =====
    On a 405px sheet the chrome above the first departure came to 246px:
    handle, tab strip, a two-line stop header and a meta row. The board is
@@ -4113,6 +4179,35 @@ html.dark-mode .departures-table tr.departure-row:hover td {
 .stop-closure-alt-name { font-weight: 700; color: var(--color-link); }
 .stop-closure-alt-letter { font-weight: 600; color: var(--color-text-muted); }
 .stop-closure-alt-meta { font-size: var(--font-size-xs); color: var(--color-text-muted); overflow-wrap: anywhere; }
+/* With ?preview=1 a stop still served is a link to its board, in the
+   sentence: as a button each took a line and more of the board than the
+   buses did. */
+html.board-preview .stop-closure-alts {
+  display: block;
+  padding-left: 1.1rem;
+  list-style: disc;
+  line-height: 1.6;
+}
+a.stop-closure-alt {
+  display: inline;
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-weight: 700;
+  color: var(--color-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* Routes a works keeps off this stop, under the notice's summary. */
+.disruption-closed {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--color-late);
+}
+.disruption-closed-here { line-height: 1.6; }
 .stop-closure-note { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .stop-closure .disruption-source a { color: var(--color-link); }
 

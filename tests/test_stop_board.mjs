@@ -802,3 +802,76 @@ test("a time from the bus's previous journey is marked apart from a bus on the r
   assert.match(html, /visually-hidden">, estimated from the bus's previous journey</);
   assert.doesNotMatch(html, /visually-hidden">, live</, "it was read out as a bus we can see");
 });
+
+// ── The redesigned board, with ?preview=1 (26 October 2026) ─
+// The tests above are the board as published; these, the redesign behind
+// the flag until it is switched on for everyone.
+
+const loc = vm.runInContext("location", app);
+const preview = (fn) => { loc.search = "?preview=1"; try { return fn(); } finally { loc.search = ""; } };
+
+test("preview: under the countdown, the live and scheduled clock times, one a line", () => preview(() => {
+  const live = row({ aimed_departure: "2026-10-26T12:05:00Z", expected_departure: "2026-10-26T12:07:00Z",
+    delay_seconds: 120 });
+  assert.match(live, /class="due-clock-live">Live 12:07</);
+  assert.match(live, /class="due-clock-sched">Scheduled 12:05</);
+  assert.ok(live.indexOf("due-time") < live.indexOf("due-clock-live")
+    && live.indexOf("due-clock-live") < live.indexOf("due-clock-sched"), "countdown, then Live, then Scheduled");
+  const timetable = row({ aimed_departure: "2026-10-26T12:16:00Z" });
+  assert.match(timetable, /class="due-clock-sched">Scheduled 12:16</);
+  assert.doesNotMatch(timetable, /due-clock-live/, "a timetable time was called live");
+  assert.doesNotMatch(live + timetable, /Sched\b(?!uled)/, "Scheduled was shortened");
+}));
+
+test("preview: a late bus on the board is +7 mins, and a screen reader hears 7 min late", () => preview(() => {
+  const html = row({ expected_departure: inMinutes(12), delay_seconds: 420 });
+  assert.match(html, /aria-hidden="true">\+7 mins</);
+  assert.match(html, /visually-hidden">7 min late</);
+  assert.equal(app.buildStatusChip({ delay_seconds: 130 }, true).label, "+2 mins");
+  assert.equal(app.buildStatusChip({ delay_seconds: 420, report_age_secs: 300 }, true).label, "about +7 mins");
+  assert.equal(app.buildStatusChip({ delay_seconds: -70 }, true).label, "1 min early", "early changed too");
+  assert.equal(app.buildStatusChip({ delay_seconds: 130 }).label, "2 min late", "the Bus tab changed too");
+}));
+
+test("preview: a row the bus will not call at has a dash, and says so once", () => preview(() => {
+  const html = row({ not_served: true, status: "Not calling", aimed_departure: "2026-10-26T12:16:00Z" });
+  assert.match(html, /class="due-time[^"]*"[^>]*data-blank="1"\s*>–</);
+  assert.match(html, /Scheduled 12:16/);
+  assert.match(html, /aria-hidden="true">Not calling here</);
+  assert.match(html, /visually-hidden">Not calling here: the notice above says where to catch it</);
+  assert.doesNotMatch(html, /row-disruption/, "it was said under the destination too");
+}));
+
+test("preview: a stop still served is a link to its board, not a button", () => preview(() => {
+  const html = app.buildStopClosureHtml(closure);
+  assert.match(html, /<a class="stop-closure-alt" href="#stop=149000007948" data-atco="149000007948"/);
+  assert.doesNotMatch(html, /<button/, "a stop still served is a button, too big for the board");
+  assert.match(html, /340 m west · 1, 2, 5/);
+}));
+
+test("preview: routes that skip the stop are told inside the works' notice, not a box of their own", () => preview(() => {
+  // The 25, 25X and 78 at the Old Steine (24 October 2026): their own box
+  // stood over the board and pushed the buses out of sight.
+  const sub = { ...busy.steine, id: "o25", parent: "o", summary: "Routes 25, 25X and 78 not serving the Old Steine",
+    lines: [{ operator: "BHBC", line: "25" }, { operator: "BHBC", line: "25X" }, { operator: "BHBC", line: "78" }],
+    daily: { from: "07:00", to: "18:00" }, final_ends: "2026-10-27T23:59:00+00:00" };
+  const here = ["25", "25X", "78", "49"].map(service => ({ service, operator: "BHBC" }));
+  const note = { ...closure, id: "o25", parent: "o", lines: ["25", "25X", "78"], daily: sub.daily,
+    until: "2026-10-26T18:00:00Z", still_served: [{ atco: "149000006999", name: "Valley Gardens",
+      metres: 250, direction: "north", routes: ["25", "25X", "78"], side: "both" }] };
+  // With the sub-entry's own notice on the board, and without it (no 25 in
+  // the next two hours): either way, inside the works' notice.
+  for (const disruptions of [[busy.steine, sub], [busy.steine]]) {
+    const html = app.boardNoticesHtml({ services_here: here, disruptions, line_closures: [note] });
+    assert.doesNotMatch(html, /class="stop-closure"/, "the routes that skip the stop got a box of their own");
+    assert.match(html, /25, 25X and 78 not stopping here until 18:00/, "the notice does not say they skip this stop");
+    assert.match(html, /<a class="stop-closure-alt" href="#stop=149000006999"[^>]*>Valley Gardens/,
+      "where to catch them instead is not a link to that stop's board");
+    assert.doesNotMatch(html, /<button/);
+    assert.equal((html.match(/<details/g) || []).length, 2, "not one notice per route group");
+  }
+  // Published, it is still the box.
+  loc.search = "";
+  assert.match(app.boardNoticesHtml({ services_here: here, disruptions: [busy.steine, sub], line_closures: [note] }),
+    /class="stop-closure"[^>]*data-services="25 25X 78"/, "the redesign leaked out without ?preview=1");
+}));

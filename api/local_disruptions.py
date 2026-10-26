@@ -382,6 +382,7 @@ def line_closures_for(tt, stop_id: str, now: datetime, path: Optional[Path] = No
         if not lines:
             continue
         closed = whole | {s["atco"] for s in e.get("stops_not_served", [])}
-        out.append({**_closure_fields(e, now), "lines": lines,
+        # `parent`: the board tells it inside the works' main notice.
+        out.append({**_closure_fields(e, now), "lines": lines, "parent": e["parent"],
                     "still_served": still_served_nearby(tt, stop_id, closed, e)})
     return out
