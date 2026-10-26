@@ -8,8 +8,9 @@ journey past the diversion, made as the bus left the entry point:
 * **today's**: the bus's lateness there, carried forward (api/live_eta.py);
 * **adjusted**: the same, plus the allowance (api/diversions.py).
 
-Each is scored against when the bus really left each timing point beyond.
-"Bus earlier than estimate" is the count that matters most: someone who trusts
+Each is scored against when the bus really left each timing point beyond, by
+RTIG's accuracy windows (scripts/rtig_windows.py). "Bus came early", earlier
+than the window allows, is the count that matters most: someone who trusts
 the estimate and arrives at the stop on its time has missed that bus.
 
     python scripts/backtest_diversion_adjustments.py --observations 'obs/*.json.gz' \\
@@ -19,7 +20,7 @@ the estimate and arrives at the stop on its time has missed that bus.
 import argparse
 import statistics
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -29,18 +30,18 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import analysis_exclusions as ax                                  # noqa: E402
 import build_diversion_adjustments as bd                          # noqa: E402
+import rtig_windows as rtig                                       # noqa: E402
 from api import diversions                                        # noqa: E402
 from build_delay_hotspots import entry_period                     # noqa: E402
 
 
-def score(errors):
-    """`errors` are estimate minus actual, in seconds."""
-    n = len(errors)
+def score(pairs):
+    """`pairs` are (seconds until the bus left, estimate minus actual)."""
+    n = len(pairs)
+    judged = Counter(rtig.classify(ahead + err, err) for ahead, err in pairs)
     return {"n": n,
-            "median_abs_min": statistics.median(abs(e) for e in errors) / 60 if n else None,
-            "within_2_min": sum(abs(e) <= 120 for e in errors) / n if n else None,
-            "bus_2_min_earlier": sum(e >= 120 for e in errors) / n if n else None,
-            "bus_2_min_later": sum(e <= -120 for e in errors) / n if n else None}
+            "median_abs_min": statistics.median(abs(e) for _a, e in pairs) / 60 if n else None,
+            "rtig": rtig.shares(judged)}
 
 
 def run(rows, events, coords, split):
@@ -72,18 +73,18 @@ def run(rows, events, coords, split):
                 today = late if late >= 0 or k == i + 1 else 0
                 adjusted = today + diversions.extra_at(plan, k, day_type, period, secs)
                 actual = calls[k]["lateness_secs"]
+                ahead = calls[k]["observed_epoch"] - entry["observed_epoch"]
                 key = (first.get("service"), first.get("direction"))
-                by[key]["today"].append(today - actual)
-                by[key]["adjusted"].append(adjusted - actual)
-                by["ALL"]["today"].append(today - actual)
-                by["ALL"]["adjusted"].append(adjusted - actual)
+                for group in (key, "ALL"):
+                    by[group]["today"].append((ahead, today - actual))
+                    by[group]["adjusted"].append((ahead, adjusted - actual))
     return doc, by
 
 
 def report(by, split, days_calib, days_test):
     lines = [f"Calibrated on days before {split} ({days_calib}); tested on {days_test}.", "",
              "| Service, direction | Timing points scored | Median error, today → adjusted (min) | "
-             "Within 2 min | Bus 2+ min earlier than estimate | Bus 2+ min later than estimate |",
+             "Acceptable (RTIG) | Bus came early | Bus came late |",
              "|---|---|---|---|---|---|"]
     keys = ["ALL"] + sorted(k for k in by if k != "ALL")
     for key in keys:
@@ -91,10 +92,14 @@ def report(by, split, days_calib, days_test):
         if not t["n"]:
             continue
         label = "**All**" if key == "ALL" else f"{key[0]} {key[1]}"
+
+        def change(name):
+            if not (t["rtig"] and a["rtig"]):
+                return "–"
+            return f"{t['rtig'][name]:.0%} → {a['rtig'][name]:.0%}"
+
         lines.append(f"| {label} | {t['n']} | {t['median_abs_min']:.1f} → {a['median_abs_min']:.1f} | "
-                     f"{t['within_2_min']:.0%} → {a['within_2_min']:.0%} | "
-                     f"{t['bus_2_min_earlier']:.0%} → {a['bus_2_min_earlier']:.0%} | "
-                     f"{t['bus_2_min_later']:.0%} → {a['bus_2_min_later']:.0%} |")
+                     f"{change('acceptable')} | {change('early')} | {change('late')} |")
     return "\n".join(lines)
 
 

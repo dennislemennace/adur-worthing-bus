@@ -517,13 +517,12 @@ weeks of method-5 recordings (the reliability window began 16 Sep, and only
   and day type, the median and the spread of lateness. Needs a minimum sample
   per cell (as the delay map's 30 journeys over 5 days) and the
   evidence-provenance treatment: method, as-of, caveats, shown with the number.
-- **Per-stop estimates from measured running times.** `api/live_eta.py`
-  carries the current lateness forward unchanged, which errs later further
-  along the route. The journey-times data measures how long each stretch
-  actually takes by hour, so an estimate could add typical running time
-  instead of the timetable's, and say how often buses make up time. Replace
-  the method in one place (`project_trip`), keep its tests, and update the
-  wording in about.html#live-times and under the Bus tab list.
+- **Per-stop estimates from measured running times.** *First step done
+  25 October 2026:* `api/recovery.py` adds the measured change in lateness
+  between timing points (30th percentile; RTIG acceptable 81.6% → 82.1% on
+  held-out days, docs/reliability/running-recovery-2026-10-25.md). Still open:
+  weekends (too few days per cell), Compass and Metrobus (too few journeys per
+  timing-point pair), and running time between stops rather than timing points.
 - **Check our stop times against an independent record.** Raised by the
   16 October 2026 benchmark review, and the largest gap in the method: every
   stop time is inferred from location reports within 150 m, and nothing yet
@@ -567,10 +566,22 @@ suggests here, after the Expo:
 - **A reader-set on-time window.** ABOD lets the reader choose what counts as
   on time. Here the thresholds are fixed by the method; letting the reader set
   them is a small change to the journey-times view.
-- **Feed health in public.** ABOD monitors each operator's feed for its
-  signed-in users. The recorder already keeps each operator's snapshots; a
-  public per-operator page would turn the October outage notes into something
-  anyone can check.
+- **Feed health in public.** *Done 25 October 2026:* `health.html`, per
+  operator and route, from `identification.json` and the nightly
+  `served-accuracy.json`, with RTIG's measures. Still open: a per-day trend, so
+  an outage like Stagecoach's on 7 October shows as a dip.
+
+### From RTIG's guidance (RTIGT041-1.0, RTIGT035-1.0), 25 October 2026
+
+- **Tune the accuracy windows per service.** RTIGT041 6.8 says to adjust the
+  windows to the service (an urban frequent route against an hourly rural one).
+  We use RTIG's starting point unchanged so the figures compare; a second,
+  tuned view could follow.
+- **Re-test the recovery percentile.** The nightly build keeps the 30th; it is
+  not re-tested automatically. A monthly backtest would say if it drifts.
+- **Previous-journey estimates for Brighton & Hove.** Its timetable has no
+  blocks; SIRI-VM's `BlockRef` may name the running board, but the timetable
+  would also need the board's journeys.
 
 Where this site is already ahead (public access, every operator's tickets and
 live times in one place, three-tier identification that kept Stagecoach's

@@ -1932,7 +1932,8 @@ async function checkTourSlides() {
       await page.send("Network.setCacheDisabled", { cacheDisabled: true });
       await page.send("Emulation.setDeviceMetricsOverride",
         { width: vp.width, height: vp.height, deviceScaleFactor: 2, mobile: vp.mobile });
-      await page.send("Page.navigate", { url: origin + "tour.html" });
+      // Preview-only until the tour's copy is approved (tour-page.js).
+      await page.send("Page.navigate", { url: origin + "tour.html?preview=1" });
       await waitFor(page, "document.querySelectorAll('.slide').length > 1", 20000);
       await sleep(800);
       const shown = () => page.evaluate(`[...document.querySelectorAll('.slide')]
@@ -2563,9 +2564,9 @@ async function checkStopClosure(page, where) {
                        { atco: other, name: "Waitrose", metres: 470, direction: "east", routes: ["1", "2"], side: "before" }] },
       departures: [
         { service: "1", operator: "BHBC", destination: "Portslade", aimed_departure: soon(4),
-          status: "Not served", not_served: true },
+          status: "Not calling", not_served: true },
         { service: "5", operator: "BHBC", destination: "Hangleton", aimed_departure: soon(9),
-          status: "Not served", not_served: true },
+          status: "Not calling", not_served: true },
       ],
     });
     const vis = ${VISIBLE_FN};
@@ -2578,7 +2579,7 @@ async function checkStopClosure(page, where) {
       text: banner ? banner.textContent.replace(/\\s+/g, " ") : "",
       alts: alts.filter(vis).length,
       altTall: alts.every(a => a.getBoundingClientRect().height >= 44),
-      rowsMarked: rows.length === 2 && rows.every(tr => /Not served/.test(tr.textContent)
+      rowsMarked: rows.length === 2 && rows.every(tr => /Not calling/.test(tr.textContent)
                                               && !tr.querySelector(".live-dot")),
       liveNoticeHidden: document.getElementById("departures-notice")?.classList.contains("hidden") ?? true,
     });
@@ -2589,7 +2590,7 @@ async function checkStopClosure(page, where) {
       && /Where the buses go instead/.test(r.text),
     JSON.stringify({ shown: r.shown, first: r.first, alts: r.alts, text: r.text.slice(0, 120) }));
   check(`the stops still served are buttons big enough to tap — ${where}`, r.altTall);
-  check(`every row at a closed stop says it is not served — ${where}`, r.rowsMarked);
+  check(`every row at a closed stop says it is not calling — ${where}`, r.rowsMarked);
   check(`a closed stop does not also apologise for missing live times — ${where}`, r.liveNoticeHidden);
   await checkLayout(page, `closed stop — ${where}`);
   await checkContrastBothThemes(page, `closed stop — ${where}`);
@@ -3637,10 +3638,13 @@ async function checkDelayMap(page, viewport) {
     const rect = panel.getBoundingClientRect();
     const red = document.querySelector(".delay-line--red"), none = document.querySelector(".delay-line--none");
     const stroke = el => el ? getComputedStyle(el).stroke : "";
+    // Each theme set explicitly: an earlier check can leave dark mode saved.
+    const wasDark = document.documentElement.classList.contains("dark-mode");
+    document.documentElement.classList.remove("dark-mode");
     const lightRed = stroke(red);
     document.documentElement.classList.add("dark-mode");
     const darkRed = stroke(red);
-    document.documentElement.classList.remove("dark-mode");
+    document.documentElement.classList.toggle("dark-mode", wasDark);
     const mapLegend = document.querySelector(".delay-legend-map");
     const mapLegendShown = !!mapLegend && getComputedStyle(mapLegend).display !== "none";
     const listButtons = [...panel.querySelectorAll("[data-delay-stretch]")];

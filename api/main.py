@@ -46,7 +46,7 @@ from api import corridor_gaps
 from api import disruptions as sx
 from api import local_disruptions
 from api import journey_planner as planner
-from api import gtfs_rt, live_eta, trip_match
+from api import gtfs_rt, live_eta, prediction_log, trip_match
 from api.timetable_db import (NIGHT_ENDS_SECS, Timetable,
                               path_has_time_gap, service_runs_on)
 
@@ -1243,7 +1243,8 @@ async def get_vehicle(vehicleRef: str = Query(...)):
         trip_id = _best_trip_for_vehicle(vehicle, tt) or vehicle.get("trip_id")
     headsign = tt.trips.get(trip_id, {}).get("headsign") or vehicle.get("trip_headsign")
     upcoming = await off_loop(live_eta.project_trip, tt, trip_id, vehicle,
-                              datetime.now(UK_TZ), await _diversions_doc()) if trip_id else []
+                              datetime.now(UK_TZ), await _diversions_doc(),
+                              await _recovery_doc()) if trip_id else []
     source   = "trip"
     if not upcoming:
         upcoming = _upcoming_stops_from_calls(vehicle, tt)
@@ -1339,7 +1340,9 @@ async def _fetch_declared_journeys() -> dict:
             for v in vehicles if v.get("vehicle_id") and v.get("trip_id")}
 
 
-def _parse_siri_vm(xml_text: str) -> list:
+def _parse_siri_vm(xml_text: str, now: Optional[datetime] = None) -> list:
+    """Vehicles from a SIRI-VM delivery. `now` is for replaying a recorded
+    minute (scripts/score_served_estimates.py); live, it is the clock."""
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
@@ -1347,7 +1350,7 @@ def _parse_siri_vm(xml_text: str) -> list:
 
     ns       = {"s": SIRI_NS}
     vehicles = []
-    now_utc  = datetime.now(timezone.utc)
+    now_utc  = now or datetime.now(timezone.utc)
     dropped_stale = 0
 
     for activity in root.findall(".//s:VehicleActivity", ns):
@@ -1492,7 +1495,7 @@ async def get_departures(
 
     result = await _apply_live_overlay(base, resolved)
     result = await off_loop(_apply_own_feed_estimates, result, tt, resolved,
-                            datetime.now(UK_TZ), await _diversions_doc())
+                            datetime.now(UK_TZ), await _diversions_doc(), await _recovery_doc())
     if "live" not in result and not (NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY):
         # Say so rather than letting scheduled times pass as live ones.
         result = {**result, "live": False, "live_reason": "not_configured"}
@@ -1505,7 +1508,8 @@ async def get_departures(
 
 
 def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime,
-                              diversions_doc: Optional[dict] = None) -> dict:
+                              diversions_doc: Optional[dict] = None,
+                              recovery_doc: Optional[dict] = None) -> dict:
     """Estimates from the buses themselves, for rows no prediction reached.
 
     TransportAPI's predictions are capped at 300 calls a day, which a busy day
@@ -1526,6 +1530,21 @@ def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime,
     running = {v["trip_id"]: v for v in cached.get("vehicles") or []
                if v.get("trip_source") in trip_match.DECLARED_SOURCES and v.get("trip_id")}
     by_trip = {trip: v for trip, v in running.items() if v.get("lateness_secs") is not None}
+    # A journey no bus is on yet, estimated from the bus that works it next
+    # (live_eta.from_previous_journey), for operators where that was shown to
+    # beat the timetable (PREVIOUS_JOURNEY_OPERATORS).
+    upcoming = {}
+    if PREVIOUS_JOURNEY_OPERATORS:
+        day = now.astimezone(UK_TZ).date()
+        for v in by_trip.values():
+            op = v.get("operator_ref") or ""
+            if _NOC_FAMILIES.get(op, op) not in PREVIOUS_JOURNEY_OPERATORS:
+                continue
+            trip = tt.trips.get(v["trip_id"]) or {}
+            on = day if tt.runs_on(trip.get("service_id", ""), day) else day - timedelta(days=1)
+            nxt = live_eta.from_previous_journey(tt, v, now, on, diversions_doc, recovery_doc)
+            if nxt and nxt["trip_id"] not in running:
+                upcoming[nxt["trip_id"]] = (nxt, v)
     departures = payload.get("departures") or []
     if not running or not departures:
         return payload
@@ -1543,7 +1562,7 @@ def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime,
             bus = by_trip.get(dep.get("_trip_id"))
             aimed = _parse_iso_datetime(dep.get("aimed_departure"))
             est = (live_eta.estimate_at(tt, dep["_trip_id"], bus, stop_id, aimed, now,
-                                        diversions_doc)
+                                        diversions_doc, recovery_doc)
                    if bus and aimed else None)
             if est:
                 delay = int(est["lateness_secs"])
@@ -1554,6 +1573,16 @@ def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime,
                 if est.get("allowance_secs"):
                     new["allowance_secs"] = est["allowance_secs"]
                     new["allowance_reason"] = est.get("allowance_reason", "")
+                estimated += 1
+            elif aimed and dep.get("_trip_id") in upcoming:
+                nxt, before = upcoming[dep["_trip_id"]]
+                delay = int(nxt["lateness_secs"])
+                new["expected_departure"] = (aimed + timedelta(seconds=delay)).isoformat()
+                new["delay_seconds"] = delay
+                new["status"] = _delay_to_status(delay)
+                new["live_source"] = "previous_journey"
+                if before.get("vehicle_ref") and not new.get("vehicle_ref"):
+                    new["vehicle_ref"] = before["vehicle_ref"]
                 estimated += 1
         out.append(new)
     result = {**payload, "departures": out}
@@ -2300,6 +2329,14 @@ async def _fetch_and_match_vehicles() -> dict:
 
 
 RECENT_VEHICLES_KEY = "vehicles:recent"
+# Operators whose next journeys are estimated from the bus that works them
+# (live_eta.from_previous_journey) before it sets off. Only those where the
+# night's scoring showed those estimates beat the timetable
+# (scripts/score_served_estimates.py, `previous_journey`); see docs/RUNBOOK.md.
+# 8–24 October 2026, ordinary days, RTIG acceptable against the timetable's own
+# time for the same departures: Compass 78.7% against 68.2%, Stagecoach 84.4%
+# against 72.4% (docs/reliability/live-eta-served-2026-10-25.md).
+PREVIOUS_JOURNEY_OPERATORS: frozenset = frozenset({"COMT", "SCSO"})
 RECENT_VEHICLES_TTL = 120
 
 # ── Where each bus has been ───────────────────────────────────
@@ -2477,36 +2514,58 @@ PUBLISHED_INDEX_URL = os.environ.get(
     "https://adur-worthing-submissions.dennislemennace.workers.dev/journey-times/index.json")
 
 
-async def _fetch_diversions() -> dict:
-    """Last night's allowances, checked against the index's hash. Never raises."""
+async def _fetch_published(name: str, empty: dict) -> dict:
+    """Last night's `name`, checked against the index's hash, or `empty`.
+    Never raises."""
     if not PUBLISHED_INDEX_URL:
-        return {"adjustments": []}
+        return empty
     try:
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
             resp = await client.get(PUBLISHED_INDEX_URL)
             resp.raise_for_status()
-            entry = (resp.json().get("artifacts") or {}).get(DIVERSIONS_ARTIFACT)
+            entry = (resp.json().get("artifacts") or {}).get(name)
             if not entry or not entry.get("file"):
-                return {"adjustments": []}
+                return empty
             resp = await client.get(f"{PUBLISHED_INDEX_URL.rsplit('/', 1)[0]}/{entry['file']}")
             resp.raise_for_status()
             if entry.get("sha256") and hashlib.sha256(resp.content).hexdigest() != entry["sha256"]:
                 raise ValueError("does not match the index's hash")
             return resp.json()
     except Exception as exc:                       # noqa: BLE001 — see docstring
-        log.warning("Diversion allowances unavailable: %s", exc)
-        return {"adjustments": []}
+        log.warning("%s unavailable: %s", name, exc)
+        return empty
+
+
+async def _fetch_diversions() -> dict:
+    """Last night's allowances, checked against the index's hash. Never raises."""
+    return await _fetch_published(DIVERSIONS_ARTIFACT, {"adjustments": []})
+
+
+def _published_doc(key: str, fetch, ttl: int) -> Optional[dict]:
+    """The cached document; a miss starts a fetch and returns None meanwhile."""
+    hit = cache_get(key)
+    if hit is None and key not in _inflight_async:
+        task = asyncio.create_task(cache_single_flight_async(key, fetch, ttl))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+    return hit
 
 
 async def _diversions_doc() -> Optional[dict]:
     """The cached allowances; a miss starts a fetch and returns None meanwhile."""
-    hit = cache_get(DIVERSIONS_KEY)
-    if hit is None and DIVERSIONS_KEY not in _inflight_async:
-        task = asyncio.create_task(
-            cache_single_flight_async(DIVERSIONS_KEY, _fetch_diversions, DIVERSIONS_TTL))
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-    return hit
+    return _published_doc(DIVERSIONS_KEY, _fetch_diversions, DIVERSIONS_TTL)
+
+
+# How lateness changes between timing points (api/recovery.py), built nightly
+# by scripts/build_running_recovery.py at the percentile that passed its test
+# on held-out days (docs/reliability/running-recovery-2026-10-25.md).
+RECOVERY_KEY = "running_recovery"
+RECOVERY_ARTIFACT = "running-recovery.json"
+
+
+async def _recovery_doc() -> Optional[dict]:
+    return _published_doc(RECOVERY_KEY, lambda: _fetch_published(RECOVERY_ARTIFACT, {"cells": {}}),
+                          DIVERSIONS_TTL)
 
 
 def _disruptions_now(state: Optional[dict]) -> list:
@@ -2543,7 +2602,7 @@ def _apply_stop_closure(payload: dict, tt, stop_id: str) -> dict:
     for dep in payload.get("departures") or []:
         row = {k: v for k, v in dep.items()
                if k not in ("expected_departure", "delay_seconds", "live_source")}
-        rows.append({**row, "status": "Not served", "not_served": True})
+        rows.append({**row, "status": "Not calling", "not_served": True})
     return {**payload, "departures": rows, "stop_closure": closure}
 
 
@@ -2568,7 +2627,7 @@ def _apply_line_closures(payload: dict, tt, stop_id: str, now: datetime) -> dict
             continue
         row = {k: v for k, v in dep.items()
                if k not in ("expected_departure", "delay_seconds", "live_source")}
-        rows.append({**row, "status": "Not served", "not_served": True})
+        rows.append({**row, "status": "Not calling", "not_served": True})
     key = f"line-closures:{stop_id}:{now.astimezone(UK_TZ):%Y%m%d%H}"
     notes = cache_get(key)
     if notes is None:
@@ -2892,7 +2951,8 @@ async def _nextbuses_predictions(stop_id: str) -> dict:
             cache_set(f"nb-failure:{stop_id}", failure, 30)
             return failure
         cache_set(f"nb:{stop_id}", result, NEXTBUSES_CACHE_TTL)
-        return {"predictions": result}
+        # Fresh, so the prediction log keeps it; a cached answer is not news.
+        return {"predictions": result, "fetched_at": int(time.time())}
     return await cache_single_flight_async(f"nb-flight:{stop_id}", produce, 0)
 
 
@@ -2951,6 +3011,9 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
     # Merge predictions onto scheduled departures by service + aimed time.
     overlaid = []
     matched  = 0
+    # Each fresh match, to be scored beside our own estimates (api/prediction_log.py).
+    fetched_at = result.get("fetched_at")
+    logged: list = []
     for dep in departures:
         new      = dict(dep)
         svc      = dep.get("service") or ""
@@ -2992,12 +3055,18 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
             new["live_source"] = "prediction"
             matched += 1
             overlaid.append(new)
+            if fetched_at:
+                logged.append(prediction_log.row(stop_id, dep.get("_trip_id"), dep.get("aimed_departure"),
+                                                 None, True, fetched_at))
             continue
 
         expected_dt = _parse_iso_datetime(best.get("expected"))
         if expected_dt is None:
             overlaid.append(new)
             continue
+        if fetched_at:
+            logged.append(prediction_log.row(stop_id, dep.get("_trip_id"), dep.get("aimed_departure"),
+                                             expected_dt.isoformat(), False, fetched_at))
 
         # Lateness is measured against the timetable the prediction was made
         # from. When TransportAPI's and ours disagree by more than a minute, a
@@ -3020,6 +3089,12 @@ async def _apply_live_overlay(base: dict, stop_id: str) -> dict:
         overlaid.append(new)
 
     log.info("NextBuses overlay %s: matched %d/%d departures", stop_id, matched, len(departures))
+    if logged:
+        prediction_log.record(logged)
+        if prediction_log.due():
+            task = asyncio.create_task(prediction_log.flush())
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
 
     # Append Transport API departures for services not in the timetable at all.
     # e.g. a stop served by both 700 (in GTFS) and 2 (not in GTFS) should show both.
@@ -3068,8 +3143,13 @@ def _build_prediction_index(vehicles: list) -> dict:
 
 
 def _delay_to_status(delay_secs: int) -> str:
-    """Map a delay in seconds to a human-readable status string."""
-    if abs(delay_secs) <= 60:
+    """Map a delay at a stop to a human-readable status string.
+
+    On time is from a minute early to two minutes late: RTIG's terminology
+    guide (RTIGT035-1.0, "On Time") for a time at a stop, which is what every
+    board row is. Punctuality evidence keeps the Traffic Commissioners' window.
+    """
+    if -60 <= delay_secs <= 120:
         return "On time"
     if delay_secs < 0:
         return "Early"
@@ -3085,7 +3165,8 @@ DECLARATION_DOUBT_SECS = 15 * 60
 DECLARATION_DOUBT_KM = 0.1
 
 
-def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
+def _attach_declared_journeys(vehicles: list, tt: Timetable,
+                              now_local: Optional[datetime] = None) -> None:
     """Use the journey the feed names, where it names one we hold.
 
     Attaches `trip_id`, `trip_headsign` and `lateness_secs` — the last being
@@ -3099,8 +3180,11 @@ def _attach_declared_journeys(vehicles: list, tt: Timetable) -> None:
     GTFS-RT's id first ("feed"). Where it gives none we hold, SIRI-VM's line,
     first stop and scheduled start, when they fit exactly one journey
     ("feed_start"). Both are the operator's statement; inference is ours.
+
+    `now_local` is for replaying a recorded minute
+    (scripts/score_served_estimates.py); live, it is the clock.
     """
-    now_local = datetime.now(UK_TZ)
+    now_local = now_local or datetime.now(UK_TZ)
     for v in vehicles:
         trip_id = v.get("declared_trip_id")
         if tt.trips.get(trip_id or ""):

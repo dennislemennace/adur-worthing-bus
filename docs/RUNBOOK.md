@@ -328,8 +328,62 @@ banner. To make the link public, drop the `previewEnabled()` test in
 **Live-estimate accuracy.** `scripts/backtest_live_eta.py` replays the live
 estimate (`api/live_eta.projected_lateness`) from every timing point a declared
 bus was recorded leaving, against when it really left each later stop. Run it
-by hand on downloaded observation files; the first results are
-`docs/reliability/live-eta-accuracy-2026-10-16.md`.
+by hand on downloaded observation files. Each estimate is judged by RTIG's
+accuracy window for how far ahead it said the bus was (RTIGT041-1.0, December
+2020, section 6.9; the windows are in `scripts/rtig_windows.py`, which the
+diversion backtest uses too). The current results are
+`docs/reliability/live-eta-accuracy-2026-10-25.md`; quote its figures, not the
+superseded "within 2 minutes" ones of 16 October. Check each downloaded file
+against its `sha256` in `journey-times/index.json` before replaying it.
+
+**What the board showed.** The replay above starts from a fresh timing point,
+so it is a ceiling. `scripts/score_served_estimates.py` rebuilds the board
+itself for every recorded minute, with the API's own code
+(`main._parse_siri_vm`, `_attach_declared_journeys`, `live_eta.project_trip`),
+and judges each estimate by RTIG's window. It also counts coverage (departures
+with a live time 15 minutes before they were due, and why not), cleardown
+(departures still listed after the bus left), first-stop figures, and the
+TransportAPI comparison below. The nightly step "Score what the board showed"
+scores the night's day while its raw feeds are present;
+`scripts/collect_served_window.py` adds the window's other days from the last
+generation or from the backfill in `data/reliability/served/`, and publishes
+`served-accuracy.json`, which `health.html` reads. A failure there never stops
+the night: the step is dropped and the `served-scores` warning raised. To
+re-score an old day by hand, restore its feeds and its timetable from its
+`evidence.tar.gz` (`scripts/restore_recorded_day.py`; `timetable.sqlite` is in
+the archive) and run the script's `day` command, passing `--diversions` only
+for days from 16 October 2026, when the board started adding allowances.
+Journeys through a recorded disruption are scored under `disrupted|`; the
+headline is ordinary days.
+
+**TransportAPI's predictions, kept.** `api/prediction_log.py` keeps each fresh
+prediction the board already fetched (no extra calls) and sends batches to the
+Worker's `POST /prediction-log` (`worker/src/predlog.js`), which stores them
+under `predlog/<day>/` beside the snapshots, inside the recorder's budget. Off
+until three settings exist: `PREDICTION_LOG_URL`
+(`https://adur-worthing-submissions.dennislemennace.workers.dev/prediction-log`)
+and `PREDICTION_LOG_TOKEN` in Render, and the same token as a Worker secret
+(`cd worker && npx wrangler secret put PREDICTION_LOG_TOKEN`, then deploy). The
+night's scoring compares them with ours on the same departures (`versus` in
+the served files). `health.js` shows the comparison only when
+`SHOW_NEXTBUSES_COMPARISON` is true, and only past 1,000 departures. Their
+licence allows storing and processing the data (Sch. 4, 2.1.3–2.1.4) and asks
+for credit (2.3.6); it also asks us not to damage their reputation knowingly
+(2.4.4), so publishing a comparison is the maintainer's decision.
+
+**Running recovery.** `scripts/build_running_recovery.py` measures how lateness
+changes between timing points (route, timing points, day type, time band, how
+late), and `api/recovery.py` looks it up; `scripts/backtest_live_eta.py
+--model ... --from-day ...` tests a model on days it never saw. It goes live
+only if RTIG acceptable rises and "bus came early" rises by no more than a
+point overall or for any operator.
+
+**Estimates before a journey starts.** `live_eta.from_previous_journey` gives
+the next journey of a bus's block (Stagecoach and Compass publish blocks) the
+lateness it will start with. The board uses it only for the operators in
+`main.PREVIOUS_JOURNEY_OPERATORS`, set from the night's `previous_journey`
+scores (ours against the timetable on the same departures), and marks those
+rows with a ring rather than the live dot.
 
 ## Journey times: Simple, Detailed and the delay map
 

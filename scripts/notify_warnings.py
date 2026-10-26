@@ -53,6 +53,7 @@ TITLES = {
     "retention": "Old published files could not be cleared",
     "timetable-expiry": "The timetable runs out for {arg}",
     "objective-drift": "A figure quoted in the objectives no longer matches the evidence",
+    "served-scores": "The stop board's estimates could not be scored for a day",
 }
 
 ADVICE = {
@@ -87,6 +88,11 @@ ADVICE = {
         "The weekly rebuild published the new timetable and evidence, but a figure quoted in "
         "data/objectives.json now differs from data/boundary_evidence.json. Update the `quoted` value and "
         "its sentence to the new figure; until then CI on the next push fails the same check."),
+    "served-scores": (
+        "`scripts/score_served_estimates.py` failed, or its counts did not validate, so the day's board "
+        "was not scored and the published window leaves it out (it names the days it covers). The rest "
+        "of the night published as normal. Re-run it by hand from the day's evidence archive: see "
+        "docs/RUNBOOK.md, \"What the board showed\"."),
 }
 
 

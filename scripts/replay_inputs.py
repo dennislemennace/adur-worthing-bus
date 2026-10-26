@@ -12,6 +12,9 @@ PATHS = (
     'scripts/check_published.py', 'scripts/publication_bundle.py',
     'scripts/prepare_reliability_inputs.py', 'scripts/archive_reliability_evidence.py',
     'scripts/analysis_exclusions.py', 'scripts/replay_inputs.py',
+    'scripts/score_served_estimates.py', 'scripts/collect_served_window.py',
+    'scripts/rtig_windows.py', 'api/live_eta.py', 'api/diversions.py', 'api/main.py',
+    'scripts/build_running_recovery.py', 'api/recovery.py', 'api/prediction_log.py',
     'data/analysis_exclusions.json', 'data/stops.json',
     '.github/workflows/process-snapshots.yml', 'requirements.txt', 'requirements-dev.txt',
 )

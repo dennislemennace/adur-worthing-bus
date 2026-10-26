@@ -1,5 +1,9 @@
 # How close are our live arrival estimates? A replay, 16 October 2026
 
+> **Superseded** by `live-eta-accuracy-2026-10-25.md`, which judges the same
+> replay by RTIG's accuracy windows instead of a single "within 2 minutes",
+> over 28 days. Kept as the record of what was published until then.
+
 **Value.** Outside recorded disruptions, our live estimate of when a tracked bus
 reaches a stop was within 2 minutes of when it left that stop **71% of the
 time**, against 47% for the timetable alone. **12% of the time the bus came 2

@@ -569,6 +569,7 @@
         <div class="departures-container hidden" id="departures-container">
           <div class="departures-meta">
             <span id="departures-count"></span>
+            <span class="board-now">Time now <time id="board-now"></time></span>
             <button class="btn-text" id="report-stop-btn" aria-expanded="false"
                     aria-controls="report-stop-form"
                     aria-label="Report a problem at this stop">
@@ -669,17 +670,25 @@
           <details class="board-help" id="board-help">
             <summary>How to read this board</summary>
             <ul>
-              <li><strong>Due</strong> means the bus is due within the minute;
-                <strong>5 mins</strong> is how long until it reaches this stop.
-                Times an hour or more away show as a clock time.</li>
+              <li>Every time is when the bus is expected to leave this stop.
+                <strong>5 mins</strong> is how long until then, and the clock time
+                under it says the same as a time of day, with the timetabled time
+                beside it. Times an hour or more away show as a clock time.</li>
+              <li><strong>Due</strong> means a bus we can see is under a minute
+                away. A timetable time is never shown as Due.</li>
               <li>A <span class="live-dot" aria-hidden="true"></span><strong>live</strong>
                 time is worked out from where the bus is now, or from the operator's
                 own prediction. <strong>Timetable</strong> means we can't see that bus
-                yet, so the time is the published one.</li>
-              <li><strong>On time</strong> is within a minute of the timetable.
+                yet, so the time is the published one. A <span class="live-dot live-dot--previous" aria-hidden="true"></span>
+                ring means the bus is still on its previous journey, and the time is when it
+                should get here from the end of that one.</li>
+              <li><strong>On time</strong> is from a minute early to up to 2 minutes late.
                 <strong>3 min late</strong> or <strong>2 min early</strong> say how far
                 off it is running. Buses can make up time, so be at the stop by the
                 timetabled time.</li>
+              <li><strong>Not calling</strong> means the bus runs but will not stop
+                here, usually because of a diversion; <strong>Cancelled</strong> means
+                the operator says it is not running at all.</li>
               <li>Check the <strong>towards</strong> line under the stop name: stops
                 with the same name on either side of the road serve opposite
                 directions.</li>

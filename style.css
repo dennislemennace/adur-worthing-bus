@@ -2023,6 +2023,8 @@ body.panel-collapsed .btn-collapse-panel .icon {
 
 .departures-meta {
   display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--space-sm);
   align-items: center;
   justify-content: space-between;
   padding: 6px var(--space-md);
@@ -3913,6 +3915,17 @@ html.dark-mode .departures-table tr.departure-row:hover td {
 }
 .due-time.due-imminent { color: var(--color-accent-text); }
 .departure-row--cancelled .due-time { text-decoration: line-through; color: var(--color-text-muted); }
+/* The same time as a time of day, with the timetabled one beside it
+   (RTIGT041 10.1): small, under the countdown, never wrapping mid-time. */
+.due-clock {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  text-align: right;
+}
+.board-now { white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* The imminent state is colour and weight only. It used to carry a pulsing
    dot of its own, which beside the live dot meant two dots with two meanings,
    and a timetable-only row that was due soon looked tracked. */
@@ -3935,6 +3948,13 @@ html.dark-mode .departures-table tr.departure-row:hover td {
   background: var(--color-on-time);
   box-shadow: 0 0 0 2px var(--tint-on-time-bg);
   vertical-align: middle;
+}
+/* A time from the bus's previous journey, before it has started this one: a
+   ring, not a dot, so it is never mistaken for a bus on the road. */
+.live-dot--previous {
+  background: transparent;
+  border: 2px solid var(--color-on-time);
+  box-shadow: none;
 }
 .live-key {
   display: inline-flex;

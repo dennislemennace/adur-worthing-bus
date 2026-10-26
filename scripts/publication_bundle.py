@@ -80,7 +80,7 @@ def validate_schedule(doc):
 # its own release (observation_sources names it), and dropping the link lets
 # retention retire the bucket's copy. Carried unconditionally, every day stayed
 # linked for ever: about 20 MB a day against a 4 GiB budget.
-DAY_ARTIFACT = re.compile(r"(?:observations|summary)-(\d{4}-\d{2}-\d{2})\.json(?:\.gz)?")
+DAY_ARTIFACT = re.compile(r"(?:observations|summary|served)-(\d{4}-\d{2}-\d{2})\.json(?:\.gz)?")
 MONTH_ARTIFACT = re.compile(r"rollup-(\d{4}-\d{2})\.json(?:\.gz)?")
 
 
@@ -137,6 +137,10 @@ def build_bundle(journey_dir, extras, out, sources, evidence, previous=None):
             checks.check_diversions(doc, name, failures, raw=raw)
         elif name == "identification.json":
             checks.check_identification(doc, name, failures, raw=raw)
+        elif name.startswith("served-"):
+            checks.check_served(doc, name, failures, raw=raw)
+        elif name == "running-recovery.json":
+            checks.check_recovery(doc, name, failures, raw=raw)
         elif name.startswith("route-report-"):
             checks.check_route_report(doc, name, failures, raw=raw)
         binary[name] = raw

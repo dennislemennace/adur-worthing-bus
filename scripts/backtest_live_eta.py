@@ -38,7 +38,7 @@ import gzip
 import json
 import sys
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,21 +46,13 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import analysis_exclusions as ax                                  # noqa: E402
+import rtig_windows as rtig                                       # noqa: E402
+from api import recovery                                           # noqa: E402
 from api.live_eta import projected_lateness                       # noqa: E402
 
-# How far ahead the estimate was made, in minutes: a passenger checking from
-# home is 10 to 20 minutes out, one at the stop under 5.
-HORIZONS = ((0, 5), (5, 10), (10, 20), (20, 40), (40, None))
 BIN_SECS = 10
-MISSED_SECS = 120
-
-
-def horizon_of(secs):
-    mins = secs / 60
-    for lo, hi in HORIZONS:
-        if mins > lo and (hi is None or mins <= hi):
-            return f"{lo}-{hi} min" if hi else f"over {lo} min"
-    return None
+# Ranges in report order: RTIG's own, then the predictions it sets no window for.
+RANGE_ORDER = rtig.LABELS + ["over 30 min", "already due"]
 
 
 def usable(row):
@@ -69,19 +61,28 @@ def usable(row):
             and row.get("observed_epoch") is not None)
 
 
-def replay(calls):
+def replay(calls, model=None):
     """`[(horizon_secs, estimate_error, timetable_error)]` for one journey.
 
     `calls` are its rows in stop order, interpolated ones included: they say
     where the timing points are, which the early-bus rule needs. The
     timetable's own error (estimate of no lateness at all) is the yardstick.
+    With `model` (scripts/build_running_recovery.py), the estimate also allows
+    for how lateness changed between these timing points on other days.
     """
     tps = [1 if c.get("timepoint") == 1 else 0 for c in calls]
+    stops = [(c.get("scheduled_secs") or 0, c.get("atco")) for c in calls]
+    first = calls[0] if calls else {}
+    day = date.fromisoformat(first["day"]) if model and first.get("day") else None
     out = []
     for i, anchor in enumerate(calls):
         if anchor.get("timepoint") != 1 or not usable(anchor):
             continue
         ahead = projected_lateness(int(anchor["lateness_secs"]), tps, i + 1, len(calls))
+        if model:
+            ahead = recovery.apply(ahead, recovery.adjustments(
+                model, first.get("operator"), first.get("service"), stops, tps, i, i + 1,
+                int(anchor["lateness_secs"]), day))
         for k in range(i + 1, len(calls)):
             target = calls[k]
             if not usable(target):
@@ -105,17 +106,33 @@ def journeys(doc):
 
 class Tally:
     """Histograms of error, per group, in BIN_SECS bins: twenty days of pairs
-    would not fit in memory as a list."""
+    would not fit in memory as a list. Alongside, each prediction judged by
+    RTIG's window for how far ahead it was (scripts/rtig_windows.py)."""
 
     def __init__(self):
-        self.groups = defaultdict(lambda: {"estimate": Counter(), "timetable": Counter(), "journeys": set()})
+        self.groups = defaultdict(lambda: {"estimate": Counter(), "timetable": Counter(),
+                                           "rtig_estimate": Counter(), "rtig_timetable": Counter(),
+                                           "journeys": set()})
 
-    def add(self, keys, journey, err, base):
+    def _one(self, key, which, journey, err, horizon):
+        # How far ahead the prediction put the bus: when it said, less now.
+        # The bus left `horizon` seconds after the estimate was made, and the
+        # estimate said `err` seconds later than that.
+        g = self.groups[key]
+        g[which][round(err / BIN_SECS)] += 1
+        g["rtig_" + which][rtig.classify(horizon + err, err)] += 1
+        g["journeys"].add(journey)
+
+    def add(self, keys, journey, err, base, horizon, scope=None):
+        """One estimate/outcome pair in each group of `keys`. With `scope`, it
+        is also filed under RTIG's range for how far ahead it was; the
+        timetable's time for the same stop under its own range."""
         for key in keys:
-            g = self.groups[key]
-            g["estimate"][round(err / BIN_SECS)] += 1
-            g["timetable"][round(base / BIN_SECS)] += 1
-            g["journeys"].add(journey)
+            self._one(key, "estimate", journey, err, horizon)
+            self._one(key, "timetable", journey, base, horizon)
+        if scope is not None:
+            self._one(("range", scope, rtig.label(horizon + err)), "estimate", journey, err, horizon)
+            self._one(("range", scope, rtig.label(horizon + base)), "timetable", journey, base, horizon)
 
     @staticmethod
     def score(hist):
@@ -144,18 +161,17 @@ class Tally:
                 median = b * BIN_SECS / 60
                 break
         return {"pairs": n, "median_abs_min": quantile_abs(0.5), "p90_abs_min": quantile_abs(0.9),
-                "median_signed_min": median, "within_1_min": share(lambda e: abs(e) <= 60),
-                "within_2_min": share(lambda e: abs(e) <= MISSED_SECS),
-                "bus_2_min_earlier": share(lambda e: e >= MISSED_SECS),
-                "bus_2_min_later": share(lambda e: e <= -MISSED_SECS)}
+                "median_signed_min": median}
 
     def report(self):
         return {key: {"journeys": len(g["journeys"]), "estimate": self.score(g["estimate"]),
-                      "timetable": self.score(g["timetable"])}
+                      "timetable": self.score(g["timetable"]),
+                      "rtig": {"estimate": rtig.shares(g["rtig_estimate"]),
+                               "timetable": rtig.shares(g["rtig_timetable"])}}
                 for key, g in sorted(self.groups.items(), key=lambda kv: [str(x) for x in kv[0]])}
 
 
-def run(paths, events=None, coords=None):
+def run(paths, events=None, coords=None, model=None):
     events = ax.load() if events is None else events
     coords = ax.stop_coords() if coords is None else coords
     tally, days = Tally(), []
@@ -166,7 +182,7 @@ def run(paths, events=None, coords=None):
         days.append(doc.get("day"))
         for calls in journeys(doc):
             first = calls[0]
-            pairs = replay(calls)
+            pairs = replay(calls, model)
             if not pairs:
                 continue
             seen = [c for c in calls if c.get("observed_epoch")]
@@ -180,9 +196,8 @@ def run(paths, events=None, coords=None):
             svc = f"{first.get('service')}|{op}"
             journey = (first.get("day"), first.get("trip_id"))
             for horizon, err, base in pairs:
-                h = horizon_of(horizon)
-                tally.add([("all", scope), ("operator", scope, op), ("horizon", scope, h),
-                           ("service", scope, svc)], journey, err, base)
+                tally.add([("all", scope), ("operator", scope, op), ("service", scope, svc)],
+                          journey, err, base, horizon, scope=scope)
     return sorted(d for d in days if d), tally
 
 
@@ -190,33 +205,55 @@ def markdown(days, report, min_pairs=2000):
     pct = lambda x: "–" if x is None else f"{x * 100:.0f}%"
     mins = lambda x: "–" if x is None else f"{x:.1f}"
 
+    def field(r, which, name):
+        return (r["rtig"][which] or {}).get(name)
+
     def table(rows, label):
         out = [f"| {label} | Pairs | Journeys | Typical error (min) | 9 in 10 within (min) | Bias (min) "
-               "| Within 2 min | **Bus 2+ min earlier** | Bus 2+ min later | Timetable alone: within 2 min |",
-               "|---|---|---|---|---|---|---|---|---|---|"]
+               "| Acceptable (RTIG) | **Bus came early** | Bus came late | Rating | Timetable alone: acceptable |",
+               "|---|---|---|---|---|---|---|---|---|---|---|"]
         for name, r in rows:
-            e, t = r["estimate"], r["timetable"]
+            e = r["estimate"]
             out.append(f"| {name} | {e['pairs']:,} | {r['journeys']:,} | {mins(e['median_abs_min'])} "
-                       f"| {mins(e['p90_abs_min'])} | {e['median_signed_min']:+.1f} | {pct(e['within_2_min'])} "
-                       f"| **{pct(e['bus_2_min_earlier'])}** | {pct(e['bus_2_min_later'])} | {pct(t['within_2_min'])} |")
+                       f"| {mins(e['p90_abs_min'])} | {e['median_signed_min']:+.1f} "
+                       f"| {pct(field(r, 'estimate', 'acceptable'))} | **{pct(field(r, 'estimate', 'early'))}** "
+                       f"| {pct(field(r, 'estimate', 'late'))} | {field(r, 'estimate', 'rating') or '–'} "
+                       f"| {pct(field(r, 'timetable', 'acceptable'))} |")
         return "\n".join(out)
 
     def pick(kind, scope="clear", floor=0):
         return [(k[2], v) for k, v in report.items()
                 if k[0] == kind and k[1] == scope and v["estimate"] and v["estimate"]["pairs"] >= floor]
 
-    order = [f"{lo}-{hi} min" if hi else f"over {lo} min" for lo, hi in HORIZONS]
-    horizons = sorted(pick("horizon"), key=lambda kv: order.index(kv[0]))
-    services = sorted(pick("service", floor=min_pairs), key=lambda kv: -kv[1]["estimate"]["bus_2_min_earlier"])[:15]
+    def ranges_table(rows):
+        out = ["| Ahead, as the estimate said | Allowed early / late | Estimates | Acceptable | **Bus came early** "
+               "| Bus came late | Rating | Timetable times this far ahead | Timetable alone: acceptable |",
+               "|---|---|---|---|---|---|---|---|---|"]
+        windows = {f"{lo}-{hi} min": f"{early} s / {late} s" for lo, hi, early, late in rtig.RANGES}
+        for name, r in rows:
+            e, t = r["estimate"], r["timetable"]
+            out.append(f"| {name} | {windows.get(name, 'none set')} | {e['pairs'] if e else 0:,} "
+                       f"| {pct(field(r, 'estimate', 'acceptable'))} | **{pct(field(r, 'estimate', 'early'))}** "
+                       f"| {pct(field(r, 'estimate', 'late'))} | {field(r, 'estimate', 'rating') or '–'} "
+                       f"| {t['pairs'] if t else 0:,} | {pct(field(r, 'timetable', 'acceptable'))} |")
+        return "\n".join(out)
+
+    ranges = sorted([(k[2], v) for k, v in report.items() if k[0] == "range" and k[1] == "clear"],
+                    key=lambda kv: RANGE_ORDER.index(kv[0]))
+    services = sorted([kv for kv in pick("service", floor=min_pairs) if kv[1]["rtig"]["estimate"]],
+                      key=lambda kv: -kv[1]["rtig"]["estimate"]["early"])[:15]
     lines = [
         f"Days replayed: {days[0]} to {days[-1]} ({len(days)} days).", "",
+        "Judged by RTIG's accuracy windows (RTIGT041-1.0, section 6.9): each estimate by "
+        "how far ahead the time it gave was. Estimates more than 30 minutes ahead, or "
+        "already due when made, have no RTIG window and are left out of the shares.", "",
         "### All journeys outside recorded disruptions", "",
         table([("All", report[("all", "clear")])], "Scope"), "",
-        "### By how far ahead the estimate was made", "",
-        table(horizons, "Ahead"), "",
+        "### By how far ahead the estimate said the bus was", "",
+        ranges_table(ranges), "",
         "### By operator", "",
         table(sorted(pick("operator")), "Operator"), "",
-        f"### The services where buses most often came 2+ min earlier than estimated "
+        f"### The services where buses most often came earlier than RTIG allows "
         f"(at least {min_pairs:,} pairs)", "",
         table([(k.replace("|", " "), v) for k, v in services], "Service"), "",
     ]
@@ -230,9 +267,14 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--observations", nargs="+", required=True)
     ap.add_argument("--out", help="write the full report as JSON")
+    ap.add_argument("--model", help="running-recovery.json to allow for (scripts/build_running_recovery.py)")
+    ap.add_argument("--from-day", help="first day to replay, YYYY-MM-DD (days a model never saw)")
     args = ap.parse_args(argv)
     paths = sorted({p for pattern in args.observations for p in glob.glob(pattern)})
-    days, tally = run(paths)
+    if args.from_day:
+        paths = [p for p in paths if Path(p).name.split('-', 1)[-1][:10] >= args.from_day]
+    model = json.loads(Path(args.model).read_text()) if args.model else None
+    days, tally = run(paths, model=model)
     report = tally.report()
     if args.out:
         Path(args.out).write_text(json.dumps({"days": days, "groups": [

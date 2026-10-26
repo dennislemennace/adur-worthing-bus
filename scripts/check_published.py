@@ -325,6 +325,66 @@ def check_identification(doc, name, fails, raw=None):
             counts(c, f"{name} {op} {day}")
 
 
+SERVED_MAX_BYTES = 2 * 1024 * 1024
+SERVED_SECTIONS = ("accuracy", "coverage", "journeys", "cleardown")
+SERVED_COVERAGE_WHY = ("with_estimate", "named_no_estimate", "seen_not_named", "no_bus_seen")
+
+
+def check_served(doc, name, fails, raw=None):
+    """What the board said against what the buses did
+    (scripts/score_served_estimates.py), for one day or a window.
+
+    Counts the site divides, so each is a whole non-negative number, and the
+    reasons a departure had no live time must add up to the departures
+    counted: a share that does not would be quoted as one."""
+    if raw is not None and len(raw) > SERVED_MAX_BYTES:
+        fails.add("served-estimate counts are too large", f"{name}: {len(raw)} bytes")
+    if doc.get("method_version") != 1 or not all(isinstance(doc.get(s), dict) for s in SERVED_SECTIONS):
+        fails.add("served-estimate counts have no readable sections", name)
+        return
+    for field in ("method", "caveats", "as_of"):
+        if not doc.get(field):
+            fails.add("served-estimate counts are missing their provenance", f"{name}: no {field}")
+    days = doc.get("days")
+    if (not isinstance(days, list) or not days or days != sorted(set(days))
+            or not all(isinstance(d, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) for d in days)):
+        fails.add("served-estimate counts name no readable days", name)
+    for section in (*SERVED_SECTIONS, "versus"):
+        for key, counts in (doc.get(section) or {}).items():
+            if not isinstance(counts, dict) or not all(type(v) is int and v >= 0 for v in counts.values()):
+                fails.add("served-estimate counts are not whole counts", f"{name} {section} {key}")
+    for key, c in doc["coverage"].items():
+        if sum(c.get(w, 0) for w in SERVED_COVERAGE_WHY) != c.get("calls"):
+            fails.add("reasons for no live time do not add up to the departures", f"{name} {key}")
+    for key, c in doc["journeys"].items():
+        if c.get("with_estimate", 0) > c.get("journeys", 0):
+            fails.add("more journeys with an estimate than journeys", f"{name} {key}")
+
+
+RECOVERY_MAX_BYTES = 2 * 1024 * 1024
+
+
+def check_recovery(doc, name, fails, raw=None):
+    """How lateness changes between timing points (scripts/build_running_recovery.py),
+    which the API adds to live estimates. A figure in hours would move every
+    estimate on a route, so each is bounded as well as typed."""
+    if raw is not None and len(raw) > RECOVERY_MAX_BYTES:
+        fails.add("running recovery is too large", f"{name}: {len(raw)} bytes")
+    if doc.get("schema_version") != 1 or not isinstance(doc.get("cells"), dict):
+        fails.add("running recovery has no readable cells", name)
+        return
+    if not isinstance(doc.get("percentile"), int) or not 0 < doc["percentile"] < 100:
+        fails.add("running recovery names no percentile", name)
+    for field in ("method", "as_of", "days"):
+        if not doc.get(field):
+            fails.add("running recovery is missing its provenance", f"{name}: no {field}")
+    for key, value in doc["cells"].items():
+        if (not isinstance(key, str) or key.count("|") != 6
+                or type(value) is not int or abs(value) > 3600):
+            fails.add("running recovery has an unreadable or implausible cell", f"{name} {key}")
+            break
+
+
 ROUTE_REPORT_MAX_BYTES = 256 * 1024
 ROUTE_REPORT_BANDS = ("on_time", "early", "late", "very_late")
 

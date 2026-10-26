@@ -235,10 +235,10 @@
       "lead": "Every figure says what it was divided by, how it was made, and what would make it wrong.",
       "headline": {
         "claim": "The live times on this site are closer to when the bus really leaves than the timetable is.",
-        "measure": "How often each was within two minutes of when the bus actually left the stop, replayed over 20 recorded days (25 September to 14 October), outside recorded disruptions.",
+        "measure": "How often each was within the accuracy window the Real Time Information Group (RTIG) recommends, replayed over 28 recorded days (25 September to 24 October).",
         "figures": [
-          { "value": "71%", "label": "Our live estimate" },
-          { "value": "47%", "label": "The timetable alone" }
+          { "value": "83%", "label": "Our live estimate" },
+          { "value": "64%", "label": "The timetable alone" }
         ]
       },
       "badge": {
@@ -246,7 +246,7 @@
         "label": "Recorded and replayed"
       },
       "points": [
-        "Live estimates are within two minutes of when the bus left 71% of the time, against 47% for the timetable alone, and we publish how often we are wrong.",
+        "As the board actually showed them, minute by minute, 79% of live times were within RTIG's window, and 86% of departures had a live time 15 minutes before they were due. We publish how often we are wrong, nightly, on the live data health page.",
         "Good to about a minute, not a second; fewer than 10 journeys over 5 days shows \"too few\", never a number.",
         "{identified_share}% of {identified_tracked} tracked journeys are matched to their journey by the operator's own feed.",
         "We are timing buses by hand to check our stop times; the result will be published here.",

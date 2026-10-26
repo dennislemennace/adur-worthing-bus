@@ -200,3 +200,22 @@ def test_an_articles_summary_does_not_outrun_its_body():
         assert "removes the technical excuse" not in summary, (
             f'{u["id"]}: the summary states flatly what the body qualifies'
         )
+
+
+def test_pages_keep_to_rtigs_passenger_wording():
+    """RTIG's terminology guide (RTIGT035-1.0, 2.9) keeps operational words off
+    passenger information: "live", not "real time information", which implies
+    the rest is not real; "every X minutes", not "headway". Pages only; the
+    method documents explain the industry terms where they need them."""
+    wrong = []
+    for name in ("index.html", "about.html", "figures.html", "health.html", "tour.html", "privacy.html"):
+        path = ROOT / name
+        if not path.exists():
+            continue
+        text = strip_html_comments(path.read_text())
+        text = re.sub(r"<script.*?</script>|<style.*?</style>", "", text, flags=re.S)
+        # The group's own name is not our wording.
+        text = re.sub(r"Real Time Information Group", "", text)
+        for m in re.finditer(r"real[- ]time|headways?\b", text, re.I):
+            wrong.append(f"{name}: …{text[max(0, m.start() - 50):m.end() + 50]}…")
+    assert not wrong, "operational wording on a passenger page:\n  " + "\n  ".join(wrong)

@@ -220,6 +220,14 @@ jobs:
             aws s3 sync \
               "s3://adur-worthing-reliability/rt/$DAY/" "gtfs-rt/$DAY/" \
               --endpoint-url "$ENDPOINT" --no-progress
+            # TransportAPI's predictions the API logged (api/prediction_log.py),
+            # scored beside ours. A batch can land after midnight, so the next
+            # day's folder too; the scorer keeps only this day's minutes.
+            NEXT=$(date -u -d "$DAY + 1 day" +%F)
+            for D in "$DAY" "$NEXT"; do
+              aws s3 sync "s3://adur-worthing-reliability/predlog/$D/" "predlog/$D/" \
+                --endpoint-url "$ENDPOINT" --no-progress || true
+            done
           fi
           SIRI=$(find "snapshots/$DAY" -name '*.xml' 2>/dev/null | wc -l)
           RT=$(find "gtfs-rt/$DAY" -name '*.pb' 2>/dev/null | wc -l)
@@ -336,6 +344,66 @@ jobs:
           sources_path.write_text(json.dumps(sources, sort_keys=True))
           PYMETA
 
+      # What the stop board said, minute by minute, against when the buses
+      # really left (scripts/score_served_estimates.py), judged by RTIG's
+      # accuracy windows. Only tonight's raw feeds are here, so tonight scores
+      # its own day; the window's other days come from the last generation or
+      # the committed backfill (scripts/collect_served_window.py). It never
+      # holds the night back: anything that fails or does not validate is
+      # dropped, and the maintainer is told.
+      - name: Score what the board showed
+        id: served
+        continue-on-error: true
+        run: |
+          DAY="${{ steps.day.outputs.day }}"
+          BASE="https://adur-worthing-submissions.dennislemennace.workers.dev/journey-times"
+          rm -rf served served-accuracy.json served-ok
+          RT=""
+          [ -d "gtfs-rt/$DAY" ] && RT="--rt gtfs-rt/$DAY"
+          # The allowances the API was serving that day: the last generation's.
+          python - "$BASE" <<'PYDIV'
+          import hashlib, json, sys, urllib.request
+          artifacts = json.load(open("previous-index.json")).get("artifacts") or {}
+          for name, out in (("diversion-adjustments.json", "served-diversions.json"),
+                            ("running-recovery.json", "served-recovery.json")):
+              entry = artifacts.get(name)
+              if entry:
+                  raw = urllib.request.urlopen(f"{sys.argv[1]}/{entry['file']}", timeout=60).read()
+                  if hashlib.sha256(raw).hexdigest() == entry.get("sha256"):
+                      open(out, "wb").write(raw)
+          PYDIV
+          DIV=""
+          [ -f served-diversions.json ] && DIV="--diversions served-diversions.json"
+          [ -f served-recovery.json ] && DIV="$DIV --recovery served-recovery.json"
+          shopt -s nullglob
+          PRED=(predlog/*/*.json)
+          python scripts/score_served_estimates.py day --day "$DAY" --timetable data/timetable.sqlite \
+            --snapshots "snapshots/$DAY" $RT --observations "observations-$DAY.json.gz" $DIV \
+            --prediction-log "${PRED[@]}" --out "served-$DAY.json"
+          python scripts/collect_served_window.py --window inputs/window --tonight "served-$DAY.json" \
+            --previous-index previous-index.json --base "$BASE" --out-dir served --merged served-accuracy.json
+          python - <<'PYCHECK'
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts")
+          import check_published as cp
+          fails = cp.Failures()
+          for path in [Path("served-accuracy.json"), *Path("served").glob("served-*.json")]:
+              raw = path.read_bytes()
+              cp.check_served(json.loads(raw), path.name, fails, raw=raw)
+          if fails.items:
+              sys.exit(f"served-estimate counts did not validate: {fails.items[:5]}")
+          PYCHECK
+          touch served-ok
+          printf 'served-scores\tclear\n' >> "$NOTICES"
+
+      - name: Say if the board could not be scored
+        if: steps.served.outcome == 'failure'
+        run: |
+          rm -f served-ok
+          printf 'served-scores\twarn\t%s: the board was not scored; see the log of this run.\n' \
+            "${{ steps.day.outputs.day }}" >> "$NOTICES"
+
       - name: Build and validate the whole candidate before publishing
         run: |
           DAY="${{ steps.day.outputs.day }}"
@@ -361,6 +429,11 @@ jobs:
           # How each operator's journeys were identified: by journey ID, by
           # start time or from position. Shown beside the journey times.
           python scripts/build_identification.py --observations inputs/window --out identification.json
+          # How lateness changes between timing points, which the API adds to
+          # live estimates (api/recovery.py). The 30th percentile passed its
+          # test on days it never saw (docs/reliability/running-recovery-2026-10-25.md).
+          python scripts/build_running_recovery.py --observations "inputs/window/*.json.gz" \
+            --percentile 30 --out running-recovery.json
           # One report per route, drawing the figures above together with
           # their denominators, method and sources (report.html reads them).
           python scripts/build_route_reports.py --observations inputs/window \
@@ -370,6 +443,11 @@ jobs:
           MAP_ARTIFACTS=()
           shopt -s nullglob    # an empty folder adds nothing, not a literal '*.json'
           for f in hotspot-map/*.json headways/*.json route-reports/*.json; do MAP_ARTIFACTS+=(--artifact "$(basename "$f")=$f"); done
+          # The board's scores, only if the step that made them finished and validated.
+          if [ -f served-ok ]; then
+            MAP_ARTIFACTS+=(--artifact "served-accuracy.json=served-accuracy.json")
+            for f in served/served-*.json; do MAP_ARTIFACTS+=(--artifact "$(basename "$f")=$f"); done
+          fi
           python scripts/check_published.py --journey-times journey-times \
             --summaries "data/reliability/$DAY.json" "rollup-$MONTH.json"
           python scripts/publication_bundle.py --journey-times journey-times \
@@ -379,6 +457,7 @@ jobs:
             --artifact "hotspot-preview.json.gz=hotspot-preview.json.gz" \
             --artifact "diversion-adjustments.json=diversion-adjustments.json" \
             --artifact "identification.json=identification.json" \
+            --artifact "running-recovery.json=running-recovery.json" \
             "${MAP_ARTIFACTS[@]}" \
             --sources inputs/sources.json --evidence evidence.json \
             --previous-index previous-index.json --out candidate > build-id.txt

@@ -94,17 +94,24 @@ function identificationFigure(ident, fileUrl) {
 
 /** Results written up from replays of recorded days: quoted, with their dates. */
 const REPLAY_FIGURES = [{
+  id: "board", claim: "Four in five live times the board showed were within the industry's accuracy window.",
+  value: "<strong>79%</strong> of the live times the stop board showed were within RTIG's accuracy window, on ordinary days; the bus came earlier than allowed on <strong>5.5%</strong>. <strong>86%</strong> of timetabled departures had a live time on the board in the 15 minutes before they were due.",
+  method: "The board rebuilt for every recorded minute from the recorded feeds with the site's own code, and every live time it would have shown judged against when that bus left, by RTIG's window for how far ahead it said the bus was (RTIGT041-1.0), 25 September to 24 October 2026.",
+  asOf: "Measured 25 October 2026; updated nightly on the live data health page",
+  caveat: "Our own estimates only, not TransportAPI's predictions where the board showed those; times are when buses left stops, and the recorder samples once a minute.",
+  sourceUrl: `${FIGURES_REPO}/docs/reliability/live-eta-served-2026-10-25.md`, sourceLabel: "What the board showed, method and results",
+}, {
   id: "estimates", claim: "Our live arrival estimates beat the timetable, and say which way they can be wrong.",
-  value: "Within 2 minutes of when the bus left <strong>71%</strong> of the time, against <strong>47%</strong> for the timetable alone, over 2,803,361 estimate and outcome pairs; within 2 minutes 95% of the time when the bus was under 5 minutes away. About <strong>one estimate in eight</strong> had the bus leave 2 or more minutes earlier than said.",
-  method: "The site's own estimate replayed from every timing point a bus was seen leaving, scored against when it really left each later stop, 25 September to 14 October 2026.",
-  asOf: "Measured 16 October 2026",
-  caveat: "The replay starts from a fresh position; live reports arrive a few minutes late, so real estimates are a little less accurate.",
-  sourceUrl: `${FIGURES_REPO}/docs/reliability/live-eta-accuracy-2026-10-16.md`, sourceLabel: "The replay, its method and results",
+  value: "<strong>83%</strong> of estimates within the accuracy window RTIG, the Real Time Information Group, recommends, against <strong>64%</strong> for the timetable alone, over 3,648,077 estimate and outcome pairs. The window tightens as the bus gets closer: under 3 minutes away, a minute either way. The bus came earlier than the window allows on <strong>8%</strong> of estimates.",
+  method: "The site's own estimate replayed from every timing point a bus was seen leaving, judged against when it really left each later stop by RTIG's window for how far ahead it said the bus was (RTIGT041-1.0, December 2020), 25 September to 24 October 2026. Estimates more than 30 minutes ahead have no RTIG window and are left out.",
+  asOf: "Measured 25 October 2026",
+  caveat: "The replay starts from a fresh position; live reports arrive a few minutes late, so real estimates are a little less accurate. The times are when buses left each stop; RTIG's windows are written for arrivals.",
+  sourceUrl: `${FIGURES_REPO}/docs/reliability/live-eta-accuracy-2026-10-25.md`, sourceLabel: "The replay, its method and results",
 }, {
   id: "diversion", claim: "Allowing for the Western Road diversion made estimates on diverted routes better.",
-  value: "Typical error <strong>2.7 → 2.0 minutes</strong> on journeys past the diversion; estimates within 2 minutes 41% → 50% of the time. Buses 2 or more minutes earlier than estimated went from 2% to 3%.",
-  method: "An allowance measured from buses that went round the diversion (the 15th percentile of the time they lost), calibrated on days before 10 October and tested on 10 to 14 October, which it never saw.",
-  asOf: "Measured 15 October 2026",
+  value: "Typical error <strong>2.7 → 2.0 minutes</strong> on journeys past the diversion; estimates within RTIG's accuracy windows 66% → 78% of the time. Buses coming earlier than the window allows went from 0% to 1%.",
+  method: "An allowance measured from buses that went round the diversion (the 15th percentile of the time they lost), calibrated on days before 10 October and tested on 10 to 14 October, which it never saw; judged by RTIG's accuracy windows.",
+  asOf: "Measured 15 October 2026, rescored by RTIG's windows 25 October 2026",
   caveat: "A small rise in buses earlier than estimated is the price of better estimates overall; the allowance is kept deliberately low for that reason.",
   sourceUrl: `${FIGURES_REPO}/docs/reliability/diversion-adjustments-backtest-2026-10-15.md`, sourceLabel: "The backtest",
 }];

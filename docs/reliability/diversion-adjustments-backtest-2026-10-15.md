@@ -96,3 +96,35 @@ allowance: no figure cleared the floor, or there was no effect to allow for.
 Reproduce with the observation files for 20 September to 14 October:
 
     python scripts/backtest_diversion_adjustments.py --observations 'obs/*.json.gz' --split 2026-10-10
+
+## Rescored by RTIG's accuracy windows, 25 October 2026
+
+The backtest now judges each estimate by the window RTIG recommends for how far
+ahead it said the bus was (RTIGT041-1.0, December 2020, section 6.9;
+`scripts/rtig_windows.py`; see `live-eta-accuracy-2026-10-25.md` for the
+windows), instead of a single 2 minutes either way. Same test days and the
+same estimates: the 19,760 timing points and the typical error, 2.7 → 2.0
+minutes, are unchanged. Run from the observation files for 25 September to
+14 October (the closure began on 28 September, so the calibration is the same).
+
+| Service, direction | Timing points scored | Median error, today → adjusted (min) | Acceptable (RTIG) | Bus came early | Bus came late |
+|---|---|---|---|---|---|
+| **All** | 19760 | 2.7 → 2.0 | 66% → 78% | 0% → 1% | 33% → 21% |
+| 1 westbound | 1270 | 4.3 → 2.8 | 53% → 74% | 0% → 2% | 47% → 24% |
+| 1X westbound | 901 | 2.9 → 1.9 | 54% → 78% | 0% → 1% | 46% → 21% |
+| 2 westbound | 1489 | 4.5 → 3.6 | 40% → 62% | 0% → 1% | 59% → 37% |
+| 25 westbound | 49 | 4.0 → 2.0 | 20% → 78% | 0% → 0% | 80% → 22% |
+| 46 westbound | 1013 | 4.0 → 3.0 | 39% → 59% | 0% → 0% | 60% → 40% |
+| 49 westbound | 601 | 5.3 → 2.6 | 15% → 62% | 0% → 1% | 85% → 36% |
+| 5 westbound | 438 | 5.0 → 3.4 | 37% → 64% | 0% → 1% | 62% → 35% |
+| 5A westbound | 542 | 5.0 → 3.0 | 43% → 67% | 0% → 3% | 57% → 30% |
+| 5B westbound | 1092 | 5.0 → 3.3 | 38% → 62% | 0% → 1% | 62% → 37% |
+| 6 westbound | 630 | 4.6 → 3.1 | 52% → 73% | 0% → 1% | 47% → 27% |
+| 700 westbound | 1422 | 3.6 → 2.4 | 45% → 68% | 0% → 1% | 55% → 31% |
+
+Westbound rows, where the allowance applies; eastbound rows change by at most a
+few points, as before. RTIG allows a bus far from the stop more than 2 minutes
+early, so fewer estimates count as "bus came early" than under the old measure
+(1%, not 3%, with the allowance); the worst rise is still the 5A westbound,
+now 0% to 3%. The allowance's choice (the 15th percentile) was made on the old
+measure and is not revisited here.

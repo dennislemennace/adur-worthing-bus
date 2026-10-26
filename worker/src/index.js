@@ -31,6 +31,7 @@ const PER_HOUR_LIMIT = 5;          // per client
 const PER_DAY_LIMIT  = 20;         // per client
 const GLOBAL_DAY_LIMIT = 200;      // bounds the damage from a distributed flood
 import { recordSnapshot } from "./recorder.js";
+import { predictionLog } from "./predlog.js";
 import { feedFetch } from "./relay.js";
 
 // The recorder's requests leave from Western Europe through this Durable
@@ -134,6 +135,10 @@ export default {
     // carries no CORS header.
     const published = servePublished(new URL(request.url), request, env);
     if (published) return published;
+
+    // The API's log of TransportAPI predictions: server to server, so fenced
+    // by a shared secret rather than by origin (src/predlog.js).
+    if (new URL(request.url).pathname === "/prediction-log") return predictionLog(request, env);
 
     if (request.method === "OPTIONS") {
       return preflight(origin, allowed);

@@ -8035,8 +8035,11 @@ function renderDepartures(data) {
   const here = Array.isArray(data?.services_here) ? data.services_here : [];
   const hereOperators = Object.fromEntries(here.map(h => [h.service, h.operator || ""]));
 
+  showBoardNow();
   if (departures.length === 0) {
-    dom.departuresTbody.innerHTML = `<tr><td colspan="4" class="no-departures">No departures found for this stop in the next 2 hours.</td></tr>`;
+    // "No services until 06:12" once the timetable's next time is known
+    // (showBoardNext), as RTIGT035 words an empty sign.
+    dom.departuresTbody.innerHTML = `<tr><td colspan="4" class="no-departures">No services from this stop in the next 2 hours.</td></tr>`;
     dom.departuresCount.textContent = "No upcoming departures";
     renderBoardFilter(here.map(h => h.service), hereOperators);
     showBoardNext(state.boardFilter);
@@ -8214,6 +8217,14 @@ async function showBoardNext(service) {
   if (!current()) return;
   host.innerHTML = boardNextHtml(data, service || null);
   host.hidden = false;
+  const empty = !service && dom.departuresTbody?.querySelector?.(".no-departures");
+  const first = data?.departures?.[0]?.aimed_departure;
+  if (empty && first) {
+    const when = new Date(first);
+    const day = boardNextDayLabel(first, clockNow());
+    empty.textContent = `No services until ${londonClock(when)}${
+      day === "Today" ? "" : `, ${day.replace(/^Tomorrow/, "tomorrow")}`}.`;
+  }
 }
 
 /** The line above the board: how many rows it is showing, of how many, and
@@ -8222,6 +8233,16 @@ async function showBoardNext(service) {
  *  Owned in one place because the ticker changes it too. Ageing every row out
  *  used to leave "16 departures · as of 21:07" sitting over an empty table.
  */
+/** "Time now 12:04" over the board: with clock times on every row, the
+ *  reader needs the clock to read them against (RTIGT035-1.0, "Time Now"). */
+function showBoardNow(now = clockNow()) {
+  const el = document.getElementById("board-now");
+  if (el) {
+    el.textContent = londonClock(now);
+    el.setAttribute("datetime", now.toISOString());
+  }
+}
+
 function updateDepartureCount(shown, total, service = null) {
   if (!dom.departuresCount) return;
   const at = state.departuresAsOf;
@@ -8427,16 +8448,22 @@ function buildDepartureRow(dep) {
   const aimed       = dep.aimed_departure;
   const expected    = dep.expected_departure;
 
-  // Format due time (prefer expected if available, fall back to aimed)
-  const displayTime = expected || aimed || null;
-  const dueText     = displayTime ? formatDueTime(displayTime) : "–";
-  const isImminent  = displayTime ? isWithinMinutes(displayTime, 2) : false;
-
   // A time we are tracking and a time we have only from the timetable look
   // identical as a countdown, and a visitor has no way to know which to
   // trust. The dot says so, with words behind it for a screen reader; the
   // key under the board says what it means.
   const live = !!expected;
+
+  // Format due time (prefer expected if available, fall back to aimed)
+  const displayTime = expected || aimed || null;
+  const dueText     = displayTime ? formatDueTime(displayTime, clockNow(), live) : "–";
+  const isImminent  = displayTime ? isWithinMinutes(displayTime, 2) : false;
+  // The clock time under the countdown: a time is easier to check against a
+  // watch than "3 mins" is to add up (RTIGT041-1.0, 10.1).
+  const clockLine = live
+    ? `${londonClock(new Date(expected))}${aimed ? ` · timetable ${londonClock(new Date(aimed))}` : ""}`
+    : aimed ? `timetable ${londonClock(new Date(aimed))}` : "";
+
   const cancelled = (dep.status || "").toLowerCase() === "cancelled";
   // The stop is closed: the row says which bus would have called, and that
   // it will not. See the closure notice above the board.
@@ -8444,9 +8471,9 @@ function buildDepartureRow(dep) {
   // A diversion allowance in the estimate (api/diversions.py), said in minutes.
   const allowMin = live && dep.allowance_secs > 0 ? Math.max(1, Math.round(dep.allowance_secs / 60)) : 0;
   const { label, cssClass } = notServed
-    ? { label: "Not served", cssClass: "status-late" }
+    ? { label: "Not calling", cssClass: "status-late" }
     : live || cancelled
-    ? buildStatusChip(dep)
+    ? buildStatusChip(dep, true)
     : { label: "Timetable", cssClass: "status-scheduled" };
 
   // The API sends `operator`; this read `operator_ref`, which only vehicles
@@ -8466,7 +8493,7 @@ function buildDepartureRow(dep) {
           ><span class="service-badge ${badgeTextCls}" style="background:${badgeColour}">${escapeHtml(service)}</span></button></td>
       <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span>${
         notServed
-          ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Not stopping here, see above for where to catch it</span>`
+          ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Not calling here, see above for where to catch it</span>`
           : allowMin
           ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Time allows ${
               allowMin} min for ${escapeHtml(dep.allowance_reason || "a diversion")}${
@@ -8475,10 +8502,16 @@ function buildDepartureRow(dep) {
           ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Disruption, see notice above</span>`
           : ""}</td>
       <td><span class="due-cell"><span class="due-time ${isImminent ? "due-imminent" : ""}"
-                ${displayTime ? `data-due-at="${escapeAttr(displayTime)}"` : ""}
-          >${escapeHtml(dueText)}</span>${live
+                ${displayTime ? `data-due-at="${escapeAttr(displayTime)}"` : ""} data-live="${live ? 1 : 0}"
+          >${escapeHtml(dueText)}</span>${live && dep.live_source === "previous_journey"
+            // Not yet on this journey: worked out from the bus's previous one
+            // (RTIGT041 3.4), which a driver change or swapped bus can upset,
+            // so it is marked apart from a bus on the road.
+            ? `<span class="live-dot live-dot--previous" aria-hidden="true" title="From the bus's previous journey"></span><span class="visually-hidden">, estimated from the bus's previous journey</span>`
+            : live
             ? `<span class="live-dot" aria-hidden="true"></span><span class="visually-hidden">, live</span>`
-            : `<span class="visually-hidden">, timetable</span>`}</span></td>
+            : `<span class="visually-hidden">, timetable</span>`}</span>${clockLine
+            ? `<span class="due-clock">${escapeHtml(clockLine)}</span>` : ""}</td>
       <td><span class="status-chip ${cssClass}">${escapeHtml(label)}</span></td>
     </tr>`;
 }
@@ -8601,11 +8634,16 @@ const STALE_REPORT_SECS = 120;
 /** "4 min late", "On time", "about 3 min early": one reading of lateness,
  *  shared by the Bus tab, the stop board and the list of stops ahead, so a bus
  *  cannot be "On time" in one place and "1m late" in another. */
-function latenessChip(secs, reportAgeSecs) {
+function latenessChip(secs, reportAgeSecs, atStop = false) {
   // Under a minute either way is on time. Rounding first made 59 seconds
   // late read as "1 min late", which is a claim the data does not support
   // at a resolution of one report every few minutes.
-  if (Math.abs(secs) < 60) {
+  //
+  // At a stop, RTIG's terminology guide (RTIGT035-1.0, "On Time") has a bus
+  // on time up to two minutes late, because that is what a waiting passenger
+  // means by it. For where a bus is against its timetable, as on the Bus
+  // tab, the same guide keeps "within a minute or so".
+  if (atStop ? secs > -60 && secs <= 120 : Math.abs(secs) < 60) {
     return { label: "On time", cssClass: "status-on-time" };
   }
   // Round the magnitude, not the signed value: Math.round(-1.5) is -1 and
@@ -8624,7 +8662,9 @@ function latenessChip(secs, reportAgeSecs) {
     : { label: `${about}${mins} min late`, cssClass: "status-late" };
 }
 
-function buildStatusChip(dep) {
+/** `atStop`: the bus's time at one stop, as a board row gives it, rather
+ *  than where the bus is now (see latenessChip). */
+function buildStatusChip(dep, atStop = false) {
   const status = (dep.status || "").toLowerCase();
 
   // The operator's own verdict where it gave one and there is nothing to
@@ -8643,7 +8683,7 @@ function buildStatusChip(dep) {
   // feed publishes no Delay field here — 0 of 235 vehicles carried one), or
   // a prediction's distance from the timetable.
   const secs = dep.lateness_secs ?? dep.delay_seconds;
-  if (secs != null) return latenessChip(secs, dep.report_age_secs);
+  if (secs != null) return latenessChip(secs, dep.report_age_secs, atStop);
 
   if (status === "early")      return { label: "Early",    cssClass: "status-early"   };
   if (status === "late" || status === "delayed") return { label: "Delayed", cssClass: "status-late" };
@@ -8657,16 +8697,20 @@ function buildStatusChip(dep) {
  * label used to be produced once at render time and never revisited: a board
  * left open kept saying "5 mins" indefinitely, which is worse than saying
  * nothing.
+ *
+ * "Due" is a live bus under a minute away, and never a timetable time
+ * (RTIGT035-1.0): a timetable row that close shows its clock time instead,
+ * because nothing says the bus is anywhere near.
  */
-function formatDueTime(isoString, now = clockNow()) {
+function formatDueTime(isoString, now = clockNow(), live = true) {
   try {
     const d = new Date(isoString);
     if (isNaN(d.getTime())) return isoString; // Return as-is if not parseable
     const diffMs = d - now;
+    if (diffMs < -30_000) return "Departed";
+    if (diffMs < 60_000)  return live ? "Due" : londonClock(d);
     const diffMins = Math.round(diffMs / 60_000);
 
-    if (diffMins < 0)    return "Departed";
-    if (diffMins === 0)  return "Due";
     if (diffMins === 1)  return "1 min";
     if (diffMins < 60)   return `${diffMins} mins`;
 
@@ -9377,13 +9421,15 @@ function buildUpcomingStopsHtml() {
     const was   = live && sched && !isNaN(sched) && Math.abs(exp - sched) >= 60_000
       ? `<s class="upcoming-stop-was">${escapeHtml(formatTimeOfDay(sched))}</s>` : "";
     const chip  = !s.passed && s.lateness_secs != null
-      ? latenessChip(s.lateness_secs, vehicle.report_age_secs) : null;
+      ? latenessChip(s.lateness_secs, vehicle.report_age_secs, true) : null;
     const notes = [];
-    if (s.not_served) notes.push("Not served: on diversion");
+    if (s.not_served) notes.push("Not calling: on diversion");
     else if (s.passed) notes.push("Passed");
     else if (s.is_next) notes.push("Next stop");
     if (s.is_terminus) notes.push("End of the journey");
-    if (s.timing_point) notes.push("Timing point");
+    // RTIGT035 keeps "timing point" out of passenger wording where it can:
+    // what it means for someone waiting is that an early bus waits here.
+    if (s.timing_point) notes.push("Waits here if early");
     const cls = ["upcoming-stop",
       s.passed || s.not_served ? "upcoming-stop--passed" : "",
       s.not_served ? "upcoming-stop--not-served" : "",
@@ -9396,7 +9442,7 @@ function buildUpcomingStopsHtml() {
                 data-atco="${escapeAttr(s.stop_id || "")}" data-name="${escapeAttr(name)}"
                 data-focus-key="stop-${escapeAttr(String(s.seq ?? s.stop_id))}"
                 aria-label="${escapeAttr(s.not_served
-                  ? `${name}, not served, the bus is on a diversion. Show this stop's board for where to catch it instead`
+                  ? `${name}, not calling, the bus is on a diversion. Show this stop's board for where to catch it instead`
                   : `${name}, ${live ? "estimated " : ""}${time}${chip ? `, ${chip.label}` : ""}${
                   was ? `, timetabled ${formatTimeOfDay(sched)}` : ""}. Show departures from this stop`)}">
           <span class="upcoming-stop-name">${escapeHtml(name)}</span>
@@ -10038,6 +10084,7 @@ function initSheet() {
 const DEPARTURE_TICK_MS = 30_000;
 
 function ageDepartureBoard(now = clockNow()) {
+  showBoardNow(now);
   const cells = document.querySelectorAll(".due-time[data-due-at]");
   if (!cells || !cells.length) return 0;
   const before = cells.length;
@@ -10050,7 +10097,7 @@ function ageDepartureBoard(now = clockNow()) {
       if (row && row.remove) { row.remove(); removed += 1; }
       return;
     }
-    cell.textContent = formatDueTime(iso, now);
+    cell.textContent = formatDueTime(iso, now, cell.dataset.live !== "0");
     if (cell.classList) {
       cell.classList.toggle("due-imminent", isWithinMinutes(iso, 2));
     }

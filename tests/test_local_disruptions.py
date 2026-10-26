@@ -103,7 +103,7 @@ def test_a_closed_board_stops_promising_buses(tmp_path, monkeypatch):
                              "live_source": "feed", "status": "Late"}]}
     out = main._apply_stop_closure(board, LineTimetable(), "C")
     row = out["departures"][0]
-    assert row["not_served"] is True and row["status"] == "Not served"
+    assert row["not_served"] is True and row["status"] == "Not calling"
     assert "expected_departure" not in row, "a live estimate survived for a stop no bus calls at"
     closure = out["stop_closure"]
     assert closure["until"].startswith("2026-11-06")

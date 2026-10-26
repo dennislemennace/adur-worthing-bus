@@ -41,7 +41,7 @@ the allowance, whichever is more. Stops it does not call at get no estimate.
 from datetime import datetime, timedelta
 from typing import Optional
 
-from api import diversions, trip_match
+from api import diversions, recovery, trip_match
 from api.trip_match import LONDON
 
 # How long after an estimated time a stop is treated as already passed.
@@ -98,7 +98,8 @@ def projected_lateness(lateness: int, timing_points: list, start: int, count: in
 
 
 def project_trip(tt, trip_id: str, vehicle: dict, now: datetime,
-                 diversions_doc: Optional[dict] = None) -> list:
+                 diversions_doc: Optional[dict] = None,
+                 recovery_doc: Optional[dict] = None) -> list:
     """The stops still ahead of `vehicle` on `trip_id`, with estimates where honest.
 
     Each row: `stop_id, stop_name, seq, scheduled, expected, lateness_secs,
@@ -130,6 +131,15 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime,
     origin = vehicle.get('service_origin_epoch')
     if origin is None:
         origin = place_on_day(calls[start][0], now).timestamp() - calls[start][0]
+    # How lateness has changed beyond the last timing point the bus passed,
+    # on other days (api/recovery.py): late buses make up time, some lose it.
+    if recovery_doc and lateness is not None and tps:
+        anchor = max((i for i in range(start) if tps[i] == 1), default=None)
+        route_id = (tt.trips.get(trip_id) or {}).get("route_id", "")
+        projected = recovery.apply(projected, recovery.adjustments(
+            recovery_doc, tt.noc_for_route(route_id) if hasattr(tt, "noc_for_route") else "",
+            (tt.routes.get(route_id) or {}).get("short_name", ""), calls, tps, anchor, start,
+            int(lateness), recovery.service_day(origin)))
 
     allowance = _allowances(tt, trip_id, calls, start, origin, lateness, projected,
                             diversions_doc, now)
@@ -215,16 +225,51 @@ def _allowances(tt, trip_id, calls, start, origin, lateness, projected, doc, now
     return out
 
 
+def from_previous_journey(tt, vehicle: dict, now: datetime, day,
+                          diversions_doc: Optional[dict] = None,
+                          recovery_doc: Optional[dict] = None) -> Optional[dict]:
+    """The journey this bus works next, and how late it will start it.
+
+    From the operator's block (`Timetable.next_in_block`, Stagecoach and
+    Compass only): the next journey leaves its first stop at its timetabled
+    time, or when this bus gets there from the end of the journey it is on now,
+    whichever is later. RTIG's "cross journey prediction" (RTIGT041-1.0, 3.4):
+    without it a bus station shows no live time until the bus has set off.
+    It can be wrong in ways an estimate on the road cannot (a driver change, a
+    swapped bus, a journey cut short: RTIGT041 3.6.6), so the board marks it.
+
+    `{"trip_id", "lateness_secs"}`, or None when the bus names no journey,
+    has no estimate for its last stop, or works nothing after it.
+    """
+    trip_id = vehicle.get("trip_id")
+    if not trip_id or vehicle.get("trip_source") not in trip_match.DECLARED_SOURCES:
+        return None
+    if not hasattr(tt, "next_in_block"):
+        return None
+    nxt = tt.next_in_block(trip_id, day)
+    if not nxt:
+        return None
+    rows = project_trip(tt, trip_id, vehicle, now, diversions_doc, recovery_doc)
+    last = rows[-1] if rows else None
+    if not last or not last["is_terminus"] or last["passed"] or not last["expected"]:
+        return None
+    arrives = datetime.fromisoformat(last["expected"])
+    starts = place_on_day(nxt["depart_secs"], now)
+    return {"trip_id": nxt["trip_id"],
+            "lateness_secs": max(0, round((arrives - starts).total_seconds()))}
+
+
 def estimate_at(tt, trip_id: str, vehicle: dict, stop_id: str,
                 aimed: datetime, now: datetime,
-                diversions_doc: Optional[dict] = None) -> Optional[dict]:
+                diversions_doc: Optional[dict] = None,
+                recovery_doc: Optional[dict] = None) -> Optional[dict]:
     """The estimate for one call of one journey, if it is still ahead of the bus.
 
     Matched on the stop and its timetabled time, because a looping journey can
     call at the same stop twice. None when there is no honest estimate: the
     journey is not declared, the bus has passed the stop, or it isn't on it.
     """
-    for r in project_trip(tt, trip_id, vehicle, now, diversions_doc):
+    for r in project_trip(tt, trip_id, vehicle, now, diversions_doc, recovery_doc):
         if r["stop_id"] != stop_id or r["passed"] or r["expected"] is None:
             continue
         if abs(datetime.fromisoformat(r["scheduled"]).timestamp() - aimed.timestamp()) <= 60:

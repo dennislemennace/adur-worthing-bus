@@ -50,6 +50,45 @@ test("a late prediction says by how much, not just Delayed", () => {
     "with no minutes known, the operator's word is all there is");
 });
 
+// ── RTIG wording (RTIGT035-1.0, RTIGT041-1.0 section 10) ─────
+
+test("Due is a live bus under a minute away, never a timetable time", () => {
+  const now = new Date("2026-10-26T12:00:00Z");
+  const at = (s) => new Date(now.getTime() + s * 1000).toISOString();
+  assert.equal(app.formatDueTime(at(50), now), "Due");
+  assert.equal(app.formatDueTime(at(75), now), "1 min", "75 s is not Due");
+  assert.match(app.formatDueTime(at(50), now, false), /^\d\d:\d\d$/,
+    "a timetable time a minute away was called Due");
+  assert.equal(app.formatDueTime(at(300), now, false), "5 mins", "timetable rows still count down");
+});
+
+test("each row shows the clock time beside the countdown", () => {
+  const live = row({ aimed_departure: "2026-10-26T12:05:00Z", expected_departure: "2026-10-26T12:07:00Z",
+    delay_seconds: 120 });
+  assert.match(live, /class="due-clock">12:07 · timetable 12:05</);
+  const timetable = row({ aimed_departure: "2026-10-26T12:16:00Z" });
+  assert.match(timetable, /class="due-clock">timetable 12:16</);
+  assert.match(live, /data-live="1"/);
+  assert.match(timetable, /data-live="0"/);
+});
+
+test("on time at a stop is up to 2 minutes late; on the Bus tab, a minute either way", () => {
+  assert.equal(app.buildStatusChip({ delay_seconds: 110 }, true).label, "On time");
+  assert.equal(app.buildStatusChip({ delay_seconds: 130 }, true).label, "2 min late");
+  assert.equal(app.buildStatusChip({ delay_seconds: -70 }, true).label, "1 min early");
+  assert.equal(app.buildStatusChip({ delay_seconds: 110 }).label, "2 min late",
+    "the Bus tab says where the bus is against its timetable, within a minute");
+  assert.match(row({ expected_departure: inMinutes(12), delay_seconds: 100 }), />On time</);
+});
+
+test("the board help says what its times are, in RTIG's terms", () => {
+  const help = INDEX.slice(INDEX.indexOf('id="board-help"'), INDEX.indexOf("</details>", INDEX.indexOf('id="board-help"')));
+  assert.match(help, /leaves? this stop/i, "the help no longer says these are departure times");
+  assert.match(help, /up to 2 minutes late/);
+  assert.doesNotMatch(help, /real[- ]time|headway/i);
+  assert.match(INDEX, /id="board-now"/, "the board does not show the time now");
+});
+
 test("the badge takes its colour from the operator the API names", () => {
   // Departures carry `operator`; this read `operator_ref`, which only
   // vehicles have, so every route without a colour of its own was default.
@@ -386,10 +425,10 @@ test("notices about the same works are one notice, each route's own words inside
 });
 
 test("a row at a closed stop is not served, and promises no live time", () => {
-  const html = row({ not_served: true, status: "Not served" });
+  const html = row({ not_served: true, status: "Not calling" });
   assert.match(html, /departure-row--cancelled/);
-  assert.match(html, />Not served</);
-  assert.match(html, /Not stopping here, see above/);
+  assert.match(html, />Not calling</, "RTIGT035's term for a stop the bus skips");
+  assert.match(html, /Not calling here, see above/);
   assert.doesNotMatch(html, /class="live-dot"/);
 });
 
@@ -406,9 +445,9 @@ test("a stop the bus goes round is marked, with no time promised", () => {
   const html = upcoming({ source: "trip", vehicle: { trip_source: "feed" }, upcoming_stops: [
     stopRow(1, { not_served: true, expected: null, lateness_secs: null }),
     stopRow(2, { is_next: true })] });
-  assert.match(html, /upcoming-stop--not-served[\s\S]*Not served: on diversion/);
+  assert.match(html, /upcoming-stop--not-served[\s\S]*Not calling: on diversion/);
   const closedRow = html.split("upcoming-stop--next")[0];
-  assert.match(closedRow, /aria-label="Stop 1, not served, the bus is on a diversion/,
+  assert.match(closedRow, /aria-label="Stop 1, not calling, the bus is on a diversion/,
     "a screen reader was read the closed stop's timetabled time as if the bus would call");
   assert.doesNotMatch(closedRow, /upcoming-stop-time[^>]*>\d\d:\d\d/,
     "the closed stop still shows a time, which reads as a promise");
@@ -682,4 +721,11 @@ test("a stop clicked in Route view opens its panel, and leaving the view closes 
   assert.match(APP, /if \(state\.viewMode === "improvements"\) \{\s*state\.map\.closePopup\(\);\s*openRouteStop\(atcoCode, stopName\);/);
   assert.match(APP, /if \(state\.viewMode !== "improvements"\) closeRouteStop\(\);/);
   assert.match(INDEX, /id="tab-content-about"[^>]*>\s*<!--[\s\S]*?-->\s*<section class="route-stop" id="route-stop" hidden/);
+});
+
+test("a time from the bus's previous journey is marked apart from a bus on the road", () => {
+  const html = row({ expected_departure: inMinutes(14), delay_seconds: 240, live_source: "previous_journey" });
+  assert.match(html, /live-dot--previous/);
+  assert.match(html, /visually-hidden">, estimated from the bus's previous journey</);
+  assert.doesNotMatch(html, /visually-hidden">, live</, "it was read out as a bus we can see");
 });
