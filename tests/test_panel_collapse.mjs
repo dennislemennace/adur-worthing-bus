@@ -90,6 +90,8 @@ function loadApp() {
     location: { hash: "", search: "" },
     localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
     console,
+    // Browsers have it; previewEnabled() reads ?preview=1 with it.
+    URLSearchParams,
     fetch: async () => ({ ok: false, status: 500, json: async () => ({}) }),
     setTimeout, clearTimeout, setInterval, clearInterval,
     requestAnimationFrame: (fn) => setTimeout(fn, 0),
@@ -237,6 +239,40 @@ test("cycling walks peek -> half -> full and wraps", () => {
     seen.push(detentOf(ctx));
   }
   assert.deepEqual(seen, ["half", "full", "peek", "half"]);
+});
+
+// With ?preview=1 (26 October 2026): a stop opens most of the way up, with a
+// sliver of map still showing, halfway between half and full.
+
+test("preview: cycling walks peek -> half -> tall -> full", () => {
+  const { ctx } = loadApp();
+  ctx.location.search = "?preview=1";
+  ctx.setSheetDetent("peek");
+  const seen = [];
+  for (let i = 0; i < 5; i++) {
+    ctx.cycleSheetDetent();
+    seen.push(detentOf(ctx));
+  }
+  assert.deepEqual(seen, ["half", "tall", "full", "peek", "half"]);
+});
+
+test("preview: opening a stop lifts the sheet to tall; anything else still to half", () => {
+  const { ctx } = loadApp();
+  ctx.window.innerHeight = 844;
+  ctx.location.search = "?preview=1";
+  ctx.setSheetDetent("peek");
+  ctx.revealPanelForSelection({ stop: true });
+  assert.equal(detentOf(ctx), "tall", "a stop did not open most of the way up");
+  ctx.setSheetDetent("peek");
+  ctx.revealPanelForSelection();
+  assert.equal(detentOf(ctx), "half", "a bus or a station changed too");
+  // Published, nothing changes: no tall detent, a stop opens to half.
+  ctx.location.search = "";
+  ctx.setSheetDetent("peek");
+  ctx.revealPanelForSelection({ stop: true });
+  assert.equal(detentOf(ctx), "half");
+  ctx.setSheetDetent("tall");
+  assert.equal(detentOf(ctx), "half", "the tall detent leaked out without ?preview=1");
 });
 
 test("an unknown detent is ignored rather than applied", () => {

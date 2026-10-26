@@ -724,6 +724,10 @@ html.dark-mode .map-loading {
      clear of the sheet — Leaflet's attribution, below — can read it too. */
   body[data-sheet="peek"] { --sheet-h: var(--sheet-peek); }
   body[data-sheet="half"] { --sheet-h: var(--sheet-half); }
+  /* With ?preview=1, where a stop opens: halfway between half and full,
+     most of the way up with a sliver of map still showing. Worked out
+     here, not on :root, so it follows --sheet-half's media queries. */
+  body[data-sheet="tall"] { --sheet-h: calc((var(--sheet-half) + var(--sheet-full)) / 2); }
   body[data-sheet="full"] { --sheet-h: var(--sheet-full); }
 
   /* Leaflet's attribution is a licence condition, so it may not be parked
@@ -850,6 +854,51 @@ html.board-preview #departures-tbody .due-clock { margin-top: 2px; line-height: 
 .due-clock-live,
 .due-clock-sched { display: block; }
 .due-clock-live { color: var(--color-text); }
+
+/* The line above the board, with ?preview=1: "10 departures · as of 15:45"
+   and a refresh icon, on one line. "Time now" goes (the phone shows the
+   time; "as of" says how fresh the board is), and reporting a fault moves
+   under the board (app.js init). */
+html.board-preview .departures-meta { flex-wrap: nowrap; }
+html.board-preview #departures-count {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html.board-preview .departures-meta .board-now { display: none; }
+html.board-preview #refresh-stop-btn {
+  flex: none;
+  min-width: var(--target-min);
+  margin: -6px 0;
+}
+html.board-preview #refresh-stop-btn span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+html.board-preview #refresh-stop-btn .icon { width: 18px; height: 18px; }
+.report-stop-btn--foot { margin: var(--space-2xs) 0 0 calc(-1 * var(--space-2xs)); }
+
+/* The stop heading, with ?preview=1: the name, then one line in the body
+   font, not the typewriter one, saying which pole and which way. */
+html.board-preview .panel-mode .panel-stop-id {
+  font-family: var(--font-family);
+  letter-spacing: normal;
+  font-size: var(--font-size-xs);
+}
+
+/* One notice per works, closed to its name, until when, and what changes
+   here, with ?preview=1 (app.js compactDisruptionsHtml). */
+.disruption--compact summary { min-height: 0; padding: var(--space-2xs) var(--space-sm); }
+.disruption--compact .disruption-text { gap: 0; }
+.disruption--compact .disruption-head .disruption-when { white-space: nowrap; }
+.disruption-detail { font-size: var(--font-size-xs); }
+.disruption--compact + .disruption--compact { margin-top: var(--space-2xs); }
 
 /* ===== SHEET SPACE BUDGET =====
    On a 405px sheet the chrome above the first departure came to 246px:

@@ -868,10 +868,67 @@ test("preview: routes that skip the stop are told inside the works' notice, not 
     assert.match(html, /<a class="stop-closure-alt" href="#stop=149000006999"[^>]*>Valley Gardens/,
       "where to catch them instead is not a link to that stop's board");
     assert.doesNotMatch(html, /<button/);
-    assert.equal((html.match(/<details/g) || []).length, 2, "not one notice per route group");
+    assert.equal((html.match(/<details/g) || []).length, 1, "not one notice for the works");
   }
   // Published, it is still the box.
   loc.search = "";
   assert.match(app.boardNoticesHtml({ services_here: here, disruptions: [busy.steine, sub], line_closures: [note] }),
     /class="stop-closure"[^>]*data-services="25 25X 78"/, "the redesign leaked out without ?preview=1");
+}));
+
+// Royal Pavilion R1 on 26 October 2026 showed five notices, each repeating
+// the same two works: one notice per works, and the route chips filter them.
+const steineSub = { ...busy.steine, id: "o25", parent: "o", summary: "Routes 25, 25X and 78 not serving the Old Steine",
+  lines: [{ operator: "BHBC", line: "25" }, { operator: "BHBC", line: "25X" }, { operator: "BHBC", line: "78" }],
+  daily: { from: "07:00", to: "18:00" }, final_ends: "2026-10-27T23:59:00+00:00" };
+const steine700 = { ...busy.steine, id: "o700", parent: "o", publisher: "Stagecoach",
+  summary: "Old Steine roadworks: after Churchill Square, the 700 diverts to Brighton Station",
+  lines: [{ operator: "SCSO", line: "700" }] };
+const steineNote = { ...closure, id: "o25", parent: "o", lines: ["25", "25X", "78"], daily: steineSub.daily,
+  until: "2026-10-26T18:00:00Z", still_served: [{ atco: "149000006999", name: "Valley Gardens",
+    metres: 250, direction: "north", routes: ["25", "25X", "78"], side: "both" }] };
+const summaryOf = (card) => card.split("</summary>")[0];
+
+test("preview: one notice per works, so two at the busiest stop, and no box", () => preview(() => {
+  const html = app.boardNoticesHtml({ services_here: busy.here,
+    disruptions: [busy.western, busy.steine, busy.council, steineSub, steine700], line_closures: [steineNote] });
+  const cards = html.split("<details").slice(1);
+  assert.equal(cards.length, 2, "more than one notice per works");
+  assert.doesNotMatch(html, /disruption-find/, "the find box is back; the route chips do its job");
+  assert.doesNotMatch(html, /disruption-badges/, "a notice spent a row on route badges");
+  assert.match(summaryOf(cards[0]), /class="disruption-summary">Western Road closed</);
+  assert.match(summaryOf(cards[1]), /class="disruption-summary">Old Steine roadworks</);
+  assert.match(summaryOf(cards[1]), /25, 25X and 78 not stopping here until 18:00/);
+  // The routes here each touches, for the chips to filter by.
+  assert.deepEqual([...html.matchAll(/<details[^>]*data-services="([^"]*)"/g)].map(m => m[1]),
+    ["25 49 60 700 N700", "25 25X 49 60 78 700"]);
+}));
+
+test("preview: a notice's title is its words before the colon; a route's own detail stays in view", () => preview(() => {
+  const many = { ...busy.steine, summary: "Old Steine roadworks: southbound buses diverted via Edward Street" };
+  const one = app.boardNoticesHtml({ services_here: busy.here, disruptions: [many] });
+  assert.match(summaryOf(one), /class="disruption-summary">Old Steine roadworks</);
+  assert.doesNotMatch(summaryOf(one), /Edward Street/, "a five-route notice's detail took a line before it was opened");
+  assert.match(one.split("</summary>")[1], /southbound buses diverted via Edward Street/, "the full summary is lost");
+  const own = app.boardNoticesHtml({ services_here: [{ service: "700", operator: "SCSO" }],
+    disruptions: [{ ...steine700, parent: undefined }] });
+  assert.match(summaryOf(own), /class="disruption-detail">after Churchill Square, the 700 diverts to Brighton Station</,
+    "the 700's own detail was hidden behind a tap");
+}));
+
+test("preview: the board line is the count and when, no 'of 15'", () => preview(() => {
+  const at = new Date("2026-10-26T15:45:00Z");
+  assert.equal(app.departureCountText(10, 15, null, at), "10 departures · as of 15:45");
+  assert.equal(app.departureCountText(2, 4, "700", at), "2 departures on the 700 · as of 15:45");
+  loc.search = "";
+  assert.equal(app.departureCountText(10, 15, null, at), "10 of 15 departures · as of 15:45", "published changed");
+}));
+
+test("preview: the stop heading is one line, the street or the town, never the name twice", () => preview(() => {
+  vm.runInContext(`state.stopData = {
+      R1: { name: "Royal Pavilion", towards: "Hollingbury Asda", locality: "Brighton" },
+      HS: { name: "High Street", towards: "Shoreham High Street", locality: "Shoreham-by-Sea" } };
+    state.stopDetails = { R1: ["Stop R1", "Old Steine", "", "N"], HS: ["", "High Street", "", "E"] };`, app);
+  assert.equal(app.stopHeadingLine("R1"), "Stop R1 · Towards Hollingbury Asda · On Old Steine");
+  assert.equal(app.stopHeadingLine("HS"), "Towards Shoreham High Street · Shoreham-by-Sea");
 }));

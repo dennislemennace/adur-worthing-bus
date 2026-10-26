@@ -565,6 +565,20 @@ async function init() {
   }
   // The redesigned stop board (boardPreview) is styled under this class.
   document.documentElement.classList.toggle("board-preview", boardPreview());
+  // And reporting a fault at the stop moves under the board, beside how to
+  // read it: it is about the stop, not what is coming, so it should not sit
+  // between the reader and the buses.
+  if (boardPreview()) {
+    const help = document.getElementById("board-help");
+    const btn = document.getElementById("report-stop-btn");
+    const form = document.getElementById("report-stop-form");
+    if (help && btn && form && typeof help.after === "function") {
+      help.after(btn, form);
+      btn.classList.add("report-stop-btn--foot");
+      const label = btn.querySelector("span");
+      if (label) label.textContent = "Report a problem with this stop";
+    }
+  }
   document.getElementById("jt-view-toggle")?.addEventListener("click", event => {
     const button = event.target.closest("[data-jt-view]");
     if (button && button.dataset.jtView !== jtView()) setJtView(button.dataset.jtView);
@@ -7462,13 +7476,25 @@ function stopWhereLine(atcoCode) {
 
 /** Fill the stop header's direction and whereabouts for the open stop. */
 function renderStopHeaderContext(atcoCode) {
-  dom.panelStopId.textContent = stopContextLine(atcoCode);
+  const fresh = boardPreview();
+  dom.panelStopId.textContent = fresh ? stopHeadingLine(atcoCode) : stopContextLine(atcoCode);
   const whereEl = document.getElementById("panel-stop-where");
   if (whereEl) {
-    const where = stopWhereLine(atcoCode);
+    const where = fresh ? "" : stopWhereLine(atcoCode);
     whereEl.textContent = where;
     whereEl.hidden = !where;
   }
+}
+
+/** With ?preview=1, the line under a stop's name: its letter, which way, and
+ *  where the pole is, or the town when where is only the name again ("High
+ *  Street, on High Street"). "Stop R1 · Towards Hollingbury Asda · On Old
+ *  Steine"; "Towards Shoreham High Street · Shoreham-by-Sea". */
+function stopHeadingLine(atcoCode) {
+  const name = String(((state.stopData || {})[atcoCode] || {}).name || "").trim().toLowerCase();
+  let where = stopWhereLine(atcoCode);
+  if (where && name && where.toLowerCase() === `on ${name}`) where = "";
+  return [stopContextLine(atcoCode, { withLocality: !where }), where].filter(Boolean).join(" · ");
 }
 
 window.openDepartures = async function(atcoCode, stopName) {
@@ -7531,7 +7557,7 @@ window.openDepartures = async function(atcoCode, stopName) {
   // Make sure the Stop tab is the one in front
   setActiveTab("stop");
 
-  revealPanelForSelection();
+  revealPanelForSelection({ stop: true });
 
   // Show panel, hide prompt
   showPanelState("loading");
@@ -8138,6 +8164,13 @@ function applyBoardFilter() {
   });
   updateDepartureCount(Math.min(matching.length, CONFIG.DEPARTURES_COUNT),
                        matching.length, want);
+  // With ?preview=1 the chips filter the notices too, in place of the box
+  // to find your bus: a notice for none of the chosen route goes.
+  if (boardPreview()) {
+    document.querySelectorAll("#board-disruptions details[data-services]").forEach(card => {
+      card.hidden = !!want && !card.dataset.services.split(" ").includes(want);
+    });
+  }
   if (matching.length) hideBoardNext();
   else showBoardNext(want);
   return matching.length;
@@ -8256,20 +8289,25 @@ function showBoardNow(now = clockNow()) {
 
 function updateDepartureCount(shown, total, service = null) {
   if (!dom.departuresCount) return;
-  const at = state.departuresAsOf;
+  dom.departuresCount.textContent = departureCountText(shown, total, service, state.departuresAsOf);
+}
+
+/** "10 of 15 departures · as of 15:45". With ?preview=1, "10 departures ·
+ *  as of 15:45": how many are showing, which with the refresh button fits
+ *  one line on a phone. */
+function departureCountText(shown, total, service = null, at = null) {
   const asOf = at
     ? ` · as of ${londonClock(at)}`
     : "";
   const on = service ? ` on the ${service}` : "";
   if (shown === 0) {
-    dom.departuresCount.textContent = total > 0
+    return total > 0
       ? `Nothing further due${on}${asOf}`
       : `No upcoming departures${on}${asOf}`;
-    return;
   }
-  const more = total > shown ? ` of ${total}` : "";
-  dom.departuresCount.textContent =
-    `${shown}${more} departure${total === 1 ? "" : "s"}${on}${asOf}`;
+  const fresh = boardPreview();
+  const more = total > shown && !fresh ? ` of ${total}` : "";
+  return `${shown}${more} departure${(fresh ? shown : total) === 1 ? "" : "s"}${on}${asOf}`;
 }
 
 /** "Until Fri 3 Oct", "From Sun 28 Sep, 01:30", or "Until further notice". */
@@ -8572,10 +8610,56 @@ function boardNoticesHtml(data) {
       daily: c.daily, final_ends: c.final_ends, ends: c.until, diversions: c.diversions || [],
       operators: [], lines: closed_here.lines.map(line => ({ line, operator: "" })), closed_here });
   }
-  const notices = buildDisruptionsHtml(list, { services: data?.services_here });
-  const parts = (notices.match(/data-services=/g) || []).length
-    + (notices && !/data-services=/.test(notices) ? 1 : 0);
-  return buildStopClosureHtml(data?.stop_closure) + disruptionFinderHtml(parts) + notices;
+  // One notice per works, and no box to find your bus: the route chips
+  // under the notices filter them too (applyBoardFilter).
+  return buildStopClosureHtml(data?.stop_closure) + compactDisruptionsHtml(list, data?.services_here);
+}
+
+/** "Old Steine roadworks: after Churchill Square, …" as its name and the rest. */
+function splitDisruptionSummary(summary) {
+  const i = summary.indexOf(": ");
+  return i > 0 ? [summary.slice(0, i), summary.slice(i + 2)] : [summary, ""];
+}
+
+/**
+ * With ?preview=1, a stop board's notices: one per works, however many
+ * routes it touches. Split by route, Royal Pavilion showed five, each
+ * repeating the same two works (26 October 2026). Closed, each is as short
+ * as it can be: the works' name, until when, and what changes at this stop;
+ * the rest is a tap away. Each names the routes here it touches, for the
+ * route chips under it to filter by. A notice for no route listed here
+ * names none, and always shows.
+ */
+function compactDisruptionsHtml(list, services) {
+  if (!list || !list.length) return "";
+  const routes = (Array.isArray(services) ? services : [])
+    .map(s => typeof s === "string" ? { service: s, operator: "" } : s);
+  const cards = groupDisruptions(list).map(group => {
+    const [d] = group;
+    const [title, detail] = splitDisruptionSummary(d.summary || "Disruption");
+    // A notice about a route or two says what it does to them in its
+    // summary ("the 700 diverts to Brighton Station"): that stays in view.
+    // One for many routes keeps its detail for when it is opened.
+    const own = new Set((d.lines || []).map(l => l.line)).size <= 3;
+    const touched = [...new Set(routes.filter(r => group.some(x => disruptionTouches(x, r))).map(r => r.service))];
+    return `
+      <details class="disruption disruption--compact"${touched.length ? ` data-services="${escapeAttr(touched.join(" "))}"` : ""}>
+        <summary>
+          <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+          <span class="disruption-text">
+            <span class="disruption-head"><span class="disruption-summary">${escapeHtml(title)}</span> <span class="disruption-when">${
+              escapeHtml(disruptionWhen(d))}</span></span>
+            ${detail && own ? `<span class="disruption-detail">${escapeHtml(detail)}</span>` : ""}
+            ${closedHereLineHtml(group)}
+          </span>
+        </summary>
+        <div class="disruption-body">
+          ${detail ? `<p><strong>${escapeHtml(d.summary)}</strong></p>` : ""}
+          ${disruptionGroupBodyHtml(group)}
+        </div>
+      </details>`;
+  }).join("");
+  return `<div class="disruptions" role="region" aria-label="Disruptions">${cards}</div>`;
 }
 
 /** With more than one part to choose from, a box to find your bus. */
@@ -10053,6 +10137,13 @@ const MOBILE_BREAKPOINT = 900;
 
 const SHEET_DETENTS = ["peek", "half", "full"];
 
+/** The detents in use. With ?preview=1 (boardPreview) a fourth, `tall`,
+ *  halfway between half and full: a stop opens most of the way up, with a
+ *  sliver of map still showing (asked for 26 October 2026). */
+function sheetDetents() {
+  return boardPreview() ? ["peek", "half", "tall", "full"] : SHEET_DETENTS;
+}
+
 /* Where the sheet sits when a view opens. Each view is answering a different
    question, so each wants a different share of the screen:
      live    — the map is the point; peek still shows the next departure
@@ -10105,11 +10196,10 @@ function sheetDetentPixels() {
     }
     return fallback;
   };
-  return {
-    peek: read("--sheet-peek", 200),
-    half: read("--sheet-half", window.innerHeight * 0.48),
-    full: read("--sheet-full", window.innerHeight * 0.88),
-  };
+  const half = read("--sheet-half", window.innerHeight * 0.48);
+  const full = read("--sheet-full", window.innerHeight * 0.88);
+  // --sheet-tall is a calc() of the two, which read() cannot parse.
+  return { peek: read("--sheet-peek", 200), half, tall: (half + full) / 2, full };
 }
 
 function syncCollapseButtons(collapsed) {
@@ -10121,7 +10211,7 @@ function syncCollapseButtons(collapsed) {
 
 /** Move the sheet to a named detent and tell everything else about it. */
 function setSheetDetent(detent) {
-  if (!SHEET_DETENTS.includes(detent)) return;
+  if (!sheetDetents().includes(detent)) return;
   state.sheetDetent = detent;
   document.body.dataset.sheet = detent;
 
@@ -10240,8 +10330,9 @@ function fitBoundsAboveSheet(bounds, options = {}) {
 }
 
 function cycleSheetDetent() {
-  const i = SHEET_DETENTS.indexOf(state.sheetDetent);
-  setSheetDetent(SHEET_DETENTS[(i + 1) % SHEET_DETENTS.length]);
+  const detents = sheetDetents();
+  const i = detents.indexOf(state.sheetDetent);
+  setSheetDetent(detents[(i + 1) % detents.length]);
   if (state.map) state.map.invalidateSize();
 }
 
@@ -10311,7 +10402,7 @@ function initSheet() {
     if (!wasDrag) return;                     // a tap: the click handler has it
 
     const d = sheetDetentPixels();
-    const nearest = SHEET_DETENTS.reduce((best, name) =>
+    const nearest = sheetDetents().reduce((best, name) =>
       Math.abs(d[name] - height) < Math.abs(d[best] - height) ? name : best);
     setSheetDetent(nearest);
     if (state.map) state.map.invalidateSize();
@@ -13486,12 +13577,15 @@ function renderStopSearchResults(listEl, matches, query) {
  *
  * Only lifts from `peek`, and only on a sheet layout. If the reader has
  * already dragged the sheet somewhere, that is their choice and it stands.
+ *
+ * `stop`: a stop's board, which with ?preview=1 opens to `tall`, most of the
+ * way up, so the departures show without a drag.
  */
-function revealPanelForSelection() {
+function revealPanelForSelection({ stop = false } = {}) {
   if (!isSheetLayout()) return;
   if (document.body.dataset.sheet !== "peek") return;
   const preferred = defaultDetentForViewport();
-  setSheetDetent(preferred === "peek" ? "half" : preferred);
+  setSheetDetent(preferred !== "peek" ? preferred : stop && boardPreview() ? "tall" : "half");
 }
 
 function bindDialogBackdropClose(dialog) {
