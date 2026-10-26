@@ -368,7 +368,11 @@ jobs:
                             ("running-recovery.json", "served-recovery.json")):
               entry = artifacts.get(name)
               if entry:
-                  raw = urllib.request.urlopen(f"{sys.argv[1]}/{entry['file']}", timeout=60).read()
+                  # Named, as every other download here is: the Worker
+                  # refuses Python's default User-Agent with a 403.
+                  req = urllib.request.Request(f"{sys.argv[1]}/{entry['file']}",
+                                               headers={"User-Agent": "bus-reliability-build"})
+                  raw = urllib.request.urlopen(req, timeout=60).read()
                   if hashlib.sha256(raw).hexdigest() == entry.get("sha256"):
                       open(out, "wb").write(raw)
           PYDIV

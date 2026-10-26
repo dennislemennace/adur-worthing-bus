@@ -159,6 +159,15 @@ def test_workflow_stores_the_preview_compressed_and_says_why_it_will_not_publish
     assert 'over the $(gib "$BUDGET") budget' in workflow
 
 
+def test_workflow_names_itself_on_every_python_download():
+    # The Worker refuses urllib's default User-Agent with a 403: on 26
+    # October 2026 that stopped the board being scored (issue #7).
+    import re
+    workflow = Path(".github/workflows/process-snapshots.yml").read_text()
+    bare = re.findall(r"urlopen\(\s*f?[\"']", workflow)
+    assert not bare, f"a download sends Python's default User-Agent: {bare}"
+
+
 def test_a_waiting_file_whose_counts_do_not_add_up_stops_publication(tmp_path):
     from publication_bundle import build_bundle
     folder = journey_files(tmp_path)

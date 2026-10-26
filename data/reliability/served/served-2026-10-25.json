@@ -1,0 +1,1314 @@
+{
+ "accuracy": {
+  "all": {
+   "early": 11363,
+   "late": 17115,
+   "ok": 105678,
+   "unscored": 22268
+  },
+  "disrupted|all": {
+   "early": 55062,
+   "late": 150186,
+   "ok": 775319,
+   "unscored": 358452
+  },
+  "disrupted|operator|BHBC": {
+   "early": 39001,
+   "late": 141918,
+   "ok": 682678,
+   "unscored": 275069
+  },
+  "disrupted|operator|COMT": {
+   "early": 822,
+   "late": 762,
+   "ok": 6312,
+   "unscored": 3393
+  },
+  "disrupted|operator|METR": {
+   "early": 314,
+   "late": 1039,
+   "ok": 2505,
+   "unscored": 100
+  },
+  "disrupted|operator|SCSO": {
+   "early": 14925,
+   "late": 6467,
+   "ok": 83824,
+   "unscored": 79890
+  },
+  "disrupted|position|first stop": {
+   "early": 66,
+   "late": 473,
+   "ok": 2110,
+   "unscored": 922
+  },
+  "disrupted|position|later stops": {
+   "early": 54561,
+   "late": 144959,
+   "ok": 760174,
+   "unscored": 356670
+  },
+  "disrupted|position|stops 2-3": {
+   "early": 435,
+   "late": 4754,
+   "ok": 13035,
+   "unscored": 860
+  },
+  "disrupted|range|0-3 min": {
+   "early": 5145,
+   "late": 35961,
+   "ok": 90172
+  },
+  "disrupted|range|12-18 min": {
+   "early": 12104,
+   "late": 28717,
+   "ok": 156663
+  },
+  "disrupted|range|18-30 min": {
+   "early": 17550,
+   "late": 35302,
+   "ok": 238740
+  },
+  "disrupted|range|3-6 min": {
+   "early": 6367,
+   "late": 23104,
+   "ok": 97935
+  },
+  "disrupted|range|6-12 min": {
+   "early": 13896,
+   "late": 27102,
+   "ok": 191809
+  },
+  "disrupted|range|already due": {
+   "unscored": 13458
+  },
+  "disrupted|range|over 30 min": {
+   "unscored": 344994
+  },
+  "disrupted|service|12|BHBC": {
+   "early": 213,
+   "late": 2254,
+   "ok": 9581,
+   "unscored": 378
+  },
+  "disrupted|service|14|BHBC": {
+   "early": 259,
+   "late": 1345,
+   "ok": 6262,
+   "unscored": 239
+  },
+  "disrupted|service|1X|BHBC": {
+   "early": 1230,
+   "late": 4321,
+   "ok": 29308,
+   "unscored": 9676
+  },
+  "disrupted|service|1|BHBC": {
+   "early": 6364,
+   "late": 13046,
+   "ok": 120035,
+   "unscored": 59750
+  },
+  "disrupted|service|20|BHBC": {
+   "early": 1853,
+   "late": 2991,
+   "ok": 18198,
+   "unscored": 2470
+  },
+  "disrupted|service|21|BHBC": {
+   "early": 613,
+   "late": 8597,
+   "ok": 28127,
+   "unscored": 14883
+  },
+  "disrupted|service|22|BHBC": {
+   "early": 142,
+   "late": 1807,
+   "ok": 4885,
+   "unscored": 187
+  },
+  "disrupted|service|24|BHBC": {
+   "early": 2766,
+   "late": 3864,
+   "ok": 23542,
+   "unscored": 4257
+  },
+  "disrupted|service|25|BHBC": {
+   "early": 308,
+   "late": 5248,
+   "ok": 20804,
+   "unscored": 726
+  },
+  "disrupted|service|26|BHBC": {
+   "early": 1904,
+   "late": 4055,
+   "ok": 11630,
+   "unscored": 567
+  },
+  "disrupted|service|271|METR": {
+   "early": 139,
+   "late": 299,
+   "ok": 1332,
+   "unscored": 42
+  },
+  "disrupted|service|272|METR": {
+   "early": 175,
+   "late": 740,
+   "ok": 1173,
+   "unscored": 58
+  },
+  "disrupted|service|27|BHBC": {
+   "early": 2043,
+   "late": 2873,
+   "ok": 31374,
+   "unscored": 6873
+  },
+  "disrupted|service|28|BHBC": {
+   "early": 161,
+   "late": 1053,
+   "ok": 2213,
+   "unscored": 170
+  },
+  "disrupted|service|29A|BHBC": {
+   "early": 11,
+   "late": 539,
+   "ok": 1316,
+   "unscored": 182
+  },
+  "disrupted|service|29|BHBC": {
+   "early": 49,
+   "late": 752,
+   "ok": 1480,
+   "unscored": 78
+  },
+  "disrupted|service|2|BHBC": {
+   "early": 3572,
+   "late": 8517,
+   "ok": 47827,
+   "unscored": 29445
+  },
+  "disrupted|service|46|BHBC": {
+   "early": 3535,
+   "late": 8346,
+   "ok": 32702,
+   "unscored": 26410
+  },
+  "disrupted|service|48|BHBC": {
+   "early": 860,
+   "late": 2506,
+   "ok": 11557,
+   "unscored": 805
+  },
+  "disrupted|service|49|BHBC": {
+   "early": 2263,
+   "late": 11111,
+   "ok": 45432,
+   "unscored": 17804
+  },
+  "disrupted|service|52|COMT": {
+   "early": 822,
+   "late": 762,
+   "ok": 6312,
+   "unscored": 3393
+  },
+  "disrupted|service|5A|BHBC": {
+   "early": 1492,
+   "late": 10425,
+   "ok": 29374,
+   "unscored": 18778
+  },
+  "disrupted|service|5B|BHBC": {
+   "early": 3417,
+   "late": 20790,
+   "ok": 68867,
+   "unscored": 46737
+  },
+  "disrupted|service|5|BHBC": {
+   "early": 1628,
+   "late": 10280,
+   "ok": 33488,
+   "unscored": 20653
+  },
+  "disrupted|service|6|BHBC": {
+   "early": 1679,
+   "late": 4994,
+   "ok": 30100,
+   "unscored": 4431
+  },
+  "disrupted|service|700|SCSO": {
+   "early": 14922,
+   "late": 6407,
+   "ok": 83816,
+   "unscored": 79889
+  },
+  "disrupted|service|77|BHBC": {
+   "early": 269,
+   "late": 784,
+   "ok": 3718,
+   "unscored": 327
+  },
+  "disrupted|service|78|BHBC": {
+   "early": 76,
+   "late": 372,
+   "ok": 2047,
+   "unscored": 52
+  },
+  "disrupted|service|79|BHBC": {
+   "early": 345,
+   "late": 122,
+   "ok": 1714,
+   "unscored": 95
+  },
+  "disrupted|service|7|BHBC": {
+   "early": 1949,
+   "late": 10926,
+   "ok": 67097,
+   "unscored": 9096
+  },
+  "disrupted|service|N700|SCSO": {
+   "early": 3,
+   "late": 60,
+   "ok": 8,
+   "unscored": 1
+  },
+  "operator|BHBC": {
+   "early": 1479,
+   "late": 6254,
+   "ok": 30868,
+   "unscored": 5709
+  },
+  "operator|COMT": {
+   "early": 3079,
+   "late": 4915,
+   "ok": 23041,
+   "unscored": 9184
+  },
+  "operator|METR": {
+   "early": 149,
+   "late": 1692,
+   "ok": 3340,
+   "unscored": 147
+  },
+  "operator|SCSO": {
+   "early": 6656,
+   "late": 4254,
+   "ok": 48429,
+   "unscored": 7228
+  },
+  "position|first stop": {
+   "early": 9,
+   "late": 151,
+   "ok": 536,
+   "unscored": 166
+  },
+  "position|later stops": {
+   "early": 11083,
+   "late": 15278,
+   "ok": 102676,
+   "unscored": 21564
+  },
+  "position|stops 2-3": {
+   "early": 271,
+   "late": 1686,
+   "ok": 2466,
+   "unscored": 538
+  },
+  "range|0-3 min": {
+   "early": 945,
+   "late": 6397,
+   "ok": 14170
+  },
+  "range|12-18 min": {
+   "early": 2185,
+   "late": 2649,
+   "ok": 21389
+  },
+  "range|18-30 min": {
+   "early": 3175,
+   "late": 1652,
+   "ok": 27635
+  },
+  "range|3-6 min": {
+   "early": 1524,
+   "late": 2947,
+   "ok": 14902
+  },
+  "range|6-12 min": {
+   "early": 3534,
+   "late": 3470,
+   "ok": 27582
+  },
+  "range|already due": {
+   "unscored": 2715
+  },
+  "range|over 30 min": {
+   "unscored": 19553
+  },
+  "service|10|SCSO": {
+   "early": 441,
+   "late": 164,
+   "ok": 2978,
+   "unscored": 131
+  },
+  "service|11|SCSO": {
+   "early": 400,
+   "late": 245,
+   "ok": 1153,
+   "unscored": 79
+  },
+  "service|13X|BHBC": {
+   "early": 96,
+   "late": 639,
+   "ok": 1972,
+   "unscored": 347
+  },
+  "service|17|SCSO": {
+   "early": 53,
+   "late": 926,
+   "ok": 2745,
+   "unscored": 190
+  },
+  "service|1|SCSO": {
+   "early": 447,
+   "late": 146,
+   "ok": 2186,
+   "unscored": 68
+  },
+  "service|22|BHBC": {
+   "late": 44,
+   "ok": 63,
+   "unscored": 8
+  },
+  "service|23|BHBC": {
+   "early": 195,
+   "late": 826,
+   "ok": 8955,
+   "unscored": 273
+  },
+  "service|23|METR": {
+   "early": 55,
+   "late": 557,
+   "ok": 2220,
+   "unscored": 68
+  },
+  "service|24|BHBC": {
+   "late": 18,
+   "ok": 180,
+   "unscored": 2
+  },
+  "service|25|BHBC": {
+   "early": 1,
+   "late": 5,
+   "ok": 34
+  },
+  "service|270|METR": {
+   "early": 29,
+   "late": 657,
+   "ok": 587,
+   "unscored": 47
+  },
+  "service|273|METR": {
+   "early": 65,
+   "late": 478,
+   "ok": 533,
+   "unscored": 32
+  },
+  "service|27|BHBC": {
+   "early": 1,
+   "ok": 24,
+   "unscored": 3
+  },
+  "service|28|BHBC": {
+   "late": 22,
+   "ok": 43
+  },
+  "service|29A|BHBC": {
+   "ok": 2
+  },
+  "service|2B|BHBC": {
+   "early": 8,
+   "late": 189,
+   "ok": 217,
+   "unscored": 13
+  },
+  "service|2|BHBC": {
+   "early": 38,
+   "late": 218,
+   "ok": 1442,
+   "unscored": 267
+  },
+  "service|37B|COMT": {
+   "early": 1246,
+   "late": 2255,
+   "ok": 7865,
+   "unscored": 3825
+  },
+  "service|37|COMT": {
+   "early": 1455,
+   "late": 2408,
+   "ok": 9948,
+   "unscored": 2539
+  },
+  "service|3X|BHBC": {
+   "early": 351,
+   "late": 3977,
+   "ok": 16421,
+   "unscored": 2527
+  },
+  "service|46|BHBC": {
+   "late": 8,
+   "ok": 91,
+   "unscored": 6
+  },
+  "service|47|COMT": {
+   "early": 378,
+   "late": 252,
+   "ok": 5228,
+   "unscored": 2820
+  },
+  "service|48|BHBC": {
+   "late": 60,
+   "ok": 57,
+   "unscored": 5
+  },
+  "service|49|BHBC": {
+   "late": 110,
+   "ok": 259,
+   "unscored": 18
+  },
+  "service|5|SCSO": {
+   "early": 1638,
+   "late": 297,
+   "ok": 11173,
+   "unscored": 566
+  },
+  "service|700|SCSO": {
+   "early": 15,
+   "late": 156,
+   "ok": 499,
+   "unscored": 15
+  },
+  "service|701|SCSO": {
+   "early": 3662,
+   "late": 2320,
+   "ok": 27695,
+   "unscored": 6179
+  },
+  "service|CSS|BHBC": {
+   "early": 767,
+   "late": 133,
+   "ok": 1041,
+   "unscored": 2240
+  },
+  "service|N25|BHBC": {
+   "late": 5,
+   "ok": 32
+  },
+  "service|N7|BHBC": {
+   "early": 22,
+   "ok": 35
+  }
+ },
+ "as_of": "2026-10-26T12:06:58+00:00",
+ "caveats": [
+  "Our own estimates only: where the board showed TransportAPI's prediction instead, that is not reproduced here.",
+  "Times are when buses left stops; RTIG's windows are written for arrivals.",
+  "The recorder samples once a minute; the live API looks every 15 seconds while someone is watching, so live estimates can be a little fresher than these.",
+  "The board's row limit is not modelled: every stop ahead of every bus is scored."
+ ],
+ "cleardown": {
+  "all": {
+   "calls": 51259,
+   "left_before_timetable": 11449,
+   "listed_1_min_after": 5259,
+   "listed_3_min_after": 2043,
+   "listed_5_min_after": 1456
+  },
+  "operator|BHBC": {
+   "calls": 41210,
+   "left_before_timetable": 7742,
+   "listed_1_min_after": 3231,
+   "listed_3_min_after": 1557,
+   "listed_5_min_after": 1332
+  },
+  "operator|COMT": {
+   "calls": 1811,
+   "left_before_timetable": 360,
+   "listed_1_min_after": 131,
+   "listed_3_min_after": 32,
+   "listed_5_min_after": 4
+  },
+  "operator|METR": {
+   "calls": 697,
+   "left_before_timetable": 43,
+   "listed_1_min_after": 18,
+   "listed_3_min_after": 3
+  },
+  "operator|SCSO": {
+   "calls": 7541,
+   "left_before_timetable": 3304,
+   "listed_1_min_after": 1879,
+   "listed_3_min_after": 451,
+   "listed_5_min_after": 120
+  }
+ },
+ "coverage": {
+  "all": {
+   "calls": 86119,
+   "named_no_estimate": 8234,
+   "no_bus_seen": 3861,
+   "seen_not_named": 1027,
+   "with_estimate": 72997
+  },
+  "operator|BHBC": {
+   "calls": 64927,
+   "named_no_estimate": 7053,
+   "no_bus_seen": 1843,
+   "seen_not_named": 1027,
+   "with_estimate": 55004
+  },
+  "operator|COMT": {
+   "calls": 4708,
+   "named_no_estimate": 179,
+   "with_estimate": 4529
+  },
+  "operator|FLIX": {
+   "calls": 278,
+   "no_bus_seen": 278
+  },
+  "operator|METR": {
+   "calls": 1063,
+   "named_no_estimate": 176,
+   "with_estimate": 887
+  },
+  "operator|NATX": {
+   "calls": 241,
+   "named_no_estimate": 5,
+   "no_bus_seen": 193,
+   "with_estimate": 43
+  },
+  "operator|SCSO": {
+   "calls": 14902,
+   "named_no_estimate": 821,
+   "no_bus_seen": 1547,
+   "with_estimate": 12534
+  },
+  "service|025|NATX": {
+   "calls": 241,
+   "named_no_estimate": 5,
+   "no_bus_seen": 193,
+   "with_estimate": 43
+  },
+  "service|10|SCSO": {
+   "calls": 619,
+   "named_no_estimate": 26,
+   "no_bus_seen": 148,
+   "with_estimate": 445
+  },
+  "service|11|SCSO": {
+   "calls": 486,
+   "named_no_estimate": 37,
+   "no_bus_seen": 108,
+   "with_estimate": 341
+  },
+  "service|12|BHBC": {
+   "calls": 1509,
+   "named_no_estimate": 265,
+   "no_bus_seen": 42,
+   "with_estimate": 1202
+  },
+  "service|13X|BHBC": {
+   "calls": 362,
+   "named_no_estimate": 56,
+   "with_estimate": 306
+  },
+  "service|14|BHBC": {
+   "calls": 1274,
+   "named_no_estimate": 164,
+   "no_bus_seen": 84,
+   "with_estimate": 1026
+  },
+  "service|17|SCSO": {
+   "calls": 400,
+   "named_no_estimate": 46,
+   "with_estimate": 354
+  },
+  "service|1X|BHBC": {
+   "calls": 2041,
+   "named_no_estimate": 34,
+   "with_estimate": 2007
+  },
+  "service|1|BHBC": {
+   "calls": 9276,
+   "named_no_estimate": 851,
+   "no_bus_seen": 232,
+   "with_estimate": 8193
+  },
+  "service|1|SCSO": {
+   "calls": 306,
+   "named_no_estimate": 28,
+   "with_estimate": 278
+  },
+  "service|20|BHBC": {
+   "calls": 2155,
+   "named_no_estimate": 266,
+   "no_bus_seen": 70,
+   "with_estimate": 1819
+  },
+  "service|21|BHBC": {
+   "calls": 2569,
+   "named_no_estimate": 302,
+   "no_bus_seen": 40,
+   "with_estimate": 2227
+  },
+  "service|22|BHBC": {
+   "calls": 787,
+   "named_no_estimate": 105,
+   "no_bus_seen": 15,
+   "with_estimate": 667
+  },
+  "service|23|BHBC": {
+   "calls": 866,
+   "named_no_estimate": 38,
+   "with_estimate": 828
+  },
+  "service|23|METR": {
+   "calls": 414,
+   "named_no_estimate": 39,
+   "with_estimate": 375
+  },
+  "service|24|BHBC": {
+   "calls": 1752,
+   "named_no_estimate": 99,
+   "no_bus_seen": 93,
+   "with_estimate": 1560
+  },
+  "service|25|BHBC": {
+   "calls": 2667,
+   "named_no_estimate": 349,
+   "no_bus_seen": 16,
+   "seen_not_named": 9,
+   "with_estimate": 2293
+  },
+  "service|26|BHBC": {
+   "calls": 1385,
+   "named_no_estimate": 67,
+   "no_bus_seen": 150,
+   "with_estimate": 1168
+  },
+  "service|270|METR": {
+   "calls": 117,
+   "named_no_estimate": 31,
+   "with_estimate": 86
+  },
+  "service|271|METR": {
+   "calls": 196,
+   "named_no_estimate": 13,
+   "with_estimate": 183
+  },
+  "service|272|METR": {
+   "calls": 196,
+   "named_no_estimate": 68,
+   "with_estimate": 128
+  },
+  "service|273|METR": {
+   "calls": 140,
+   "named_no_estimate": 25,
+   "with_estimate": 115
+  },
+  "service|27|BHBC": {
+   "calls": 3015,
+   "named_no_estimate": 264,
+   "no_bus_seen": 42,
+   "with_estimate": 2709
+  },
+  "service|28|BHBC": {
+   "calls": 318,
+   "named_no_estimate": 90,
+   "with_estimate": 228
+  },
+  "service|29A|BHBC": {
+   "calls": 176,
+   "named_no_estimate": 23,
+   "with_estimate": 153
+  },
+  "service|29|BHBC": {
+   "calls": 212,
+   "named_no_estimate": 55,
+   "with_estimate": 157
+  },
+  "service|2B|BHBC": {
+   "calls": 41,
+   "named_no_estimate": 5,
+   "with_estimate": 36
+  },
+  "service|2|BHBC": {
+   "calls": 3701,
+   "named_no_estimate": 402,
+   "with_estimate": 3299
+  },
+  "service|37B|COMT": {
+   "calls": 954,
+   "named_no_estimate": 33,
+   "with_estimate": 921
+  },
+  "service|37|COMT": {
+   "calls": 1218,
+   "named_no_estimate": 85,
+   "with_estimate": 1133
+  },
+  "service|3X|BHBC": {
+   "calls": 1203,
+   "named_no_estimate": 82,
+   "with_estimate": 1121
+  },
+  "service|46|BHBC": {
+   "calls": 2791,
+   "named_no_estimate": 338,
+   "no_bus_seen": 4,
+   "with_estimate": 2449
+  },
+  "service|47|COMT": {
+   "calls": 1280,
+   "named_no_estimate": 41,
+   "with_estimate": 1239
+  },
+  "service|48|BHBC": {
+   "calls": 1181,
+   "named_no_estimate": 98,
+   "with_estimate": 1083
+  },
+  "service|49|BHBC": {
+   "calls": 3953,
+   "named_no_estimate": 563,
+   "no_bus_seen": 148,
+   "with_estimate": 3242
+  },
+  "service|52|COMT": {
+   "calls": 1256,
+   "named_no_estimate": 20,
+   "with_estimate": 1236
+  },
+  "service|5A|BHBC": {
+   "calls": 2755,
+   "named_no_estimate": 556,
+   "no_bus_seen": 7,
+   "with_estimate": 2192
+  },
+  "service|5B|BHBC": {
+   "calls": 5690,
+   "named_no_estimate": 784,
+   "no_bus_seen": 106,
+   "with_estimate": 4800
+  },
+  "service|5|BHBC": {
+   "calls": 2838,
+   "named_no_estimate": 553,
+   "no_bus_seen": 14,
+   "with_estimate": 2271
+  },
+  "service|5|SCSO": {
+   "calls": 1222,
+   "named_no_estimate": 33,
+   "with_estimate": 1189
+  },
+  "service|6|BHBC": {
+   "calls": 2616,
+   "named_no_estimate": 292,
+   "no_bus_seen": 29,
+   "with_estimate": 2295
+  },
+  "service|700|SCSO": {
+   "calls": 8744,
+   "named_no_estimate": 460,
+   "no_bus_seen": 925,
+   "with_estimate": 7359
+  },
+  "service|701|SCSO": {
+   "calls": 3125,
+   "named_no_estimate": 191,
+   "no_bus_seen": 366,
+   "with_estimate": 2568
+  },
+  "service|77|BHBC": {
+   "calls": 344,
+   "named_no_estimate": 40,
+   "with_estimate": 304
+  },
+  "service|78|BHBC": {
+   "calls": 238,
+   "named_no_estimate": 16,
+   "with_estimate": 222
+  },
+  "service|79|BHBC": {
+   "calls": 292,
+   "named_no_estimate": 30,
+   "with_estimate": 262
+  },
+  "service|7|BHBC": {
+   "calls": 5246,
+   "named_no_estimate": 230,
+   "no_bus_seen": 219,
+   "with_estimate": 4797
+  },
+  "service|CSS|BHBC": {
+   "calls": 104,
+   "named_no_estimate": 4,
+   "no_bus_seen": 13,
+   "seen_not_named": 13,
+   "with_estimate": 74
+  },
+  "service|N12|BHBC": {
+   "calls": 112,
+   "no_bus_seen": 56,
+   "seen_not_named": 56
+  },
+  "service|N14|BHBC": {
+   "calls": 112,
+   "no_bus_seen": 28,
+   "seen_not_named": 84
+  },
+  "service|N1|BHBC": {
+   "calls": 387,
+   "no_bus_seen": 146,
+   "seen_not_named": 241
+  },
+  "service|N25|BHBC": {
+   "calls": 369,
+   "named_no_estimate": 19,
+   "no_bus_seen": 175,
+   "seen_not_named": 175
+  },
+  "service|N29|BHBC": {
+   "calls": 60,
+   "no_bus_seen": 15,
+   "seen_not_named": 45
+  },
+  "service|N48|BHBC": {
+   "calls": 200,
+   "no_bus_seen": 16,
+   "seen_not_named": 184
+  },
+  "service|N7|BHBC": {
+   "calls": 330,
+   "named_no_estimate": 13,
+   "no_bus_seen": 83,
+   "seen_not_named": 220,
+   "with_estimate": 14
+  },
+  "service|UK066|FLIX": {
+   "calls": 180,
+   "no_bus_seen": 180
+  },
+  "service|UK998|FLIX": {
+   "calls": 98,
+   "no_bus_seen": 98
+  }
+ },
+ "days": [
+  "2026-10-25"
+ ],
+ "inputs": {
+  "gtfs_rt_minutes": 1450,
+  "siri_minutes": 1120
+ },
+ "journeys": {
+  "all": {
+   "journeys": 2835,
+   "with_estimate": 2512
+  },
+  "operator|BHBC": {
+   "journeys": 2168,
+   "with_estimate": 2040
+  },
+  "operator|COMT": {
+   "journeys": 102,
+   "with_estimate": 102
+  },
+  "operator|FLIX": {
+   "journeys": 139,
+   "with_estimate": 0
+  },
+  "operator|METR": {
+   "journeys": 54,
+   "with_estimate": 54
+  },
+  "operator|NATX": {
+   "journeys": 30,
+   "with_estimate": 8
+  },
+  "operator|SCSO": {
+   "journeys": 342,
+   "with_estimate": 308
+  },
+  "service|025|NATX": {
+   "journeys": 30,
+   "with_estimate": 8
+  },
+  "service|10|SCSO": {
+   "journeys": 21,
+   "with_estimate": 16
+  },
+  "service|11|SCSO": {
+   "journeys": 27,
+   "with_estimate": 21
+  },
+  "service|12|BHBC": {
+   "journeys": 109,
+   "with_estimate": 106
+  },
+  "service|13X|BHBC": {
+   "journeys": 65,
+   "with_estimate": 65
+  },
+  "service|14|BHBC": {
+   "journeys": 91,
+   "with_estimate": 85
+  },
+  "service|17|SCSO": {
+   "journeys": 20,
+   "with_estimate": 20
+  },
+  "service|1X|BHBC": {
+   "journeys": 95,
+   "with_estimate": 95
+  },
+  "service|1|BHBC": {
+   "journeys": 178,
+   "with_estimate": 172
+  },
+  "service|1|SCSO": {
+   "journeys": 12,
+   "with_estimate": 12
+  },
+  "service|20|BHBC": {
+   "journeys": 66,
+   "with_estimate": 64
+  },
+  "service|21|BHBC": {
+   "journeys": 48,
+   "with_estimate": 47
+  },
+  "service|22|BHBC": {
+   "journeys": 58,
+   "with_estimate": 57
+  },
+  "service|23|BHBC": {
+   "journeys": 29,
+   "with_estimate": 29
+  },
+  "service|23|METR": {
+   "journeys": 18,
+   "with_estimate": 18
+  },
+  "service|24|BHBC": {
+   "journeys": 59,
+   "with_estimate": 55
+  },
+  "service|25|BHBC": {
+   "journeys": 155,
+   "with_estimate": 153
+  },
+  "service|26|BHBC": {
+   "journeys": 56,
+   "with_estimate": 50
+  },
+  "service|270|METR": {
+   "journeys": 6,
+   "with_estimate": 6
+  },
+  "service|271|METR": {
+   "journeys": 8,
+   "with_estimate": 8
+  },
+  "service|272|METR": {
+   "journeys": 8,
+   "with_estimate": 8
+  },
+  "service|273|METR": {
+   "journeys": 14,
+   "with_estimate": 14
+  },
+  "service|27|BHBC": {
+   "journeys": 88,
+   "with_estimate": 85
+  },
+  "service|28|BHBC": {
+   "journeys": 37,
+   "with_estimate": 37
+  },
+  "service|29A|BHBC": {
+   "journeys": 20,
+   "with_estimate": 20
+  },
+  "service|29|BHBC": {
+   "journeys": 24,
+   "with_estimate": 24
+  },
+  "service|2B|BHBC": {
+   "journeys": 2,
+   "with_estimate": 2
+  },
+  "service|2|BHBC": {
+   "journeys": 67,
+   "with_estimate": 67
+  },
+  "service|37B|COMT": {
+   "journeys": 18,
+   "with_estimate": 18
+  },
+  "service|37|COMT": {
+   "journeys": 42,
+   "with_estimate": 42
+  },
+  "service|3X|BHBC": {
+   "journeys": 65,
+   "with_estimate": 65
+  },
+  "service|46|BHBC": {
+   "journeys": 56,
+   "with_estimate": 55
+  },
+  "service|47|COMT": {
+   "journeys": 22,
+   "with_estimate": 22
+  },
+  "service|48|BHBC": {
+   "journeys": 62,
+   "with_estimate": 62
+  },
+  "service|49|BHBC": {
+   "journeys": 118,
+   "with_estimate": 112
+  },
+  "service|52|COMT": {
+   "journeys": 20,
+   "with_estimate": 20
+  },
+  "service|5A|BHBC": {
+   "journeys": 54,
+   "with_estimate": 53
+  },
+  "service|5B|BHBC": {
+   "journeys": 105,
+   "with_estimate": 103
+  },
+  "service|5|BHBC": {
+   "journeys": 55,
+   "with_estimate": 53
+  },
+  "service|5|SCSO": {
+   "journeys": 52,
+   "with_estimate": 52
+  },
+  "service|6|BHBC": {
+   "journeys": 88,
+   "with_estimate": 87
+  },
+  "service|700|SCSO": {
+   "journeys": 127,
+   "with_estimate": 114
+  },
+  "service|701|SCSO": {
+   "journeys": 83,
+   "with_estimate": 73
+  },
+  "service|77|BHBC": {
+   "journeys": 16,
+   "with_estimate": 16
+  },
+  "service|78|BHBC": {
+   "journeys": 14,
+   "with_estimate": 14
+  },
+  "service|79|BHBC": {
+   "journeys": 15,
+   "with_estimate": 15
+  },
+  "service|7|BHBC": {
+   "journeys": 192,
+   "with_estimate": 184
+  },
+  "service|CSS|BHBC": {
+   "journeys": 8,
+   "with_estimate": 6
+  },
+  "service|N12|BHBC": {
+   "journeys": 8,
+   "with_estimate": 0
+  },
+  "service|N14|BHBC": {
+   "journeys": 8,
+   "with_estimate": 0
+  },
+  "service|N1|BHBC": {
+   "journeys": 8,
+   "with_estimate": 0
+  },
+  "service|N25|BHBC": {
+   "journeys": 21,
+   "with_estimate": 1
+  },
+  "service|N29|BHBC": {
+   "journeys": 8,
+   "with_estimate": 0
+  },
+  "service|N48|BHBC": {
+   "journeys": 8,
+   "with_estimate": 0
+  },
+  "service|N7|BHBC": {
+   "journeys": 12,
+   "with_estimate": 1
+  },
+  "service|UK066|FLIX": {
+   "journeys": 90,
+   "with_estimate": 0
+  },
+  "service|UK998|FLIX": {
+   "journeys": 49,
+   "with_estimate": 0
+  }
+ },
+ "method": "Each recorded minute's feeds put through the API's own code to rebuild every estimate the stop board would have shown, each judged against when that bus really left the stop by RTIG's accuracy window for how far ahead it said the bus was (RTIGT041-1.0, section 6.9). Coverage: timetabled calls in the recorded area with a live estimate in the 15 minutes before they were due (RTIGT041 5.2).",
+ "method_version": 1,
+ "timetable_data_version": "timetable.sqlite sha256:c008ac0db87b4e566a8d3fc86dc933be84eb016d587f172c360ff5f3f10a8fdf",
+ "versus": {
+  "disrupted|previous_journey|ours|all": {
+   "early": 432,
+   "late": 1418,
+   "ok": 10468,
+   "unscored": 319500
+  },
+  "disrupted|previous_journey|ours|operator|COMT": {
+   "late": 230,
+   "ok": 1238,
+   "unscored": 14641
+  },
+  "disrupted|previous_journey|ours|operator|SCSO": {
+   "early": 432,
+   "late": 1188,
+   "ok": 9230,
+   "unscored": 304859
+  },
+  "disrupted|previous_journey|ours|position|first stop": {
+   "late": 23,
+   "ok": 110,
+   "unscored": 261
+  },
+  "disrupted|previous_journey|ours|position|later stops": {
+   "early": 397,
+   "late": 1377,
+   "ok": 8904,
+   "unscored": 314446
+  },
+  "disrupted|previous_journey|ours|position|stops 2-3": {
+   "early": 35,
+   "late": 18,
+   "ok": 1454,
+   "unscored": 4793
+  },
+  "disrupted|previous_journey|timetable|all": {
+   "early": 246,
+   "late": 2686,
+   "ok": 9943,
+   "unscored": 318943
+  },
+  "disrupted|previous_journey|timetable|operator|COMT": {
+   "late": 230,
+   "ok": 1238,
+   "unscored": 14641
+  },
+  "disrupted|previous_journey|timetable|operator|SCSO": {
+   "early": 246,
+   "late": 2456,
+   "ok": 8705,
+   "unscored": 304302
+  },
+  "disrupted|previous_journey|timetable|position|first stop": {
+   "late": 23,
+   "ok": 110,
+   "unscored": 261
+  },
+  "disrupted|previous_journey|timetable|position|later stops": {
+   "early": 231,
+   "late": 2596,
+   "ok": 8408,
+   "unscored": 313889
+  },
+  "disrupted|previous_journey|timetable|position|stops 2-3": {
+   "early": 15,
+   "late": 67,
+   "ok": 1425,
+   "unscored": 4793
+  },
+  "previous_journey|ours|all": {
+   "early": 73,
+   "late": 70,
+   "ok": 4569,
+   "unscored": 46240
+  },
+  "previous_journey|ours|operator|COMT": {
+   "late": 47,
+   "ok": 1286,
+   "unscored": 9908
+  },
+  "previous_journey|ours|operator|SCSO": {
+   "early": 73,
+   "late": 23,
+   "ok": 3283,
+   "unscored": 36332
+  },
+  "previous_journey|ours|position|first stop": {
+   "late": 10,
+   "ok": 431,
+   "unscored": 685
+  },
+  "previous_journey|ours|position|later stops": {
+   "early": 64,
+   "late": 37,
+   "ok": 3468,
+   "unscored": 44184
+  },
+  "previous_journey|ours|position|stops 2-3": {
+   "early": 9,
+   "late": 23,
+   "ok": 670,
+   "unscored": 1371
+  },
+  "previous_journey|timetable|all": {
+   "early": 38,
+   "late": 70,
+   "ok": 4668,
+   "unscored": 46176
+  },
+  "previous_journey|timetable|operator|COMT": {
+   "late": 47,
+   "ok": 1286,
+   "unscored": 9908
+  },
+  "previous_journey|timetable|operator|SCSO": {
+   "early": 38,
+   "late": 23,
+   "ok": 3382,
+   "unscored": 36268
+  },
+  "previous_journey|timetable|position|first stop": {
+   "late": 10,
+   "ok": 431,
+   "unscored": 685
+  },
+  "previous_journey|timetable|position|later stops": {
+   "early": 29,
+   "late": 37,
+   "ok": 3567,
+   "unscored": 44120
+  },
+  "previous_journey|timetable|position|stops 2-3": {
+   "early": 9,
+   "late": 23,
+   "ok": 670,
+   "unscored": 1371
+  }
+ }
+}
