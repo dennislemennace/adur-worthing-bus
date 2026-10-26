@@ -105,7 +105,7 @@
       "kind": "diversion",
       "summary": "Old Steine, Brighton, roadworks; southbound buses diverted via Edward Street, Rock Gardens and the seafront, routes towards Imperial Arcade via Grand Parade, Church Street and North Road, and the 25, 25X and 78 kept off the Old Steine 07:00 to 18:00.",
       "from": "2026-10-23T00:00+01:00",
-      "to": "2026-10-27T23:59+00:00",
+      "to": "2026-10-26T20:30+00:00",
       "operator": "BHBC",
       "routes": [
         "1",
@@ -157,7 +157,7 @@
           -0.1285
         ]
       ],
-      "note": "Journey times and delay-map cells through central Brighton (Old Steine, North Street, Grand Parade, Edward Street, Queens Road) during the dates are not typical of these routes: buses skip stops there and go round by other streets, and lateness picked up there carries on down the route. Compass (52) and Metrobus (271, 272) share Brighton & Hove Buses' service updates, so the notice covers them too.",
+      "note": "Journey times and delay-map cells through central Brighton (Old Steine, North Street, Grand Parade, Edward Street, Queens Road) during the dates are not typical of these routes: buses skip stops there and go round by other streets, and lateness picked up there carries on down the route. Compass (52) and Metrobus (271, 272) share Brighton & Hove Buses' service updates, so the notice covers them too. The works were reported over on the evening of 26 October 2026, a day before the end the notice gave; they may have finished earlier that day.",
       "source_url": "https://www.buses.co.uk/service-updates",
       "disruption_id": "bhbc-old-steine-2026-10-23",
       "recorded_on": "2026-10-24"
@@ -167,7 +167,7 @@
       "kind": "diversion",
       "summary": "Old Steine, Brighton, roadworks; southbound buses diverted via Edward Street, Rock Gardens and the seafront, routes towards Imperial Arcade via Grand Parade, Church Street and North Road, and the 25, 25X and 78 kept off the Old Steine 07:00 to 18:00.",
       "from": "2026-10-23T00:00+01:00",
-      "to": "2026-10-27T23:59+00:00",
+      "to": "2026-10-26T20:30+00:00",
       "operator": "COMT",
       "routes": [
         "52"
@@ -193,7 +193,7 @@
           -0.1285
         ]
       ],
-      "note": "Journey times and delay-map cells through central Brighton (Old Steine, North Street, Grand Parade, Edward Street, Queens Road) during the dates are not typical of these routes: buses skip stops there and go round by other streets, and lateness picked up there carries on down the route. Compass (52) and Metrobus (271, 272) share Brighton & Hove Buses' service updates, so the notice covers them too.",
+      "note": "Journey times and delay-map cells through central Brighton (Old Steine, North Street, Grand Parade, Edward Street, Queens Road) during the dates are not typical of these routes: buses skip stops there and go round by other streets, and lateness picked up there carries on down the route. Compass (52) and Metrobus (271, 272) share Brighton & Hove Buses' service updates, so the notice covers them too. The works were reported over on the evening of 26 October 2026, a day before the end the notice gave; they may have finished earlier that day.",
       "source_url": "https://www.buses.co.uk/service-updates",
       "disruption_id": "bhbc-old-steine-2026-10-23",
       "recorded_on": "2026-10-24"
@@ -203,7 +203,7 @@
       "kind": "diversion",
       "summary": "Old Steine, Brighton, roadworks; southbound buses diverted via Edward Street, Rock Gardens and the seafront, routes towards Imperial Arcade via Grand Parade, Church Street and North Road, and the 25, 25X and 78 kept off the Old Steine 07:00 to 18:00.",
       "from": "2026-10-23T00:00+01:00",
-      "to": "2026-10-27T23:59+00:00",
+      "to": "2026-10-26T20:30+00:00",
       "operator": "METR",
       "routes": [
         "271",
@@ -230,7 +230,7 @@
           -0.1285
         ]
       ],
-      "note": "Journey times and delay-map cells through central Brighton (Old Steine, North Street, Grand Parade, Edward Street, Queens Road) during the dates are not typical of these routes: buses skip stops there and go round by other streets, and lateness picked up there carries on down the route. Compass (52) and Metrobus (271, 272) share Brighton & Hove Buses' service updates, so the notice covers them too.",
+      "note": "Journey times and delay-map cells through central Brighton (Old Steine, North Street, Grand Parade, Edward Street, Queens Road) during the dates are not typical of these routes: buses skip stops there and go round by other streets, and lateness picked up there carries on down the route. Compass (52) and Metrobus (271, 272) share Brighton & Hove Buses' service updates, so the notice covers them too. The works were reported over on the evening of 26 October 2026, a day before the end the notice gave; they may have finished earlier that day.",
       "source_url": "https://www.buses.co.uk/service-updates",
       "disruption_id": "bhbc-old-steine-2026-10-23",
       "recorded_on": "2026-10-24"
@@ -240,7 +240,7 @@
       "kind": "diversion",
       "summary": "Old Steine, Brighton, roadworks; Stagecoach 700 turning at Brighton Station instead of running to the Old Steine.",
       "from": "2026-10-23T00:00+01:00",
-      "to": "2026-10-27T23:59+00:00",
+      "to": "2026-10-26T20:30+00:00",
       "operator": "SCSO",
       "routes": [
         "700"
@@ -269,7 +269,7 @@
           -0.1285
         ]
       ],
-      "note": "Journeys into Brighton end at Brighton Station after Churchill Square, and journeys out start there, so times through North Street and the Old Steine are missing and those past Churchill Square are not typical. Reported by a rider on 24 October 2026; Stagecoach published no notice, and it is not yet checked against tracked buses.",
+      "note": "Journeys into Brighton end at Brighton Station after Churchill Square, and journeys out start there, so times through North Street and the Old Steine are missing and those past Churchill Square are not typical. Reported by a rider on 24 October 2026; Stagecoach published no notice, and it is not yet checked against tracked buses. The works were reported over on the evening of 26 October 2026, a day before the end the notice gave; they may have finished earlier that day.",
       "source_url": "https://www.stagecoachbus.com/service-updates",
       "disruption_id": "scso-700-old-steine-2026-10-23",
       "recorded_on": "2026-10-24"
