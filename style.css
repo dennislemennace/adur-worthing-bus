@@ -4006,6 +4006,38 @@ html.dark-mode .departures-table tr.departure-row:hover td {
 .disruption-source { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .disruption-part { border-top: 1px solid var(--color-border); margin-top: var(--space-xs); padding-top: var(--space-xs); }
 .disruption-source a { color: var(--color-link); }
+.disruption[hidden], .stop-closure[hidden] { display: none; }
+
+/* Notices split by route: the buses as badges, one line per works. */
+.disruption-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 2px; }
+.disruption-badges .service-badge { min-width: 32px; height: 22px; padding: 0 6px; }
+.disruption-line { display: block; }
+.disruption-line .disruption-summary { font-weight: 600; }
+
+/* A busy stop's box to find your own bus among the notices. */
+.disruption-find {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-2xs);
+  font-size: var(--font-size-sm);
+}
+.disruption-find-label { flex: none; font-weight: 600; }
+.disruption-find-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--target-min);
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 16px; /* under 16px, iOS zooms the page when the box is tapped */
+}
+.disruption-find-input:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+.disruption-find-status { margin: 0 0 var(--space-2xs); font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.disruption-find-status:empty { display: none; }
 .row-disruption {
   display: flex;
   align-items: center;

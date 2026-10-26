@@ -413,15 +413,88 @@ test("notices about the same works are one notice, each route's own words inside
   const turn = { ...curated, id: "o700", parent: "o", summary: "700 turning at Brighton Station",
     publisher: "Stagecoach", observed: true, lines: [{ operator: "SCSO", line: "700" }],
     ends: "2026-10-27T23:59:00+00:00" };
-  const html = app.buildDisruptionsHtml([western, steine, council, turn]);
+  // The Bus tab: one route, so plain notices, each works once.
+  const western700 = { ...western, lines: [...western.lines, { operator: "SCSO", line: "700" }] };
+  const html = app.buildDisruptionsHtml([western700, steine, council, turn], { services: [{ service: "700", operator: "SCSO" }] });
   assert.equal(html.match(/<details class="disruption">/g).length, 2, "one works showed as two notices");
-  assert.ok(html.indexOf("Western Road closed") < html.indexOf("Old Steine roadworks"), "the order changed");
+  assert.ok(html.indexOf("Western Road closed") < html.indexOf("700 turning"), "the order changed");
   assert.match(html, /Services 1, 700 · Until Fri 6 Nov/);
   assert.match(html, /Service 700<\/strong> · Until Thu 12 Nov/, "the 700's own end date was lost");
   assert.match(html, /Brunswick Place is not served[\s\S]*Brighton &amp; Hove City Council/);
   assert.match(html, /700 turning at Brighton Station[\s\S]*Seen on the road: Stagecoach/);
   assert.equal(app.buildDisruptionsHtml([turn]).match(/<details class="disruption">/g).length, 1,
     "a route's notice with its main one not here vanished");
+  // Split by route, the works still read once inside each route's part.
+  const split = app.buildDisruptionsHtml([western700, steine, council, turn]);
+  const part700 = split.split('data-services="700"')[1].split("data-services=")[0];
+  assert.equal((part700.match(/class="disruption-line"/g) || []).length, 2,
+    "the 700's two works showed as more than two lines");
+});
+
+// A busy Brighton stop can have five notices across thirty routes: split by
+// service, each route's notices are read once, and a box finds your bus.
+const busy = (() => {
+  const curated = { source: "curated", operators: [], checked_on: "2026-10-24" };
+  const lines = (op, ...ls) => ls.map(line => ({ operator: op, line }));
+  return {
+    western: { ...curated, id: "w", summary: "Western Road closed", publisher: "Brighton & Hove Buses",
+      lines: lines("BHBC", "1", "25", "49", "60"), ends: "2026-11-06T23:59:00+00:00" },
+    steine: { ...curated, id: "o", summary: "Old Steine roadworks", publisher: "Brighton & Hove Buses",
+      lines: lines("BHBC", "25", "25X", "49", "60", "78"), ends: "2026-10-27T23:59:00+00:00" },
+    council: { ...curated, id: "w700", same_event_as: "w", summary: "Western Road closed for the 700",
+      publisher: "Brighton & Hove City Council", lines: lines("SCSO", "700", "N700"),
+      ends: "2026-11-12T23:59:00+00:00" },
+    here: ["25", "25X", "49", "60", "78", "270", "700", "N25", "N700"]
+      .map(service => ({ service, operator: /700/.test(service) ? "SCSO" : "BHBC" })),
+  };
+})();
+
+test("on a busy stop, notices are split by service, routes with the same notices together", () => {
+  const html = app.buildDisruptionsHtml([busy.western, busy.steine, busy.council], { services: busy.here });
+  const sections = [...html.matchAll(/data-services="([^"]*)"/g)].map(m => m[1]);
+  assert.deepEqual(sections, ["25 49 60", "25X 78", "700 N700"],
+    "routes were not grouped by the notices that touch them");
+  const first = html.split('data-services="25X 78"')[0];
+  assert.match(first, /Western Road closed[\s\S]*Old Steine roadworks/, "a route lost one of its notices");
+  assert.doesNotMatch(html.split('data-services="700 N700"')[1], /Old Steine roadworks/,
+    "the 700 was given Brighton & Hove's notice");
+  assert.match(html, /class="service-badge[^"]*"[^>]*>25X</, "a section does not say which buses it is for");
+  assert.doesNotMatch(html, /data-services="[^"]*\bN25\b/, "a route with no notice got a section");
+});
+
+test("a notice for no route that calls here is still shown", () => {
+  const stray = { ...busy.steine, id: "x", summary: "Marina works", lines: [{ operator: "BHBC", line: "7" }] };
+  const html = app.buildDisruptionsHtml([busy.western, busy.steine, stray], { services: busy.here });
+  assert.match(html, /Marina works/, "a notice the API sent for this stop vanished");
+});
+
+test("with one set of notices, a board or the Bus tab keeps plain notices", () => {
+  const html = app.buildDisruptionsHtml([busy.steine], { services: [{ service: "25X", operator: "BHBC" }] });
+  assert.doesNotMatch(html, /data-services/);
+  assert.match(html, /<details class="disruption">/);
+});
+
+test("typing a bus number shows the part of the notices for that bus", () => {
+  const find = (q) => app.findDisruptionSections(q, [["25", "49", "60"], ["25X", "78"], ["700", "N700"]]);
+  assert.deepEqual(find("").show, [true, true, true]);
+  assert.deepEqual(find(" n700 ").show, [false, false, true], "a lower-case or padded number was not found");
+  assert.deepEqual(find("25").show, [true, false, false], "25 also matched 25X");
+  assert.deepEqual(find("70").show, [false, false, true], "a number being typed hid everything");
+  assert.equal(find("70").message, "");
+  const none = find("9");
+  assert.deepEqual(none.show, [false, false, false]);
+  assert.match(none.message, /No disruption recorded here for the 9/);
+});
+
+test("the board offers the box only when there is more than one part to choose from", () => {
+  const data = { services_here: busy.here, disruptions: [busy.western, busy.steine, busy.council],
+    line_closures: [{ ...closure, id: "o700", lines: ["700"] }] };
+  const html = app.boardNoticesHtml(data);
+  assert.match(html, /class="disruption-find-input"/, "a busy stop has no way to find a bus");
+  assert.ok(html.indexOf("disruption-find") < html.indexOf("stop-closure"), "the box sits under what it filters");
+  assert.match(html, /class="stop-closure"[^>]*data-services="700"/, "the 700's closure cannot be found by its number");
+  assert.doesNotMatch(app.boardNoticesHtml({ services_here: busy.here, disruptions: [busy.steine] }),
+    /disruption-find/, "one notice was given a search box");
 });
 
 test("a row at a closed stop is not served, and promises no live time", () => {

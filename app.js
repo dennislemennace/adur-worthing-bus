@@ -8008,23 +8008,27 @@ function renderDepartures(data) {
 
   const noticesHost = document.getElementById("board-disruptions");
   if (noticesHost) {
-    // The closure first: at a stop no bus calls at, where to go instead is
-    // the only thing on the board that matters.
-    // The notice the closure came from is already said in full above.
-    // Then routes that skip this stop while others still call, one notice
-    // each (api/main.py, _apply_line_closures).
-    const lineClosures = data?.line_closures || [];
-    const shownIds = new Set([data?.stop_closure?.id, ...lineClosures.map(c => c.id)].filter(Boolean));
-    const html = buildStopClosureHtml(data?.stop_closure)
-      + lineClosures.map(buildStopClosureHtml).join("")
-      + buildDisruptionsHtml((data?.disruptions || []).filter(d => !shownIds.has(d.id)));
-    noticesHost.innerHTML = html;
+    const html = boardNoticesHtml(data);
+    // Redrawn only when the notices change, so a board refreshing under a
+    // rider keeps the notice they opened and the bus they typed; a new stop
+    // starts with the box empty.
+    const query = noticesHost.dataset.stop === (state.selectedStop?.atcoCode || "")
+      ? noticesHost.querySelector(".disruption-find-input")?.value || "" : "";
+    noticesHost.dataset.stop = state.selectedStop?.atcoCode || "";
+    if (noticesHost.dataset.html !== html) {
+      patchHtml(noticesHost, html);
+      const input = noticesHost.querySelector(".disruption-find-input");
+      if (input && query) { input.value = query; applyDisruptionFind(noticesHost); }
+    }
     noticesHost.hidden = !html;
     if (!noticesHost.dataset.bound) {
       noticesHost.dataset.bound = "1";
       noticesHost.addEventListener("click", (e) => {
         const alt = e.target.closest("button.stop-closure-alt");
         if (alt && alt.dataset.atco) openDepartures(alt.dataset.atco, alt.dataset.name || alt.dataset.atco);
+      });
+      noticesHost.addEventListener("input", (e) => {
+        if (e.target.closest(".disruption-find-input")) applyDisruptionFind(noticesHost);
       });
     }
   }
@@ -8365,8 +8369,15 @@ function disruptionSourceText(d) {
  * and link. Closed by default: one line each says what and until when, which
  * is what a person at a stop has time to read.
  */
-function buildDisruptionsHtml(list) {
+function buildDisruptionsHtml(list, { services } = {}) {
   if (!list || !list.length) return "";
+  // A busy stop can have five notices over thirty routes. Split by service,
+  // a rider reads only their own bus's, and finds it by its number.
+  const sections = disruptionSections(list, services);
+  if (sections.filter(s => s.services.length).length > 1) {
+    return `<div class="disruptions" role="region" aria-label="Disruptions">${
+      sections.map(disruptionSectionHtml).join("")}</div>`;
+  }
   // One works can come as several notices: a route's own words under the
   // main notice (`parent`), or another publisher's notice of it
   // (`same_event_as`). They show as one, the others' words inside it, so a
@@ -8380,17 +8391,152 @@ function buildDisruptionsHtml(list) {
             <span class="disruption-when">${escapeHtml(disruptionScope([d, ...also]))} · ${escapeHtml(disruptionWhen(d))}</span>
           </span>
         </summary>
-        <div class="disruption-body">
+        <div class="disruption-body">${disruptionGroupBodyHtml([d, ...also])}</div>
+      </details>`).join("");
+  return `<div class="disruptions" role="region" aria-label="Disruptions">${items}</div>`;
+}
+
+/** A works' notices in full: the main notice's words, then each other's. */
+function disruptionGroupBodyHtml([d, ...also]) {
+  return `
           ${disruptionPartHtml(d)}
           ${also.map(x => `
             <div class="disruption-part">
               <p><strong>${escapeHtml(disruptionScope([x]))}</strong> · ${escapeHtml(disruptionWhen(x))}</p>
               ${x.summary && x.summary !== d.summary ? `<p>${escapeHtml(x.summary)}</p>` : ""}
               ${disruptionPartHtml(x)}
-            </div>`).join("")}
+            </div>`).join("")}`;
+}
+
+/** Does a notice touch this route? One naming no routes is for all of its
+ *  operators' buses, or, naming no operator either, for the whole stop. */
+function disruptionTouches(d, { service, operator }) {
+  const lines = d.lines || [];
+  if (lines.length) {
+    return lines.some(l => String(l.line).toUpperCase() === String(service).toUpperCase()
+      && (!l.operator || !operator || l.operator === operator));
+  }
+  const ops = d.operators || [];
+  return !ops.length || !operator || ops.some(o => o.operator === operator);
+}
+
+/**
+ * Routes with the same notices, together: [{ services, notices }], in the
+ * order the routes come. `services` is the stop's own list ({service,
+ * operator}); without one, the routes the notices name. A notice for no
+ * route listed still shows, under its own scope, never dropped.
+ */
+function disruptionSections(list, services) {
+  const routes = Array.isArray(services) && services.length
+    ? services.map(s => typeof s === "string" ? { service: s, operator: "" } : s)
+    : [...new Map(list.flatMap(d => (d.lines || []).map(l => [l.line, { service: l.line, operator: l.operator }]))).values()];
+  const byKey = new Map();
+  const placed = new Set();
+  for (const r of routes) {
+    const notices = list.filter(d => disruptionTouches(d, r));
+    if (!notices.length) continue;
+    notices.forEach(d => placed.add(d));
+    const key = notices.map(d => list.indexOf(d)).join(",");
+    if (!byKey.has(key)) byKey.set(key, { services: [], notices });
+    const s = byKey.get(key);
+    if (!s.services.some(x => x.service === r.service)) s.services.push(r);
+  }
+  const sections = [...byKey.values()];
+  const rest = list.filter(d => !placed.has(d));
+  if (rest.length) sections.push({ services: [], notices: rest });
+  return sections;
+}
+
+/** One route group's notices: the buses as badges, each notice in a line,
+ *  its full words a tap away. */
+function disruptionSectionHtml({ services, notices }) {
+  const badges = services.map(({ service, operator }) => {
+    const colour = getRouteColour(service, operator);
+    const text = pickTextOn(colour) === "dark" ? "service-badge--dark-text" : "service-badge--light-text";
+    return `<span class="service-badge ${text}" style="background:${colour}">${escapeHtml(service)}</span>`;
+  }).join("");
+  const groups = groupDisruptions(notices);
+  const names = services.map(s => s.service);
+  const label = names.length
+    ? `Disruptions for ${names.length > 1 ? `routes ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : `route ${names[0]}`}`
+    : "Other disruptions";
+  return `
+      <details class="disruption disruption--service"${names.length ? ` data-services="${escapeAttr(names.join(" "))}"` : ""}>
+        <summary aria-label="${escapeAttr(label)}">
+          <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+          <span class="disruption-text">
+            ${badges ? `<span class="disruption-badges">${badges}</span>` : ""}
+            ${groups.map(([d, ...also]) => `<span class="disruption-line"><span class="disruption-summary">${
+              escapeHtml(d.summary || "Disruption")}</span> <span class="disruption-when">${
+              badges ? "" : `${escapeHtml(disruptionScope([d, ...also]))} · `}${escapeHtml(disruptionWhen(d))}</span></span>`).join("")}
+          </span>
+        </summary>
+        <div class="disruption-body">${groups.map((g, i) => `
+          <div class="${i ? "disruption-part" : "disruption-lead"}">
+            ${groups.length > 1 ? `<p><strong>${escapeHtml(g[0].summary || "Disruption")}</strong></p>` : ""}
+            ${disruptionGroupBodyHtml(g)}
+          </div>`).join("")}
         </div>
-      </details>`).join("");
-  return `<div class="disruptions" role="region" aria-label="Disruptions">${items}</div>`;
+      </details>`;
+}
+
+/**
+ * Which route groups to show for what a rider typed: an exact number first
+ * ("25" is not the 25X), else every number it starts ("70" while typing
+ * "700"), and nothing found is said, not left blank.
+ */
+function findDisruptionSections(query, sections) {
+  const q = String(query || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!q) return { show: sections.map(() => true), message: "" };
+  const up = sections.map(s => s.map(x => String(x).toUpperCase()));
+  let show = up.map(s => s.includes(q));
+  if (!show.some(Boolean)) show = up.map(s => s.some(x => x.startsWith(q)));
+  return { show, message: show.some(Boolean) ? "" : `No disruption recorded here for the ${String(query).trim()}.` };
+}
+
+/** Everything above the board: the closure, routes that skip the stop, then
+ *  the notices by route; with more than one, a box to find your bus. */
+function boardNoticesHtml(data) {
+  // The closure first: at a stop no bus calls at, where to go instead is
+  // the only thing on the board that matters.
+  // The notice the closure came from is already said in full above.
+  // Then routes that skip this stop while others still call, one notice
+  // each (api/main.py, _apply_line_closures).
+  const lineClosures = data?.line_closures || [];
+  const shownIds = new Set([data?.stop_closure?.id, ...lineClosures.map(c => c.id)].filter(Boolean));
+  const notices = buildDisruptionsHtml((data?.disruptions || []).filter(d => !shownIds.has(d.id)),
+    { services: data?.services_here });
+  const closures = lineClosures.map(c => buildStopClosureHtml(c)
+    .replace('class="stop-closure"', `class="stop-closure" data-services="${escapeAttr([...new Set(c.lines || [])].join(" "))}"`));
+  const parts = closures.length + (notices.match(/data-services=/g) || []).length
+    + (notices && !/data-services=/.test(notices) ? 1 : 0);
+  const finder = parts > 1 ? `
+    <label class="disruption-find">
+      <span class="disruption-find-label">Find your bus</span>
+      <input type="search" class="disruption-find-input" data-focus-key="disruption-find"
+             inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false"
+             placeholder="Bus number, e.g. 700" aria-describedby="disruption-find-status">
+    </label>
+    <p class="disruption-find-status" id="disruption-find-status" role="status" aria-live="polite"></p>` : "";
+  return buildStopClosureHtml(data?.stop_closure) + finder + closures.join("") + notices;
+}
+
+/** Show the parts of the notices for the bus typed into a board's box. */
+function applyDisruptionFind(host) {
+  const input = host?.querySelector(".disruption-find-input");
+  if (!input) return;
+  const parts = [...host.querySelectorAll("[data-services]")];
+  const { show, message } = findDisruptionSections(input.value, parts.map(p => p.dataset.services.split(" ")));
+  const q = input.value.trim();
+  parts.forEach((p, i) => {
+    p.hidden = !show[i];
+    // One route group found by its exact number opens: it is what was asked for.
+    if (p.tagName === "DETAILS" && q) p.open = show[i] && show.filter(Boolean).length === 1;
+  });
+  // Notices for no listed route stay in view only while nothing is typed.
+  host.querySelectorAll(".disruption--service:not([data-services])").forEach(p => { p.hidden = !!q; });
+  const status = host.querySelector(".disruption-find-status");
+  if (status) status.textContent = message;
 }
 
 /** Notices in groups, one per works, each led by its main notice, in the
@@ -9097,7 +9243,8 @@ function updateBusTabLive() {
 
   tickBusInfoUpdated();
   patchHtml(document.getElementById("bus-disruptions"),
-    buildDisruptionsHtml(state.busDetails?.disruptions || []));
+    buildDisruptionsHtml(state.busDetails?.disruptions || [],
+      { services: v.service_ref ? [{ service: v.service_ref, operator: v.operator_ref || "" }] : null }));
   patchHtml(document.getElementById("bus-upcoming"), buildUpcomingStopsHtml());
   patchHtml(document.getElementById("bus-next-journey"),
     buildNextJourneyHtml(state.busDetails && state.busDetails.next_journey));
