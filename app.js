@@ -565,15 +565,15 @@ async function init() {
   }
   // The redesigned stop board (boardPreview) is styled under this class.
   document.documentElement.classList.toggle("board-preview", boardPreview());
-  // And reporting a fault at the stop moves under the board, beside how to
-  // read it: it is about the stop, not what is coming, so it should not sit
-  // between the reader and the buses.
+  // And reporting a fault at the stop moves under the board, just above how
+  // to read it: it is about the stop, not what is coming, so it should not
+  // sit between the reader and the buses.
   if (boardPreview()) {
     const help = document.getElementById("board-help");
     const btn = document.getElementById("report-stop-btn");
     const form = document.getElementById("report-stop-form");
-    if (help && btn && form && typeof help.after === "function") {
-      help.after(btn, form);
+    if (help && btn && form && typeof help.before === "function") {
+      help.before(btn, form);
       btn.classList.add("report-stop-btn--foot");
       const label = btn.querySelector("span");
       if (label) label.textContent = "Report a problem with this stop";
