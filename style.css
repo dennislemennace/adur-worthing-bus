@@ -2094,6 +2094,31 @@ body.panel-collapsed .btn-collapse-panel .icon {
   min-width: 0;
 }
 
+/* The favourite stop's star: outlined until pressed, then filled in the
+   accent text colour, which holds AA as text on both themes' surfaces. */
+.btn-favourite-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  margin: -8px -8px -8px var(--space-xs);
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.btn-favourite-stop .icon { width: 22px; height: 22px; fill: none; }
+.btn-favourite-stop[aria-pressed="true"] { color: var(--color-accent-text); }
+.btn-favourite-stop[aria-pressed="true"] .icon { fill: currentColor; }
+.btn-favourite-stop:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+@media (hover: hover) {
+  .btn-favourite-stop:hover { background: var(--color-surface); }
+}
+
 .panel-stop-name {
   font-size: var(--font-size-lg);
   font-weight: 700;

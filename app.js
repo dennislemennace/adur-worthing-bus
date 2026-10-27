@@ -457,10 +457,18 @@ function pushUrlState({ major = false } = {}) {
   const newHash = buildUrlHash();
   if (newHash === (location.hash || "")) return;
   const url = newHash || (location.pathname + location.search);
+  // One action, one page. Journey times' "next buses" changes view and opens
+  // a stop in the same breath; as two pages, Back stopped at an empty map on
+  // the way back to where the reader had been.
+  if (major && state._pageMadeThisTurn) major = false;
   try {
     if (major) history.pushState(null, "", url);
     else       history.replaceState(null, "", url);
   } catch { /* sandboxed contexts can block history APIs */ }
+  if (major) {
+    state._pageMadeThisTurn = true;
+    Promise.resolve().then(() => { state._pageMadeThisTurn = false; });
+  }
 }
 
 async function applyUrlState(parsed) {
@@ -507,6 +515,23 @@ async function applyUrlState(parsed) {
         }
       }
       return;
+    }
+
+    // The address is the whole selection. Back to a page with no bus has to
+    // put the bus down, or the page it lands on is not the one the reader
+    // left: the board stayed behind the Bus tab, and the next rewrite of the
+    // address put the bus straight back in it.
+    if (view !== "live") {
+      // The other views carry no stop or bus; setViewMode closed the panel.
+    } else if (!parsed.stop && !parsed.bus) {
+      if (state.selectedStop || state.selectedVehicleRef || state.selectedRailStation) {
+        closePanel();
+        // The page Back lands on is the map as it first opens, sheet and all.
+        if (isSheetLayout()) setSheetDetent(defaultDetentForViewport());
+      }
+    } else {
+      if (!parsed.bus && state.selectedVehicleRef) clearBusSelection();
+      if (!parsed.stop && state.selectedStop) clearStopSelection();
     }
 
     if (parsed.stop) {
@@ -654,7 +679,7 @@ async function init() {
 
   dom.mapLoading.classList.add("hidden");
 
-  if (wantsLive) await applyUrlState(urlState);
+  if (wantsLive) await applyStartupAddress(urlState);
 
   // Start live bus position loop
   startVehicleRefresh();
@@ -801,7 +826,7 @@ function initMap() {
         t.closest(".leaflet-marker-icon, .leaflet-marker-pane, .leaflet-popup, .leaflet-popup-pane, .bus-marker-wrapper")) {
       return;
     }
-    if (state.selectedStop || state.selectedVehicleRef) closePanel();
+    if (state.selectedStop || state.selectedVehicleRef) closePanel({ major: true });
   });
 }
 
@@ -7474,6 +7499,74 @@ function stopHeadingLine(atcoCode) {
   return [stopContextLine(atcoCode, { withLocality: !where }), where].filter(Boolean).join(" · ");
 }
 
+// ── A favourite stop ─────────────────────────────────────────
+// One per device: the stop someone checks every morning opens without
+// finding it on the map first. Storage can be blocked or cleared at any
+// moment (a private window, site data wiped), so every read and write is
+// guarded, and without it the site opens on the map as it always has.
+const FAVOURITE_STOP_KEY = "favourite-stop";
+
+function readFavouriteStop() {
+  try {
+    const fav = JSON.parse(localStorage.getItem(FAVOURITE_STOP_KEY) || "null");
+    return fav && typeof fav.atco === "string" && fav.atco ? fav : null;
+  } catch { return null; }
+}
+
+function writeFavouriteStop(fav) {
+  try {
+    if (fav) localStorage.setItem(FAVOURITE_STOP_KEY, JSON.stringify(fav));
+    else localStorage.removeItem(FAVOURITE_STOP_KEY);
+    return true;
+  } catch { return false; }
+}
+
+/** The stop to open on arrival: the favourite, only when the address asks
+ *  for nothing else. A shared link always wins over a saved preference. */
+function startupFavouriteStop(urlState, stopData) {
+  if (Object.keys(urlState || {}).length) return null;
+  const fav = readFavouriteStop();
+  return fav && stopData && stopData[fav.atco] ? fav.atco : null;
+}
+
+/** What the Live map opens on arrival: the address, or else the device's
+ *  favourite stop. The favourite is a page over the plain map, made before
+ *  the stop opens (opening it rewrites the current page), so Back shows the
+ *  map before it leaves the site. */
+async function applyStartupAddress(urlState) {
+  const favourite = startupFavouriteStop(urlState, state.stopData);
+  if (!favourite) return applyUrlState(urlState);
+  try { history.pushState(null, "", "#stop=" + encodeURIComponent(favourite)); }
+  catch { /* sandboxed contexts can block history APIs */ }
+  await applyUrlState({ stop: favourite });
+}
+
+function syncFavouriteStopButton() {
+  const btn = document.getElementById("favourite-stop-btn");
+  if (!btn) return;
+  const atco = state.selectedStop && state.selectedStop.atcoCode;
+  btn.hidden = !atco;
+  const on = !!atco && readFavouriteStop()?.atco === atco;
+  btn.setAttribute("aria-pressed", String(on));
+  btn.title = on ? "Your favourite stop. Press again to stop opening it first."
+                 : "Open this stop first whenever you visit on this device";
+}
+
+function toggleFavouriteStop() {
+  const stop = state.selectedStop;
+  if (!stop) return;
+  const on = readFavouriteStop()?.atco === stop.atcoCode;
+  if (!writeFavouriteStop(on ? null : { atco: stop.atcoCode, name: stop.stopName })) {
+    showToast("This browser isn't letting the site save anything, so the favourite can't be kept.");
+    syncFavouriteStopButton();
+    return;
+  }
+  syncFavouriteStopButton();
+  showToast(on ? "Removed. The site will open on the map."
+               : `Saved. ${stop.stopName} will open first when you visit on this device.`);
+  track(on ? "favourite-stop-cleared" : "favourite-stop-saved");
+}
+
 window.openDepartures = async function(atcoCode, stopName) {
   // Editor is in "add stop" mode AND the editor UI is on-screen — clicking
   // a stop adds it to the draft. We gate on the Proposals tab being the
@@ -7507,7 +7600,10 @@ window.openDepartures = async function(atcoCode, stopName) {
 
   const changedStop = !state.selectedStop || state.selectedStop.atcoCode !== atcoCode;
   state.selectedStop = { atcoCode, stopName };
-  pushUrlState();
+  // A different stop is a page of its own, so Back returns to whatever was
+  // open before it. The tour makes its own pages (tour.js tourGoTo).
+  pushUrlState({ major: changedStop && !state.tourDemo });
+  syncFavouriteStopButton();
 
   // A report form left open from the previous stop would submit against the
   // new one — close it, and clear anything half-typed with it.
@@ -8907,9 +9003,10 @@ function scrollBusTabToStops() {
 }
 
 function openBusInfo(vehicle, { fromBoard = false } = {}) {
+  const changedBus = state.selectedVehicleRef !== vehicle.vehicle_ref;
   // Clear notify-on-move state when switching buses (latch + baseline are
   // per-vehicle; a stale baseline against a new bus would fire instantly).
-  if (state.selectedVehicleRef !== vehicle.vehicle_ref) {
+  if (changedBus) {
     clearBusTrail();
     state.notifyOnMove = false;
     state.notifyBaseline = null;
@@ -8923,7 +9020,8 @@ function openBusInfo(vehicle, { fromBoard = false } = {}) {
   state.busDetailsLoading       = true;
   state.busTabShellRef          = null;
   state.busScrollToStops        = null;
-  pushUrlState();
+  // A page of its own: Back from a bus opened on a board returns to the board.
+  pushUrlState({ major: changedBus && !state.tourDemo });
 
   if (!fromBoard) revealPanelForSelection();
   setActiveTab("bus");
@@ -10328,11 +10426,8 @@ function stopDepartureTicker() {
   }
 }
 
-function closePanel() {
-  // If the proposal editor is open, close it first (persists the draft).
-  if (state.editor) closeEditor();
-
-  // Clear stop selection
+/** Put down the selected stop: its board, its ticker and its header. */
+function clearStopSelection() {
   state.selectedStop = null;
   stopDepartureTicker();
   showPanelState("prompt");
@@ -10342,8 +10437,11 @@ function closePanel() {
     dom.stopSpan.innerHTML = "";
   }
   dom.panelStopId.textContent   = "";
+  syncFavouriteStopButton();
+}
 
-  // Clear bus selection
+/** Put down the selected bus, leaving any stop open. */
+function clearBusSelection() {
   clearBusTrail();
   state.selectedVehicleRef      = null;
   state.selectedVehicle         = null;
@@ -10358,6 +10456,18 @@ function closePanel() {
   dom.busInfoContainer.classList.add("hidden");
   dom.busInfoContainer.innerHTML = "";
   dom.busPanelPrompt.classList.remove("hidden");
+}
+
+/** `major` when the reader closed it (the close button, a tap on the empty
+ *  map): the closed state is then a page of its own, so Back reopens what
+ *  they closed rather than doing nothing. Anything closing the panel on the
+ *  reader's behalf, such as a change of view, rewrites the address in place. */
+function closePanel({ major = false } = {}) {
+  // If the proposal editor is open, close it first (persists the draft).
+  if (state.editor) closeEditor();
+
+  clearStopSelection();
+  clearBusSelection();
 
   // Clear rail station selection (any panel-level Train rendering)
   state.selectedRailStation = null;
@@ -10370,7 +10480,7 @@ function closePanel() {
 
   // Default back to the Stop tab
   setActiveTab("stop");
-  pushUrlState();
+  pushUrlState({ major });
 }
 
 // ============================================================
@@ -10382,7 +10492,8 @@ function bindUIEvents() {
   dom.tabBus.addEventListener("click",  () => setActiveTab("bus"));
 
   // Close panel button
-  dom.closePanelBtn.addEventListener("click", closePanel);
+  dom.closePanelBtn.addEventListener("click", () => closePanel({ major: true }));
+  document.getElementById("favourite-stop-btn")?.addEventListener("click", toggleFavouriteStop);
 
   // Retry button in error state
   dom.panelRetryBtn.addEventListener("click", () => {
@@ -10563,7 +10674,7 @@ function bindUIEvents() {
   // Improvements panel: tab switching + close
   dom.tabAbout.addEventListener("click",     () => setImprovementsTab("about"));
   dom.tabProposals.addEventListener("click", () => setImprovementsTab("proposals"));
-  dom.closePanelBtnImprovements.addEventListener("click", closePanel);
+  dom.closePanelBtnImprovements.addEventListener("click", () => closePanel({ major: true }));
 
   // Network plan panel: Objectives / Ideas tab switching + suggestion form
   if (dom.tabObjectives) dom.tabObjectives.addEventListener("click", () => setNetworkTab("objectives"));
