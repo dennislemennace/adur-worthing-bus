@@ -1248,3 +1248,103 @@ def test_stop_osm_carries_its_licence_and_only_known_values():
             if key in ("id", "check_date"):
                 continue
             assert value in build_stop_osm.KEEP.get(key, ()), (atco, key, value)
+
+
+# West Sussex's reply to FOI/13765. The Network Updates article on it quotes
+# figures worked out from the reply: display spending per resident, the share
+# of route support crossing into Brighton & Hove, and what the reply leaves
+# unaccounted for. They live in data/foi_wscc_13765.json with their inputs,
+# sources, method and caveats, and are checked here against both, so the prose
+# and the data cannot drift apart (.claude/skills/evidence-provenance).
+FOI_ARTICLE = "foi-west-sussex-reply-bus-funding"
+
+
+def _foi():
+    import sys as _sys
+    _sys.path.insert(0, str(ROOT / "scripts"))
+    import build_foi_figures
+    return _load("foi_wscc_13765.json"), build_foi_figures
+
+
+def test_foi_figures_carry_their_provenance():
+    data, _ = _foi()
+    for field in ("id", "headline", "as_of"):
+        assert _nonempty_str(data.get(field)), f"foi_wscc_13765.json needs a '{field}'"
+    date.fromisoformat(data["as_of"])
+
+    version = data.get("data_version") or {}
+    for field in ("source", "artefact", "sha256"):
+        assert _nonempty_str(version.get(field)), (
+            f"foi_wscc_13765.json: data_version needs '{field}'")
+
+    method = data.get("method") or {}
+    for field in ("summary", "denominator", "script"):
+        assert _nonempty_str(method.get(field)), f"foi_wscc_13765.json: method needs '{field}'"
+    assert isinstance(method.get("steps"), list) and method["steps"]
+    assert (ROOT / method["script"]).exists(), f"{method['script']} is not in the repo"
+
+    for name, block in data["inputs"].items():
+        assert str(block.get("source_url", "")).startswith("https://"), (
+            f"foi_wscc_13765.json: input '{name}' needs a source_url")
+        date.fromisoformat(block.get("checked_on", ""))
+
+    directions = {"understates", "overstates", "unknown"}
+    caveats = data.get("caveats")
+    assert isinstance(caveats, list) and caveats, "foi_wscc_13765.json needs 'caveats'"
+    for c in caveats:
+        assert _nonempty_str(c.get("text")) and c.get("direction") in directions, c
+    # Direction is relative to Adur's shortfall. The caveat that could make it
+    # smaller than it looks is the one that earns the rest.
+    assert any(c["direction"] == "overstates" for c in caveats), (
+        "foi_wscc_13765.json states no caveat that works against its own conclusion")
+
+
+def test_foi_figures_are_worked_out_from_their_inputs():
+    data, build = _foi()
+    inputs = data["inputs"]
+    pop = inputs["population"]
+    assert sum(pop["values"].values()) == pop["stated_total"], (
+        "the districts must add up to the county total the ONS gives")
+    assert set(pop["values"]) == set(inputs["rtpi_by_district"]["values"]), (
+        "every district needs both a population and a display figure")
+    routes = inputs["route_support"]["routes"]
+    assert len(routes) == 24, "the council's spreadsheet has 24 entries"
+    assert sorted(r["service"] for r in routes if r["cross_boundary"]) == ["17", "270", "273", "N700"]
+    assert data["figures"] == build.compute(inputs), (
+        "stale figures: run python scripts/build_foi_figures.py")
+
+
+def test_the_foi_article_quotes_the_figures_as_worked_out():
+    data, _ = _foi()
+    f = data["figures"]
+    article = next((u for u in _load("updates.json")["updates"] if u["id"] == FOI_ARTICLE), None)
+    assert article, f"updates.json has no '{FOI_ARTICLE}' article"
+    text = article["summary"] + "\n" + article["body"]
+
+    per = f["rtpi_per_resident"]
+    millions = lambda v: f"£{v / 1e6:.2f} million"
+    pounds = lambda v: f"£{round(v):,}"
+    capital = data["inputs"]["capital"]["values"]
+    population = data["inputs"]["population"]
+    quoted = [
+        *(f"£{per[d]:.2f}" for d in ("Adur", "Worthing", "Crawley")),
+        f"£{f['rtpi_per_resident_county']:.2f}",
+        pounds(data["inputs"]["rtpi_by_district"]["values"]["Adur"]),
+        millions(f["rtpi_total"]),
+        f"{f['adur_share_of_residents_pct']}%", f"{f['adur_share_of_rtpi_pct']}%",
+        f"{f['route_support_entries']} entries", millions(f["route_support_total"]),
+        pounds(f["cross_boundary_total"]), f"{f['cross_boundary_pct']}%", pounds(f["n700_total"]),
+        millions(f["capital_total"]), *(millions(v) for v in capital.values()),
+        millions(f["reply_total"]), millions(f["awards_total"]), millions(f["unaccounted"]),
+        f"{population['values']['Adur']:,}", f"{population['values']['Worthing']:,}",
+        f"{population['stated_total']:,}",
+    ]
+    missing = [q for q in quoted if q not in text]
+    assert not missing, f"the article does not quote these as worked out: {missing}"
+
+    # Its comparative claims, checked rather than trusted.
+    assert per["Adur"] < per["Worthing"] / 2, "the summary says Adur got under half Worthing's figure"
+    below = sorted(d for d in per if per[d] < per["Adur"])
+    assert below == ["Crawley"], f"the article says only Crawley got less per resident, not {below}"
+    assert f["cross_boundary_serving_adur"] == ["N700"], (
+        "the article says the N700 is the only route into Brighton & Hove serving Adur")

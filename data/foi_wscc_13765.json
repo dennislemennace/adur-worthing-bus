@@ -1,0 +1,380 @@
+{
+  "_comment": "Figures worked out from West Sussex County Council's reply to FOI/13765, for the Network Updates article 'foi-west-sussex-reply-bus-funding'. Inputs are typed in from the reply, its spreadsheet and the sources named on each block. `figures` is written by scripts/build_foi_figures.py and checked by tests/test_curated_data.py, which also checks that the article quotes them as worked out. Caveat directions are relative to Adur's shortfall. See .claude/skills/evidence-provenance.",
+  "id": "wscc-foi-13765-bsip",
+  "headline": "Adur received £2.87 per resident from West Sussex's BSIP spending on real-time displays, against £5.84 in Worthing and £4.62 across the county.",
+  "as_of": "2026-10-27",
+  "data_version": {
+    "source": "West Sussex County Council's reply to FOI/13765, sent 26 October 2026, and its attached spreadsheet, as published on WhatDoTheyKnow",
+    "artefact": "FOI BSIP Spend.xlsx",
+    "sha256": "60d36fa9a9376702bfb8d29b20ec5ed1ba3d145ab179da4563a3c2817cedb173"
+  },
+  "method": {
+    "summary": "Each district's BSIP spending on real-time displays, as given in the council's reply, divided by its ONS mid-2024 population. Route support and capital totals are summed from the reply and its spreadsheet, and the amount awarded is summed from the council's BSIP page.",
+    "denominator": "Residents, ONS mid-2024 estimates (display spending per resident); all 24 route support entries (cross-boundary share); the total awarded (amount unaccounted for)",
+    "steps": [
+      "Display spending per resident: each district's figure in inputs.rtpi_by_district divided by its population in inputs.population, rounded to the penny. The county figure divides the seven districts' total by the seven populations' total.",
+      "Shares: Adur's population as a percentage of the county's, and Adur's display spending as a percentage of the total, each to one decimal place.",
+      "Cross-boundary route support: the sum of the spreadsheet entries the council marks as crossing into Brighton & Hove (column E, 'Y'), as a percentage of all 24 entries.",
+      "Reply total: route support, plus display spending, plus the four capital lines. Amount unaccounted for: the three awards on the council's BSIP page, less the reply total.",
+      "python scripts/build_foi_figures.py recomputes `figures` from `inputs`; tests/test_curated_data.py checks the stored figures, and the article's text, against it."
+    ],
+    "script": "scripts/build_foi_figures.py"
+  },
+  "inputs": {
+    "rtpi_by_district": {
+      "source_url": "https://www.whatdotheyknow.com/request/bus_planning_strategy_and_data_o",
+      "checked_on": "2026-10-27",
+      "note": "'The spend on Real Time Passenger Information displays funded by BSIP', by district, from the body of the council's reply. The reply gives no total and no dates.",
+      "values": {
+        "Adur": 186048.0,
+        "Arun": 793839.48,
+        "Chichester": 918883.32,
+        "Crawley": 224491.8,
+        "Horsham": 840225.0,
+        "Mid Sussex": 601494.0,
+        "Worthing": 664648.32
+      }
+    },
+    "route_support": {
+      "source_url": "https://www.whatdotheyknow.com/request/bus_planning_strategy_and_data_o",
+      "checked_on": "2026-10-27",
+      "note": "Every entry of 'FOI BSIP Spend.xlsx', 'Total BSIP Spend to Date' (to September 2026), with the districts and the cross-boundary flag as the council gave them. Two route numbers (1 and 500) appear twice for different routes. The 273's total is the council's own formula, which subtracts the 17's figure; the 17 and the Eastbourne to Gatwick 500 are typed-in figures with no breakdown.",
+      "a259_corridor_heading": [
+        "N700"
+      ],
+      "n700_by_year": {
+        "2025/26": 46666.69,
+        "2026/27": 39583.35
+      },
+      "routes": [
+        {
+          "service": "500",
+          "route": "Chichester - Littlehampton",
+          "total": 1412609.18,
+          "districts": [
+            "Chichester",
+            "Arun"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "1",
+          "route": "Worthing - Midhurst",
+          "total": 241666.59,
+          "districts": [
+            "Chichester",
+            "Arun",
+            "Horsham",
+            "Worthing"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "7",
+          "route": "Lancing - High Salvington",
+          "total": 201000.0,
+          "districts": [
+            "Worthing",
+            "Adur"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "9",
+          "route": "Shoreham - Arundel",
+          "total": 259166.63,
+          "districts": [
+            "Arun",
+            "Worthing",
+            "Adur"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "70",
+          "route": "Guildford - Midhurst",
+          "total": 186666.72,
+          "districts": [
+            "Chichester"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "12",
+          "route": "Littlehampton - East Preston",
+          "total": 87500.0,
+          "districts": [
+            "Arun"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "2",
+          "route": "Ifield - K2 Leisure Centre",
+          "total": 329485.88,
+          "districts": [
+            "Crawley"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "400",
+          "route": "East Grinstead - Gatwick",
+          "total": 298888.89,
+          "districts": [
+            "Crawley",
+            "Mid Sussex"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "23",
+          "route": "Crawley - Worthing",
+          "total": 540360.8,
+          "districts": [
+            "Crawley",
+            "Horsham",
+            "Arun",
+            "Worthing"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "65",
+          "route": "Horsham - Oakhill",
+          "total": 45011.39,
+          "districts": [
+            "Horsham"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "281",
+          "route": "Lingfield - Crawley",
+          "total": 37003.8,
+          "districts": [
+            "Crawley",
+            "Mid Sussex"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "1",
+          "route": "Broadfield - Crawley",
+          "total": 100648.4,
+          "districts": [
+            "Crawley"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "707",
+          "route": "Bognor Regis - Chichester",
+          "total": 91249.96,
+          "districts": [
+            "Chichester",
+            "Arun"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "701",
+          "route": "Lancing - Littlehampton",
+          "total": 90000.0,
+          "districts": [
+            "Arun",
+            "Worthing",
+            "Adur"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "10",
+          "route": "Durrington - Worthing",
+          "total": 60000.0,
+          "districts": [
+            "Arun",
+            "Worthing"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "N700",
+          "route": "Brighton - Durrington",
+          "total": 86250.04,
+          "districts": [
+            "Worthing",
+            "Adur"
+          ],
+          "cross_boundary": true
+        },
+        {
+          "service": "700",
+          "route": "Chichester - Bognor",
+          "total": 72500.0,
+          "districts": [
+            "Chichester",
+            "Arun"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "60",
+          "route": "Chichester - Midhurst",
+          "total": 147500.0,
+          "districts": [
+            "Chichester"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "63/68",
+          "route": "Broadbridge Heath - Horsham",
+          "total": 24674.0,
+          "districts": [
+            "Horsham"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "270",
+          "route": "East Grinstead - Brighton",
+          "total": 94288.52,
+          "districts": [
+            "Mid Sussex"
+          ],
+          "cross_boundary": true
+        },
+        {
+          "service": "17",
+          "route": "Horsham - Brighton",
+          "total": 136250.0,
+          "districts": [
+            "Horsham",
+            "Mid Sussex"
+          ],
+          "cross_boundary": true
+        },
+        {
+          "service": "273",
+          "route": "Crawley - Brighton",
+          "total": 233619.43,
+          "districts": [
+            "Crawley",
+            "Mid Sussex"
+          ],
+          "cross_boundary": true
+        },
+        {
+          "service": "500",
+          "route": "Eastbourne - Gatwick",
+          "total": 130403.23,
+          "districts": [
+            "Crawley",
+            "Mid Sussex"
+          ],
+          "cross_boundary": false
+        },
+        {
+          "service": "Book-a-Bus",
+          "route": "96/97/98/99 Flex",
+          "total": 2745573.55,
+          "districts": [
+            "Chichester",
+            "Arun",
+            "Horsham"
+          ],
+          "cross_boundary": false
+        }
+      ]
+    },
+    "capital": {
+      "source_url": "https://www.whatdotheyknow.com/request/bus_planning_strategy_and_data_o",
+      "checked_on": "2026-10-27",
+      "note": "'The overall spend on capital projects across the County under BSIP all years to date', from the council's reply, which places neither of the first two lines. The council's BSIP page places Manor Royal and Western Boulevard in Crawley.",
+      "values": {
+        "Roadside improvements (bus stops, shelters, laybys, termini; excluding displays)": 4190558,
+        "Bus priority at traffic lights": 1238533,
+        "Manor Royal bus lane, Crawley": 1969867,
+        "Western Boulevard junction and bus lane, Crawley": 1260123
+      }
+    },
+    "awards": {
+      "source_url": "https://www.westsussex.gov.uk/about-the-council/policies-and-reports/roads-and-travel-policy-and-reports/bus-service-improvement-plan/",
+      "checked_on": "2026-10-27",
+      "note": "BSIP funding the Department for Transport confirmed or awarded, as the council's BSIP page states it (page last updated 26 August 2025). The page also lists revenue spending, such as a county-wide fare discount for 16 to 20-year-olds, that the FOI reply does not itemise.",
+      "values": {
+        "2022": 17401596,
+        "2023": 2200000,
+        "2025": 9252990
+      }
+    },
+    "population": {
+      "source_url": "https://jsna.westsussex.gov.uk/assets/core/WSX_MYE_Population_2024.pdf",
+      "checked_on": "2026-10-27",
+      "note": "ONS mid-year estimates for 2024, as given in Table 1 of West Sussex County Council's 2024 population estimates briefing.",
+      "values": {
+        "Adur": 64889,
+        "Arun": 170064,
+        "Chichester": 128934,
+        "Crawley": 124008,
+        "Horsham": 151521,
+        "Mid Sussex": 161755,
+        "Worthing": 113866
+      },
+      "stated_total": 915037
+    }
+  },
+  "figures": {
+    "rtpi_total": 4229629.92,
+    "rtpi_per_resident": {
+      "Adur": 2.87,
+      "Arun": 4.67,
+      "Chichester": 7.13,
+      "Crawley": 1.81,
+      "Horsham": 5.55,
+      "Mid Sussex": 3.72,
+      "Worthing": 5.84
+    },
+    "rtpi_per_resident_county": 4.62,
+    "adur_share_of_residents_pct": 7.1,
+    "adur_share_of_rtpi_pct": 4.4,
+    "adur_rtpi_per_resident_as_pct_of_worthing": 49,
+    "route_support_entries": 24,
+    "route_support_total": 7652317.01,
+    "cross_boundary_routes": [
+      "N700",
+      "270",
+      "17",
+      "273"
+    ],
+    "cross_boundary_total": 550407.99,
+    "cross_boundary_pct": 7.2,
+    "cross_boundary_serving_adur": [
+      "N700"
+    ],
+    "n700_total": 86250.04,
+    "capital_total": 8659081,
+    "reply_total": 20541027.93,
+    "awards_total": 28854586,
+    "unaccounted": 8313558.07
+  },
+  "caveats": [
+    {
+      "text": "Per resident is not the only fair measure. The reply does not say how many displays each district got or how many bus stops it has, and a district with fewer stops would need fewer displays, so Adur's shortfall per resident may be larger than any shortfall per stop.",
+      "direction": "overstates"
+    },
+    {
+      "text": "The £8.31 million compares money awarded with money the reply lists. The reply does not itemise every BSIP spend, such as the county-wide fare discount for 16 to 20-year-olds, its figures run to different dates, and some 2025 money may not yet be spent, so the gap is an upper bound on anything unexplained.",
+      "direction": "overstates"
+    },
+    {
+      "text": "Display spending is the total to date, not one year's, and the council did not say when each district's displays were paid for.",
+      "direction": "unknown"
+    },
+    {
+      "text": "Route support here is BSIP money only. The council also pays for contracted bus services from its own budget, which the reply did not give, so the cross-boundary share could change once that is included.",
+      "direction": "unknown"
+    }
+  ]
+}
