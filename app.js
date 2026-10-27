@@ -563,22 +563,6 @@ async function init() {
     document.querySelector('[data-mode="journeytimes"]')?.remove();
     document.querySelector('#section-nav-menu [data-mode="journeytimes"]')?.remove();
   }
-  // The redesigned stop board (boardPreview) is styled under this class.
-  document.documentElement.classList.toggle("board-preview", boardPreview());
-  // And reporting a fault at the stop moves under the board, just above how
-  // to read it: it is about the stop, not what is coming, so it should not
-  // sit between the reader and the buses.
-  if (boardPreview()) {
-    const help = document.getElementById("board-help");
-    const btn = document.getElementById("report-stop-btn");
-    const form = document.getElementById("report-stop-form");
-    if (help && btn && form && typeof help.before === "function") {
-      help.before(btn, form);
-      btn.classList.add("report-stop-btn--foot");
-      const label = btn.querySelector("span");
-      if (label) label.textContent = "Report a problem with this stop";
-    }
-  }
   document.getElementById("jt-view-toggle")?.addEventListener("click", event => {
     const button = event.target.closest("[data-jt-view]");
     if (button && button.dataset.jtView !== jtView()) setJtView(button.dataset.jtView);
@@ -7476,20 +7460,13 @@ function stopWhereLine(atcoCode) {
 
 /** Fill the stop header's direction and whereabouts for the open stop. */
 function renderStopHeaderContext(atcoCode) {
-  const fresh = boardPreview();
-  dom.panelStopId.textContent = fresh ? stopHeadingLine(atcoCode) : stopContextLine(atcoCode);
-  const whereEl = document.getElementById("panel-stop-where");
-  if (whereEl) {
-    const where = fresh ? "" : stopWhereLine(atcoCode);
-    whereEl.textContent = where;
-    whereEl.hidden = !where;
-  }
+  dom.panelStopId.textContent = stopHeadingLine(atcoCode);
 }
 
-/** With ?preview=1, the line under a stop's name: its letter, which way, and
- *  where the pole is, or the town when where is only the name again ("High
- *  Street, on High Street"). "Stop R1 · Towards Hollingbury Asda · On Old
- *  Steine"; "Towards Shoreham High Street · Shoreham-by-Sea". */
+/** The line under a stop's name: its letter, which way, and where the pole
+ *  is, or the town when where is only the name again ("High Street, on High
+ *  Street"). "Stop R1 · Towards Hollingbury Asda · On Old Steine";
+ *  "Towards Shoreham High Street · Shoreham-by-Sea". */
 function stopHeadingLine(atcoCode) {
   const name = String(((state.stopData || {})[atcoCode] || {}).name || "").trim().toLowerCase();
   let where = stopWhereLine(atcoCode);
@@ -8038,30 +8015,18 @@ function renderDepartures(data) {
   if (noticesHost) {
     const html = boardNoticesHtml(data);
     // Redrawn only when the notices change, so a board refreshing under a
-    // rider keeps the notice they opened and the bus they typed; a new stop
-    // starts with the box empty.
-    const query = noticesHost.dataset.stop === (state.selectedStop?.atcoCode || "")
-      ? noticesHost.querySelector(".disruption-find-input")?.value || "" : "";
-    noticesHost.dataset.stop = state.selectedStop?.atcoCode || "";
-    if (noticesHost.dataset.html !== html) {
-      patchHtml(noticesHost, html);
-      const input = noticesHost.querySelector(".disruption-find-input");
-      if (input && query) { input.value = query; applyDisruptionFind(noticesHost); }
-    }
+    // rider keeps the notice they opened.
+    patchHtml(noticesHost, html);
     noticesHost.hidden = !html;
     if (!noticesHost.dataset.bound) {
       noticesHost.dataset.bound = "1";
       noticesHost.addEventListener("click", (e) => {
-        // A button, or with ?preview=1 a link, which can open in a new tab;
-        // here either opens that board.
+        // A link, which can open in a new tab; here it opens that board.
         const alt = e.target.closest(".stop-closure-alt");
-        if (alt && alt.dataset.atco && !(alt.tagName === "A" && (e.metaKey || e.ctrlKey || e.shiftKey))) {
+        if (alt && alt.dataset.atco && !(e.metaKey || e.ctrlKey || e.shiftKey)) {
           e.preventDefault();
           openDepartures(alt.dataset.atco, alt.dataset.name || alt.dataset.atco);
         }
-      });
-      noticesHost.addEventListener("input", (e) => {
-        if (e.target.closest(".disruption-find-input")) applyDisruptionFind(noticesHost);
       });
     }
   }
@@ -8072,7 +8037,6 @@ function renderDepartures(data) {
   const here = Array.isArray(data?.services_here) ? data.services_here : [];
   const hereOperators = Object.fromEntries(here.map(h => [h.service, h.operator || ""]));
 
-  showBoardNow();
   if (departures.length === 0) {
     // "No services until 06:12" once the timetable's next time is known
     // (showBoardNext), as RTIGT035 words an empty sign.
@@ -8164,13 +8128,11 @@ function applyBoardFilter() {
   });
   updateDepartureCount(Math.min(matching.length, CONFIG.DEPARTURES_COUNT),
                        matching.length, want);
-  // With ?preview=1 the chips filter the notices too, in place of the box
-  // to find your bus: a notice for none of the chosen route goes.
-  if (boardPreview()) {
-    document.querySelectorAll("#board-disruptions details[data-services]").forEach(card => {
-      card.hidden = !!want && !card.dataset.services.split(" ").includes(want);
-    });
-  }
+  // The chips filter the notices too: a notice for none of the chosen
+  // route goes.
+  document.querySelectorAll("#board-disruptions details[data-services]").forEach(card => {
+    card.hidden = !!want && !card.dataset.services.split(" ").includes(want);
+  });
   if (matching.length) hideBoardNext();
   else showBoardNext(want);
   return matching.length;
@@ -8271,30 +8233,20 @@ async function showBoardNext(service) {
   }
 }
 
-/** The line above the board: how many rows it is showing, of how many, and
- *  when the data was fetched.
+/** The line above the board: how many rows it is showing, and when the data
+ *  was fetched.
  *
  *  Owned in one place because the ticker changes it too. Ageing every row out
  *  used to leave "16 departures · as of 21:07" sitting over an empty table.
  */
-/** "Time now 12:04" over the board: with clock times on every row, the
- *  reader needs the clock to read them against (RTIGT035-1.0, "Time Now"). */
-function showBoardNow(now = clockNow()) {
-  const el = document.getElementById("board-now");
-  if (el) {
-    el.textContent = londonClock(now);
-    el.setAttribute("datetime", now.toISOString());
-  }
-}
-
 function updateDepartureCount(shown, total, service = null) {
   if (!dom.departuresCount) return;
   dom.departuresCount.textContent = departureCountText(shown, total, service, state.departuresAsOf);
 }
 
-/** "10 of 15 departures · as of 15:45". With ?preview=1, "10 departures ·
- *  as of 15:45": how many are showing, which with the refresh button fits
- *  one line on a phone. */
+/** "10 departures · as of 15:45": how many are showing, which with the
+ *  refresh button fits one line on a phone. "Of 15" went (26 October 2026):
+ *  the route chips say what else there is. */
 function departureCountText(shown, total, service = null, at = null) {
   const asOf = at
     ? ` · as of ${londonClock(at)}`
@@ -8305,9 +8257,7 @@ function departureCountText(shown, total, service = null, at = null) {
       ? `Nothing further due${on}${asOf}`
       : `No upcoming departures${on}${asOf}`;
   }
-  const fresh = boardPreview();
-  const more = total > shown && !fresh ? ` of ${total}` : "";
-  return `${shown}${more} departure${(fresh ? shown : total) === 1 ? "" : "s"}${on}${asOf}`;
+  return `${shown} departure${shown === 1 ? "" : "s"}${on}${asOf}`;
 }
 
 /** "Until Fri 3 Oct", "From Sun 28 Sep, 01:30", or "Until further notice". */
@@ -8379,26 +8329,6 @@ function stillServedLinks(alts) {
   });
 }
 
-/** As published: each stop still served a button the size of a row. */
-function stillServedButtons(alts) {
-  return (alts || []).map(a => `<button type="button" class="stop-closure-alt" data-atco="${escapeAttr(a.atco)}"
-                  data-name="${escapeAttr(a.name)}"
-                  aria-label="${escapeAttr(`${a.name}, ${a.metres} metres ${a.direction}. Show departures`)}">
-        <span class="stop-closure-alt-name">${escapeHtml(prettifyName(a.name) || a.name)}${
-          typeof stopLetter === "function" && stopLetter(a.atco) ? ` <span class="stop-closure-alt-letter">${escapeHtml(stopLetter(a.atco))}</span>` : ""}</span>
-        <span class="stop-closure-alt-meta">${escapeHtml(`${a.metres} m ${a.direction}`)} · ${
-          escapeHtml((a.routes || []).join(", "))}</span>
-      </button>`);
-}
-
-/** The stop board's redesign (26 October 2026): rows after the user's
- *  mockup, "+7 mins", and routes that skip the stop told inside their
- *  works' notice with links to the stops still served. Only with
- *  ?preview=1 until it is switched on for everyone. */
-function boardPreview() {
-  return previewEnabled();
-}
-
 function buildStopClosureHtml(c) {
   if (!c) return "";
   const untilText = closureUntilText(c);
@@ -8407,7 +8337,7 @@ function buildStopClosureHtml(c) {
   const title = !lines.length ? "No buses stop here"
     : lines.length === 1 ? `Route ${lines[0]} doesn't stop here`
     : `Routes ${andList(lines)} don't stop here`;
-  const alts = (boardPreview() ? stillServedLinks : stillServedButtons)(c.still_served).map(a => `
+  const alts = stillServedLinks(c.still_served).map(a => `
       <li>${a}</li>`).join("");
   const link = c.source_url && safeUrl(c.source_url)
     ? ` <a href="${escapeAttr(safeUrl(c.source_url))}" target="_blank" rel="noopener">${
@@ -8439,42 +8369,6 @@ function disruptionSourceText(d) {
         checked ? `, checked ${checked}` : ""}.`;
 }
 
-/**
- * Published disruptions, in their authors' words.
- *
- * Each is a claim by an operator or council, sent through the Bus Open Data
- * Service, so it is shown as theirs: their summary, their advice, their name
- * and link. Closed by default: one line each says what and until when, which
- * is what a person at a stop has time to read.
- */
-function buildDisruptionsHtml(list, { services } = {}) {
-  if (!list || !list.length) return "";
-  // A busy stop can have five notices over thirty routes. Split by service,
-  // a rider reads only their own bus's, and finds it by its number.
-  const sections = disruptionSections(list, services);
-  if (sections.filter(s => s.services.length).length > 1) {
-    return `<div class="disruptions" role="region" aria-label="Disruptions">${
-      sections.map(disruptionSectionHtml).join("")}</div>`;
-  }
-  // One works can come as several notices: a route's own words under the
-  // main notice (`parent`), or another publisher's notice of it
-  // (`same_event_as`). They show as one, the others' words inside it, so a
-  // stop the 700 shares with Brighton & Hove's routes lists each diversion once.
-  const items = groupDisruptions(list).map(([d, ...also]) => `
-      <details class="disruption">
-        <summary>
-          <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
-          <span class="disruption-text">
-            <span class="disruption-summary">${escapeHtml(d.summary || "Disruption")}</span>
-            <span class="disruption-when">${escapeHtml(disruptionScope([d, ...also]))} · ${escapeHtml(disruptionWhen(d))}</span>
-            ${closedHereLineHtml([d, ...also])}
-          </span>
-        </summary>
-        <div class="disruption-body">${disruptionGroupBodyHtml([d, ...also])}</div>
-      </details>`).join("");
-  return `<div class="disruptions" role="region" aria-label="Disruptions">${items}</div>`;
-}
-
 /** A works' notices in full: the main notice's words, then each other's. */
 function disruptionGroupBodyHtml([d, ...also]) {
   return `
@@ -8499,104 +8393,15 @@ function disruptionTouches(d, { service, operator }) {
   return !ops.length || !operator || ops.some(o => o.operator === operator);
 }
 
-/**
- * Routes with the same notices, together: [{ services, notices }], in the
- * order the routes come. `services` is the stop's own list ({service,
- * operator}); without one, the routes the notices name. A notice for no
- * route listed still shows, under its own scope, never dropped.
- */
-function disruptionSections(list, services) {
-  const routes = Array.isArray(services) && services.length
-    ? services.map(s => typeof s === "string" ? { service: s, operator: "" } : s)
-    : [...new Map(list.flatMap(d => (d.lines || []).map(l => [l.line, { service: l.line, operator: l.operator }]))).values()];
-  const byKey = new Map();
-  const placed = new Set();
-  for (const r of routes) {
-    const notices = list.filter(d => disruptionTouches(d, r));
-    if (!notices.length) continue;
-    notices.forEach(d => placed.add(d));
-    const key = notices.map(d => list.indexOf(d)).join(",");
-    if (!byKey.has(key)) byKey.set(key, { services: [], notices });
-    const s = byKey.get(key);
-    if (!s.services.some(x => x.service === r.service)) s.services.push(r);
-  }
-  const sections = [...byKey.values()];
-  const rest = list.filter(d => !placed.has(d));
-  if (rest.length) sections.push({ services: [], notices: rest });
-  return sections;
-}
-
-/** One route group's notices: the buses as badges, each notice in a line,
- *  its full words a tap away. */
-function disruptionSectionHtml({ services, notices }) {
-  const badges = services.map(({ service, operator }) => {
-    const colour = getRouteColour(service, operator);
-    const text = pickTextOn(colour) === "dark" ? "service-badge--dark-text" : "service-badge--light-text";
-    return `<span class="service-badge ${text}" style="background:${colour}">${escapeHtml(service)}</span>`;
-  }).join("");
-  const groups = groupDisruptions(notices);
-  const names = services.map(s => s.service);
-  const label = names.length
-    ? `Disruptions for ${names.length > 1 ? `routes ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : `route ${names[0]}`}`
-    : "Other disruptions";
-  return `
-      <details class="disruption disruption--service"${names.length ? ` data-services="${escapeAttr(names.join(" "))}"` : ""}>
-        <summary aria-label="${escapeAttr(label)}">
-          <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
-          <span class="disruption-text">
-            ${badges ? `<span class="disruption-badges">${badges}</span>` : ""}
-            ${groups.map(([d, ...also]) => `<span class="disruption-line"><span class="disruption-summary">${
-              escapeHtml(d.summary || "Disruption")}</span> <span class="disruption-when">${
-              badges ? "" : `${escapeHtml(disruptionScope([d, ...also]))} · `}${escapeHtml(disruptionWhen(d))}</span>${
-              closedHereLineHtml([d, ...also])}</span>`).join("")}
-          </span>
-        </summary>
-        <div class="disruption-body">${groups.map((g, i) => `
-          <div class="${i ? "disruption-part" : "disruption-lead"}">
-            ${groups.length > 1 ? `<p><strong>${escapeHtml(g[0].summary || "Disruption")}</strong></p>` : ""}
-            ${disruptionGroupBodyHtml(g)}
-          </div>`).join("")}
-        </div>
-      </details>`;
-}
-
-/**
- * Which route groups to show for what a rider typed: an exact number first
- * ("25" is not the 25X), else every number it starts ("70" while typing
- * "700"), and nothing found is said, not left blank.
- */
-function findDisruptionSections(query, sections) {
-  const q = String(query || "").trim().toUpperCase().replace(/\s+/g, "");
-  if (!q) return { show: sections.map(() => true), message: "" };
-  const up = sections.map(s => s.map(x => String(x).toUpperCase()));
-  let show = up.map(s => s.includes(q));
-  if (!show.some(Boolean)) show = up.map(s => s.some(x => x.startsWith(q)));
-  return { show, message: show.some(Boolean) ? "" : `No disruption recorded here for the ${String(query).trim()}.` };
-}
-
-/** Everything above the board: the closure, routes that skip the stop, then
- *  the notices by route; with more than one, a box to find your bus. */
+/** Everything above the board: the closure, then one notice per works. */
 function boardNoticesHtml(data) {
   // The closure first: at a stop no bus calls at, where to go instead is
-  // the only thing on the board that matters.
-  // The notice the closure came from is already said in full above.
-  // Then routes that skip this stop while others still call, one notice
-  // each (api/main.py, _apply_line_closures).
-  if (!boardPreview()) {
-    const lineClosures = data?.line_closures || [];
-    const shownIds = new Set([data?.stop_closure?.id, ...lineClosures.map(c => c.id)].filter(Boolean));
-    const notices = buildDisruptionsHtml((data?.disruptions || []).filter(d => !shownIds.has(d.id)),
-      { services: data?.services_here });
-    const closures = lineClosures.map(c => buildStopClosureHtml(c)
-      .replace('class="stop-closure"', `class="stop-closure" data-services="${escapeAttr([...new Set(c.lines || [])].join(" "))}"`));
-    const parts = closures.length + (notices.match(/data-services=/g) || []).length
-      + (notices && !/data-services=/.test(notices) ? 1 : 0);
-    return buildStopClosureHtml(data?.stop_closure) + disruptionFinderHtml(parts) + closures.join("") + notices;
-  }
-  // With ?preview=1, routes that skip this stop while others still call
-  // are told inside their works' notice, with where to catch them instead:
-  // in a box of their own (the 25, 25X and 78 at the Old Steine) they stood
-  // over the board and pushed the buses out of sight.
+  // the only thing on the board that matters. The notice the closure came
+  // from is already said in full there.
+  // Routes that skip this stop while others still call (api/main.py,
+  // _apply_line_closures) are told inside their works' notice, with where to
+  // catch them instead: in a box of their own (the 25, 25X and 78 at the Old
+  // Steine) they stood over the board and pushed the buses out of sight.
   const list = (data?.disruptions || []).filter(d => d.id !== data?.stop_closure?.id);
   for (const c of data?.line_closures || []) {
     const closed_here = { lines: [...new Set(c.lines || [])], until: c.until, daily: c.daily,
@@ -8622,13 +8427,20 @@ function splitDisruptionSummary(summary) {
 }
 
 /**
- * With ?preview=1, a stop board's notices: one per works, however many
- * routes it touches. Split by route, Royal Pavilion showed five, each
- * repeating the same two works (26 October 2026). Closed, each is as short
- * as it can be: the works' name, until when, and what changes at this stop;
- * the rest is a tap away. Each names the routes here it touches, for the
- * route chips under it to filter by. A notice for no route listed here
- * names none, and always shows.
+ * Published disruptions, in their authors' words, on a stop's board and the
+ * Bus tab.
+ *
+ * Each is a claim by an operator or council, so it is shown as theirs:
+ * their summary, their advice, their name and link. One works can come as
+ * several notices: a route's own words under the main notice (`parent`), or
+ * another publisher's notice of it (`same_event_as`). They show as one, the
+ * others' words inside it. Split by route instead, Royal Pavilion showed
+ * five, each repeating the same two works (26 October 2026).
+ *
+ * Closed, each is as short as it can be: the works' name, until when, and
+ * what changes at this stop; the rest is a tap away. Each names the routes
+ * here it touches, for the route chips under it to filter by. A notice for
+ * no route listed here names none, and always shows.
  */
 function compactDisruptionsHtml(list, services) {
   if (!list || !list.length) return "";
@@ -8662,18 +8474,6 @@ function compactDisruptionsHtml(list, services) {
   return `<div class="disruptions" role="region" aria-label="Disruptions">${cards}</div>`;
 }
 
-/** With more than one part to choose from, a box to find your bus. */
-function disruptionFinderHtml(parts) {
-  return parts > 1 ? `
-    <label class="disruption-find">
-      <span class="disruption-find-label">Find your bus</span>
-      <input type="search" class="disruption-find-input" data-focus-key="disruption-find"
-             inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false"
-             placeholder="Bus number, e.g. 700" aria-describedby="disruption-find-status">
-    </label>
-    <p class="disruption-find-status" id="disruption-find-status" role="status" aria-live="polite"></p>` : "";
-}
-
 /** "25, 25X and 78 not stopping here until 18:00": one line under a
  *  works' summary, for the routes it keeps off this stop. */
 function closedHereText(c) {
@@ -8694,24 +8494,6 @@ function closedHereHtml(d) {
   const alts = stillServedLinks(c.still_served);
   return `<p class="disruption-closed-here"><strong>${escapeHtml(closedHereText(c))}.</strong>${
     alts.length ? ` Nearest stops still served: ${andList(alts)}.` : ""}</p>`;
-}
-
-/** Show the parts of the notices for the bus typed into a board's box. */
-function applyDisruptionFind(host) {
-  const input = host?.querySelector(".disruption-find-input");
-  if (!input) return;
-  const parts = [...host.querySelectorAll("[data-services]")];
-  const { show, message } = findDisruptionSections(input.value, parts.map(p => p.dataset.services.split(" ")));
-  const q = input.value.trim();
-  parts.forEach((p, i) => {
-    p.hidden = !show[i];
-    // One route group found by its exact number opens: it is what was asked for.
-    if (p.tagName === "DETAILS" && q) p.open = show[i] && show.filter(Boolean).length === 1;
-  });
-  // Notices for no listed route stay in view only while nothing is typed.
-  host.querySelectorAll(".disruption--service:not([data-services])").forEach(p => { p.hidden = !!q; });
-  const status = host.querySelector(".disruption-find-status");
-  if (status) status.textContent = message;
 }
 
 /** Notices in groups, one per works, each led by its main notice, in the
@@ -8780,31 +8562,25 @@ function buildDepartureRow(dep) {
   // The stop is closed: the row says which bus would have called, and that
   // it will not. See the closure notice above the board.
   const notServed = !!dep.not_served;
-  // The redesign, with ?preview=1 (boardPreview): a dash, not a countdown,
-  // to a bus that will not stop, which a time would promise.
-  const fresh = boardPreview();
-  const blank = fresh && notServed;
+  // A dash, not a countdown, to a bus that will not stop, which a time
+  // would promise.
+  const blank = notServed;
 
   // Format due time (prefer expected if available, fall back to aimed)
   const displayTime = expected || aimed || null;
   const dueText     = blank ? "–" : displayTime ? formatDueTime(displayTime, clockNow(), live) : "–";
   const isImminent  = displayTime && !blank ? isWithinMinutes(displayTime, 2) : false;
-  // The clock time under the countdown: a time is easier to check against a
-  // watch than "3 mins" is to add up (RTIGT041-1.0, 10.1). In the redesign,
-  // live and scheduled one a line.
-  const clockLines = fresh
-    ? `${live ? `<span class="due-clock-live">Live ${escapeHtml(londonClock(new Date(expected)))}</span>` : ""}${
-        aimed ? `<span class="due-clock-sched">Scheduled ${escapeHtml(londonClock(new Date(aimed)))}</span>` : ""}`
-    : escapeHtml(live
-      ? `${londonClock(new Date(expected))}${aimed ? ` · timetable ${londonClock(new Date(aimed))}` : ""}`
-      : aimed ? `timetable ${londonClock(new Date(aimed))}` : "");
+  // The clock times under the countdown, live and scheduled one a line: a
+  // time is easier to check against a watch than "3 mins" is to add up
+  // (RTIGT041-1.0, 10.1).
+  const clockLines = `${live ? `<span class="due-clock-live">Live ${escapeHtml(londonClock(new Date(expected)))}</span>` : ""}${
+    aimed ? `<span class="due-clock-sched">Scheduled ${escapeHtml(londonClock(new Date(aimed)))}</span>` : ""}`;
   // A diversion allowance in the estimate (api/diversions.py), said in minutes.
   const allowMin = live && dep.allowance_secs > 0 ? Math.max(1, Math.round(dep.allowance_secs / 60)) : 0;
   const { label, cssClass, spoken } = notServed
-    // In the redesign, once, in the status line, not under the destination too.
-    ? fresh ? { label: "Not calling here", cssClass: "status-late",
-                spoken: "Not calling here: the notice above says where to catch it" }
-      : { label: "Not calling", cssClass: "status-late" }
+    // Once, in the status line, not under the destination too.
+    ? { label: "Not calling here", cssClass: "status-late",
+        spoken: "Not calling here: the notice above says where to catch it" }
     : live || cancelled
     ? buildStatusChip(dep, true)
     : { label: "Timetable", cssClass: "status-scheduled" };
@@ -8826,7 +8602,7 @@ function buildDepartureRow(dep) {
           ><span class="service-badge ${badgeTextCls}" style="background:${badgeColour}">${escapeHtml(service)}</span></button></td>
       <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span>${
         notServed
-          ? fresh ? "" : `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Not calling here, see above for where to catch it</span>`
+          ? ""
           : allowMin
           ? `<span class="row-disruption"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Time allows ${
               allowMin} min for ${escapeHtml(dep.allowance_reason || "a diversion")}${
@@ -9006,7 +8782,7 @@ function latenessChip(secs, reportAgeSecs, atStop = false, plus = false) {
 
 /** `atStop`: the bus's time at one stop, as a board row gives it, rather
  *  than where the bus is now (see latenessChip). */
-function buildStatusChip(dep, atStop = false, plus = atStop && boardPreview()) {
+function buildStatusChip(dep, atStop = false, plus = atStop) {
   const status = (dep.status || "").toLowerCase();
 
   // The operator's own verdict where it gave one and there is nothing to
@@ -9102,9 +8878,9 @@ function setActiveTab(tab) {
  * Switches to the Bus tab and renders the latest known data.
  */
 /**
- * With ?preview=1, a bus opened from a board row: the sheet comes down to
- * half so the bus shows on the map, centred in the part left showing, and
- * the Bus tab opens at its stops ahead (asked for 26 October 2026).
+ * A bus opened from a board row: the sheet comes down to half so the bus
+ * shows on the map, centred in the part left showing, and the Bus tab opens
+ * at its stops ahead (asked for 26 October 2026).
  */
 function showBusFromBoard(vehicle) {
   if (isSheetLayout()) setSheetDetent("half");
@@ -9149,11 +8925,11 @@ function openBusInfo(vehicle, { fromBoard = false } = {}) {
   state.busScrollToStops        = null;
   pushUrlState();
 
-  if (!(fromBoard && boardPreview())) revealPanelForSelection();
+  if (!fromBoard) revealPanelForSelection();
   setActiveTab("bus");
   renderBusTab();
   startBusInfoTicker();
-  if (fromBoard && boardPreview()) showBusFromBoard(vehicle);
+  if (fromBoard) showBusFromBoard(vehicle);
 
   // Fetch the matched GTFS trip + upcoming stops. Fire-and-forget:
   // when it resolves we update state.busDetails and re-render, but
@@ -9188,20 +8964,13 @@ async function fetchBusDetails(vehicleRef) {
  *  operator's published vehicle working, so it is the plan, not a promise. */
 function buildNextJourneyHtml(next) {
   if (!next || !next.depart) return "";
-  const svc = next.service ? `${escapeHtml(next.service)} ` : "";
   const to = next.headsign ? ` to ${escapeHtml(prettifyName(next.headsign))}` : "";
   const from = next.from_name ? `, from ${escapeHtml(prettifyName(next.from_name))}` : "";
-  // With ?preview=1, one line; "planned" keeps it the operator's plan.
-  if (boardPreview()) {
-    return `<p class="bus-next-journey">
+  // One line; "planned" keeps it the operator's plan.
+  return `<p class="bus-next-journey">
     <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
     <span>Then it's planned to run the <strong>${escapeHtml(next.depart)}${
       next.service ? ` ${escapeHtml(next.service)}` : ""}</strong>${to}${from}.</span></p>`;
-  }
-  return `<p class="bus-next-journey">
-    <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
-    <span>After this journey, the operator plans for this bus to run the
-      <strong>${escapeHtml(next.depart)} ${svc}</strong>${to}${from}.</span></p>`;
 }
 
 /** Where the selected bus has come from on this journey: its last reported
@@ -9259,7 +9028,6 @@ function renderBusTab() {
 }
 
 function buildBusTabShell(v) {
-  const operatorName = getOperatorName(v.operator_ref);
   const service      = v.service_ref || "?";
   const colour       = getRouteColour(service, v.operator_ref);
   const badgeTextCls = pickTextOn(colour) === "dark"
@@ -9267,13 +9035,13 @@ function buildBusTabShell(v) {
     : "service-badge--light-text";
 
   dom.panelBusName.textContent = `Service ${service}`;
-  dom.panelBusId.textContent   = boardPreview() ? "" : operatorName;
+  dom.panelBusId.textContent   = "";
 
-  // With ?preview=1 the heading is a departure-board row: the route's tile,
-  // where it is going with how late under it, and when it last said where
-  // it was. It stays put while the stops scroll under it.
+  // The heading is a departure-board row: the route's tile, where it is
+  // going with how late under it, and when it last said where it was. It
+  // stays put while the stops scroll under it.
   const head = document.querySelector("#tab-content-bus .panel-header");
-  if (boardPreview() && head && typeof head.prepend === "function") {
+  if (head && typeof head.prepend === "function") {
     head.classList.add("bus-head");
     let tile = head.querySelector(".bus-head-tile");
     if (!tile) { tile = document.createElement("span"); head.prepend(tile); }
@@ -9328,7 +9096,7 @@ function buildBusTabShell(v) {
   }
 }
 
-/** The Bus tab's report form, the same in either layout. */
+/** The Bus tab's report form. */
 function reportBusFormHtml(v) {
   return `
     <!-- A bus fault is the operator's, not the council's, and it moves — so
@@ -9389,18 +9157,17 @@ function reportBusFormHtml(v) {
 }
 
 /**
- * The Bus tab's body. With ?preview=1, in the departure board's manner
- * (26 October 2026): the heading is the board row (buildBusTabShell), then
- * two toggles on one line, the route's notices one per works, the stops
- * ahead, the bus's next journey in a line, and the rest (fares, the route's
- * registration, reporting a problem) folded away at the foot.
+ * The Bus tab's body, in the departure board's manner (26 October 2026):
+ * the heading is the board row (buildBusTabShell), then two toggles on one
+ * line, the route's notices one per works, the stops ahead, the bus's next
+ * journey in a line, and the rest (fares, the route's registration,
+ * reporting a problem) folded away at the foot.
  */
 function busTabShellHtml(v) {
   const operatorName = getOperatorName(v.operator_ref);
   const service      = v.service_ref || "?";
-  if (boardPreview()) {
-    const fleet = v.vehicle_ref || "";
-    return `
+  const fleet        = v.vehicle_ref || "";
+  return `
     <div id="bus-info-lost-host"></div>
     <div class="bus-pills" role="group" aria-label="This bus">
       <label class="bus-pill"><input type="checkbox" id="follow-bus-checkbox" ${state.followSelectedBus ? "checked" : ""}>
@@ -9436,87 +9203,6 @@ function busTabShellHtml(v) {
       </button>
     </div>
     ${reportBusFormHtml(v)}`;
-  }
-  // The same livery the map draws, so the bus in the panel is the bus on the
-  // map. OPERATOR_ICONS alone gave every Brighton & Hove route the generic
-  // red bus while its marker wore the route's own colours.
-  const iconUrl      = iconForService(v.operator_ref, service);
-  const colour       = getRouteColour(service, v.operator_ref);
-  const badgeTextCls = pickTextOn(colour) === "dark"
-    ? "service-badge--dark-text"
-    : "service-badge--light-text";
-  const fleetId      = v.vehicle_ref || "–";
-
-  const iconHtml = iconUrl
-    ? `<img class="bus-info-icon" src="${escapeAttr(safeUrl(iconUrl))}" alt="">`
-    : `<div class="bus-info-icon bus-info-icon-fallback" style="background:${colour}"></div>`;
-
-  // Destination is the panel's heading and the journey's position sits by
-  // its status, so the facts a rider scans for share one block beside the
-  // route badge instead of five rows under it.
-  return `
-    <div id="bus-info-lost-host"></div>
-    <div class="bus-info-hero">
-      <div class="bus-info-identity">
-        ${iconHtml}
-        <div class="bus-info-hero-text">
-          <span class="service-badge service-badge-large ${badgeTextCls}" style="background:${colour}">${escapeHtml(service)}</span>
-          <p class="bus-info-operator">${escapeHtml(operatorName)}</p>
-        </div>
-      </div>
-      <dl class="bus-info-grid">
-        <div class="bus-info-row">
-          <dt>Status</dt>
-          <dd id="bus-info-status"></dd>
-        </div>
-        <div class="bus-info-row">
-          <dt>Fleet ID</dt>
-          <dd class="bus-info-mono">${escapeHtml(fleetId)}</dd>
-        </div>
-        <div class="bus-info-row">
-          <dt>Updated</dt>
-          <dd id="bus-info-updated"></dd>
-        </div>
-      </dl>
-    </div>
-
-    <div class="bus-toggles">
-      <label class="follow-bus-toggle">
-        <input type="checkbox" id="follow-bus-checkbox" ${state.followSelectedBus ? "checked" : ""}>
-        <span>Follow on map</span>
-      </label>
-
-      <label class="follow-bus-toggle">
-        <input type="checkbox" id="notify-move-checkbox" ${state.notifyOnMove ? "checked" : ""}
-               aria-describedby="notify-move-hint">
-        <span>Notify when it moves</span>
-      </label>
-      <small class="follow-bus-hint" id="notify-move-hint">Notifications work while this site is open.</small>
-    </div>
-
-    <div id="bus-disruptions"></div>
-
-    <div id="bus-upcoming"></div>
-
-    <div id="bus-next-journey"></div>
-
-    <div id="bus-tickets"></div>
-
-    <div id="bus-registration"></div>
-
-    <div class="departures-meta bus-report-meta">
-      <button class="btn-text" id="report-bus-btn" type="button" aria-expanded="false"
-              aria-controls="report-bus-form"
-              aria-label="Report a problem with this bus">
-        <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
-        <span>Report an issue</span>
-      </button>
-    </div>
-
-    ${reportBusFormHtml(v)}
-
-    <p class="bus-info-footer">Live data · the map refreshes every 20s</p>
-  `;
 }
 
 /** Replace a host's markup only when it has changed, keeping keyboard focus
@@ -9551,32 +9237,27 @@ function updateBusTabLive() {
     : escapeHtml(svc);
   if (dom.panelBusName.innerHTML !== heading) dom.panelBusName.innerHTML = heading;
 
-  // With ?preview=1 the status sits under the heading, as on a board row.
+  // The status sits under the heading, as on a board row.
   const status = busStatusLineHtml(v, det);
-  if (boardPreview()) {
-    if (dom.panelBusId.innerHTML !== status) dom.panelBusId.innerHTML = status;
-  } else {
-    patchHtml(document.getElementById("bus-info-status"), status);
-  }
+  if (dom.panelBusId.innerHTML !== status) dom.panelBusId.innerHTML = status;
 
   tickBusInfoUpdated();
   const services = v.service_ref ? [{ service: v.service_ref, operator: v.operator_ref || "" }] : null;
-  patchHtml(document.getElementById("bus-disruptions"), boardPreview()
-    ? compactDisruptionsHtml(state.busDetails?.disruptions || [], services)
-    : buildDisruptionsHtml(state.busDetails?.disruptions || [], { services }));
+  patchHtml(document.getElementById("bus-disruptions"),
+    compactDisruptionsHtml(state.busDetails?.disruptions || [], services));
   patchHtml(document.getElementById("bus-upcoming"), buildUpcomingStopsHtml());
   patchHtml(document.getElementById("bus-next-journey"),
     buildNextJourneyHtml(state.busDetails && state.busDetails.next_journey));
   const tickets = buildTicketInfoHtml(v.operator_ref, null, v.service_ref || "");
   patchHtml(document.getElementById("bus-tickets"), tickets);
-  // Folded away with ?preview=1; a coach has no fares here, so no fold.
+  // Folded away; a coach has no fares here, so no fold.
   document.getElementById("bus-more-tickets")?.toggleAttribute?.("hidden", !tickets);
   patchHtml(document.getElementById("bus-registration"),
     buildRegistrationHtml(v.operator_ref, v.service_ref || ""));
 }
 
-/** How late the bus is and where, in the status chip's words. With
- *  ?preview=1, "+3 mins" as on the board, read out as "3 min late". */
+/** How late the bus is and where, in the status chip's words: "+3 mins" as
+ *  on the board, read out as "3 min late". */
 function busStatusLineHtml(v, det = {}) {
   // report_age_secs goes in too: without it the "about" hedge on a stale
   // report never fired here, though the chip was written to give it.
@@ -9584,7 +9265,7 @@ function busStatusLineHtml(v, det = {}) {
                                  lateness_secs: v.lateness_secs,
                                  waiting_to_start: v.waiting_to_start,
                                  journey_start: v.journey_start,
-                                 report_age_secs: v.report_age_secs }, false, boardPreview());
+                                 report_age_secs: v.report_age_secs }, false, true);
   const near = v.on_diversion || det.on_diversion
     ? `<span class="bus-info-near">on diversion</span>`
     : v.nearest_stop_name
@@ -9873,7 +9554,6 @@ function buildUpcomingStopsHtml() {
   }
 
   const vehicle   = det.vehicle || {};
-  const fresh     = boardPreview();
   const estimated = stops.some(s => (s.expected ?? s.expected_departure) && !s.passed)
     && det.source === "trip";
   const fromCalls = det.source === "siri_onward_calls";
@@ -9903,15 +9583,10 @@ function buildUpcomingStopsHtml() {
     // still reads as a promise. The name is struck instead (style.css).
     const time  = s.not_served ? "" : when && !isNaN(when) ? formatTimeOfDay(when) : "–";
     // The estimate is the time to read, so it is the big one and carries the
-    // live dot; the timetabled time it replaces is struck through beside it,
-    // smaller, the way a station board shows a late train. Only when they
-    // differ: an on-time bus with its own time crossed out reads as a change.
+    // live dot; as on the board, "Scheduled" is under it in grey, not a time
+    // crossed out beside it.
     const live  = !!exp && !isNaN(exp) && !s.passed && !s.not_served;
-    // With ?preview=1, as on the board: the live time, and "Scheduled" under
-    // it in grey, not a time crossed out beside it.
-    const was   = !fresh && live && sched && !isNaN(sched) && Math.abs(exp - sched) >= 60_000
-      ? `<s class="upcoming-stop-was">${escapeHtml(formatTimeOfDay(sched))}</s>` : "";
-    const schedLine = fresh && live && sched && !isNaN(sched)
+    const schedLine = live && sched && !isNaN(sched)
       ? `<span class="upcoming-stop-sched">Scheduled ${escapeHtml(formatTimeOfDay(sched))}</span>` : "";
     const chip  = !s.passed && s.lateness_secs != null
       ? latenessChip(s.lateness_secs, vehicle.report_age_secs, true) : null;
@@ -9937,45 +9612,40 @@ function buildUpcomingStopsHtml() {
                 aria-label="${escapeAttr(s.not_served
                   ? `${name}, not calling, the bus is on a diversion. Show this stop's board for where to catch it instead`
                   : `${name}, ${live ? "estimated " : ""}${time}${chip ? `, ${chip.label}` : ""}${
-                  was || schedLine ? `, timetabled ${formatTimeOfDay(sched)}` : ""}. Show departures from this stop`)}">
+                  schedLine ? `, timetabled ${formatTimeOfDay(sched)}` : ""}. Show departures from this stop`)}">
           <span class="upcoming-stop-name">${escapeHtml(name)}</span>
           ${notes.length ? `<span class="upcoming-stop-sub">${escapeHtml(notes.join(" · "))}</span>` : ""}
         </button>
         <span class="upcoming-stop-when" aria-hidden="true">
-          ${was}
           <span class="upcoming-stop-time${live ? " upcoming-stop-time--live" : ""}">${live
             ? `<span class="live-dot"></span>` : ""}${escapeHtml(time)}</span>${schedLine}
         </span>
       </li>`;
   };
 
-  let rows = [...passed.slice(-1), ...shown].map(row);
-  if (fresh) {
-    // With ?preview=1, the stop just passed and each run of stops the bus
-    // goes round take a line each, not a row each: they are not where
-    // anyone is waiting for it.
-    const nameOf = s => prettifyName(s.stop_name) || s.stop_id;
-    const timeOf = s => {
-      const t = new Date(s.expected ?? s.expected_departure ?? s.scheduled ?? s.aimed_departure);
-      return isNaN(t) ? "" : ` · ${formatTimeOfDay(t)}`;
-    };
-    const orList = names => names.length > 1
-      ? `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}` : names[0];
-    const last = passed[passed.length - 1];
-    rows = last ? [`<li class="upcoming-stop-line">Passed ${escapeHtml(nameOf(last))}${escapeHtml(timeOf(last))}</li>`] : [];
-    let skipped = [];
-    const flush = () => {
-      if (skipped.length) rows.push(`<li class="upcoming-stop-line upcoming-stop-line--skipped">Not calling at ${
-        escapeHtml(orList(skipped.map(nameOf)))}: diversion</li>`);
-      skipped = [];
-    };
-    for (const s of shown) {
-      if (s.not_served) { skipped.push(s); continue; }
-      flush();
-      rows.push(row(s));
-    }
+  // The stop just passed and each run of stops the bus goes round take a
+  // line each, not a row each: they are not where anyone is waiting for it.
+  const nameOf = s => prettifyName(s.stop_name) || s.stop_id;
+  const timeOf = s => {
+    const t = new Date(s.expected ?? s.expected_departure ?? s.scheduled ?? s.aimed_departure);
+    return isNaN(t) ? "" : ` · ${formatTimeOfDay(t)}`;
+  };
+  const orList = names => names.length > 1
+    ? `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}` : names[0];
+  const last = passed[passed.length - 1];
+  const rows = last ? [`<li class="upcoming-stop-line">Passed ${escapeHtml(nameOf(last))}${escapeHtml(timeOf(last))}</li>`] : [];
+  let skipped = [];
+  const flush = () => {
+    if (skipped.length) rows.push(`<li class="upcoming-stop-line upcoming-stop-line--skipped">Not calling at ${
+      escapeHtml(orList(skipped.map(nameOf)))}: diversion</li>`);
+    skipped = [];
+  };
+  for (const s of shown) {
+    if (s.not_served) { skipped.push(s); continue; }
     flush();
+    rows.push(row(s));
   }
+  flush();
   const toggle = hiddenCount > 0 || expanded
     ? `<li class="upcoming-stop-toggle-row"><button type="button" class="upcoming-toggle"
           data-focus-key="toggle" aria-expanded="${expanded}">${expanded
@@ -9997,7 +9667,7 @@ function buildUpcomingStopsHtml() {
     const atText = at && !isNaN(at) ? ` at ${formatTimeOfDay(at)}` : "";
     note = `<span class="live-dot" aria-hidden="true"></span> Estimated from how late
       the bus was when it last reported${escapeHtml(atText)}, assuming it stays
-      that late; ${fresh ? "Scheduled is the timetabled time" : "a crossed-out time is the timetabled one it replaces"}. Early buses wait at timing points. Buses can
+      that late; Scheduled is the timetabled time. Early buses wait at timing points. Buses can
       make up time, so be at your stop by the timetabled time.${allowance}
       <a href="about.html#live-times">How this works</a>`;
   } else if (fromCalls) {
@@ -10311,14 +9981,9 @@ function bindA11yControls() {
    whitespace. Must stay in step with the media queries in style.css. */
 const MOBILE_BREAKPOINT = 900;
 
-const SHEET_DETENTS = ["peek", "half", "full"];
-
-/** The detents in use. With ?preview=1 (boardPreview) a fourth, `tall`,
- *  halfway between half and full: a stop opens most of the way up, with a
- *  sliver of map still showing (asked for 26 October 2026). */
-function sheetDetents() {
-  return boardPreview() ? ["peek", "half", "tall", "full"] : SHEET_DETENTS;
-}
+/* `tall` is halfway between half and full: a stop opens most of the way up,
+   with a sliver of map still showing (asked for 26 October 2026). */
+const SHEET_DETENTS = ["peek", "half", "tall", "full"];
 
 /* Where the sheet sits when a view opens. Each view is answering a different
    question, so each wants a different share of the screen:
@@ -10387,7 +10052,7 @@ function syncCollapseButtons(collapsed) {
 
 /** Move the sheet to a named detent and tell everything else about it. */
 function setSheetDetent(detent) {
-  if (!sheetDetents().includes(detent)) return;
+  if (!SHEET_DETENTS.includes(detent)) return;
   state.sheetDetent = detent;
   document.body.dataset.sheet = detent;
 
@@ -10505,7 +10170,7 @@ function fitBoundsAboveSheet(bounds, options = {}) {
 }
 
 function cycleSheetDetent() {
-  const detents = sheetDetents();
+  const detents = SHEET_DETENTS;
   const i = detents.indexOf(state.sheetDetent);
   setSheetDetent(detents[(i + 1) % detents.length]);
   if (state.map) state.map.invalidateSize();
@@ -10577,7 +10242,7 @@ function initSheet() {
     if (!wasDrag) return;                     // a tap: the click handler has it
 
     const d = sheetDetentPixels();
-    const nearest = sheetDetents().reduce((best, name) =>
+    const nearest = SHEET_DETENTS.reduce((best, name) =>
       Math.abs(d[name] - height) < Math.abs(d[best] - height) ? name : best);
     setSheetDetent(nearest);
     if (state.map) state.map.invalidateSize();
@@ -10609,7 +10274,6 @@ function initSheet() {
 const DEPARTURE_TICK_MS = 30_000;
 
 function ageDepartureBoard(now = clockNow()) {
-  showBoardNow(now);
   const cells = document.querySelectorAll(".due-time[data-due-at]");
   if (!cells || !cells.length) return 0;
   const before = cells.length;
@@ -13753,14 +13417,14 @@ function renderStopSearchResults(listEl, matches, query) {
  * Only lifts from `peek`, and only on a sheet layout. If the reader has
  * already dragged the sheet somewhere, that is their choice and it stands.
  *
- * `stop`: a stop's board, which with ?preview=1 opens to `tall`, most of the
- * way up, so the departures show without a drag.
+ * `stop`: a stop's board, which opens to `tall`, most of the way up, so
+ * the departures show without a drag.
  */
 function revealPanelForSelection({ stop = false } = {}) {
   if (!isSheetLayout()) return;
   if (document.body.dataset.sheet !== "peek") return;
   const preferred = defaultDetentForViewport();
-  setSheetDetent(preferred !== "peek" ? preferred : stop && boardPreview() ? "tall" : "half");
+  setSheetDetent(preferred !== "peek" ? preferred : stop ? "tall" : "half");
 }
 
 function bindDialogBackdropClose(dialog) {

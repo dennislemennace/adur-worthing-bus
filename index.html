@@ -475,7 +475,6 @@
           <div class="panel-header-text">
             <h2 class="panel-stop-name" id="panel-stop-name">Select a stop</h2>
             <p class="panel-stop-id" id="panel-stop-id"></p>
-            <p class="panel-stop-where" id="panel-stop-where" hidden></p>
           </div>
         </div>
 
@@ -569,19 +568,49 @@
         <div class="departures-container hidden" id="departures-container">
           <div class="departures-meta">
             <span id="departures-count"></span>
-            <span class="board-now">Time now <time id="board-now"></time></span>
-            <button class="btn-text" id="report-stop-btn" aria-expanded="false"
-                    aria-controls="report-stop-form"
-                    aria-label="Report a problem at this stop">
-              <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
-              <span>Report an issue</span>
-            </button>
             <button class="btn-text" id="refresh-stop-btn" aria-label="Refresh departures">
               <svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>
               <span>Refresh</span>
             </button>
           </div>
 
+          <div class="departures-notice hidden" id="departures-notice" role="status" aria-live="polite"></div>
+          <!-- Published disruptions for this stop and its services (BODS SIRI-SX),
+               filled by app.js boardNoticesHtml. -->
+          <div class="board-disruptions" id="board-disruptions" hidden></div>
+          <!-- Route buttons, filled by app.js renderBoardFilter where a stop
+               has two or more services. -->
+          <div class="board-filter" id="board-filter" role="group"
+               aria-label="Show departures for one route" hidden></div>
+          <table class="departures-table" aria-label="Upcoming departures">
+            <thead>
+              <tr>
+                <th scope="col">Service</th>
+                <th scope="col">Destination</th>
+                <th scope="col"><span class="live-key"><span class="live-dot" aria-hidden="true"></span>Live</span> Due</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody id="departures-tbody">
+              <!-- Rows injected by app.js -->
+            </tbody>
+          </table>
+          <!-- A route with nothing on the board: its next times from the
+               timetable, dated. Filled by app.js showBoardNext. -->
+          <div class="board-next" id="board-next" hidden aria-live="polite"></div>
+          <!-- The column header is hidden on a phone, so the key is repeated
+               here where everyone can see it. -->
+          <p class="board-key"><span class="live-dot" aria-hidden="true"></span>
+            Live: we can see this bus, and the time is an estimate from where it
+            is. No dot: a timetable time.</p>
+          <!-- Reporting a fault at the stop sits under the board, above how to
+               read it: it is about the stop, not what is coming, so it should
+               not stand between the reader and the buses. -->
+          <button class="btn-text report-stop-btn--foot" id="report-stop-btn" aria-expanded="false"
+                  aria-controls="report-stop-form">
+            <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+            <span>Report a problem with this stop</span>
+          </button>
           <!-- Stop fault reporting. Posts to the same Worker as the Ideas
                form; the stop's ATCO code becomes the issue title so repeat
                reports about one stop fold into a single thread. -->
@@ -638,42 +667,15 @@
               <span class="editor-status" id="rs-status" role="status" aria-live="polite"></span>
             </div>
           </form>
-          <div class="departures-notice hidden" id="departures-notice" role="status" aria-live="polite"></div>
-          <!-- Published disruptions for this stop and its services (BODS SIRI-SX),
-               filled by app.js buildDisruptionsHtml. -->
-          <div class="board-disruptions" id="board-disruptions" hidden></div>
-          <!-- Route buttons, filled by app.js renderBoardFilter where a stop
-               has two or more services. -->
-          <div class="board-filter" id="board-filter" role="group"
-               aria-label="Show departures for one route" hidden></div>
-          <table class="departures-table" aria-label="Upcoming departures">
-            <thead>
-              <tr>
-                <th scope="col">Service</th>
-                <th scope="col">Destination</th>
-                <th scope="col"><span class="live-key"><span class="live-dot" aria-hidden="true"></span>Live</span> Due</th>
-                <th scope="col">Status</th>
-              </tr>
-            </thead>
-            <tbody id="departures-tbody">
-              <!-- Rows injected by app.js -->
-            </tbody>
-          </table>
-          <!-- A route with nothing on the board: its next times from the
-               timetable, dated. Filled by app.js showBoardNext. -->
-          <div class="board-next" id="board-next" hidden aria-live="polite"></div>
-          <!-- The column header is hidden on a phone, so the key is repeated
-               here where everyone can see it. -->
-          <p class="board-key"><span class="live-dot" aria-hidden="true"></span>
-            Live: we can see this bus, and the time is an estimate from where it
-            is. No dot: a timetable time.</p>
+
           <details class="board-help" id="board-help">
             <summary>How to read this board</summary>
             <ul>
               <li>Every time is when the bus is expected to leave this stop.
-                <strong>5 mins</strong> is how long until then, and the clock time
-                under it says the same as a time of day, with the timetabled time
-                beside it. Times an hour or more away show as a clock time.</li>
+                <strong>5 mins</strong> is how long until then. Under it,
+                <strong>Live</strong> says the same as a time of day, and
+                <strong>Scheduled</strong> is the timetabled time. Times an hour or
+                more away show as a clock time.</li>
               <li><strong>Due</strong> means a bus we can see is under a minute
                 away. A timetable time is never shown as Due.</li>
               <li>A <span class="live-dot" aria-hidden="true"></span><strong>live</strong>
@@ -683,11 +685,12 @@
                 ring means the bus is still on its previous journey, and the time is when it
                 should get here from the end of that one.</li>
               <li><strong>On time</strong> is from a minute early to up to 2 minutes late.
-                <strong>3 min late</strong> or <strong>2 min early</strong> say how far
-                off it is running. Buses can make up time, so be at the stop by the
+                <strong>+3 mins</strong> (3 minutes late) or <strong>2 min early</strong>
+                say how far off it is running. Buses can make up time, so be at the stop by the
                 timetabled time.</li>
-              <li><strong>Not calling</strong> means the bus runs but will not stop
-                here, usually because of a diversion; <strong>Cancelled</strong> means
+              <li><strong>Not calling here</strong> means the bus runs but will not
+                stop here, usually because of a diversion, and the notice above the
+                board says where to catch it instead; <strong>Cancelled</strong> means
                 the operator says it is not running at all.</li>
               <li>Check the <strong>towards</strong> line under the stop name: stops
                 with the same name on either side of the road serve opposite

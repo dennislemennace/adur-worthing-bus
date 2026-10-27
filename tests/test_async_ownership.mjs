@@ -298,10 +298,10 @@ test("ageing every row out leaves an honest count, not a positive one", () => {
   };
 
   state.departuresAsOf = new Date("2026-09-10T21:07:00+01:00");
+  // How many rows show, not "of 16" (26 October 2026): the route chips say
+  // what else there is, and the shorter line fits beside the refresh icon.
   app.updateDepartureCount(10, 16);
-  assert.match(countText, /10 of 16 departures/,
-    "the count hid that six more departures existed");
-  assert.match(countText, /as of 21:07/);
+  assert.equal(countText, "10 departures · as of 21:07");
 
   app.updateDepartureCount(0, 16);
   assert.doesNotMatch(countText, /\b16 departures\b/,

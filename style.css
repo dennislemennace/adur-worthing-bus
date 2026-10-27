@@ -724,7 +724,7 @@ html.dark-mode .map-loading {
      clear of the sheet — Leaflet's attribution, below — can read it too. */
   body[data-sheet="peek"] { --sheet-h: var(--sheet-peek); }
   body[data-sheet="half"] { --sheet-h: var(--sheet-half); }
-  /* With ?preview=1, where a stop opens: halfway between half and full,
+  /* Where a stop opens: halfway between half and full,
      most of the way up with a sliver of map still showing. Worked out
      here, not on :root, so it follows --sheet-half's media queries. */
   body[data-sheet="tall"] { --sheet-h: calc((var(--sheet-half) + var(--sheet-full)) / 2); }
@@ -740,68 +740,24 @@ html.dark-mode .map-loading {
   body.sheet-dragging { cursor: grabbing; user-select: none; }
 }
 
-/* ===== DEPARTURE BOARD ON NARROW SCREENS =====
-   Four columns do not fit a 390px phone. With table-layout:fixed at
-   54/auto/82/86 the status chip landed 6px past the right edge on every
-   single row, so the column a passenger most needs — is it on time — was
-   the one getting clipped.
-
-   Below the breakpoint the row becomes a grid and the chip moves underneath
-   the destination, where there is room to read it. The badge and the due
-   time span both rows, so the eye still runs service -> where -> when.
+/* ===== DEPARTURE BOARD =====
+   After the user's mockup of 26 October 2026: the same at every width, a big
+   badge, where it goes with how late under it, and the countdown on the
+   right with its live and scheduled clock times stacked beneath. A table of
+   four columns did not fit a 390px phone: the status chip landed past the
+   right edge of every row.
 
    Scoped to #departures-tbody on purpose: the rail board reuses
    .departures-table with five columns of its own. */
-@media (max-width: 900px) {
-  #departures-container .departures-table,
-  #departures-tbody,
-  #departures-tbody tr,
-  #departures-tbody td {
-    display: block;
-    width: auto;
-  }
-
-  /* The header labelled a column order that no longer exists here. */
-  #departures-container .departures-table thead { display: none; }
-
-  #departures-tbody .departure-row {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      "badge dest due"
-      "badge status due";
-    align-items: center;
-    column-gap: var(--space-sm);
-    row-gap: 2px;
-    padding: var(--space-2xs) var(--space-sm);
-    border-bottom: 1px solid var(--color-border);
-  }
-  #departures-tbody .departure-row td {
-    border-bottom: none;
-    padding: 0;
-  }
-  #departures-tbody .departure-row td:nth-child(1) { grid-area: badge; }
-  #departures-tbody .departure-row td:nth-child(2) { grid-area: dest;   min-width: 0; }
-  #departures-tbody .departure-row td:nth-child(3) { grid-area: due;    text-align: right; }
-  #departures-tbody .departure-row td:nth-child(4) { grid-area: status; }
-
-  /* The chip is a qualifier on the destination now, not a column heading. */
-  #departures-tbody .status-chip { padding: 1px 6px; }
-}
-
-/* The redesigned board, with ?preview=1 (app.js, boardPreview), after the
-   user's mockup of 26 October 2026: the same at every width, a big badge,
-   where it goes with how late under it, and the countdown on the right with
-   its live and scheduled clock times stacked beneath. */
-html.board-preview #departures-container .departures-table,
-html.board-preview #departures-tbody,
-html.board-preview #departures-tbody tr,
-html.board-preview #departures-tbody td {
+#departures-container .departures-table,
+#departures-tbody,
+#departures-tbody tr,
+#departures-tbody td {
   display: block;
   width: auto;
 }
-html.board-preview #departures-container .departures-table thead { display: none; }
-html.board-preview #departures-tbody .departure-row {
+#departures-container .departures-table thead { display: none; }
+#departures-tbody .departure-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
@@ -813,33 +769,33 @@ html.board-preview #departures-tbody .departure-row {
   padding: var(--space-sm);
   border-bottom: 1px solid var(--color-border);
 }
-html.board-preview #departures-tbody .departure-row td {
+#departures-tbody .departure-row td {
   border-bottom: none;
   padding: 0;
 }
-html.board-preview #departures-tbody .departure-row td:nth-child(1) { grid-area: badge; overflow: visible; }
-html.board-preview #departures-tbody .departure-row td:nth-child(2) { grid-area: dest;   min-width: 0; align-self: end; }
-html.board-preview #departures-tbody .departure-row td:nth-child(3) { grid-area: due;    text-align: right; }
-html.board-preview #departures-tbody .departure-row td:nth-child(4) { grid-area: status; align-self: start; }
+#departures-tbody .departure-row td:nth-child(1) { grid-area: badge; overflow: visible; }
+#departures-tbody .departure-row td:nth-child(2) { grid-area: dest;   min-width: 0; align-self: end; }
+#departures-tbody .departure-row td:nth-child(3) { grid-area: due;    text-align: right; }
+#departures-tbody .departure-row td:nth-child(4) { grid-area: status; align-self: start; }
 
 /* The route as a tile, as on a stop's own sign. The tile is the 44px target
    itself, so the button's negative margin (for a small pill) is dropped: with
    the cell's overflow hidden it cut the tile to a 24px strip. */
-html.board-preview #departures-tbody .service-badge-btn { margin: 0; }
-html.board-preview #departures-tbody .service-badge {
+#departures-tbody .service-badge-btn { margin: 0; }
+#departures-tbody .service-badge {
   min-width: 44px;
   height: 44px;
   padding: 0 6px;
   border-radius: var(--radius-md);
   font-size: var(--font-size-base);
 }
-html.board-preview #departures-tbody .destination-text {
+#departures-tbody .destination-text {
   font-weight: 600;
   font-size: var(--font-size-base);
 }
 
 /* How late, in its colour under the destination: words, not a pill. */
-html.board-preview #departures-tbody .status-chip {
+#departures-tbody .status-chip {
   padding: 0;
   border: 0;
   background: none;
@@ -847,33 +803,30 @@ html.board-preview #departures-tbody .status-chip {
 }
 
 /* The countdown is the time to read; the clock times are for checking. */
-html.board-preview #departures-tbody .due-time { font-family: var(--font-family); font-size: var(--font-size-lg); }
+#departures-tbody .due-time { font-family: var(--font-family); font-size: var(--font-size-lg); }
 /* A bus not calling has a dash, not a time to strike through. */
-html.board-preview #departures-tbody .due-time[data-blank] { text-decoration: none; }
-html.board-preview #departures-tbody .due-clock { margin-top: 2px; line-height: 1.35; }
+#departures-tbody .due-time[data-blank] { text-decoration: none; }
+#departures-tbody .due-clock { margin-top: 2px; line-height: 1.35; }
 .due-clock-live,
 .due-clock-sched { display: block; }
 .due-clock-live { color: var(--color-text); }
 
-/* The line above the board, with ?preview=1: "10 departures · as of 15:45"
-   and a refresh icon, on one line. "Time now" goes (the phone shows the
-   time; "as of" says how fresh the board is), and reporting a fault moves
-   under the board (app.js init). */
-html.board-preview .departures-meta { flex-wrap: nowrap; }
-html.board-preview #departures-count {
+/* The line above the board: "10 departures · as of 15:45" and a refresh
+   icon, on one line. No "Time now": the phone shows the time, and "as of"
+   says how fresh the board is. Reporting a fault is under the board. */
+#departures-count {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-html.board-preview .departures-meta .board-now { display: none; }
-html.board-preview #refresh-stop-btn {
+#refresh-stop-btn {
   flex: none;
   min-width: var(--target-min);
   margin: -6px 0;
 }
-html.board-preview #refresh-stop-btn span {
+#refresh-stop-btn span {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -881,19 +834,11 @@ html.board-preview #refresh-stop-btn span {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-html.board-preview #refresh-stop-btn .icon { width: 18px; height: 18px; }
+#refresh-stop-btn .icon { width: 18px; height: 18px; }
 .report-stop-btn--foot { margin: var(--space-2xs) 0 0 calc(-1 * var(--space-2xs)); }
 
-/* The stop heading, with ?preview=1: the name, then one line in the body
-   font, not the typewriter one, saying which pole and which way. */
-html.board-preview .panel-mode .panel-stop-id {
-  font-family: var(--font-family);
-  letter-spacing: normal;
-  font-size: var(--font-size-xs);
-}
-
 /* One notice per works, closed to its name, until when, and what changes
-   here, with ?preview=1 (app.js compactDisruptionsHtml). */
+   here (app.js compactDisruptionsHtml). */
 /* Two classes, to outrank .disruption summary's 44px floor further down:
    at equal weight it won, and a one-line notice showed an empty second line. */
 .disruption.disruption--compact summary { min-height: 0; padding: var(--space-2xs) var(--space-sm); }
@@ -902,17 +847,17 @@ html.board-preview .panel-mode .panel-stop-id {
 .disruption-detail { font-size: var(--font-size-xs); }
 .disruption--compact + .disruption--compact { margin-top: var(--space-2xs); }
 
-/* ---- The Bus tab in the board's style, with ?preview=1 ----
+/* ---- The Bus tab in the board's style ----
    The heading is a departure row (app.js buildBusTabShell): the route tile,
    where it is going with how late under it, and "Updated" on the right. */
-html.board-preview #tab-content-bus .panel-header.bus-head {
+#tab-content-bus .panel-header.bus-head {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   column-gap: var(--space-sm);
   padding: var(--space-sm);
 }
-html.board-preview .panel-mode[data-mode="live"] .bus-head .panel-header-text { display: block; min-width: 0; }
+.panel-mode[data-mode="live"] .bus-head .panel-header-text { display: block; min-width: 0; }
 /* Two classes, to outrank the .service-badge pill rules further down. */
 .bus-head .bus-head-tile {
   min-width: 44px;
@@ -921,18 +866,18 @@ html.board-preview .panel-mode[data-mode="live"] .bus-head .panel-header-text { 
   border-radius: var(--radius-md);
   font-size: var(--font-size-base);
 }
-html.board-preview .bus-head #panel-bus-name {
+.bus-head #panel-bus-name {
   font-size: var(--font-size-base);
   font-weight: 600;
   line-height: 1.25;
 }
-html.board-preview .bus-head #panel-bus-id {
+.bus-head #panel-bus-id {
   margin-top: 2px;
   font-size: var(--font-size-xs);
   white-space: normal;
 }
 /* How late, in its colour: words, not a pill, as on the board. */
-html.board-preview .bus-head .status-chip {
+.bus-head .status-chip {
   padding: 0;
   border: 0;
   background: none;
@@ -991,9 +936,7 @@ html.board-preview .bus-head .status-chip {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-html.board-preview .upcoming-stop-when { flex-direction: column; align-items: flex-end; gap: 0; }
-html.board-preview .upcoming-stop-time { font-family: var(--font-family); }
-html.board-preview .upcoming-stop--next .upcoming-stop-sub {
+.upcoming-stop--next .upcoming-stop-sub {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-weight: 700;
@@ -1067,7 +1010,6 @@ html.board-preview .upcoming-stop--next .upcoming-stop-sub {
     margin-top: 0;
     flex-shrink: 0;
     max-width: 100%;
-    font-size: var(--font-size-2xs);
   }
 
   .panel-header   { padding: var(--space-sm) var(--space-md); }
@@ -2164,23 +2106,12 @@ body.panel-collapsed .btn-collapse-panel .icon {
 }
 
 .panel-stop-id {
-  font-family: var(--font-mono);
+  /* The body font, not the typewriter one: it says which pole and which way. */
+  font-family: var(--font-family);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   margin-top: 3px;
-  letter-spacing: 0.05em;
 }
-
-/* "Opposite The Cuthbert, Freshfield Road": the pole a visitor is looking for,
-   in the words on the street rather than the timetable's. */
-.panel-stop-where {
-  flex-basis: 100%;
-  margin: 2px 0 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  line-height: 1.35;
-}
-.panel-stop-where[hidden] { display: none; }
 
 /* "At this stop": shelter, seating, kerb and access, from OpenStreetMap. Below
    the board, since what is coming next is the first question. */
@@ -2280,7 +2211,7 @@ body.panel-collapsed .btn-collapse-panel .icon {
 
 .departures-meta {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 2px var(--space-sm);
   align-items: center;
   justify-content: space-between;
@@ -3204,152 +3135,10 @@ html.dark-mode .stop-cluster-icon {
   flex: 1;
 }
 
-/* Identity on the left, the three facts that change on the right. Wraps to
-   two rows on a phone rather than squeezing the status into a sliver. */
-.bus-info-hero {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-sm) var(--space-lg);
-  padding-bottom: var(--space-md);
-  border-bottom: 1px solid var(--color-border);
-}
-.bus-info-identity {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  flex: 0 1 auto;
-  min-width: 0;
-}
-.bus-info-hero .bus-info-grid {
-  flex: 1 1 230px;
-  min-width: 0;
-  padding: 0;
-  border-bottom: 0;
-  gap: var(--space-2xs);
-}
-.bus-info-hero .bus-info-row { min-height: 28px; }
-.bus-info-hero .bus-info-row dd {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 2px var(--space-xs);
-  min-width: 0;
-}
 .bus-info-near {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-
-.bus-info-icon {
-  width: 52px;
-  height: 52px;
-  object-fit: contain;
-  flex-shrink: 0;
-  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.3));
-}
-
-.bus-info-icon-fallback {
-  background: var(--color-accent);
-  border-radius: 50%;
-}
-
-.bus-info-hero-text {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2xs);
-  min-width: 0;
-}
-
-.service-badge-large {
-  min-width: 48px;
-  height: 30px;
-  font-size: var(--font-size-base);
-  padding: 0 10px;
-}
-
-.bus-info-operator {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  font-weight: 500;
-}
-
-.bus-info-grid {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  padding: var(--space-sm) 0;
-  border-bottom: 1px solid var(--color-border);
-  margin: 0;
-}
-
-.bus-info-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  font-size: var(--font-size-sm);
-}
-
-.bus-info-row dt {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  font-weight: 600;
-}
-
-.bus-info-row dd {
-  color: var(--color-text);
-  font-weight: 600;
-  text-align: right;
-  margin: 0;
-}
-
-.bus-info-mono {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-}
-
-.follow-bus-toggle {
-  display: flex;
-  align-items: center;
-  min-height: var(--target-min);   /* the label is the tap target */
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-  color: var(--color-text);
-  font-weight: 600;
-  transition: background var(--transition), border-color var(--transition);
-}@media (hover: hover) {
-
-
-.follow-bus-toggle:hover {
-  background: var(--color-border);
-}
-}
-
-.follow-bus-toggle input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--color-accent);
-  cursor: pointer;
-}
-
-/* Follow and notify side by side: two short switches, one row. The hint
-   spans both columns underneath rather than lengthening one of them. */
-.bus-toggles {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-sm);
-}
-.bus-toggles .follow-bus-toggle { padding: var(--space-xs) var(--space-sm); line-height: 1.2; }
-.bus-toggles .follow-bus-hint { grid-column: 1 / -1; margin-top: -4px; }
 
 .follow-bus-hint {
   display: block;
@@ -3357,15 +3146,6 @@ html.dark-mode .stop-cluster-icon {
   font-weight: 400;
   color: var(--color-text-muted);
   margin-top: 1px;
-}
-
-.bus-info-footer {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  text-align: center;
-  margin-top: auto;
-  padding-top: var(--space-sm);
-  border-top: 1px solid var(--color-border);
 }
 
 /* ===== UPCOMING STOPS ===== */
@@ -3516,13 +3296,13 @@ html.dark-mode .stop-cluster-icon {
 
 .upcoming-stop-when {
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
+  align-items: flex-end;
   justify-content: flex-end;
-  gap: 6px;
   padding: 4px 0;
 }
 .upcoming-stop-time {
-  font-family: var(--font-mono);
+  font-family: var(--font-family);
   font-size: var(--font-size-md);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -3534,14 +3314,6 @@ html.dark-mode .stop-cluster-icon {
   color: var(--color-text-muted);
 }
 .upcoming-stop-time--live .live-dot { margin-right: 5px; transform: translateY(-1px); }
-.upcoming-stop-was {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-2xs);
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text-muted);
-  text-decoration: line-through;
-  white-space: nowrap;
-}
 .upcoming-stops-note .live-dot { margin-right: 2px; }
 
 .upcoming-stop-toggle-row {
@@ -4182,7 +3954,6 @@ html.dark-mode .departures-table tr.departure-row:hover td {
   white-space: nowrap;
   text-align: right;
 }
-.board-now { white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* The imminent state is colour and weight only. It used to carry a pulsing
    dot of its own, which beside the live dot meant two dots with two meanings,
    and a timetable-only row that was due soon looked tracked. */
@@ -4265,36 +4036,6 @@ html.dark-mode .departures-table tr.departure-row:hover td {
 .disruption-source a { color: var(--color-link); }
 .disruption[hidden], .stop-closure[hidden] { display: none; }
 
-/* Notices split by route: the buses as badges, one line per works. */
-.disruption-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 2px; }
-.disruption-badges .service-badge { min-width: 32px; height: 22px; padding: 0 6px; }
-.disruption-line { display: block; }
-.disruption-line .disruption-summary { font-weight: 600; }
-
-/* A busy stop's box to find your own bus among the notices. */
-.disruption-find {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  margin-bottom: var(--space-2xs);
-  font-size: var(--font-size-sm);
-}
-.disruption-find-label { flex: none; font-weight: 600; }
-.disruption-find-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: var(--target-min);
-  padding: 0 var(--space-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
-  font-size: 16px; /* under 16px, iOS zooms the page when the box is tapped */
-}
-.disruption-find-input:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
-.disruption-find-status { margin: 0 0 var(--space-2xs); font-size: var(--font-size-sm); color: var(--color-text-muted); }
-.disruption-find-status:empty { display: none; }
 .row-disruption {
   display: flex;
   align-items: center;
@@ -4344,48 +4085,23 @@ html.dark-mode .departures-table tr.departure-row:hover td {
   letter-spacing: 0.05em;
   color: var(--color-text-muted);
 }
+/* A stop still served is a link to its board, in the sentence: as a button
+   each took a line and more of the board than the buses did. */
 .stop-closure-alts {
-  display: grid;
-  gap: var(--space-2xs);
-  margin: 0 0 var(--space-xs);
-  padding: 0;
-  list-style: none;
-}
-.stop-closure-alt {
-  display: grid;
-  gap: 1px;
-  width: 100%;
-  min-height: var(--target-min);
-  padding: var(--space-2xs) var(--space-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.stop-closure-alt:hover .stop-closure-alt-name { text-decoration: underline; }
-.stop-closure-alt:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
-.stop-closure-alt-name { font-weight: 700; color: var(--color-link); }
-.stop-closure-alt-letter { font-weight: 600; color: var(--color-text-muted); }
-.stop-closure-alt-meta { font-size: var(--font-size-xs); color: var(--color-text-muted); overflow-wrap: anywhere; }
-/* With ?preview=1 a stop still served is a link to its board, in the
-   sentence: as a button each took a line and more of the board than the
-   buses did. */
-html.board-preview .stop-closure-alts {
   display: block;
-  padding-left: 1.1rem;
+  margin: 0 0 var(--space-xs);
+  padding: 0 0 0 1.1rem;
   list-style: disc;
   line-height: 1.6;
 }
-a.stop-closure-alt {
-  display: inline;
-  width: auto;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: none;
+.stop-closure-alt:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.stop-closure-alt-meta { font-size: var(--font-size-xs); color: var(--color-text-muted); overflow-wrap: anywhere; }
+/* Each link is its own 24px target (WCAG 2.5.8): at 1.6 line-height the
+   lines were 21px apart, too close for the spacing exception. */
+.stop-closure-alt {
+  display: inline-block;
+  min-height: var(--target-dense);
+  line-height: var(--target-dense);
   font-weight: 700;
   color: var(--color-link);
   text-decoration: underline;

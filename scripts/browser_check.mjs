@@ -1487,7 +1487,7 @@ async function checkMapTaps(page, where) {
       const choiceH = Math.min(...[...document.querySelectorAll(".tap-choice")].map(b => b.getBoundingClientRect().height));
       map.closePopup(); map.removeLayer(m); delete state.busMarkers["CHECK-BUS"];
       openBusInfo(vehicle);
-      const labels = [...document.querySelectorAll(".bus-toggles .follow-bus-toggle")]
+      const labels = [...document.querySelectorAll(".bus-pills .bus-pill")]
         .map(l => l.getBoundingClientRect());
       const oneRow = labels.length === 2 && Math.abs(labels[0].top - labels[1].top) < 2;
       const tall = labels.every(l => l.height >= 44);
@@ -2438,13 +2438,16 @@ async function checkBusJourney(page, where) {
     state.busDetails = null;
     state.selectedVehicleRef = declared.vehicle_ref;
     state.selectedVehicle = declared;
+    // The status is in the heading, as on a board row.
+    const tabText = () => document.getElementById("panel-bus-id").textContent + " "
+      + document.getElementById("bus-info-container").textContent;
     renderBusTab();
-    const withFeed = document.getElementById("bus-info-container").textContent;
+    const withFeed = tabText();
     state.busDetails = null;
     state.selectedVehicleRef = guessed.vehicle_ref;
     state.selectedVehicle = guessed;
     renderBusTab();
-    const withGuess = document.getElementById("bus-info-container").textContent;
+    const withGuess = tabText();
     state.selectedVehicle = null;
     state.selectedVehicleRef = null;
     closePanel();
@@ -2578,7 +2581,10 @@ async function checkStopClosure(page, where) {
       shown: !!banner && vis(banner), first: first === banner,
       text: banner ? banner.textContent.replace(/\\s+/g, " ") : "",
       alts: alts.filter(vis).length,
-      altTall: alts.every(a => a.getBoundingClientRect().height >= 44),
+      // Links in a list, not buttons the size of a row (26 October 2026):
+      // each its own line, at least the 24px floor tall.
+      altLinks: alts.every(a => a.tagName === "A" && /^#stop=/.test(a.getAttribute("href"))
+                               && a.closest("li").getBoundingClientRect().height >= 24),
       rowsMarked: rows.length === 2 && rows.every(tr => /Not calling/.test(tr.textContent)
                                               && !tr.querySelector(".live-dot")),
       liveNoticeHidden: document.getElementById("departures-notice")?.classList.contains("hidden") ?? true,
@@ -2589,7 +2595,7 @@ async function checkStopClosure(page, where) {
     r.shown && r.first && /No buses stop here until/.test(r.text) && r.alts === 2
       && /Where the buses go instead/.test(r.text),
     JSON.stringify({ shown: r.shown, first: r.first, alts: r.alts, text: r.text.slice(0, 120) }));
-  check(`the stops still served are buttons big enough to tap — ${where}`, r.altTall);
+  check(`the stops still served are links to their boards, a line each — ${where}`, r.altLinks);
   check(`every row at a closed stop says it is not calling — ${where}`, r.rowsMarked);
   check(`a closed stop does not also apologise for missing live times — ${where}`, r.liveNoticeHidden);
   await checkLayout(page, `closed stop — ${where}`);
@@ -2650,27 +2656,30 @@ async function checkUpcomingStops(page, where) {
     const text = host.textContent.replace(/\\s+/g, " ");
     const labels = [...host.querySelectorAll(".upcoming-stop-open")].map(b => b.getAttribute("aria-label")).join(" ");
     const said = {
-      passed: /Passed/.test(text), next: /Next stop/.test(text), late: /4 min late/.test(labels),
-      struck: host.querySelectorAll("s.upcoming-stop-was").length > 0,
+      passed: /Passed Stop 0/.test(text), next: /Next stop/.test(text), late: /4 min late/.test(labels),
+      scheduled: host.querySelectorAll(".upcoming-stop-sched").length > 0 && !host.querySelector("s"),
       liveMain: host.querySelectorAll(".upcoming-stop-time--live .live-dot").length > 0,
       advice: /be at your stop by the timetabled time/.test(text),
     };
-    const hero = document.querySelector(".bus-info-hero").textContent;
-    const icon = document.querySelector(".bus-info-icon").getAttribute("src");
     said.heading = /Brighton Marina$/.test(document.getElementById("panel-bus-name").textContent.trim());
     said.noDestRow = !/Destination|Journey/.test(document.getElementById("bus-info-container").textContent);
-    // The N7 wears the 7's purple on the map; the panel once showed the
-    // generic Brighton & Hove bus beside it.
-    said.livery = icon === ROUTE_ICONS["BHBC:7"] && icon !== OPERATOR_ICONS.BHBC;
+    // The heading's tile wears the route's own colour, the one the map
+    // draws it in, not the operator's.
+    const tile = document.querySelector("#tab-content-bus .bus-head-tile");
+    const hex = h => { const n = parseInt(h.slice(1), 16); return \`rgb(\${n >> 16}, \${(n >> 8) & 255}, \${n & 255})\`; };
+    said.tile = !!tile && tile.textContent === "N7"
+      && getComputedStyle(tile).backgroundColor === hex(getRouteColour("N7", "BHBC"));
     document.getElementById("rb-cancel").click();
     return JSON.stringify({ folded, expanded, after, focusKept, reportKept, said });
   })()`));
+  // The stop passed is a line, not a row: six ahead and the terminus folded,
+  // all twenty-one ahead open.
   check(`upcoming stops fold, then show every stop — ${where}`,
-    r.folded === 8 && r.expanded === 22, `folded ${r.folded}, expanded ${r.expanded}`);
-  check(`stops ahead show the estimate over a struck timetable time, with the method — ${where}`,
+    r.folded === 7 && r.expanded === 21, `folded ${r.folded}, expanded ${r.expanded}`);
+  check(`stops ahead show the estimate with Scheduled under it, and the method — ${where}`,
     Object.values(r.said).every(Boolean), JSON.stringify(r.said));
   check(`a refresh keeps the list open, focus, and an open half-typed report — ${where}`,
-    r.after === 22 && r.focusKept && r.reportKept,
+    r.after === 21 && r.focusKept && r.reportKept,
     JSON.stringify({ after: r.after, focusKept: r.focusKept, reportKept: r.reportKept }));
   await checkLayout(page, `bus tab stops — ${where}`);
   await checkReachable(page, `bus tab stops — ${where}`);

@@ -62,19 +62,24 @@ test("Due is a live bus under a minute away, never a timetable time", () => {
   assert.equal(app.formatDueTime(at(300), now, false), "5 mins", "timetable rows still count down");
 });
 
-test("each row shows the clock time beside the countdown", () => {
+test("under the countdown, the live and scheduled clock times, one a line", () => {
   const live = row({ aimed_departure: "2026-10-26T12:05:00Z", expected_departure: "2026-10-26T12:07:00Z",
     delay_seconds: 120 });
-  assert.match(live, /class="due-clock">12:07 · timetable 12:05</);
+  assert.match(live, /class="due-clock-live">Live 12:07</);
+  assert.match(live, /class="due-clock-sched">Scheduled 12:05</);
+  assert.ok(live.indexOf("due-time") < live.indexOf("due-clock-live")
+    && live.indexOf("due-clock-live") < live.indexOf("due-clock-sched"), "countdown, then Live, then Scheduled");
   const timetable = row({ aimed_departure: "2026-10-26T12:16:00Z" });
-  assert.match(timetable, /class="due-clock">timetable 12:16</);
+  assert.match(timetable, /class="due-clock-sched">Scheduled 12:16</);
+  assert.doesNotMatch(timetable, /due-clock-live/, "a timetable time was called live");
+  assert.doesNotMatch(live + timetable, /Sched\b(?!uled)/, "Scheduled was shortened");
   assert.match(live, /data-live="1"/);
   assert.match(timetable, /data-live="0"/);
 });
 
 test("on time at a stop is up to 2 minutes late; on the Bus tab, a minute either way", () => {
   assert.equal(app.buildStatusChip({ delay_seconds: 110 }, true).label, "On time");
-  assert.equal(app.buildStatusChip({ delay_seconds: 130 }, true).label, "2 min late");
+  assert.equal(app.buildStatusChip({ delay_seconds: 130 }, true).label, "+2 mins");
   assert.equal(app.buildStatusChip({ delay_seconds: -70 }, true).label, "1 min early");
   assert.equal(app.buildStatusChip({ delay_seconds: 110 }).label, "2 min late",
     "the Bus tab says where the bus is against its timetable, within a minute");
@@ -86,7 +91,9 @@ test("the board help says what its times are, in RTIG's terms", () => {
   assert.match(help, /leaves? this stop/i, "the help no longer says these are departure times");
   assert.match(help, /up to 2 minutes late/);
   assert.doesNotMatch(help, /real[- ]time|headway/i);
-  assert.match(INDEX, /id="board-now"/, "the board does not show the time now");
+  assert.match(help, /<strong>Live<\/strong>[\s\S]*<strong>Scheduled<\/strong>/,
+    "the help does not name the clock times the rows show");
+  assert.match(help, /<strong>\+3 mins<\/strong>/, "the help does not say what +3 mins means");
 });
 
 test("the badge takes its colour from the operator the API names", () => {
@@ -139,11 +146,11 @@ test("the list shows where the bus is: the stop passed, then the next", () => {
                  stopRow(2, { is_next: true }), stopRow(3), stopRow(4, { is_terminus: true })];
   const html = upcoming({ source: "trip", upcoming_stops: stops,
                           vehicle: { trip_source: "feed", recorded_at: at(-2) } });
-  assert.match(html, /upcoming-stop--passed[\s\S]*Passed/);
+  assert.match(html, /class="upcoming-stop-line">Passed Stop 1/);
   assert.match(html, /upcoming-stop--next[\s\S]*Next stop/);
   assert.match(html, /3 min late/, "the stops ahead do not say how late the bus will be");
-  assert.match(html, /<s class="upcoming-stop-was">\d\d:\d\d<\/s>/,
-    "the timetabled time was not struck through beside the estimate");
+  assert.match(html, /class="upcoming-stop-sched">Scheduled \d\d:\d\d</,
+    "the timetabled time is not under the estimate");
   assert.match(html, /upcoming-stop-time--live"><span class="live-dot"><\/span>\d\d:\d\d/,
     "the estimate is not the main time, or lost its live dot");
   assert.match(html, /timetabled \d\d:\d\d\. Show departures/,
@@ -311,19 +318,19 @@ test("a stop reads as the flag and the street say it", () => {
 
 // ── Published disruptions ───────────────────────────────────
 
-test("a disruption shows its own words, scope, dates and author", () => {
-  const html = app.buildDisruptionsHtml([{
+test("a disruption shows its own words, dates and author", () => {
+  const html = app.compactDisruptionsHtml([{
     id: "D1", summary: "700 diverted via Church Road", description: "Eastbound only.",
     advice: "Use the Church Road stop.", publisher: "WestSussexCC",
     ends: "2026-10-03T18:00:00+00:00", starts: null, link: "https://example.org/x",
     lines: [{ operator: "SCSO", line: "700" }], stops: [], operators: [],
   }]);
-  assert.match(html, /<details class="disruption">/);
-  assert.match(html, /700 diverted via Church Road/);
-  assert.match(html, /Service 700 · Until Sat 3 Oct/);
+  assert.match(html, /<details class="disruption disruption--compact">/);
+  assert.match(html, /class="disruption-summary">700 diverted via Church Road</);
+  assert.match(html, /class="disruption-when">Until Sat 3 Oct</);
   assert.match(html, /Advice:<\/strong> Use the Church Road stop/);
   assert.match(html, /Published by WestSussexCC through the Bus Open Data Service/);
-  assert.equal(app.buildDisruptionsHtml([]), "");
+  assert.equal(app.compactDisruptionsHtml([]), "");
 });
 
 test("an affected row points at the notice, and a cancelled one says so", () => {
@@ -342,10 +349,10 @@ test("an on-time stop keeps its one time, uncrossed", () => {
   assert.doesNotMatch(html, /<s class/, "an on-time bus had its own time crossed out");
 });
 
-test("the Bus tab heading is the destination, and the icon is the route's livery", () => {
+test("the Bus tab heading is the destination, with the route's tile in its colour", () => {
   const shell = APP.slice(APP.indexOf("function buildBusTabShell"), APP.indexOf("function patchHtml"));
-  assert.match(shell, /iconForService\(v\.operator_ref, service\)/,
-    "the panel drew the operator's generic bus, not the livery on the map");
+  assert.match(shell, /getRouteColour\(service, v\.operator_ref\)/,
+    "the heading's tile is not in the route's colour, as on the map");
   assert.doesNotMatch(shell, /<dt>(Destination|Journey)<\/dt>/,
     "the destination and journey rows came back");
   assert.doesNotMatch(shell, /bus-info-journey/, "the journey start time came back under the operator");
@@ -366,7 +373,7 @@ const closure = {
 test("a closed stop says so, until when, and where to go instead", () => {
   const html = app.buildStopClosureHtml(closure);
   assert.match(html, /No buses stop here until Fri 6 Nov/);
-  assert.match(html, /class="stop-closure-alt" data-atco="149000007948"/,
+  assert.match(html, /class="stop-closure-alt" href="#stop=149000007948" data-atco="149000007948"/,
     "the nearest stop still served is not a way into its own board");
   assert.match(html, /340 m west · 1, 2, 5/);
   assert.match(html, /Towards Hove<\/strong>: All routes except 1X, 2 and 46 go via Montpelier Road, Davigdor Road and Holland Road, back on the usual route at Palmeira Square/);
@@ -392,11 +399,11 @@ test("a notice seen on the road says nobody published it, not whose words it is"
   const seen = { id: "s1", summary: "700 turning at Brighton Station", source: "curated", observed: true,
     publisher: "Stagecoach", checked_on: "2026-10-24", link: "https://www.stagecoachbus.com/service-updates",
     lines: [{ operator: "SCSO", line: "700" }], operators: [], ends: "2026-10-27T23:59:00+00:00" };
-  const html = app.buildDisruptionsHtml([seen]);
+  const html = app.compactDisruptionsHtml([seen]);
   assert.match(html, /Seen on the road: Stagecoach has posted no notice \(checked 24 Oct/);
   assert.doesNotMatch(html, /own notice/, "our own words were put in Stagecoach's mouth");
   assert.match(app.buildStopClosureHtml({ ...closure, ...seen, source_url: seen.link }), /Their updates page/);
-  const daily = app.buildDisruptionsHtml([{ ...seen, observed: false, daily: { from: "07:00", to: "18:00" },
+  const daily = app.compactDisruptionsHtml([{ ...seen, observed: false, daily: { from: "07:00", to: "18:00" },
     final_ends: "2026-10-27T23:59:00+00:00", ends: "2026-10-24T17:00:00+00:00" }]);
   assert.match(daily, /07:00 to 18:00 daily, until Tue 27 Oct/);
 });
@@ -413,26 +420,20 @@ test("notices about the same works are one notice, each route's own words inside
   const turn = { ...curated, id: "o700", parent: "o", summary: "700 turning at Brighton Station",
     publisher: "Stagecoach", observed: true, lines: [{ operator: "SCSO", line: "700" }],
     ends: "2026-10-27T23:59:00+00:00" };
-  // The Bus tab: one route, so plain notices, each works once.
   const western700 = { ...western, lines: [...western.lines, { operator: "SCSO", line: "700" }] };
-  const html = app.buildDisruptionsHtml([western700, steine, council, turn], { services: [{ service: "700", operator: "SCSO" }] });
-  assert.equal(html.match(/<details class="disruption">/g).length, 2, "one works showed as two notices");
+  const html = app.compactDisruptionsHtml([western700, steine, council, turn], [{ service: "700", operator: "SCSO" }]);
+  assert.equal(html.match(/<details /g).length, 2, "one works showed as two notices");
   assert.ok(html.indexOf("Western Road closed") < html.indexOf("700 turning"), "the order changed");
-  assert.match(html, /Services 1, 700 · Until Fri 6 Nov/);
+  assert.match(html, /class="disruption-when">Until Fri 6 Nov</);
   assert.match(html, /Service 700<\/strong> · Until Thu 12 Nov/, "the 700's own end date was lost");
   assert.match(html, /Brunswick Place is not served[\s\S]*Brighton &amp; Hove City Council/);
   assert.match(html, /700 turning at Brighton Station[\s\S]*Seen on the road: Stagecoach/);
-  assert.equal(app.buildDisruptionsHtml([turn]).match(/<details class="disruption">/g).length, 1,
+  assert.equal(app.compactDisruptionsHtml([turn]).match(/<details /g).length, 1,
     "a route's notice with its main one not here vanished");
-  // Split by route, the works still read once inside each route's part.
-  const split = app.buildDisruptionsHtml([western700, steine, council, turn]);
-  const part700 = split.split('data-services="700"')[1].split("data-services=")[0];
-  assert.equal((part700.match(/class="disruption-line"/g) || []).length, 2,
-    "the 700's two works showed as more than two lines");
 });
 
 // A busy Brighton stop can have five notices across thirty routes: split by
-// service, each route's notices are read once, and a box finds your bus.
+// service, each route read the same works over again; now one per works.
 const busy = (() => {
   const curated = { source: "curated", operators: [], checked_on: "2026-10-24" };
   const lines = (op, ...ls) => ls.map(line => ({ operator: op, line }));
@@ -449,64 +450,23 @@ const busy = (() => {
   };
 })();
 
-test("on a busy stop, notices are split by service, routes with the same notices together", () => {
-  const html = app.buildDisruptionsHtml([busy.western, busy.steine, busy.council], { services: busy.here });
-  const sections = [...html.matchAll(/data-services="([^"]*)"/g)].map(m => m[1]);
-  assert.deepEqual(sections, ["25 49 60", "25X 78", "700 N700"],
-    "routes were not grouped by the notices that touch them");
-  const first = html.split('data-services="25X 78"')[0];
-  assert.match(first, /Western Road closed[\s\S]*Old Steine roadworks/, "a route lost one of its notices");
-  assert.doesNotMatch(html.split('data-services="700 N700"')[1], /Old Steine roadworks/,
-    "the 700 was given Brighton & Hove's notice");
-  assert.match(html, /class="service-badge[^"]*"[^>]*>25X</, "a section does not say which buses it is for");
-  assert.doesNotMatch(html, /data-services="[^"]*\bN25\b/, "a route with no notice got a section");
-});
-
-test("a notice for no route that calls here is still shown", () => {
+test("a notice for no route that calls here is still shown, and never filtered away", () => {
   const stray = { ...busy.steine, id: "x", summary: "Marina works", lines: [{ operator: "BHBC", line: "7" }] };
-  const html = app.buildDisruptionsHtml([busy.western, busy.steine, stray], { services: busy.here });
-  assert.match(html, /Marina works/, "a notice the API sent for this stop vanished");
-});
-
-test("with one set of notices, a board or the Bus tab keeps plain notices", () => {
-  const html = app.buildDisruptionsHtml([busy.steine], { services: [{ service: "25X", operator: "BHBC" }] });
-  assert.doesNotMatch(html, /data-services/);
-  assert.match(html, /<details class="disruption">/);
-});
-
-test("typing a bus number shows the part of the notices for that bus", () => {
-  const find = (q) => app.findDisruptionSections(q, [["25", "49", "60"], ["25X", "78"], ["700", "N700"]]);
-  assert.deepEqual(find("").show, [true, true, true]);
-  assert.deepEqual(find(" n700 ").show, [false, false, true], "a lower-case or padded number was not found");
-  assert.deepEqual(find("25").show, [true, false, false], "25 also matched 25X");
-  assert.deepEqual(find("70").show, [false, false, true], "a number being typed hid everything");
-  assert.equal(find("70").message, "");
-  const none = find("9");
-  assert.deepEqual(none.show, [false, false, false]);
-  assert.match(none.message, /No disruption recorded here for the 9/);
-});
-
-test("the board offers the box only when there is more than one part to choose from", () => {
-  const data = { services_here: busy.here, disruptions: [busy.western, busy.steine, busy.council],
-    line_closures: [{ ...closure, id: "o700", lines: ["700"] }] };
-  const html = app.boardNoticesHtml(data);
-  assert.match(html, /class="disruption-find-input"/, "a busy stop has no way to find a bus");
-  assert.ok(html.indexOf("disruption-find") < html.indexOf("stop-closure"), "the box sits under what it filters");
-  assert.match(html, /class="stop-closure"[^>]*data-services="700"/, "the 700's closure cannot be found by its number");
-  assert.doesNotMatch(app.boardNoticesHtml({ services_here: busy.here, disruptions: [busy.steine] }),
-    /disruption-find/, "one notice was given a search box");
+  const html = app.compactDisruptionsHtml([busy.western, busy.steine, stray], busy.here);
+  const card = html.split("<details").find(c => c.includes("Marina works"));
+  assert.ok(card, "a notice the API sent for this stop vanished");
+  assert.doesNotMatch(card.split(">")[0], /data-services/, "a route chip could hide it");
 });
 
 test("a row at a closed stop is not served, and promises no live time", () => {
   const html = row({ not_served: true, status: "Not calling" });
   assert.match(html, /departure-row--cancelled/);
-  assert.match(html, />Not calling</, "RTIGT035's term for a stop the bus skips");
-  assert.match(html, /Not calling here, see above/);
+  assert.match(html, />Not calling here</, "RTIGT035's term for a stop the bus skips");
   assert.doesNotMatch(html, /class="live-dot"/);
 });
 
 test("a notice we recorded says whose words and when we checked", () => {
-  const html = app.buildDisruptionsHtml([{ id: "c1", summary: "Western Road closed", source: "curated",
+  const html = app.compactDisruptionsHtml([{ id: "c1", summary: "Western Road closed", source: "curated",
     publisher: "Brighton & Hove Buses", checked_on: "2026-09-28", link: "https://www.buses.co.uk/service-updates",
     lines: [{ operator: "BHBC", line: "1" }], operators: [], diversions: closure.diversions }]);
   assert.match(html, /own notice, checked/);
@@ -518,11 +478,9 @@ test("a stop the bus goes round is marked, with no time promised", () => {
   const html = upcoming({ source: "trip", vehicle: { trip_source: "feed" }, upcoming_stops: [
     stopRow(1, { not_served: true, expected: null, lateness_secs: null }),
     stopRow(2, { is_next: true })] });
-  assert.match(html, /upcoming-stop--not-served[\s\S]*Not calling: on diversion/);
+  assert.match(html, /class="upcoming-stop-line upcoming-stop-line--skipped">Not calling at Stop 1: diversion</);
   const closedRow = html.split("upcoming-stop--next")[0];
-  assert.match(closedRow, /aria-label="Stop 1, not calling, the bus is on a diversion/,
-    "a screen reader was read the closed stop's timetabled time as if the bus would call");
-  assert.doesNotMatch(closedRow, /upcoming-stop-time[^>]*>\d\d:\d\d/,
+  assert.doesNotMatch(closedRow, /\d\d:\d\d/,
     "the closed stop still shows a time, which reads as a promise");
   assert.doesNotMatch(html.split("upcoming-stop--next")[0], /upcoming-stop-time--live/,
     "the stop not served was given a live estimate");
@@ -803,27 +761,9 @@ test("a time from the bus's previous journey is marked apart from a bus on the r
   assert.doesNotMatch(html, /visually-hidden">, live</, "it was read out as a bus we can see");
 });
 
-// ── The redesigned board, with ?preview=1 (26 October 2026) ─
-// The tests above are the board as published; these, the redesign behind
-// the flag until it is switched on for everyone.
+// ── The board after the user's mockup (26 October 2026) ─────
 
-const loc = vm.runInContext("location", app);
-const preview = (fn) => { loc.search = "?preview=1"; try { return fn(); } finally { loc.search = ""; } };
-
-test("preview: under the countdown, the live and scheduled clock times, one a line", () => preview(() => {
-  const live = row({ aimed_departure: "2026-10-26T12:05:00Z", expected_departure: "2026-10-26T12:07:00Z",
-    delay_seconds: 120 });
-  assert.match(live, /class="due-clock-live">Live 12:07</);
-  assert.match(live, /class="due-clock-sched">Scheduled 12:05</);
-  assert.ok(live.indexOf("due-time") < live.indexOf("due-clock-live")
-    && live.indexOf("due-clock-live") < live.indexOf("due-clock-sched"), "countdown, then Live, then Scheduled");
-  const timetable = row({ aimed_departure: "2026-10-26T12:16:00Z" });
-  assert.match(timetable, /class="due-clock-sched">Scheduled 12:16</);
-  assert.doesNotMatch(timetable, /due-clock-live/, "a timetable time was called live");
-  assert.doesNotMatch(live + timetable, /Sched\b(?!uled)/, "Scheduled was shortened");
-}));
-
-test("preview: a late bus on the board is +7 mins, and a screen reader hears 7 min late", () => preview(() => {
+test("a late bus on the board is +7 mins, and a screen reader hears 7 min late", () => {
   const html = row({ expected_departure: inMinutes(12), delay_seconds: 420 });
   assert.match(html, /aria-hidden="true">\+7 mins</);
   assert.match(html, /visually-hidden">7 min late</);
@@ -831,25 +771,25 @@ test("preview: a late bus on the board is +7 mins, and a screen reader hears 7 m
   assert.equal(app.buildStatusChip({ delay_seconds: 420, report_age_secs: 300 }, true).label, "about +7 mins");
   assert.equal(app.buildStatusChip({ delay_seconds: -70 }, true).label, "1 min early", "early changed too");
   assert.equal(app.buildStatusChip({ delay_seconds: 130 }).label, "2 min late", "the Bus tab changed too");
-}));
+});
 
-test("preview: a row the bus will not call at has a dash, and says so once", () => preview(() => {
+test("a row the bus will not call at has a dash, and says so once", () => {
   const html = row({ not_served: true, status: "Not calling", aimed_departure: "2026-10-26T12:16:00Z" });
   assert.match(html, /class="due-time[^"]*"[^>]*data-blank="1"\s*>–</);
   assert.match(html, /Scheduled 12:16/);
   assert.match(html, /aria-hidden="true">Not calling here</);
   assert.match(html, /visually-hidden">Not calling here: the notice above says where to catch it</);
   assert.doesNotMatch(html, /row-disruption/, "it was said under the destination too");
-}));
+});
 
-test("preview: a stop still served is a link to its board, not a button", () => preview(() => {
+test("a stop still served is a link to its board, not a button", () => {
   const html = app.buildStopClosureHtml(closure);
   assert.match(html, /<a class="stop-closure-alt" href="#stop=149000007948" data-atco="149000007948"/);
   assert.doesNotMatch(html, /<button/, "a stop still served is a button, too big for the board");
   assert.match(html, /340 m west · 1, 2, 5/);
-}));
+});
 
-test("preview: routes that skip the stop are told inside the works' notice, not a box of their own", () => preview(() => {
+test("routes that skip the stop are told inside the works' notice, not a box of their own", () => {
   // The 25, 25X and 78 at the Old Steine (24 October 2026): their own box
   // stood over the board and pushed the buses out of sight.
   const sub = { ...busy.steine, id: "o25", parent: "o", summary: "Routes 25, 25X and 78 not serving the Old Steine",
@@ -870,11 +810,7 @@ test("preview: routes that skip the stop are told inside the works' notice, not 
     assert.doesNotMatch(html, /<button/);
     assert.equal((html.match(/<details/g) || []).length, 1, "not one notice for the works");
   }
-  // Published, it is still the box.
-  loc.search = "";
-  assert.match(app.boardNoticesHtml({ services_here: here, disruptions: [busy.steine, sub], line_closures: [note] }),
-    /class="stop-closure"[^>]*data-services="25 25X 78"/, "the redesign leaked out without ?preview=1");
-}));
+});
 
 // Royal Pavilion R1 on 26 October 2026 showed five notices, each repeating
 // the same two works: one notice per works, and the route chips filter them.
@@ -889,7 +825,7 @@ const steineNote = { ...closure, id: "o25", parent: "o", lines: ["25", "25X", "7
     metres: 250, direction: "north", routes: ["25", "25X", "78"], side: "both" }] };
 const summaryOf = (card) => card.split("</summary>")[0];
 
-test("preview: one notice per works, so two at the busiest stop, and no box", () => preview(() => {
+test("one notice per works, so two at the busiest stop, and no box", () => {
   const html = app.boardNoticesHtml({ services_here: busy.here,
     disruptions: [busy.western, busy.steine, busy.council, steineSub, steine700], line_closures: [steineNote] });
   const cards = html.split("<details").slice(1);
@@ -902,9 +838,9 @@ test("preview: one notice per works, so two at the busiest stop, and no box", ()
   // The routes here each touches, for the chips to filter by.
   assert.deepEqual([...html.matchAll(/<details[^>]*data-services="([^"]*)"/g)].map(m => m[1]),
     ["25 49 60 700 N700", "25 25X 49 60 78 700"]);
-}));
+});
 
-test("preview: a notice's title is its words before the colon; a route's own detail stays in view", () => preview(() => {
+test("a notice's title is its words before the colon; a route's own detail stays in view", () => {
   const many = { ...busy.steine, summary: "Old Steine roadworks: southbound buses diverted via Edward Street" };
   const one = app.boardNoticesHtml({ services_here: busy.here, disruptions: [many] });
   assert.match(summaryOf(one), /class="disruption-summary">Old Steine roadworks</);
@@ -914,26 +850,24 @@ test("preview: a notice's title is its words before the colon; a route's own det
     disruptions: [{ ...steine700, parent: undefined }] });
   assert.match(summaryOf(own), /class="disruption-detail">after Churchill Square, the 700 diverts to Brighton Station</,
     "the 700's own detail was hidden behind a tap");
-}));
+});
 
-test("preview: the board line is the count and when, no 'of 15'", () => preview(() => {
+test("the board line is the count and when, no 'of 15'", () => {
   const at = new Date("2026-10-26T15:45:00Z");
   assert.equal(app.departureCountText(10, 15, null, at), "10 departures · as of 15:45");
   assert.equal(app.departureCountText(2, 4, "700", at), "2 departures on the 700 · as of 15:45");
-  loc.search = "";
-  assert.equal(app.departureCountText(10, 15, null, at), "10 of 15 departures · as of 15:45", "published changed");
-}));
+});
 
-test("preview: the stop heading is one line, the street or the town, never the name twice", () => preview(() => {
+test("the stop heading is one line, the street or the town, never the name twice", () => {
   vm.runInContext(`state.stopData = {
       R1: { name: "Royal Pavilion", towards: "Hollingbury Asda", locality: "Brighton" },
       HS: { name: "High Street", towards: "Shoreham High Street", locality: "Shoreham-by-Sea" } };
     state.stopDetails = { R1: ["Stop R1", "Old Steine", "", "N"], HS: ["", "High Street", "", "E"] };`, app);
   assert.equal(app.stopHeadingLine("R1"), "Stop R1 · Towards Hollingbury Asda · On Old Steine");
   assert.equal(app.stopHeadingLine("HS"), "Towards Shoreham High Street · Shoreham-by-Sea");
-}));
+});
 
-test("preview: a one-line notice is one line tall, not padded to two", () => {
+test("a one-line notice is one line tall, not padded to two", () => {
   // .disruption summary's 44px floor came later in style.css at the same
   // specificity, so the compact card's own rule lost and Old Steine at
   // Waitrose showed an empty second line (26 October 2026).
@@ -941,7 +875,7 @@ test("preview: a one-line notice is one line tall, not padded to two", () => {
   assert.match(css, /\.disruption\.disruption--compact summary\s*\{[^}]*min-height:\s*0/);
 });
 
-// ── The Bus tab, with ?preview=1, in the board's style (26 October 2026) ─
+// ── The Bus tab, in the board's style (26 October 2026) ─────
 
 const t = (hhmm) => `2026-10-26T${hhmm}:00Z`;
 const route46 = () => upcoming({ source: "trip", vehicle: { trip_source: "feed", recorded_at: t("16:20") },
@@ -953,7 +887,7 @@ const route46 = () => upcoming({ source: "trip", vehicle: { trip_source: "feed",
     stopRow(5, { stop_name: "Churchill Square", timing_point: true, scheduled: t("16:27"), expected: t("16:28"), lateness_secs: 60 }),
   ] });
 
-test("preview: the stops ahead read like the board, with passed and skipped stops a line each", () => preview(() => {
+test("the stops ahead read like the board, with passed and skipped stops a line each", () => {
   const html = route46();
   assert.match(html, /class="upcoming-stop-line">Passed Palmeira Square · 16:19</, "the passed stop took a full row");
   assert.match(html, /class="upcoming-stop-line upcoming-stop-line--skipped">Not calling at Brunswick Place or Norfolk Square: diversion</,
@@ -962,18 +896,16 @@ test("preview: the stops ahead read like the board, with passed and skipped stop
   assert.match(html, /class="upcoming-stop-time upcoming-stop-time--live"><span class="live-dot"><\/span>16:23</);
   assert.match(html, /class="upcoming-stop-sched">Scheduled 16:22</, "the timetabled time is not under the live one");
   assert.doesNotMatch(html, /upcoming-stop-was/, "a time is still crossed out");
-  loc.search = "";
-  assert.match(route46(), /<s class="upcoming-stop-was">16:22<\/s>/, "published changed");
-}));
+});
 
-test("preview: the Bus tab's status is the board's, +3 mins and where", () => preview(() => {
+test("the Bus tab's status is the board's, +3 mins and where", () => {
   const html = app.busStatusLineHtml({ lateness_secs: 200, nearest_stop_name: "Palmeira Square" });
   assert.match(html, /status-late"><span aria-hidden="true">\+3 mins<\/span><span class="visually-hidden">3 min late</);
   assert.match(html, /near Palmeira Square/);
   assert.match(app.busStatusLineHtml({ lateness_secs: 0, on_diversion: true }), />On time<[\s\S]*on diversion/);
-}));
+});
 
-test("preview: the Bus tab is a row, two toggles and the stops; the rest folds away", () => preview(() => {
+test("the Bus tab is a row, two toggles and the stops; the rest folds away", () => {
   const v = { vehicle_ref: "512", service_ref: "46", operator_ref: "BHBC" };
   const html = app.busTabShellHtml(v);
   assert.doesNotMatch(html, /bus-info-hero/, "the identity block came back");
@@ -985,11 +917,9 @@ test("preview: the Bus tab is a row, two toggles and the stops; the rest folds a
   assert.match(html, /<summary>About the 46 · Brighton &amp; Hove Buses, fleet 512<\/summary>/);
   assert.match(html, /Report a problem with this bus/);
   assert.doesNotMatch(html, /refreshes every 20s/);
-  loc.search = "";
-  assert.match(app.busTabShellHtml(v), /bus-info-hero/, "published changed");
-}));
+});
 
-test("preview: the bus's next journey is one line", () => preview(() => {
+test("the bus's next journey is one line", () => {
   const html = app.buildNextJourneyHtml({ depart: "16:58", service: "46", headsign: "Hangleton" });
   assert.match(html, /Then it's planned to run the <strong>16:58 46<\/strong> to Hangleton\./);
-}));
+});

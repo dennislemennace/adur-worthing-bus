@@ -198,7 +198,7 @@ const detentOf = (ctx) => vm.runInContext("state.sheetDetent", ctx);
 
 // ── The bottom sheet ────────────────────────────────────────
 //
-// The panel is now a sheet with three detents rather than a fixed slab, and
+// The panel is now a sheet with four detents rather than a fixed slab, and
 // "collapsed" is the name of its smallest one. The point of the change is
 // that the smallest state is still a sheet: content stays in the layout, so
 // no state can leave a view unreachable the way display:none did.
@@ -214,7 +214,7 @@ test("peek is the collapsed detent, and nothing else is", () => {
   const { ctx, bodyClasses } = loadApp();
   ctx.setSheetDetent("peek");
   assert.ok(bodyClasses.has(COLLAPSED), "peek must read as collapsed");
-  for (const d of ["half", "full"]) {
+  for (const d of ["half", "tall", "full"]) {
     ctx.setSheetDetent(d);
     assert.ok(!bodyClasses.has(COLLAPSED), `${d} must not read as collapsed`);
   }
@@ -228,25 +228,10 @@ test("collapsing and expanding map onto detents", () => {
   assert.equal(detentOf(ctx), "half");
 });
 
-test("cycling walks peek -> half -> full and wraps", () => {
+test("cycling walks peek -> half -> tall -> full and wraps", () => {
   // This is the keyboard path: the handle is a button precisely so the sheet
   // is not pointer-only, and cycling is what Enter and Space do.
   const { ctx } = loadApp();
-  ctx.setSheetDetent("peek");
-  const seen = [];
-  for (let i = 0; i < 4; i++) {
-    ctx.cycleSheetDetent();
-    seen.push(detentOf(ctx));
-  }
-  assert.deepEqual(seen, ["half", "full", "peek", "half"]);
-});
-
-// With ?preview=1 (26 October 2026): a stop opens most of the way up, with a
-// sliver of map still showing, halfway between half and full.
-
-test("preview: cycling walks peek -> half -> tall -> full", () => {
-  const { ctx } = loadApp();
-  ctx.location.search = "?preview=1";
   ctx.setSheetDetent("peek");
   const seen = [];
   for (let i = 0; i < 5; i++) {
@@ -256,23 +241,18 @@ test("preview: cycling walks peek -> half -> tall -> full", () => {
   assert.deepEqual(seen, ["half", "tall", "full", "peek", "half"]);
 });
 
-test("preview: opening a stop lifts the sheet to tall; anything else still to half", () => {
+// A stop opens most of the way up, with a sliver of map still showing,
+// halfway between half and full (26 October 2026).
+
+test("opening a stop lifts the sheet to tall; anything else to half", () => {
   const { ctx } = loadApp();
   ctx.window.innerHeight = 844;
-  ctx.location.search = "?preview=1";
   ctx.setSheetDetent("peek");
   ctx.revealPanelForSelection({ stop: true });
   assert.equal(detentOf(ctx), "tall", "a stop did not open most of the way up");
   ctx.setSheetDetent("peek");
   ctx.revealPanelForSelection();
   assert.equal(detentOf(ctx), "half", "a bus or a station changed too");
-  // Published, nothing changes: no tall detent, a stop opens to half.
-  ctx.location.search = "";
-  ctx.setSheetDetent("peek");
-  ctx.revealPanelForSelection({ stop: true });
-  assert.equal(detentOf(ctx), "half");
-  ctx.setSheetDetent("tall");
-  assert.equal(detentOf(ctx), "half", "the tall detent leaked out without ?preview=1");
 });
 
 test("an unknown detent is ignored rather than applied", () => {
