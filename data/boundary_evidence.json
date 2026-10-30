@@ -6,12 +6,12 @@
     "east": "Brighton & Hove"
   },
   "headline": "Bus service is measurably thinner on the West Sussex side of the Brighton & Hove boundary.",
-  "as_of": "2026-10-25",
-  "computed_at": "2026-10-25T08:20:00+00:00",
+  "as_of": "2026-10-30",
+  "computed_at": "2026-10-30T20:43:43+00:00",
   "data_version": {
     "source": "Bus Open Data Service, South East regional GTFS bundle",
     "artefact": "data/timetable.sqlite",
-    "sha256": "c008ac0db87b4e566a8d3fc86dc933be84eb016d587f172c360ff5f3f10a8fdf"
+    "sha256": "85a9fe83b437b4977fbbe2239da46ae23e57f2c4c2c664881c25732cd406e530"
   },
   "measured_week": {
     "monday": "2026-11-02",
@@ -21,9 +21,7 @@
   "method": {
     "summary": "Stops in a 4 km band either side of the council boundary, along the same coastal strip, bucketed east or west of the line and compared per stop.",
     "week": "The coming week, unless its Monday runs fewer routes in the band than the busiest of the three Mondays after it, as in half term, a bank holiday week or Christmas: then the first week that does. Route counts include school-day routes, so a holiday week is not a like-for-like week.",
-    "passed_over": [
-      "2026-10-26"
-    ],
+    "passed_over": [],
     "band": {
       "line_lon": -0.216,
       "half_width_lon_deg": 0.057,
