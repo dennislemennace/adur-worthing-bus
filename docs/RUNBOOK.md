@@ -30,6 +30,18 @@ to zero, the feed has probably been fixed upstream; if a new operator appears
 in it, check one of its journeys against bustimes.org before trusting it. The
 rule is in `scripts/build_timetable.py` (`DUPLICATE_WAIT_MAX_GAP_SECS`).
 
+The build swaps BODS's copy of FlixBus for FlixBus's own timetable
+(`scripts/flixbus_gtfs.py`), because only FlixBus's trip ids match its live
+feeds (`api/flixbus.py`). FlixBus writes times in UTC; the build moves them to
+UK time. The log line `FlixBus: N journeys at M stops` says what was merged;
+expect about 900 journeys at 4 stops (Brighton station, Preston Park, both
+Gatwick terminals). If the file cannot be had, or has nothing here, the build
+keeps BODS's copy and raises a `flixbus-timetable` issue: boards still show
+the coaches, but FlixBus live times and positions stop matching them until a
+later build succeeds. A new FlixBus stop in the area is joined to ours only if
+it is within 60 m of one (300 m of a stop BODS's FlixBus copy already uses);
+check the `aliases` count against the stops FlixBus lists here.
+
 **Rebuild the static stop list.** `python scripts/build_stops_json.py` writes
 `data/stops.json` from `data/timetable.sqlite`. The *Update Timetable Data*
 workflow already runs it and commits the result, so this is only for when you

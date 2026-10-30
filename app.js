@@ -9264,7 +9264,9 @@ function reportBusFormHtml(v) {
 function busTabShellHtml(v) {
   const operatorName = getOperatorName(v.operator_ref);
   const service      = v.service_ref || "?";
-  const fleet        = v.vehicle_ref || "";
+  // FlixBus sends no vehicle id, so its coaches are known by their journey
+  // (`fleet_known: false`), which is no fleet number.
+  const fleet        = v.fleet_known === false ? "" : (v.vehicle_ref || "");
   return `
     <div id="bus-info-lost-host"></div>
     <div class="bus-pills" role="group" aria-label="This bus">
@@ -18084,6 +18086,7 @@ const OPERATOR_COLOURS = {
   // National Express / Coaches
   "NATX": "#ffcc00",   // National Express yellow
   "TNXB": "#ffcc00",
+  "FLIX": "#73D700",   // FlixBus green, the route_color in its own timetable
 
   // Metrobus (Go-Ahead)
   "METR": "#007a4c",   // Metrobus green
@@ -18154,6 +18157,11 @@ const ROUTE_ICONS = {
   // vehicle and shows on the live map tagged CSS, but has no timetable in
   // the GTFS feed, so it exists here only as a livery.
   "BHBC:CSS": "icons/BHBC-CSS.png",
+
+  // Stagecoach's 17, Brighton to Horsham — navy, in its own route colours.
+  // Listed under both Stagecoach South codes, as OPERATOR_ICONS is.
+  "SCSO:17":  "icons/SCSO-17.png",
+  "SCSC:17":  "icons/SCSO-17.png",
 };
 
 /** The livery for this service, falling back to the operator's generic bus.
@@ -18191,6 +18199,10 @@ const OPERATOR_ICONS = {
   "NATX": "icons/NTXP.png",
   "NTXP": "icons/NTXP.png",
   "TNXB": "icons/TNXB.png",
+
+  // FlixBus — one green coach for every line. The marker's label carries the
+  // line (UK066, UK900 …), since several call at Brighton and Gatwick.
+  "FLIX": "icons/FLIX.png",
 };
 
 const OPERATOR_BORDER_COLOURS = {
@@ -18461,6 +18473,7 @@ const OPERATOR_NAMES = {
   "NATX": "National Express",
   "NTXP": "National Express",
   "TNXB": "National Express",
+  "FLIX": "FlixBus",
   "ARBB": "Arriva",
   "ARHE": "Arriva",
   "METR": "Metrobus",
@@ -18486,6 +18499,8 @@ const OPERATOR_COMPLAINT_URLS = {
   "CMPA": "https://compass-travel.co.uk/contact-us/",
   "COMT": "https://compass-travel.co.uk/contact-us/",
   "METR": "https://www.metrobus.co.uk/contact-us",
+  // The "Help" link in the header and footer of flixbus.co.uk.
+  "FLIX": "https://support.flixbus.com/gb/en",
 };
 
 function operatorComplaintLinkHtml(operatorRef) {

@@ -26,6 +26,7 @@ itself to the same standard for its pictures.
 | Fraunces, Outfit, JetBrains Mono | Google Fonts | SIL Open Font License 1.1. |
 | Leaflet 1.9.4 | leafletjs.com | BSD 2-Clause — see `THIRD_PARTY_NOTICES.md`. |
 | Bus timetable data | Bus Open Data Service / DfT | Open Government Licence v3.0. |
+| FlixBus timetable, positions and delays | FlixBus France, on transport.data.gouv.fr | Open Database Licence 1.0 with the access point's conditions. Credited on the About page and in both footers, which must stay; the FlixBus journeys in `timetable.sqlite` stay ODbL. See `THIRD_PARTY_NOTICES.md`. |
 | ONS boundary lookups | ONS Open Geography Portal | OGL v3.0, with the OS Crown copyright statement carried in `data/boundary_evidence.json`. |
 | Councillor names and published addresses | Each council's own member directory | Published by the councils for this purpose. `scripts/build_representatives.py` reads them and never derives an address from a name pattern. |
 

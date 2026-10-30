@@ -43,6 +43,8 @@ except ImportError:
     print("FATAL: httpx is not installed. Run: pip install httpx", flush=True)
     sys.exit(1)
 
+import flixbus_gtfs
+
 # ── Config ───────────────────────────────────────────────────
 # BODS publishes regional GTFS bundles; South East covers West Sussex
 GTFS_URL = "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/south_east/"
@@ -85,6 +87,13 @@ WEST_SUSSEX_ATCO_PREFIX = "4400"
 BBOX_MIN_LAT, BBOX_MAX_LAT =  50.78,  50.87
 BBOX_MIN_LON, BBOX_MAX_LON = -0.42,  -0.10
 
+# A shape is kept, whole, if any point of it is this close to the map box
+# (≈11 km, far wider than the runtime clip pad). FlixBus's shapes go by the
+# same rule.
+SHAPE_PAD = 0.10
+SHAPE_BOX = (BBOX_MIN_LAT - SHAPE_PAD, BBOX_MAX_LAT + SHAPE_PAD,
+             BBOX_MIN_LON - SHAPE_PAD, BBOX_MAX_LON + SHAPE_PAD)
+
 # Public OSRM demo. Fair-use, no SLA — we hit it ~30-50× per weekly
 # build, well under any reasonable threshold. Override with a self-
 # hosted or Mapbox endpoint via env var if needed.
@@ -108,6 +117,7 @@ def main():
     try:
         download_gtfs(GTFS_URL, tmp_path)
         timetable = parse_gtfs(tmp_path)
+        add_flixbus(timetable)
         add_localities(timetable)
     finally:
         try:
@@ -167,6 +177,49 @@ def download_gtfs(url: str, dest_path: str) -> None:
             import time as _time
             _time.sleep(wait)
     raise RuntimeError(f"GTFS download failed after 3 attempts: {last_exc}")
+
+
+# ── FlixBus's own timetable ──────────────────────────────────
+def add_flixbus(timetable: dict, url: str = flixbus_gtfs.FLIXBUS_GTFS_URL,
+                download=None) -> None:
+    """Swap BODS's copy of FlixBus for FlixBus's own (scripts/flixbus_gtfs.py).
+
+    Someone else's file, so it must never cost us the timetable: if it cannot
+    be fetched or read, or has nothing here, BODS's copy stays and a notice
+    says so (scripts/notify_warnings.py), as the other weekly sources do.
+    """
+    download = download or download_gtfs
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        path = tmp.name
+    try:
+        download(url, path)
+        stats = flixbus_gtfs.merge(timetable, path, shape_box=SHAPE_BOX)
+    except Exception as exc:                    # noqa: BLE001 — see docstring
+        log.warning("FlixBus timetable unavailable (%s); keeping BODS's copy", exc)
+        _notice("flixbus-timetable", "warn",
+                f"FlixBus's own timetable could not be used ({exc}); this week's "
+                "build kept BODS's copy, so FlixBus live times will not match.")
+        return
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    if stats["trips"]:
+        _notice("flixbus-timetable", "clear")
+    else:
+        _notice("flixbus-timetable", "warn",
+                "FlixBus's own timetable had no journey at any of our stops; this "
+                "week's build kept BODS's copy, so FlixBus live times will not match.")
+
+
+def _notice(key: str, state: str, message: str = "") -> None:
+    """A line for scripts/notify_warnings.py, when the workflow collects them."""
+    path = os.environ.get("NOTICES")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(f"{key}\t{state}\t{message}\n" if message else f"{key}\t{state}\n")
 
 
 # ── GTFS parser ──────────────────────────────────────────────
@@ -450,7 +503,6 @@ def parse_gtfs(zip_path: str) -> dict:
         # any trip whose shape_id is empty or unknown. Storing only
         # points within bbox + a generous margin keeps the SQLite
         # blob from ballooning (raw shapes.txt is hundreds of MB).
-        SHAPE_PAD = 0.10  # ≈11 km — far wider than the runtime clip pad
         smin_lat = BBOX_MIN_LAT - SHAPE_PAD
         smax_lat = BBOX_MAX_LAT + SHAPE_PAD
         smin_lon = BBOX_MIN_LON - SHAPE_PAD

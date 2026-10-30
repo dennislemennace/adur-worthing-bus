@@ -62,6 +62,23 @@ Also `data/stop_osm.json` (stop shelter, seating, kerb, tactile paving and
 wheelchair access), a derived database under the same licence:
 https://opendatacommons.org/licenses/odbl/1-0/
 
+## FlixBus timetables and live times: Open Database Licence
+
+FlixBus's timetable (`gtfs_generic_eu.zip`) and its GTFS-RT trip updates and
+vehicle positions, published by FlixBus France (FLIXBUS FRANCE SARL) on
+France's national access point, dataset "Réseau européen FlixBus et
+FlixTrain":
+https://transport.data.gouv.fr/datasets/flixbus-horaires-theoriques-du-reseau-europeen-1
+
+Under the Open Database Licence 1.0,
+https://opendatacommons.org/licenses/odbl/1-0/, with the access point's
+Conditions Particulières d'utilisation:
+https://doc.transport.data.gouv.fr/presentation-et-mode-demploi-du-pan/conditions-dutilisation-des-donnees/licence-odbl
+
+The FlixBus journeys in the weekly timetable database this project publishes
+(`timetable.sqlite`, the `timetable-latest` release asset) are derived from it
+and stay under the same licence.
+
 ## Timetable and boundary data — Open Government Licence v3.0
 
 Bus Open Data Service (Department for Transport) and the ONS Open Geography

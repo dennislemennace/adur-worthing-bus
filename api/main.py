@@ -46,7 +46,7 @@ from api import corridor_gaps
 from api import disruptions as sx
 from api import local_disruptions
 from api import journey_planner as planner
-from api import gtfs_rt, live_eta, prediction_log, trip_match
+from api import flixbus, gtfs_rt, live_eta, prediction_log, trip_match
 from api.timetable_db import (NIGHT_ENDS_SECS, Timetable,
                               path_has_time_gap, service_runs_on)
 
@@ -1281,6 +1281,9 @@ async def get_vehicle(vehicleRef: str = Query(...)):
             "journey_start": vehicle.get("journey_start") if declared else None,
             "lateness_secs": vehicle.get("lateness_secs") if declared else None,
             "on_diversion":  bool(vehicle.get("on_diversion")),
+            # False where the ref names a journey, not a bus (FlixBus sends no
+            # vehicle id), so the page does not call it a fleet number.
+            "fleet_known":   vehicle.get("fleet_known", True),
         },
         "upcoming_stops": upcoming,
         "source":         source,
@@ -1494,6 +1497,9 @@ async def get_departures(
         cache_set(cache_key, base, 60)
 
     result = await _apply_live_overlay(base, resolved)
+    # FlixBus's own delays, asked for only where a FlixBus coach is on the board.
+    if any(d.get("operator") == flixbus.NOC for d in result.get("departures") or []):
+        result = _apply_flixbus_delays(result, tt, resolved, await _flixbus_updates(tt))
     result = await off_loop(_apply_own_feed_estimates, result, tt, resolved,
                             datetime.now(UK_TZ), await _diversions_doc(), await _recovery_doc())
     if "live" not in result and not (NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY):
@@ -2306,19 +2312,32 @@ def _secs_to_hhmm(secs: Optional[int]) -> str:
 
 
 async def _fetch_and_match_vehicles() -> dict:
-    # Both feeds at once: the second is 34 KB against the first's 285 KB, and
+    # The feeds at once: the second is 34 KB against the first's 285 KB, and
     # waiting for them in turn would add its latency to every cache miss.
-    vehicles, declared = await asyncio.gather(_fetch_siri_vm(),
-                                              _fetch_declared_journeys())
+    vehicles, declared, coaches = await asyncio.gather(
+        _fetch_siri_vm(), _fetch_declared_journeys(),
+        _flixbus_feed(flixbus.VEHICLES_URL, FLIXBUS_VEHICLES_TTL))
     for v in vehicles:
         trip = declared.get(v.get("vehicle_ref", ""))
         if trip:
             v["declared_trip_id"] = trip
     tt       = await _get_timetable()
+    # FlixBus's coaches, which BODS does not carry (api/flixbus.py). Each names
+    # its journey, so they are matched like any bus that declares one.
+    if coaches:
+        try:
+            vehicles.extend(flixbus.parse_vehicles(
+                coaches, tt, datetime.now(timezone.utc),
+                (BBOX_MIN_LAT, BBOX_MAX_LAT, BBOX_MIN_LON, BBOX_MAX_LON),
+                VEHICLE_STALE_SECONDS))
+        except Exception as exc:                # noqa: BLE001 — someone else's feed
+            log.info("FlixBus positions unreadable: %s", exc)
     # Matching every vehicle against the timetable is a synchronous walk over
     # SQLite results: 0.65 s for 233 buses on a desktop, several seconds on the
     # free instance. On the event loop it holds up every other request.
     await off_loop(_enrich_vehicles_with_trip_match, vehicles, tt)
+    if any(v.get("operator_ref") == flixbus.NOC and v.get("trip_id") for v in vehicles):
+        flixbus.apply_operator_lateness(vehicles, tt, await _flixbus_updates(tt))
     # A longer-lived copy for the stop board, which reads vehicles but must
     # never fetch them (see _apply_own_feed_estimates). Each lateness is
     # measured at its own report time, so a copy a minute or two old still
@@ -2326,6 +2345,100 @@ async def _fetch_and_match_vehicles() -> dict:
     cache_set(RECENT_VEHICLES_KEY, {"vehicles": vehicles}, RECENT_VEHICLES_TTL)
     _record_trails(vehicles, datetime.now(timezone.utc))
     return {"vehicles": vehicles, "count": len(vehicles)}
+
+
+# ── FlixBus's own feeds (api/flixbus.py) ──────────────────────
+# Keyless, and someone else's: fetched only when wanted, cached, and never
+# allowed to fail a request. Positions ride on the map's poll, at most twice a
+# minute (160 KB). Delays (800 KB) are fetched at most once a minute, and only
+# while a board shows a FlixBus departure or a coach is in the box.
+FLIXBUS_VEHICLES_TTL = 30
+FLIXBUS_UPDATES_TTL = 60
+FLIXBUS_USER_AGENT = "worthingbrightonbus.co.uk (bus times for Adur, Worthing and Brighton)"
+
+
+async def _fetch_flixbus_feed(url: str) -> Optional[bytes]:
+    """One of FlixBus's GTFS-RT feeds, or None. Never raises: FlixBus being
+    down costs the site its coaches, never its buses."""
+    try:
+        async with httpx.AsyncClient(timeout=15,
+                                     headers={"User-Agent": FLIXBUS_USER_AGENT}) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+        return resp.content
+    except Exception as exc:                    # noqa: BLE001 — see docstring
+        log.info("FlixBus feed unavailable (%s): %s", url.rsplit("/", 1)[-1], exc)
+        return None
+
+
+async def _flixbus_feed(url: str, ttl: int) -> Optional[bytes]:
+    async def produce():
+        return {"data": await _fetch_flixbus_feed(url)}
+    return (await cache_single_flight_async(f"flixbus:{url}", produce, ttl))["data"]
+
+
+async def _flixbus_updates(tt) -> dict:
+    """FlixBus's delays at our stops for the journeys we hold, by FlixBus trip
+    id (`flixbus.parse_trip_updates`), or {} if they cannot be had."""
+    async def produce():
+        data = await _fetch_flixbus_feed(flixbus.TRIP_UPDATES_URL)
+        if not data:
+            return {}
+
+        def read():
+            return flixbus.parse_trip_updates(data, flixbus.held_trip_ids(tt), tt.stop_aliases)
+        try:
+            return await off_loop(read)
+        except Exception as exc:                # noqa: BLE001 — someone else's feed
+            log.info("FlixBus delays unreadable: %s", exc)
+            return {}
+    return await cache_single_flight_async("flixbus:updates", produce, FLIXBUS_UPDATES_TTL)
+
+
+def _apply_flixbus_delays(payload: dict, tt, stop_id: str, updates: dict) -> dict:
+    """FlixBus's own delay at this stop, on its coaches' rows.
+
+    The operator's statement, as a TransportAPI prediction is, so it is a
+    `prediction`, and a row that already has one keeps it. Only for the day
+    FlixBus says the journey started: a delay to today's 07:00 says nothing
+    about tomorrow's.
+    """
+    departures = payload.get("departures") or []
+    if not updates or not departures:
+        return payload
+    out, applied = [], 0
+    for dep in departures:
+        new = dep
+        trip = dep.get("_trip_id") or ""
+        update = updates.get(flixbus.raw_trip_id(trip)) if dep.get("operator") == flixbus.NOC else None
+        delay = (update or {}).get("delays", {}).get(stop_id)
+        aimed = _parse_iso_datetime(dep.get("aimed_departure"))
+        if (delay is not None and aimed is not None and not dep.get("expected_departure")
+                and (dep.get("status") or "").lower() != "cancelled"
+                and _service_day_of(tt, trip, stop_id, aimed) in ("", update.get("start_date"))):
+            new = {**dep, "expected_departure": (aimed + timedelta(seconds=delay)).isoformat(),
+                   "delay_seconds": delay, "status": _delay_to_status(delay),
+                   "live_source": "prediction"}
+            applied += 1
+        out.append(new)
+    if not applied:
+        return payload
+    result = {**payload, "departures": out, "live": True}
+    result.pop("live_reason", None)
+    return result
+
+
+def _service_day_of(tt, trip_id: str, stop_id: str, aimed: datetime) -> str:
+    """The service day, as `YYYYMMDD`, of a board row: its time less the
+    trip's timetabled seconds at this stop, or "" if the trip does not call
+    here. Three hours on from that local midnight, so a clock change that
+    night cannot tip it into the day before."""
+    secs = next((s for s, stop in tt.trip_stops_for(trip_id) if stop == stop_id and s is not None),
+                None)
+    if secs is None:
+        return ""
+    start = aimed.astimezone(UK_TZ) - timedelta(seconds=secs) + timedelta(hours=3)
+    return start.strftime("%Y%m%d")
 
 
 RECENT_VEHICLES_KEY = "vehicles:recent"

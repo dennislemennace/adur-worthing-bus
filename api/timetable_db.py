@@ -261,6 +261,9 @@ class Timetable:
         # the geo-proximity fallback can filter candidates without issuing
         # one SELECT per stop.
         self.stops_with_times: frozenset = frozenset()
+        # Another publisher's id for one of our stops: FlixBus's, which its
+        # live feed names stops by (scripts/flixbus_gtfs.py).
+        self.stop_aliases: dict = {}
         # Reverse: surrogate sid/tid/rid -> text id. Used to decode query rows.
         self._sid_to_stop: dict = {}
         self._tid_to_trip: dict = {}
@@ -530,6 +533,11 @@ class Timetable:
             for row in con.execute("SELECT DISTINCT sid FROM stop_times")
         )
 
+        # From the 2026-11 builds; an older database reads as having none.
+        tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        stop_aliases = (dict(con.execute("SELECT alias, stop_id FROM stop_aliases"))
+                        if "stop_aliases" in tables else {})
+
         # Atomic swap.
         with self._lock:
             self._generation += 1     # every thread's connection is now stale
@@ -541,6 +549,7 @@ class Timetable:
             self.calendar = calendar
             self.calendar_dates = calendar_dates
             self.stops_with_times = stops_with_times
+            self.stop_aliases = stop_aliases
             self._sid_to_stop = sid_to_stop
             self._tid_to_trip = tid_to_trip
             self.loaded_at = time.time()

@@ -103,6 +103,14 @@ CREATE TABLE calendar_dates (
     PRIMARY KEY (service_id, date)
 ) WITHOUT ROWID;
 
+-- Another publisher's id for one of our stops. FlixBus's live feed names
+-- stops by FlixBus's own ids (scripts/flixbus_gtfs.py), and this is how a
+-- delay it gives at "f22a3795-…" becomes one at Brighton station.
+CREATE TABLE stop_aliases (
+    alias   TEXT PRIMARY KEY,
+    stop_id TEXT NOT NULL
+) WITHOUT ROWID;
+
 -- Denormalised per-trip summary; short_name lookup drives GTFS-RT matching.
 CREATE TABLE trip_endpoints (
     tid        INTEGER PRIMARY KEY,
@@ -166,6 +174,12 @@ def convert(tt: dict, db_path: Path) -> None:
         ),
     )
     print(f"  stops: {len(tt['stops'])}")
+
+    # --- stop_aliases: only for stops this database has ---
+    aliases = [(alias, stop) for alias, stop in (tt.get("stop_aliases") or {}).items()
+               if stop in stop_sid]
+    con.executemany("INSERT INTO stop_aliases VALUES (?,?)", aliases)
+    print(f"  stop_aliases: {len(aliases)}")
 
     # --- routes ---
     con.executemany(

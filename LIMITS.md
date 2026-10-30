@@ -117,6 +117,34 @@ lines and timetables are API calls too, and arrive with it.
 - Don't drop `VEHICLE_REFRESH_MS` below ~15 s without a strong reason; many
   concurrent users multiplied by a fast poll will trigger fair-use throttling.
 
+## FlixBus — its own timetable and live feeds
+
+FlixBus publishes no locations to BODS. FlixBus France publishes its timetable
+and two GTFS-RT feeds on transport.data.gouv.fr, under the Open Database
+Licence, with **no key and no published rate limit** (`api/flixbus.py`,
+`scripts/flixbus_gtfs.py`). The licence's condition is attribution, which the
+About page and both footers carry.
+
+- **Weekly, in the timetable workflow:** one download of
+  `gtfs_generic_eu.zip` (31 MB). If it fails, the build keeps BODS's copy of
+  FlixBus and files a `flixbus-timetable` notice; it never fails the build.
+- **Positions** (`vehicle-position`, ~160 KB): fetched with the map's vehicle
+  poll, at most once per `FLIXBUS_VEHICLES_TTL` (30 s), shared by every caller.
+- **Delays** (`trip-update`, ~800 KB): at most once per `FLIXBUS_UPDATES_TTL`
+  (60 s), and only while a board shows a FlixBus departure or a FlixBus coach
+  is inside the box. Reading only the journeys we hold took 4 ms locally against
+  72 ms for the whole feed, so the free instance's share of a CPU is not the
+  constraint. The feeds send no compression (checked 29 October 2026).
+- Either feed down costs the site its coaches' live times, never the buses':
+  every fetch returns nothing rather than raising, and the result is cached
+  for the same interval either way, so an outage is not retried every request.
+
+**Implications**
+
+- Do not poll FlixBus from anywhere else, or faster. The recorder and the
+  nightly scoring do not record FlixBus yet; adding that means storing only the
+  journeys in the box, not 800 KB a minute in R2.
+
 ## TransportAPI — real-time departure predictions
 
 (Env vars are named `NEXTBUSES_*` for legacy reasons — they point at

@@ -65,6 +65,7 @@ jobs:
       - name: Compile check
         run: |
           python -m py_compile scripts/build_timetable.py
+          python -m py_compile scripts/flixbus_gtfs.py
           python -m py_compile scripts/json_to_sqlite.py
           python -m py_compile scripts/build_evidence.py
           python -m py_compile scripts/build_stops_json.py
