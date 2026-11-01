@@ -69,8 +69,11 @@ test("a cancelled journey needs no expected time; anything else malformed is dro
 });
 
 test("the Worker routes it before the origin check", async () => {
-  // The Worker uses the real clock, so the budget is measured now.
-  const fresh = { get: async () => JSON.stringify({ bytes: 1000, objects: 10, measured_at: new Date().toISOString() }) };
+  // The Worker uses the real clock, so the budget is measured a minute ago, as
+  // the recorder's cron does. Measured "now" inside get(), it is a millisecond
+  // after the Worker took its request time on a slow runner: a budget from the
+  // future is stale, and CI got 507 (1 November 2026).
+  const fresh = { get: async () => JSON.stringify({ bytes: 1000, objects: 10, measured_at: new Date(Date.now() - 60_000).toISOString() }) };
   const res = await worker.fetch(post({ rows: [ROW] }), env({ RATE_LIMIT: fresh }), {});
   assert.equal(res.status, 200, "a server-to-server call with no Origin was refused");
 });
