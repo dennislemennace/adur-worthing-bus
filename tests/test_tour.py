@@ -95,6 +95,28 @@ def test_sources_are_dated_and_reachable():
             assert url.startswith("https://") or (ROOT / url).exists(), where
 
 
+REPO_BLOB = "https://github.com/dennislemennace/adur-worthing-bus/blob/main/"
+
+
+def test_a_typed_percentage_is_in_the_report_the_step_cites():
+    """When a step cites one of this project's own reports, every percentage
+    typed into the step must appear in one of them. The trust step quoted 83%
+    and 64% from the 25 October reports while citing the 16 October one, which
+    has neither: at an expo, the source a reader opens has to say the number."""
+    for s in DOC["steps"]:
+        reports = [ROOT / src["url"][len(REPO_BLOB):] for src in s["sources"]
+                   if src["url"].startswith(REPO_BLOB)]
+        if not reports:
+            continue
+        head = s.get("headline") or {}
+        text = " ".join([s["lead"], *s["points"], head.get("measure", ""),
+                         *[f["value"] for f in head.get("figures", [])]])
+        typed = set(re.findall(r"(?<![\d.{])(\d{1,3})%", re.sub(r"\{[a-z_]+\}%?", "", text)))
+        bodies = " ".join(p.read_text(encoding="utf-8") for p in reports if p.exists())
+        missing = sorted(n for n in typed if f"{n}%" not in bodies and f"{n}." not in bodies)
+        assert not missing, f'{s["id"]}: {", ".join(m + "%" for m in missing)} not in the reports it cites'
+
+
 def test_a_number_from_outside_the_pipeline_names_its_source():
     """A percentage or a price typed into the copy, rather than filled from the
     evidence files, needs an outside source on the same step."""

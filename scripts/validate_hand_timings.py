@@ -18,6 +18,11 @@ Positive means we record the bus as leaving later than it did. Reported:
 - how long buses stood with their doors open;
 - all of it by kind of stop (timing point, end of route, other) and operator.
 
+Rides logged on ride.html read the same way: one row per stop, the doors
+opening as arrived_at and closing as departed_at (`departed_basis` says so).
+Doors closing comes a few seconds before the bus pulls away, so a ride's
+error runs a few seconds more positive than a stop session's.
+
 Most buses are logged by route alone. They are matched on **route, pole and
 time**: the bus of that route we recorded leaving that same pole nearest the
 hand-timed moment, within three minutes. The other side of the road never
@@ -430,7 +435,7 @@ def markdown(summary):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--timings", nargs="+", required=True, help="CSV files exported from timing.html")
+    ap.add_argument("--timings", nargs="+", required=True, help="CSV files exported from timing.html or ride.html")
     ap.add_argument("--observations", help="folder holding observations-YYYY-MM-DD.json.gz")
     ap.add_argument("--fetch", help="download the published observations into this folder first")
     ap.add_argument("--fleet", help="plate-to-fleet-number list (default: fleet.json in the observations folder; "

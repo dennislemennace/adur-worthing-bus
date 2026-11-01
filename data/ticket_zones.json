@@ -1204,6 +1204,24 @@
       "valid_on_operators": [
         "BHBC"
       ],
+      "also_accepted_on": [
+        {
+          "operator": "COMT",
+          "services": [
+            "37",
+            "37B",
+            "37C",
+            "47",
+            "47A",
+            "52",
+            "52A"
+          ],
+          "where": "the whole route",
+          "tickets": "All kinds of SAVER",
+          "source_url": "https://www.buses.co.uk/saver-ticket",
+          "checked_on": "2026-11-01"
+        }
+      ],
       "boundary_checked_on": "2026-09-21",
       "boundary_source": "Traced from the operator's published fare-zone map at official_map_url. The page's prose says only \"Shoreham-by-Sea to the west\" and names neither Shoreham Beach nor The Longshore, so the western edge rests on the map image rather than on text that can be quoted. The edge is drawn behind the stops on both sides of every road it follows: run down the middle of a road instead, it put the two poles of one stop in different zones and made the fare depend on which way you were travelling."
     },
@@ -1283,6 +1301,55 @@
       "valid_on_operators": [
         "BHBC",
         "METR"
+      ],
+      "also_accepted_on": [
+        {
+          "operator": "COMT",
+          "services": [
+            "37",
+            "37B",
+            "37C",
+            "47",
+            "47A",
+            "52",
+            "52A"
+          ],
+          "where": "the whole route",
+          "tickets": "All kinds of SAVER",
+          "source_url": "https://www.buses.co.uk/saver-ticket",
+          "checked_on": "2026-11-01"
+        },
+        {
+          "operator": "COMT",
+          "services": [
+            "19",
+            "19A"
+          ],
+          "where": "the whole route",
+          "tickets": "Paper adult and one-day key card networkSAVERs",
+          "source_url": "https://www.buses.co.uk/saver-ticket",
+          "checked_on": "2026-11-01"
+        },
+        {
+          "operator": "COMT",
+          "services": [
+            "100"
+          ],
+          "where": "between Steyning and Upper Beeding",
+          "tickets": "Paper adult networkSAVERs",
+          "source_url": "https://www.buses.co.uk/saver-ticket",
+          "checked_on": "2026-11-01"
+        },
+        {
+          "operator": "COMT",
+          "services": [
+            "106"
+          ],
+          "where": "between Upper Beeding and Dacre Gardens",
+          "tickets": "Paper adult networkSAVERs",
+          "source_url": "https://www.buses.co.uk/saver-ticket",
+          "checked_on": "2026-11-01"
+        }
       ]
     },
     {

@@ -2836,11 +2836,70 @@ html.dark-mode.a11y-cvd {
   --evidence-east:          #a15c00;
 }
 
-/* The header button only where the header has room. On a phone the same dialog
-   opens from holding the theme button, and from the footer link. */
-@media (max-width: 900px) {
-  .btn-a11y { display: none; }
+/* Dark mode, first in the settings and the largest thing in them: the one most
+   people open the dialog for, now that it has no header button of its own. The
+   whole row is the label, so the target is the row, not the 20px switch. */
+.a11y-theme {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-height: calc(var(--target-min) + 16px);
+  margin: 0 0 var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 2px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
 }
+.a11y-theme:has(.a11y-switch:checked) { border-color: var(--color-primary); }
+.a11y-theme:has(.a11y-switch:focus-visible) { outline: 3px solid var(--color-link); outline-offset: 2px; }
+.a11y-theme-icon { display: grid; flex: none; width: 36px; height: 36px; place-items: center;
+  border-radius: 50%; background: var(--color-surface-2); }
+.a11y-theme-icon .icon { width: 20px; height: 20px; grid-area: 1 / 1; }
+.a11y-theme-sun { display: none; }
+html.dark-mode .a11y-theme-moon { display: none; }
+html.dark-mode .a11y-theme-sun { display: block; }
+.a11y-theme-text { flex: 1; min-width: 0; }
+.a11y-theme-title { display: block; font-size: var(--font-size-base); font-weight: 700; }
+.a11y-theme small {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+/* A switch drawn on the native checkbox, which keeps its keyboard handling and
+   its role="switch" announcement. 52x30: wider than the 44px minimum, inside a
+   row that is itself the target. */
+.a11y-switch {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 52px;
+  height: 30px;
+  margin: 0;
+  border: 2px solid var(--color-text-muted);
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  cursor: pointer;
+}
+.a11y-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  transition: transform 0.15s;
+}
+.a11y-switch:checked { border-color: var(--color-primary); background: var(--color-primary); }
+.a11y-switch:checked::after { transform: translateX(22px); background: var(--color-on-fill); }
+.a11y-switch:focus-visible { outline: none; }   /* the row draws the ring */
+html.a11y-reduce-motion .a11y-switch::after { transition: none; }
 
 .a11y-dialog { max-width: min(30rem, calc(100vw - 2 * var(--space-md))); }
 
@@ -4031,6 +4090,15 @@ html.dark-mode .departures-table tr.departure-row:hover td {
 .board-disruptions { padding: var(--space-2xs) var(--space-sm) 0; }
 .board-disruptions[hidden] { display: none; }
 .disruptions { display: grid; gap: var(--space-2xs); margin-bottom: var(--space-xs); }
+
+/* Travel Updates: the area's disruptions, then notes and passenger reports.
+   Headings, blurb and notices sit in from the edge like the intro above them;
+   the article cards run full width, as they do in News and Analysis. */
+.travel-section { margin: var(--space-md) 0 var(--space-sm); }
+.travel-section > .proposals-section-title,
+.travel-section > .proposals-section-blurb,
+#travel-disruptions-list { padding-inline: var(--space-md); }
+.travel-disruptions { gap: var(--space-xs); }
 .disruption {
   border: 1px solid var(--tint-late-border);
   border-left: 4px solid var(--color-late);
@@ -5745,7 +5813,12 @@ body[data-view="improvements"] .map-overlay-controls { display: flex; }
   letter-spacing: 0.06em;
   color: var(--color-text-muted);
 }
+/* Every text-like field, not only type="text": the news form's source link is
+   type="url", and without it the field drew 22px tall and unstyled. */
 .editor-field input[type="text"],
+.editor-field input[type="url"],
+.editor-field input[type="email"],
+.editor-field input[type="search"],
 .editor-field textarea {
   appearance: none;
   min-height: var(--target-min);
@@ -6776,6 +6849,12 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   }
 }
 
+
+/* While an on-screen keyboard is up (app.js bindKeyboardFooter), the footer's
+   strip is screen the keyboard has already halved. Back when the field is left. */
+@media (max-width: 900px), (pointer: coarse) {
+  html.keyboard-open .site-footer { display: none; }
+}
 
 /* One footer or the other, never both. */
 .site-footer-compact { display: none; }

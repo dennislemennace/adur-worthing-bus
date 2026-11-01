@@ -220,7 +220,7 @@ const state = {
   // ── Improvements view (network/proposals mode) ──
   viewMode:                "live", // "live" | "improvements" | "tickets" | "network" | "updates"
   tourDemo:                null,   // { step, tryIndex }: the tour's stop the reader is on (tour.js)
-  updatesTab:              "official", // "official" | "community"
+  updatesTab:              "travel", // "travel" | "news"
   officialUpdates:         null,   // data/updates.json
   communityUpdates:        null,   // data/community_updates.json
   sheetDetent:             "half", // "peek" | "half" | "full" — the mobile sheet
@@ -286,18 +286,19 @@ const dom = {
   busFilter:          document.getElementById("bus-filter"),
   busFilterAll:       document.getElementById("bus-filter-all"),
   busFilterList:      document.getElementById("bus-filter-list"),
-  darkModeBtn:        document.getElementById("dark-mode-btn"),
+  a11yDark:           document.getElementById("a11y-dark"),
   a11yBtn:            document.getElementById("a11y-btn"),
   a11yDialog:         document.getElementById("a11y-dialog"),
   a11yFooterLink:     document.getElementById("a11y-footer-link"),
   departurePanel:     document.getElementById("departure-panel"),
   sheetHandle:        document.getElementById("sheet-handle"),
-  tabOfficialNews:    document.getElementById("tab-official-news"),
-  tabCommunityNews:   document.getElementById("tab-community-news"),
-  tabContentOfficial: document.getElementById("tab-content-official-news"),
-  tabContentCommunityNews: document.getElementById("tab-content-community-news"),
-  officialUpdatesList:  document.getElementById("official-updates-list"),
-  communityUpdatesList: document.getElementById("community-updates-list"),
+  tabTravelUpdates:   document.getElementById("tab-travel-updates"),
+  tabNewsAnalysis:    document.getElementById("tab-news-analysis"),
+  tabContentTravel:   document.getElementById("tab-content-travel-updates"),
+  tabContentNews:     document.getElementById("tab-content-news-analysis"),
+  travelDisruptionsList: document.getElementById("travel-disruptions-list"),
+  travelUpdatesList:  document.getElementById("travel-updates-list"),
+  newsUpdatesList:    document.getElementById("news-updates-list"),
   liveStatusPill:     document.getElementById("live-status-pill"),
   panelStopName:      document.getElementById("panel-stop-name"),
   stopSpan:           document.getElementById("stop-span"),
@@ -628,12 +629,8 @@ async function init() {
   }
   // The pre-paint script in index.html already applied html.dark-mode from
   // localStorage (or the OS preference on first visit), so there's no flash.
-  // Sync our state + the toggle button to whatever it decided.
+  // Sync our state to whatever it decided; the switch in the settings reads it.
   state.darkMode = document.documentElement.classList.contains("dark-mode");
-  if (state.darkMode) {
-    dom.darkModeBtn.innerHTML = svgIcon("i-sun");
-    dom.darkModeBtn.title = "Switch to light mode";
-  }
 
   // Before bindUIEvents, so the bus button's label can report how many
   // operators are switched off the moment the page settles.
@@ -646,6 +643,7 @@ async function init() {
   initMap();
   bindUIEvents();
   bindA11yControls();
+  bindKeyboardFooter();
   bindStopSearch();
   bindRovingTabs();
   ["evidence-dialog", "councillor-dialog", "a11y-dialog"]
@@ -7842,6 +7840,23 @@ function routeStopTicketsHtml(atcoCode, services) {
   const rows = operators.map(op => {
     const valid = zonesForStop({ lat: pos.lat, lon: pos.lon }, zones.filter(z => z.operator === op), byId, [op])
       .map(id => byId[id] && byId[id].name).filter(Boolean);
+    // Another company's tickets taken here: a route on its list calls at this
+    // stop for the whole route, and a zonal ticket only inside its own zone.
+    const routesHere = (services || []).filter(s => (TICKET_OPERATOR_ALIASES[s.operator] || s.operator) === op)
+      .map(s => String(s.service).toUpperCase());
+    const taken = zones.filter(z => z.operator !== op).map(z => {
+      const routes = routesHere.filter(svc => ticketAcceptance(z, op, svc)?.where === "the whole route");
+      if (!routes.length) return null;
+      const zonal = (z.coverage_rule || "polygon") === "polygon";
+      if (zonal && !zonesForStop({ lat: pos.lat, lon: pos.lon }, [z], byId, [z.operator]).length) return null;
+      return { z, routes };
+    }).filter(Boolean);
+    const owners = [...new Set(taken.map(t => t.z.operator))];
+    const takenText = owners.map(owner => {
+      const mine = taken.filter(t => t.z.operator === owner);
+      const routes = [...new Set(mine.flatMap(t => t.routes))];
+      return ` ${possessive(getOperatorName(owner))} ${andList(mine.map(t => t.z.name))} ${mine.length > 1 ? "are" : "is"} also accepted on the ${andList(routes)} here.`;
+    }).join("");
     const info = OPERATOR_TICKETS[op] || {};
     const cashless = (meta.cashless_services || []).filter(c => c.operator === op)
       .flatMap(c => (c.services || []).filter(svc => here.has(`${op}|${svc}`)));
@@ -7851,12 +7866,13 @@ function routeStopTicketsHtml(atcoCode, services) {
         ? `<a href="${escapeAttr(info.url)}" target="_blank" rel="noopener">tickets</a>` : ""].filter(Boolean);
     return `<li><strong>${escapeHtml(getOperatorName(op) || op)}</strong>: ${valid.length
         ? `day tickets valid here: ${escapeHtml(valid.join(", "))}.` : "no zone day ticket of theirs covers this stop; a single or return does."}
+      ${escapeHtml(takenText)}
       ${cashless.length ? ` The ${escapeHtml(cashless.join(", "))} ${cashless.length === 1 ? "takes" : "take"} no cash: card or app only.` : ""}
       ${links.length ? ` Buy: ${links.join(" · ")}.` : ""}</li>`;
   }).join("");
   return `<h4 class="route-stop-heading">Tickets</h4>
     <ul class="route-stop-tickets">${rows}</ul>
-    <p class="route-stop-note">A day ticket works only on its own company's buses.
+    <p class="route-stop-note">Most day tickets work only on their own company's buses.
       <button type="button" class="jt-link" data-act="tickets">Work out a fare in Tickets &amp; fares</button></p>`;
 }
 
@@ -9547,7 +9563,9 @@ function buildTicketInfoHtml(operatorRef, liveData = null, service = "") {
   // needs to know before the bus comes, not at the door.
   const cashless = (meta.cashless_services || []).find(c => c.operator === op
     && (c.services || []).includes(svc));
-  if (!info && !zones.length && !supplement && !note && !cashless) return "";
+  // Another company's tickets this route takes (citySAVER on a Compass 47).
+  const accepted = svc ? (state.ticketZones || []).filter(z => z.operator !== op && ticketAcceptance(z, op, svc)) : [];
+  if (!info && !zones.length && !supplement && !note && !cashless && !accepted.length) return "";
 
   const rows = [];
   const dates = [];
@@ -9583,6 +9601,12 @@ function buildTicketInfoHtml(operatorRef, liveData = null, service = "") {
     if (checked) dates.push(checked);
   }
   if (note && !zones.some(z => z.fares?.adult_day)) row("Good to know", note);
+  for (const owner of [...new Set(accepted.map(z => z.operator))]) {
+    const mine = accepted.filter(z => z.operator === owner);
+    const zonal = mine.filter(z => (z.coverage_rule || "polygon") === "polygon").map(z => z.name);
+    row("Also accepted", `${possessive(getOperatorName(owner))} ${andList(mine.map(z => z.name))} on this route${
+      zonal.length ? `, ${andList(zonal)} only inside its zone` : ""}.`);
+  }
 
   if (info?.app) {
     rows.push(`
@@ -9853,15 +9877,21 @@ function showPanelState(stateKey, errorMsg) {
   }
 }
 
-function toggleDarkMode() {
-  state.darkMode = !state.darkMode;
+/** Dark mode on or off, from the switch at the top of the accessibility
+ *  settings. Stored apart from the other settings, under the key the pre-paint
+ *  script in index.html has always read. */
+function setDarkMode(on) {
+  state.darkMode = !!on;
   document.documentElement.classList.toggle("dark-mode", state.darkMode);
-  localStorage.setItem("darkMode", state.darkMode ? "1" : "0");
-  dom.darkModeBtn.innerHTML = svgIcon(state.darkMode ? "i-sun" : "i-moon");
-  dom.darkModeBtn.title = state.darkMode ? "Switch to light mode" : "Toggle dark mode";
+  try { localStorage.setItem("darkMode", state.darkMode ? "1" : "0"); } catch { /* private mode */ }
+  if (dom.a11yDark) dom.a11yDark.checked = state.darkMode;
 
   // No tile swap needed: both themes render the same tiles, and the
   // `dark-mode` class on <html> drives the CSS filter that darkens them.
+}
+
+function toggleDarkMode() {
+  setDarkMode(!state.darkMode);
 }
 
 /* ============================================================
@@ -9875,7 +9905,6 @@ function toggleDarkMode() {
  * ============================================================ */
 const A11Y_KEY = "a11y";
 const A11Y_TEXT_SCALES = [1, 1.2, 1.4];
-const A11Y_HOLD_MS = 500;
 
 /** A stored value back into something safe. An older version, a hand edit or a
  *  broken write must not leave the site at 300% text. */
@@ -9962,6 +9991,7 @@ function syncA11yControls() {
   const d = dom.a11yDialog;
   if (!d) return;
   const s = state.a11y;
+  if (dom.a11yDark) dom.a11yDark.checked = !!state.darkMode;
   d.querySelectorAll('input[name="a11y-text"]').forEach(r => { r.checked = Number(r.value) === s.textScale; });
   const motion = d.querySelector("#a11y-motion");
   const cvd = d.querySelector("#a11y-cvd");
@@ -9978,49 +10008,51 @@ function openA11yDialog(returnFocusTo) {
   else d.setAttribute("open", "");
 }
 
-/**
- * Hold the theme button to open the settings.
+/* ============================================================
+ * THE ON-SCREEN KEYBOARD
  *
- * A shortcut for phones, where the header has no room for another button. It
- * is not the only way in: the footer link and the About page reach the same
- * dialog, because a long press cannot be done by keyboard, switch access or
- * most screen readers, who are the people this menu is most for.
- */
-function bindThemeLongPress(btn) {
-  if (!btn) return;
-  let timer = null, held = false, x0 = 0, y0 = 0;
-  const cancel = () => { clearTimeout(timer); timer = null; };
-  btn.addEventListener("pointerdown", (e) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    held = false; x0 = e.clientX; y0 = e.clientY;
-    cancel();
-    timer = setTimeout(() => {
-      timer = null;
-      held = true;
-      if (navigator.vibrate) { try { navigator.vibrate(15); } catch { /* unsupported */ } }
-      openA11yDialog(btn);
-    }, A11Y_HOLD_MS);
-  });
-  btn.addEventListener("pointermove", (e) => {
-    // A finger that drifts is scrolling or changing its mind, not holding.
-    if (timer && Math.hypot(e.clientX - x0, e.clientY - y0) > 10) cancel();
-  });
-  ["pointerup", "pointerleave", "pointercancel"].forEach(type => btn.addEventListener(type, cancel));
-  btn.addEventListener("contextmenu", (e) => { if (timer || held) e.preventDefault(); });
-  // The click that ends a hold must not also flip the theme. Capture phase, so
-  // it runs before toggleDarkMode's listener on the same element.
-  btn.addEventListener("click", (e) => {
-    if (!held) return;
-    held = false;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-  }, true);
+ * On a phone the keyboard takes about half the screen, and the footer was a
+ * fixed strip of what was left. While a field that opens a keyboard has focus,
+ * html.keyboard-open hides the footer (style.css, phone widths and touch
+ * screens only); it comes back as soon as the field is left.
+ * ============================================================ */
+const KEYBOARD_INPUT_TYPES = new Set(["", "text", "search", "email", "url", "tel", "number", "password"]);
+
+/** Does focusing this element bring up a keyboard? A checkbox, a button or a
+ *  select takes focus without one, and must not make the footer flicker. */
+function opensKeyboard(el) {
+  if (!el || el.nodeType !== 1) return false;
+  if (el.isContentEditable) return true;
+  if (el.readOnly || el.disabled) return false;
+  if (el.tagName === "TEXTAREA") return true;
+  if (el.tagName !== "INPUT") return false;
+  return KEYBOARD_INPUT_TYPES.has(String(el.getAttribute("type") || "").toLowerCase());
+}
+
+function bindKeyboardFooter() {
+  const root = document.documentElement;
+  const sync = () => {
+    const open = opensKeyboard(document.activeElement);
+    if (root.classList.contains("keyboard-open") === open) return;
+    root.classList.toggle("keyboard-open", open);
+    // The map's box changes height with the footer, and Leaflet only hears
+    // about a window resize.
+    if (state.map) state.map.invalidateSize();
+  };
+  document.addEventListener("focusin", sync);
+  // focusout comes before the next field's focusin. A tick later, moving from
+  // one field to the next does not flash the footer back in between.
+  document.addEventListener("focusout", () => setTimeout(sync, 0));
 }
 
 function bindA11yControls() {
   const d = dom.a11yDialog;
   if (!d) return;
   const update = updateA11y;
+  if (dom.a11yDark) dom.a11yDark.addEventListener("change", () => {
+    setDarkMode(dom.a11yDark.checked);
+    track(`a11y-dark-mode-${state.darkMode ? "on" : "off"}`);
+  });
   d.querySelectorAll('input[name="a11y-text"]').forEach(r =>
     r.addEventListener("change", () => { if (r.checked) update({ textScale: Number(r.value) }); }));
   const motion = d.querySelector("#a11y-motion");
@@ -10052,8 +10084,6 @@ function bindA11yControls() {
       openA11yDialog(link);
     });
   });
-  bindThemeLongPress(dom.darkModeBtn);
-
   // about.html links here as ./#accessibility. Open it, then take the fragment
   // back off so it does not fight the view state that also lives in the hash.
   if ((location.hash || "") === "#accessibility") {
@@ -10563,9 +10593,6 @@ function bindUIEvents() {
     }
   });
 
-  // Dark mode toggle
-  dom.darkModeBtn.addEventListener("click", toggleDarkMode);
-
   // The bus button opens the operator filter; the master switch inside it is
   // what still turns every bus off in one go.
   if (dom.toggleBusesBtn) {
@@ -10681,8 +10708,8 @@ function bindUIEvents() {
   // Network plan panel: Objectives / Ideas tab switching + suggestion form
   if (dom.tabObjectives) dom.tabObjectives.addEventListener("click", () => setNetworkTab("objectives"));
   if (dom.tabIdeas)      dom.tabIdeas.addEventListener("click",      () => setNetworkTab("ideas"));
-  if (dom.tabOfficialNews)  dom.tabOfficialNews.addEventListener("click",  () => setUpdatesTab("official"));
-  if (dom.tabCommunityNews) dom.tabCommunityNews.addEventListener("click", () => setUpdatesTab("community"));
+  if (dom.tabTravelUpdates) dom.tabTravelUpdates.addEventListener("click", () => setUpdatesTab("travel"));
+  if (dom.tabNewsAnalysis)  dom.tabNewsAnalysis.addEventListener("click",  () => setUpdatesTab("news"));
   if (dom.suggestForm) {
     dom.suggestForm.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -10895,12 +10922,16 @@ function setImprovementsTab(tab) {
 /* ============================================================
  * NETWORK UPDATES
  *
- * Short articles on what is changing. Two sources, kept in separate files
- * for the same reason objectives and ideas are: one is written here, the
- * other comes from passengers and is published only after review.
+ * Two tabs. Travel Updates: diversions and disruptions in force or about to
+ * start (data/disruptions.json, in the publishers' words), the project's own
+ * notes on them, and passengers' reports. News and Analysis: everything else
+ * the project publishes, such as Freedom of Information replies and the
+ * figures worked out from the open data. Each article in data/updates.json
+ * names its tab with `section`; passenger reports, kept in their own file
+ * because they are published only after review, are always travel.
  * ============================================================ */
 async function loadUpdates() {
-  if (state.officialUpdates && state.communityUpdates) return;
+  if (state.officialUpdates && state.communityUpdates && state.recordedDisruptions) return;
   const read = async (path) => {
     try {
       const res = await fetch(path);
@@ -10913,12 +10944,104 @@ async function loadUpdates() {
       return [];
     }
   };
-  const [official, community] = await Promise.all([
+  const readDisruptions = async () => {
+    try {
+      const res = await fetch("data/disruptions.json");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return Array.isArray(data.disruptions) ? data.disruptions : [];
+    } catch (err) {
+      console.warn("Recorded disruptions unavailable:", err);
+      return [];
+    }
+  };
+  const [official, community, disruptions] = await Promise.all([
     read("data/updates.json"),
     read("data/community_updates.json"),
+    readDisruptions(),
   ]);
   state.officialUpdates  = official;
   state.communityUpdates = community;
+  state.recordedDisruptions = disruptions;
+}
+
+/** The articles for one tab, newest first: the project's own, then what
+ *  passengers reported. An article with no `section` is the project's own
+ *  writing, so it is news; the data test makes every article say. */
+function updatesForSection(official, community, section) {
+  const mine = sortUpdates((official || []).filter(u =>
+    (u.section === "travel" ? "travel" : "news") === section)).map(u => ({ u, community: false }));
+  const theirs = section === "travel"
+    ? sortUpdates(community).map(u => ({ u, community: true })) : [];
+  return [...mine, ...theirs];
+}
+
+/* How far ahead Travel Updates looks: works announced for next week matter
+   when planning; works for next spring would bury the ones in force today. */
+const DISRUPTION_LOOKAHEAD_DAYS = 14;
+
+/** Recorded disruptions in force now, or starting within the lookahead. One
+ *  with no end date stays until it is pruned from the file by hand. */
+function currentDisruptions(list, now = new Date()) {
+  const t = now.getTime();
+  const horizon = t + DISRUPTION_LOOKAHEAD_DAYS * 86400000;
+  return (list || []).filter(d => {
+    const end = Date.parse(d.ends || d.final_ends || "");
+    const start = Date.parse(d.starts || "");
+    if (!isNaN(end) && end <= t) return false;
+    if (!isNaN(start) && start > horizon) return false;
+    return true;
+  });
+}
+
+/** "Until Fri 6 Nov", or "From Sun 8 Nov to Mon 9 Nov" for works not begun. */
+function travelDisruptionWhen(d, now) {
+  const day = (iso) => {
+    const t = new Date(iso);
+    return isNaN(t) ? "" : t.toLocaleDateString("en-GB",
+      { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" });
+  };
+  const end = d.ends || d.final_ends;
+  if (d.starts && new Date(d.starts) > now) {
+    return `From ${day(d.starts)}${end ? ` to ${day(end)}` : ""}`;
+  }
+  if (d.daily) return `${d.daily.from} to ${d.daily.to} daily${end ? `, until ${day(end)}` : ""}`;
+  return end ? `Until ${day(end)}` : "Until further notice";
+}
+
+/** The Travel Updates list of disruptions: one card per works, as on a stop's
+ *  board, but for the whole area. The file's records are the operators' own
+ *  words, so they are shown with the same source line a board gives them. */
+function travelDisruptionsHtml(list, now = new Date()) {
+  if (!list || !list.length) {
+    return `<p class="proposals-empty">No diversions or disruptions are recorded for the next
+      two weeks. Each operator also posts its own service updates on its website.</p>`;
+  }
+  const curated = list.map(d => ({ ...d, source: "curated", link: d.link || d.source_url }));
+  return `<div class="disruptions travel-disruptions">${groupDisruptions(curated).map(group => {
+    const [d] = group;
+    const [title, detail] = splitDisruptionSummary(d.summary || "Disruption");
+    const publishers = [...new Set(group.map(x => x.publisher).filter(Boolean))];
+    const lines = [...new Set(group.flatMap(x => (x.lines || []).map(l => l.line)).filter(Boolean))];
+    const scope = lines.length > 6 ? `${lines.length} services`
+      : lines.length ? `${lines.length > 1 ? "Services" : "Service"} ${lines.join(", ")}` : "";
+    return `
+      <details class="disruption travel-disruption">
+        <summary>
+          <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+          <span class="disruption-text">
+            <span class="disruption-head"><span class="disruption-summary">${escapeHtml(title)}</span>
+              <span class="disruption-when">${escapeHtml(travelDisruptionWhen(d, now))}</span></span>
+            ${detail ? `<span class="disruption-detail">${escapeHtml(detail)}</span>` : ""}
+            <span class="disruption-detail">${escapeHtml([publishers.join(" and "), scope].filter(Boolean).join(" · "))}</span>
+          </span>
+        </summary>
+        <div class="disruption-body">
+          ${lines.length > 6 ? `<p><strong>Services:</strong> ${escapeHtml(lines.join(", "))}</p>` : ""}
+          ${disruptionGroupBodyHtml(group)}
+        </div>
+      </details>`;
+  }).join("")}</div>`;
 }
 
 /**
@@ -11051,33 +11174,36 @@ function formatUpdateDate(iso) {
 }
 
 function renderUpdates() {
-  if (dom.officialUpdatesList) {
-    const list = sortUpdates(state.officialUpdates);
-    dom.officialUpdatesList.innerHTML = list.length
-      ? list.map(u => updateCardHtml(u)).join("")
-      : `<p class="proposals-empty">No updates published yet.</p>`;
-    bindUpdateFolds(dom.officialUpdatesList);
+  if (dom.travelDisruptionsList) {
+    const now = new Date();
+    dom.travelDisruptionsList.innerHTML =
+      travelDisruptionsHtml(currentDisruptions(state.recordedDisruptions, now), now);
   }
-  if (dom.communityUpdatesList) {
-    const list = sortUpdates(state.communityUpdates);
-    dom.communityUpdatesList.innerHTML = list.length
-      ? list.map(u => updateCardHtml(u, { community: true })).join("")
-      : `<p class="proposals-empty">Nothing from passengers yet. This is where
-         reviewed reports from the network will appear.</p>`;
-    bindUpdateFolds(dom.communityUpdatesList);
-  }
+  const fill = (host, items, empty) => {
+    if (!host) return;
+    host.innerHTML = items.length
+      ? items.map(({ u, community }) => updateCardHtml(u, { community })).join("")
+      : `<p class="proposals-empty">${empty}</p>`;
+    bindUpdateFolds(host);
+  };
+  fill(dom.travelUpdatesList,
+    updatesForSection(state.officialUpdates, state.communityUpdates, "travel"),
+    "Nothing yet. Reviewed reports from passengers will appear here.");
+  fill(dom.newsUpdatesList,
+    updatesForSection(state.officialUpdates, state.communityUpdates, "news"),
+    "Nothing published yet.");
 }
 
 function setUpdatesTab(tab) {
-  const officialActive = (tab !== "community");
-  state.updatesTab = officialActive ? "official" : "community";
-  if (!dom.tabOfficialNews || !dom.tabCommunityNews) return;
-  dom.tabOfficialNews.classList.toggle("active", officialActive);
-  dom.tabCommunityNews.classList.toggle("active", !officialActive);
-  dom.tabOfficialNews.setAttribute("aria-selected", String(officialActive));
-  dom.tabCommunityNews.setAttribute("aria-selected", String(!officialActive));
-  dom.tabContentOfficial.classList.toggle("hidden", !officialActive);
-  dom.tabContentCommunityNews.classList.toggle("hidden", officialActive);
+  const travelActive = (tab !== "news");
+  state.updatesTab = travelActive ? "travel" : "news";
+  if (!dom.tabTravelUpdates || !dom.tabNewsAnalysis) return;
+  dom.tabTravelUpdates.classList.toggle("active", travelActive);
+  dom.tabNewsAnalysis.classList.toggle("active", !travelActive);
+  dom.tabTravelUpdates.setAttribute("aria-selected", String(travelActive));
+  dom.tabNewsAnalysis.setAttribute("aria-selected", String(!travelActive));
+  dom.tabContentTravel.classList.toggle("hidden", !travelActive);
+  dom.tabContentNews.classList.toggle("hidden", travelActive);
 }
 
 function setNetworkTab(tab) {
@@ -12452,8 +12578,14 @@ function reconcileTicketDisplay() {
   const inTickets = state.viewMode === "tickets";
   const picker = document.getElementById("ticket-operator-picker");
   if (picker) picker.hidden = !inTickets;
+  // A company's own zones, and the zone of any ticket it accepts on some
+  // routes: that boundary is the caveat (citySAVER on a Compass 47).
+  const acceptedBy = (id) => {
+    const z = (state.ticketZones || []).find(x => x.id === id);
+    return [...expanded].some(op => ticketAcceptance(z, op, ""));
+  };
   for (const [id, layer] of Object.entries(state.ticketZoneLayers)) {
-    const show = inTickets && expanded.has(zoneOperator(id));
+    const show = inTickets && (expanded.has(zoneOperator(id)) || acceptedBy(id));
     if (show) {
       if (!state.map.hasLayer(layer)) layer.addTo(state.map);
       const sel = id === state.selectedZoneId;
@@ -12610,27 +12742,28 @@ function renderTicketZonesList() {
       </div>`;
   };
 
-  // Group by operator; each operator is a collapsible card revealing its zones.
-  const byOp = new Map();              // operator → [zones], preserving first-seen order
-  for (const z of zones) {
-    if (!byOp.has(z.operator)) byOp.set(z.operator, []);
-    byOp.get(z.operator).push(z);
-  }
+  // Group by operator; each operator is a collapsible card revealing its zones,
+  // then any other company's tickets its buses take on some routes.
+  const groups = ticketOperatorGroups(zones);
   if (!state.expandedOperators) state.expandedOperators = new Set();
   // Keep the operator of the selected zone open so the highlighted card shows
-  // (expansion is exclusive — only that operator's zones stay on the map).
+  // (expansion is exclusive — only that operator's zones stay on the map). A
+  // ticket picked from under a company that accepts it keeps that company open.
   if (state.selectedZoneId) {
     const selZone = zones.find(z => z.id === state.selectedZoneId);
-    if (selZone) state.expandedOperators = new Set([selZone.operator]);
+    const open = [...state.expandedOperators][0];
+    const acceptedHere = open && open !== selZone?.operator && ticketAcceptance(selZone, open, "");
+    if (selZone && !acceptedHere) state.expandedOperators = new Set([selZone.operator]);
   }
 
-  const operatorSection = (op, items) => {
+  const operatorSection = (op, items, accepted = []) => {
     const fill = OPERATOR_COLOURS[op] || "#444";
     const fg   = textColourOn(fill);
     const open = state.expandedOperators.has(op);
-    const n    = items.length;
+    const n    = items.length + accepted.length;
     // Ungrouped cards first, then any named sub-categories (e.g. "Gold tickets"),
-    // then an operator-wide footnote (e.g. the N700 supplement).
+    // then other companies' tickets accepted on some routes, then an
+    // operator-wide footnote (e.g. the N700 supplement).
     const ungrouped = items.filter(z => !z.subgroup);
     const subgroups = new Map();
     for (const z of items) {
@@ -12641,6 +12774,10 @@ function renderTicketZonesList() {
     let inner = ungrouped.map(cardHtml).join("");
     for (const [name, sub] of subgroups) {
       inner += `<p class="ticket-subgroup-heading">${escapeHtml(name)}</p>` + sub.map(cardHtml).join("");
+    }
+    if (accepted.length) {
+      inner += `<p class="ticket-subgroup-heading">${escapeHtml(`Other tickets accepted on some ${getOperatorName(op)} routes`)}</p>`
+        + accepted.map(z => acceptedTicketCardHtml(z, op)).join("");
     }
     const footnote = (state.ticketOperatorNotes || {})[op];
     if (footnote) inner += `<p class="ticket-operator-footnote">${escapeHtml(footnote)}</p>`;
@@ -12659,7 +12796,7 @@ function renderTicketZonesList() {
       </section>`;
   };
   dom.ticketZonesList.innerHTML =
-    [...byOp.entries()].map(([op, items]) => operatorSection(op, items)).join("");
+    groups.map(g => operatorSection(g.op, g.own, g.accepted)).join("");
 
   // Operator card: open this operator (revealing its zones on the map) and
   // close any other — expansion is exclusive so overlapping operators never
@@ -12757,6 +12894,75 @@ function ticketValidOn(zone, operator) {
   const accepted = zone.valid_on_operators;
   if (Array.isArray(accepted) && accepted.length) return accepted.includes(operator);
   return !zone.operator || zone.operator === operator;
+}
+
+/**
+ * Is this ticket accepted on `service` of another company's buses?
+ *
+ * Some companies take another's tickets on a few routes only: Brighton & Hove
+ * lists Compass's 37, 47 and 52 as taking every kind of SAVER, and some Compass
+ * routes as taking paper networkSAVERs over part of the route
+ * (`also_accepted_on` in data/ticket_zones.json, from that list). Returns the
+ * matching entry, or null. With no service, any route of that company counts.
+ *
+ * Shown where a passenger reads about tickets: the Tickets list, a stop in
+ * Route view and the Bus tab. The fare checker does not use it yet, so it
+ * still quotes a Compass journey as needing Compass's own tickets.
+ */
+function ticketAcceptance(zone, operator, service) {
+  const op = TICKET_OPERATOR_ALIASES[operator] || operator;
+  const svc = String(service || "").trim().toUpperCase();
+  return (zone && zone.also_accepted_on || []).find(a =>
+    (TICKET_OPERATOR_ALIASES[a.operator] || a.operator) === op
+    && (!svc || (a.services || []).includes(svc))) || null;
+}
+
+/** The Tickets list's groups, one per company: its own tickets, then other
+ *  companies' tickets its buses take on some routes. */
+function ticketOperatorGroups(zones) {
+  const groups = new Map();
+  for (const z of zones || []) {
+    if (!groups.has(z.operator)) groups.set(z.operator, { op: z.operator, own: [], accepted: [] });
+    groups.get(z.operator).own.push(z);
+  }
+  for (const g of groups.values()) {
+    g.accepted = (zones || []).filter(z => z.operator !== g.op && ticketAcceptance(z, g.op, ""));
+  }
+  return [...groups.values()];
+}
+
+/** "All kinds of SAVER on Compass Travel's 37, 47 and 52, for the whole route."
+ *  One sentence per entry, in the source's terms. */
+function acceptanceSentences(zone, op) {
+  const name = getOperatorName(op);
+  return (zone.also_accepted_on || [])
+    .filter(a => (TICKET_OPERATOR_ALIASES[a.operator] || a.operator) === op)
+    .map(a => `${a.tickets} on ${possessive(name)} ${andList(a.services || [])}, ${
+      a.where === "the whole route" ? "for the whole route" : a.where}.`);
+}
+
+/** A ticket listed under a company that is not its own, with the caveat that
+ *  goes with it: which routes, and, for a zonal ticket, only inside its zone
+ *  (drawn on the map while this company is open). */
+function acceptedTicketCardHtml(z, op) {
+  const sel = z.id === state.selectedZoneId;
+  const owner = getOperatorName(z.operator);
+  const zonal = (z.coverage_rule || "polygon") === "polygon";
+  const source = (z.also_accepted_on || []).find(a => a.source_url);
+  const day = z.fares && z.fares.adult_day;
+  const price = day && typeof day.price_pence === "number" ? `${formatGbp(day.price_pence)} a day · ` : "";
+  return `
+      <div class="proposal-card ticket-zone-card ticket-zone--accepted ${sel ? "selected" : ""}"
+           role="button" tabindex="0" data-zone-id="${escapeAttr(z.id)}"
+           style="border-left-color:${escapeAttr(z.color || getOperatorBorderColour(z.operator))}">
+        <span class="proposal-card-name">${escapeHtml(z.name || z.id)}</span>
+        <span class="proposal-card-summary">${escapeHtml(`${price}A ${owner} ticket`)}</span>
+        <span class="ticket-zone-restrict">${escapeHtml(acceptanceSentences(z, op).join(" "))}
+          ${zonal ? escapeHtml(`Valid only inside the ${z.name} zone, drawn on the map.`) : ""}
+          ${escapeHtml(`Not accepted on other ${getOperatorName(op)} routes.`)}</span>
+        ${source ? `<a class="ticket-zone-link" href="${escapeAttr(safeUrl(source.source_url))}" target="_blank"
+            rel="noopener noreferrer">${escapeHtml(`${possessive(owner)} list of routes that take it`)} ↗</a>` : ""}
+      </div>`;
 }
 
 /** "HH:MM" to minutes past midnight, or null. */

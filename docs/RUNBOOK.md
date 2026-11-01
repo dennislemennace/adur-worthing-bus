@@ -337,6 +337,14 @@ someone saw (the roadmap's hand-timed check); the page itself carries a Draft
 banner. To make the link public, drop the `previewEnabled()` test in
 `jtRouteReportLink`.
 
+**Hand timings.** Two phone pages log times seen by hand, kept on the phone
+until exported as CSV: `timing.html` at a stop (every bus that calls) and
+`ride.html` on a bus (its doors at every stop, the stop found from the phone's
+position and correctable in the list). Both export the columns
+`scripts/validate_hand_timings.py` reads, so they are checked the same way:
+`--timings timings-*.csv rides-*.csv`. A ride gives doors closed as the
+departure, a few seconds before the bus moves.
+
 **Live-estimate accuracy.** `scripts/backtest_live_eta.py` replays the live
 estimate (`api/live_eta.projected_lateness`) from every timing point a declared
 bus was recorded leaving, against when it really left each later stop. Run it

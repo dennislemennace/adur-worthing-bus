@@ -2,7 +2,7 @@
   "_comment": "The guided tour (tour.js in the app, tour.html as slides and PDF). One file drives all three, so the words are written once. In the app the tour is a walk through the site: each view a step opens is a stop, where a card names the step, gives its headline and says what to try (hint). A headline is one figure (value, label) or a comparison (figures, each with its label), and may lead with a claim it supports and say what was measured (measure); a step that opens no view is one card on its own. Numbers are never typed here: a {placeholder} is filled at runtime from data/boundary_evidence.json and the published journey-times index (tourFigureValues in tour.js), so a weekly rebuild cannot leave the tour quoting stale figures. Every money or planning claim names its source and the date it was checked. preview_only keeps the tour behind ?preview=1 until its copy is approved. Titles, leads and the opening were chosen by the maintainer on 20 October 2026; the points under each step were picked by the maintainer in the 'Tour copy review' doc on 20 October 2026.",
   "schema_version": 1,
   "preview_only": true,
-  "checked_on": "2026-10-20",
+  "checked_on": "2026-11-01",
   "menu": {
     "label": "Take the tour",
     "badge": "New"
@@ -160,7 +160,7 @@
     {
       "id": "beyond-the-baseline",
       "title": "Beyond the baseline",
-      "lead": "ABOD, the Department's free analytics service, is for officers with an invitation. This is for everyone: the same kind of evidence, plus passenger tools, under an open licence.",
+      "lead": "ABOD, the Department's free analytics service, is for bus operators and local authorities, by invitation. This is for everyone: the same kind of evidence, plus passenger tools, under an open licence.",
       "headline": {
         "value": "{identified_share}%",
         "label": "of tracked journeys named by the operator's own feed"
@@ -186,7 +186,7 @@
         {
           "label": "Analyse Bus Open Data (RTIG)",
           "url": "https://www.rtig.org.uk/abod",
-          "checked_on": "2026-10-20"
+          "checked_on": "2026-11-01"
         },
         {
           "label": "ABOD's matching method (OTP Matching)",
@@ -196,21 +196,21 @@
         {
           "label": "ABOD's licence",
           "url": "https://github.com/department-for-transport-BODS/abods/blob/sandbox/LICENSE",
-          "checked_on": "2026-10-20"
+          "checked_on": "2026-11-01"
         }
       ]
     },
     {
       "id": "public-return",
       "title": "Public money, public return",
-      "lead": "The data is free from the Bus Open Data Service; everything else costs under £20 a year. Open-source software at its finest: any developer can spin up the most powerful bus information resource in their area.",
+      "lead": "The data is free from the Bus Open Data Service; everything else costs under £20 a year. Because the code is open, any developer can build a complete bus information site for their area, showing the whole network across every operator, where each operator's own app and website cover only its own buses.",
       "headline": {
         "value": "Under £20",
         "label": "a year to run: the data is free, and so is the hosting"
       },
       "badge": {
-        "kind": "sourced",
-        "label": "From published contract notices"
+        "kind": "about",
+        "label": "Our running costs"
       },
       "points": [
         "Every figure on this site is built on that data, on free hosting, for under £20 a year: the cost of the web address."
@@ -218,14 +218,14 @@
       "try": [],
       "sources": [
         {
-          "label": "PublicTechnology: DfT to spend £37m on real-time bus data service (4 September 2023)",
-          "url": "https://www.publictechnology.net/2023/09/04/transport/dft-to-spend-37m-on-real-time-bus-data-service/",
-          "checked_on": "2026-10-20"
+          "label": "Bus Open Data Service: \"free open data, and does not require a licence\"",
+          "url": "https://www.bus-data.dft.gov.uk/",
+          "checked_on": "2026-11-01"
         },
         {
-          "label": "ITS UK: Department for Transport chooses Kainos to run the Bus Open Data Service (17 November 2025)",
-          "url": "https://www.its-uk.org/department-for-transport-chooses-kainos-to-enhance-bus-data-platform/",
-          "checked_on": "2026-10-20"
+          "label": "Render: the free instance type the live data runs on",
+          "url": "https://render.com/docs/free",
+          "checked_on": "2026-11-01"
         }
       ]
     },
@@ -235,7 +235,7 @@
       "lead": "Every figure says what it was divided by, how it was made, and what would make it wrong.",
       "headline": {
         "claim": "The live times on this site are closer to when the bus really leaves than the timetable is.",
-        "measure": "How often each was within the accuracy window the Real Time Information Group (RTIG) recommends, replayed over 28 recorded days (25 September to 24 October).",
+        "measure": "How often each was within the accuracy window the Real Time Information Group (RTIG) recommends, replayed over 28 recorded days (25 September to 24 October), outside recorded disruptions.",
         "figures": [
           { "value": "83%", "label": "Our live estimate" },
           { "value": "64%", "label": "The timetable alone" }
@@ -246,7 +246,7 @@
         "label": "Recorded and replayed"
       },
       "points": [
-        "As the board actually showed them, minute by minute, 79% of live times were within RTIG's window, and 86% of departures had a live time 15 minutes before they were due. We publish how often we are wrong, nightly, on the live data health page.",
+        "As the board actually showed them, minute by minute, on ordinary days 79% of live times were within RTIG's window, and 86% of departures had a live time 15 minutes before they were due. We publish how often we are wrong, nightly, on the live data health page.",
         "Good to about a minute, not a second; fewer than 10 journeys over 5 days shows \"too few\", never a number.",
         "{identified_share}% of {identified_tracked} tracked journeys are matched to their journey by the operator's own feed.",
         "We are timing buses by hand to check our stop times; the result will be published here.",
@@ -261,9 +261,14 @@
       ],
       "sources": [
         {
-          "label": "Live-estimate accuracy: a replay of 20 recorded days (16 October 2026)",
-          "url": "https://github.com/dennislemennace/adur-worthing-bus/blob/main/docs/reliability/live-eta-accuracy-2026-10-16.md",
-          "checked_on": "2026-10-20"
+          "label": "Live estimates judged by RTIG's windows: 28 recorded days replayed (25 October 2026)",
+          "url": "https://github.com/dennislemennace/adur-worthing-bus/blob/main/docs/reliability/live-eta-accuracy-2026-10-25.md",
+          "checked_on": "2026-11-01"
+        },
+        {
+          "label": "What the board showed, rebuilt minute by minute (25 October 2026)",
+          "url": "https://github.com/dennislemennace/adur-worthing-bus/blob/main/docs/reliability/live-eta-served-2026-10-25.md",
+          "checked_on": "2026-11-01"
         }
       ]
     },

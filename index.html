@@ -78,12 +78,14 @@
   <!-- ===== SVG ICON SPRITE (Lucide, MIT) ===== -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
     <defs>
-      <symbol id="i-accessibility" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="16" cy="4" r="1"/>
-        <path d="m18 19 1-7-6 1"/>
-        <path d="m5 8 3-3 5.5 3-2.36 3.5"/>
-        <path d="M4.24 14.5a5 5 0 0 0 6.88 6"/>
-        <path d="M13.76 17.5a5 5 0 0 0-6.88-6"/>
+      <!-- The universal access symbol: a figure with open arms in a ring. Drawn
+           for this site in Lucide's stroke style; not part of Lucide. -->
+      <symbol id="i-universal-access" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <circle cx="12" cy="7" r="1"/>
+        <path d="M7 10l5 1 5-1"/>
+        <path d="M12 11v3"/>
+        <path d="m9.5 18 2.5-4 2.5 4"/>
       </symbol>
       <symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="2" y="4" width="20" height="16" rx="2"/>
@@ -294,21 +296,15 @@
             <svg class="icon" aria-hidden="true"><use href="#i-train"/></svg>
           </button>
         </div>
-        <!-- Accessibility settings. Its own button where the header has room; on a
-             phone the header does not, so the same dialog opens from holding the
-             theme button, and from the footer link, which is the way in that does
-             not depend on a gesture. -->
+        <!-- Accessibility and display settings, dark mode first. One round button
+             at every width: dark mode used to have its own, and on a phone the
+             settings opened only by holding it, a gesture no keyboard, switch or
+             screen reader can make. The footer link opens the same dialog. -->
         <button class="btn-icon btn-theme btn-a11y" id="a11y-btn" type="button"
-                title="Accessibility settings" aria-label="Accessibility settings"
+                title="Accessibility and dark mode" aria-label="Accessibility and dark mode"
                 aria-haspopup="dialog" aria-controls="a11y-dialog">
-          <svg class="icon" aria-hidden="true"><use href="#i-accessibility"/></svg>
+          <svg class="icon" aria-hidden="true"><use href="#i-universal-access"/></svg>
         </button>
-        <!-- Dark mode toggle — global preference, intentionally distinct shape/colour -->
-        <button class="btn-icon btn-theme" id="dark-mode-btn" title="Toggle dark mode" aria-label="Toggle dark mode"
-                aria-describedby="a11y-hold-hint">
-          <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg>
-        </button>
-        <span class="visually-hidden" id="a11y-hold-hint">Press and hold for accessibility settings.</span>
       </div>
     </div>
     <!-- Coastal wave forming the header's bottom edge. Two layered shapes
@@ -372,10 +368,21 @@
           <button type="button" class="evidence-close" data-close-a11y aria-label="Close">&times;</button>
           <p class="evidence-eyebrow">Settings</p>
           <h2 class="evidence-title" id="a11y-title">Accessibility</h2>
-          <p class="a11y-intro">
-            Saved in this browser only. On a phone you can also open these by
-            holding the light and dark button.
-          </p>
+          <p class="a11y-intro">Saved in this browser only.</p>
+
+          <!-- First and largest: the setting most people come here for. A
+               checkbox with role="switch", so it is announced as on or off. -->
+          <label class="a11y-theme" for="a11y-dark">
+            <span class="a11y-theme-icon" aria-hidden="true">
+              <svg class="icon a11y-theme-moon"><use href="#i-moon"/></svg>
+              <svg class="icon a11y-theme-sun"><use href="#i-sun"/></svg>
+            </span>
+            <span class="a11y-theme-text">
+              <span class="a11y-theme-title">Dark mode</span>
+              <small>Light text on a dark background. Starts as your device's setting.</small>
+            </span>
+            <input type="checkbox" role="switch" id="a11y-dark" class="a11y-switch">
+          </label>
 
           <fieldset class="a11y-group">
             <legend>Text size</legend>
@@ -1250,18 +1257,20 @@
 
       <div class="panel-mode" data-mode="updates">
 
-        <!-- Tab strip (Official / Community) + mobile collapse -->
+        <!-- Tab strip (Travel Updates / News and Analysis) + mobile collapse.
+             Travel first: what affects a journey now. Each article in
+             data/updates.json says which tab it belongs to (`section`). -->
         <div class="panel-tabs-bar">
           <div class="panel-tabs" role="tablist" aria-label="News and notes panels">
-            <button class="panel-tab active" data-updates-tab="official" role="tab"
-                    aria-selected="true" id="tab-official-news" aria-controls="tab-content-official-news">
-              <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-info"/></svg>
-              <span class="panel-tab-label">From this project</span>
+            <button class="panel-tab active" data-updates-tab="travel" role="tab"
+                    aria-selected="true" id="tab-travel-updates" aria-controls="tab-content-travel-updates">
+              <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-alert"/></svg>
+              <span class="panel-tab-label">Travel Updates</span>
             </button>
-            <button class="panel-tab" data-updates-tab="community" role="tab"
-                    aria-selected="false" id="tab-community-news" aria-controls="tab-content-community-news">
-              <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-lightbulb"/></svg>
-              <span class="panel-tab-label">From passengers</span>
+            <button class="panel-tab" data-updates-tab="news" role="tab"
+                    aria-selected="false" id="tab-news-analysis" aria-controls="tab-content-news-analysis">
+              <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-info"/></svg>
+              <span class="panel-tab-label">News and Analysis</span>
             </button>
           </div>
           <button class="btn-collapse-panel" type="button" aria-label="Hide panel" aria-pressed="false">
@@ -1269,32 +1278,30 @@
           </button>
         </div>
 
-        <!-- ── OFFICIAL NEWS TAB ── -->
-        <div class="panel-tab-content" id="tab-content-official-news" role="tabpanel"
-             aria-labelledby="tab-official-news">
+        <!-- ── TRAVEL UPDATES TAB ── -->
+        <div class="panel-tab-content" id="tab-content-travel-updates" role="tabpanel"
+             aria-labelledby="tab-travel-updates">
           <div class="improvements-intro">
-            <h2 class="improvements-title">What's changing on the network</h2>
+            <h2 class="improvements-title">Travel Updates</h2>
             <p>
-              Short pieces on the changes that affect a journey: fares,
-              routes, timetables, and the decisions behind them. Each one says
-              where it came from, so you can check it.
+              Diversions and disruptions on the buses here, in the operators'
+              own words, with what passengers have seen on the road. Each one
+              says where it came from, so you can check it.
             </p>
           </div>
-          <div class="proposals-section-cards" id="official-updates-list"></div>
-        </div>
-
-        <!-- ── COMMUNITY NEWS TAB ── -->
-        <div class="panel-tab-content hidden" id="tab-content-community-news" role="tabpanel"
-             aria-labelledby="tab-community-news">
-          <div class="improvements-intro">
-            <h2 class="improvements-title">News from passengers</h2>
-            <p>
-              Changes people have noticed on the ground: a stop moved, a service
-              quietly cut, a shelter finally fixed. Nothing appears here
-              automatically; every item is reviewed before it is published.
+          <section class="travel-section" aria-labelledby="travel-disruptions-title">
+            <h3 class="proposals-section-title" id="travel-disruptions-title">Diversions and disruptions</h3>
+            <div id="travel-disruptions-list"></div>
+          </section>
+          <section class="travel-section" aria-labelledby="travel-reports-title">
+            <h3 class="proposals-section-title" id="travel-reports-title">Notes and passenger reports</h3>
+            <p class="proposals-section-blurb">
+              Our own notes on a change, and what passengers have noticed on the
+              ground. Nothing from a passenger appears automatically; every
+              report is read before it is published.
             </p>
-          </div>
-          <div class="proposals-section-cards" id="community-updates-list"></div>
+            <div class="proposals-section-cards" id="travel-updates-list"></div>
+          </section>
 
           <!-- Same route every other submission takes: to the Worker, into a
                public issue, published with add_update.py --from-issue. -->
@@ -1364,6 +1371,21 @@
               </div>
             </form>
           </section>
+        </div>
+
+        <!-- ── NEWS AND ANALYSIS TAB ── -->
+        <div class="panel-tab-content hidden" id="tab-content-news-analysis" role="tabpanel"
+             aria-labelledby="tab-news-analysis">
+          <div class="improvements-intro">
+            <h2 class="improvements-title">News and Analysis</h2>
+            <p>
+              What this project publishes: replies to our Freedom of Information
+              requests, the figures we work out from the open bus data, and news
+              about fares and tickets. Each piece says where its figures came
+              from, so you can check them.
+            </p>
+          </div>
+          <div class="proposals-section-cards" id="news-updates-list"></div>
         </div>
       </div>
 

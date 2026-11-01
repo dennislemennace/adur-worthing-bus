@@ -89,15 +89,18 @@ redeploys and the idea appears in the **Ideas** tab after a page reload.
 
 ### Network Updates
 
-Short articles on what is changing — fares, routes, timetables, and the
-decisions behind them. Two feeds, kept in separate files for the same reason
-objectives and ideas are: one is written by a maintainer, the other comes from
-passengers and is published only after somebody has read it.
+Short articles in two tabs. **Travel Updates** lists the diversions and
+disruptions in `data/disruptions.json` that are in force or start within two
+weeks, the maintainer's notes about them, and passengers' reports. **News and
+Analysis** has everything else the project publishes: Freedom of Information
+replies, data releases and analysis. Each maintainer article names its tab with
+`"section": "travel"` or `"news"`. Passenger reports are kept in their own file,
+published only after somebody has read them, and always go under Travel Updates.
 
 ```sh
 python scripts/add_update.py                  # type it in
 python scripts/add_update.py --community      # publish a passenger report
-python scripts/add_update.py '{"title":"…","summary":"…","body":"…"}'
+python scripts/add_update.py '{"title":"…","summary":"…","body":"…","section":"news"}'
 wl-paste | python scripts/add_update.py
 ```
 

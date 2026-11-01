@@ -78,6 +78,27 @@ test("the menu has a way in that is not a hidden gesture", () => {
   assert.match(INDEX, /<dialog[^>]*id="a11y-dialog"/, "the settings are not a dialog");
 });
 
+test("the header button is the universal access symbol, and the only settings button", () => {
+  // One round button in the header opens everything: the theme no longer has
+  // a button of its own, so it cannot be found by holding a different one.
+  const btn = INDEX.slice(INDEX.indexOf('id="a11y-btn"'), INDEX.indexOf("</button>", INDEX.indexOf('id="a11y-btn"')));
+  assert.match(btn, /href="#i-universal-access"/, "the settings button does not show the universal access symbol");
+  assert.match(INDEX, /<symbol id="i-universal-access"/, "the symbol is not in the sprite");
+  assert.doesNotMatch(INDEX, /id="dark-mode-btn"/, "the separate dark mode button is still in the header");
+  assert.doesNotMatch(readFileSync(join(ROOT, "app.js"), "utf8"), /bindThemeLongPress/,
+    "the press-and-hold shortcut on a button that no longer exists is still wired");
+});
+
+test("dark mode is the first setting in the dialog, and a real switch", () => {
+  const dialog = INDEX.slice(INDEX.indexOf('id="a11y-dialog"'), INDEX.indexOf("</dialog>", INDEX.indexOf('id="a11y-dialog"')));
+  const firstControl = /<input\b[^>]*>/.exec(dialog);
+  assert.ok(firstControl, "the dialog has no controls");
+  assert.match(firstControl[0], /id="a11y-dark"/, "dark mode is not the first control in the settings");
+  assert.match(firstControl[0], /type="checkbox"/);
+  assert.match(firstControl[0], /role="switch"/, "a screen reader should hear on and off, not checked");
+  assert.match(dialog, /<label[^>]*for="a11y-dark"[^>]*>[\s\S]*?Dark mode/, "the switch has no visible label");
+});
+
 test("both footers link to the accessibility settings, and both links work", () => {
   // Phones get a compact footer, not the full one. The full footer carried the
   // link and the compact one did not, so on the devices where the hold gesture

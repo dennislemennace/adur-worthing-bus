@@ -294,6 +294,9 @@ const TARGET_SCAN = `(() => {
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) continue;
     if (EXEMPT.test(el.className || "")) continue;
+    // A form's spam trap is for bots only: placed off screen, aria-hidden and
+    // out of the tab order, so no person is meant to reach it at any size.
+    if (el.closest(".suggest-honeypot")) continue;
     // For a control inside a <label>, the target is the label: clicking
     // anywhere on it operates the control, so that is the region a finger
     // actually has to hit. Measuring the 14px checkbox would be wrong.
@@ -906,7 +909,7 @@ async function checkDeepLinkIndependence() {
 async function checkStaticPages() {
   const base = new URL(SITE);
   const origin = `${base.origin}${base.pathname.replace(/[^/]*$/, "")}`;
-  for (const name of ["about.html", "privacy.html", "terms.html", "contact.html", "timing.html", "figures.html", "tour.html"]) {
+  for (const name of ["about.html", "privacy.html", "terms.html", "contact.html", "timing.html", "ride.html", "figures.html", "tour.html"]) {
     for (const vp of [{ label: "mobile", width: 390, height: 844, mobile: true },
                       { label: "desktop", width: 1440, height: 900, mobile: false }]) {
       const page = await connect("about:blank");
@@ -2081,25 +2084,49 @@ async function setA11y(page, settings) {
 /**
  * The accessibility menu: every way in, and what each setting does.
  *
- * The hold on the theme button is the risky one twice over. A hold that does
- * not open anything is a shortcut that silently isn't there, and a hold that
- * opens the menu *and* flips the theme is worse than no shortcut at all.
+ * One round button in the header opens it at every width, with dark mode as
+ * its first setting. Dark mode had its own button, and on a phone the menu
+ * opened only by holding it: a gesture no keyboard, switch or screen reader
+ * can make. The footer link is the second way in.
  */
 async function checkA11yMenu(page, where, { desktop }) {
   const isOpen = () => page.evaluate(`document.getElementById("a11y-dialog").open`);
   const close = () => page.evaluate(`(() => { const d = document.getElementById("a11y-dialog"); if (d.open) d.close(); return ""; })()`);
 
-  if (desktop) {
-    const btn = JSON.parse(await page.evaluate(`(() => {
-      const b = document.getElementById("a11y-btn"); const r = b.getBoundingClientRect();
-      return JSON.stringify({ shown: r.width > 0 && getComputedStyle(b).display !== "none", w: Math.round(r.width), h: Math.round(r.height) });
-    })()`));
-    check(`the accessibility button is in the header — ${where}`, btn.shown && btn.h >= 40, JSON.stringify(btn));
-    await page.evaluate(`document.getElementById("a11y-btn").click()`);
-    await sleep(300);
-    check(`the header button opens the accessibility settings — ${where}`, await isOpen());
-    await close();
-  }
+  const btn = JSON.parse(await page.evaluate(`(() => {
+    const b = document.getElementById("a11y-btn"); const r = b.getBoundingClientRect();
+    return JSON.stringify({ shown: r.width > 0 && getComputedStyle(b).display !== "none", w: Math.round(r.width), h: Math.round(r.height),
+      themeButton: !!document.getElementById("dark-mode-btn") });
+  })()`));
+  check(`the accessibility button is in the header — ${where}`, btn.shown && btn.h >= 40, JSON.stringify(btn));
+  check(`there is no separate dark mode button — ${where}`, !btn.themeButton, JSON.stringify(btn));
+  await page.evaluate(`document.getElementById("a11y-btn").click()`);
+  await sleep(300);
+  check(`the header button opens the accessibility settings — ${where}`, await isOpen());
+
+  // Dark mode: first, big, and it works. The first control in the dialog, a
+  // row at least the 44px target tall, and switching it changes the page and
+  // what is stored, then switches back.
+  const theme = JSON.parse(await page.evaluate(`(() => {
+    const d = document.getElementById("a11y-dialog");
+    const first = d.querySelector("input");
+    const row = d.querySelector(".a11y-theme").getBoundingClientRect();
+    const sw = document.getElementById("a11y-dark");
+    const before = { dark: state.darkMode, checked: sw.checked };
+    sw.click();
+    const after = { dark: state.darkMode, cls: document.documentElement.classList.contains("dark-mode"),
+      stored: localStorage.getItem("darkMode"), checked: sw.checked };
+    sw.click();
+    return JSON.stringify({ first: first && first.id, role: sw.getAttribute("role"), rowH: Math.round(row.height),
+      rowW: Math.round(row.width), before, after, restored: state.darkMode === before.dark });
+  })()`));
+  check(`dark mode is the first setting, as a switch — ${where}`,
+    theme.first === "a11y-dark" && theme.role === "switch" && theme.rowH >= 44, JSON.stringify(theme));
+  check(`the dark mode switch changes the theme and remembers it — ${where}`,
+    theme.before.checked === theme.before.dark && theme.after.dark !== theme.before.dark
+      && theme.after.cls === theme.after.dark && theme.after.stored === (theme.after.dark ? "1" : "0")
+      && theme.after.checked === theme.after.dark && theme.restored, JSON.stringify(theme));
+  await close();
 
   // The link a reader can see at this width. Phones get the compact footer, and
   // clicking the full footer's link by id would pass even while it is hidden.
@@ -2120,40 +2147,30 @@ async function checkA11yMenu(page, where, { desktop }) {
   }
   await close();
 
-  // A hold: pointerdown, wait past the threshold, release, and the click the
-  // browser sends after it.
-  const hold = async (ms) => {
-    await page.evaluate(`(() => {
-      const b = document.getElementById("dark-mode-btn"); const r = b.getBoundingClientRect();
-      const o = { bubbles: true, pointerType: "touch", isPrimary: true, clientX: r.left + 5, clientY: r.top + 5, button: 0 };
-      window.__holdBtn = b; window.__holdOpts = o;
-      b.dispatchEvent(new PointerEvent("pointerdown", o)); return "";
-    })()`);
-    await sleep(ms);
-    await page.evaluate(`(() => {
-      const b = window.__holdBtn, o = window.__holdOpts;
-      b.dispatchEvent(new PointerEvent("pointerup", o));
-      b.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })); return "";
-    })()`);
-    await sleep(300);
-  };
-
-  const themeBefore = await page.evaluate("state.darkMode");
-  await hold(650);
-  const heldOpen = await isOpen();
-  const themeAfterHold = await page.evaluate("state.darkMode");
-  check(`holding the theme button opens the accessibility settings — ${where}`, heldOpen);
-  check(`holding the theme button does not also switch the theme — ${where}`,
-    themeAfterHold === themeBefore, JSON.stringify({ themeBefore, themeAfterHold }));
-  await close();
-
-  await hold(60);
-  const tapOpen = await isOpen();
-  const themeAfterTap = await page.evaluate("state.darkMode");
-  check(`a quick tap on the theme button still just switches the theme — ${where}`,
-    !tapOpen && themeAfterTap !== themeBefore, JSON.stringify({ tapOpen, themeBefore, themeAfterTap }));
-  if (themeAfterTap !== themeBefore) await page.evaluate("toggleDarkMode()");
-  await close();
+  // The footer steps aside while a text field has focus on a phone, and comes
+  // back after; a checkbox taking focus leaves it alone. A probe field is used
+  // so the check does not depend on which view has a search box showing.
+  if (!desktop) {
+    const kb = JSON.parse(await page.evaluate(`(async () => {
+      const f = document.querySelector(".site-footer");
+      const shown = () => getComputedStyle(f).display !== "none";
+      const field = Object.assign(document.createElement("input"), { type: "search", id: "probe-keyboard" });
+      const box = Object.assign(document.createElement("input"), { type: "checkbox", id: "probe-checkbox" });
+      document.body.append(field, box);
+      const wait = () => new Promise(r => setTimeout(r, 50));
+      const before = shown();
+      field.focus(); await wait();
+      const typing = shown();
+      box.focus(); await wait();
+      const checkbox = shown();
+      box.blur(); await wait();
+      const after = shown();
+      field.remove(); box.remove();
+      return JSON.stringify({ before, typing, checkbox, after });
+    })()`));
+    check(`the footer hides while the keyboard is up, and only then — ${where}`,
+      kb.before && !kb.typing && kb.checkbox && kb.after, JSON.stringify(kb));
+  }
 
   // Reduce motion. The harness freezes transitions on every page it opens, so
   // a computed-style check would pass by itself; assert on what the setting
@@ -3151,7 +3168,7 @@ async function checkReachableAcrossViews(page, where) {
     await checkSheetFitsViewport(page, `${mode} view — ${where}`);
     for (const [owner, fn, second, first] of [
       ["network", "setNetworkTab", "ideas",     "objectives"],
-      ["updates", "setUpdatesTab", "community", "official"],
+      ["updates", "setUpdatesTab", "news",      "travel"],
     ]) {
       if (mode !== owner) continue;
       await page.evaluate(`${fn}('${second}')`);
@@ -4396,7 +4413,7 @@ async function checkCouncillorContact(page) {
 async function checkHeaderControlRow(page, where) {
   const raw = await page.evaluate(`
     (() => {
-      const ids = ["section-nav-trigger", "dark-mode-btn"];
+      const ids = ["section-nav-trigger", "a11y-btn"];
       const out = {};
       for (const id of ids) {
         const el = document.getElementById(id);

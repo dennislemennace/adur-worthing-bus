@@ -193,6 +193,21 @@ def test_ticket_zones_schema():
 
         _assert_fares(z.get("fares"), zid)
 
+        # Another company's routes that take this ticket. Each claim is shown
+        # to passengers, so each names the routes, where on them, which
+        # tickets, and the page it came from.
+        for a in z.get("also_accepted_on", []):
+            assert _nonempty_str(a.get("operator")), f"ticket_zones.json: {zid!r} acceptance needs an operator"
+            assert a["operator"] not in accepted, (
+                f"ticket_zones.json: {zid!r} lists {a['operator']} as accepting it on some routes, "
+                f"but it is already valid on all of that operator's buses")
+            assert a.get("services") and all(_nonempty_str(s) for s in a["services"]), (
+                f"ticket_zones.json: {zid!r} acceptance by {a['operator']} names no routes")
+            for key in ("where", "tickets", "source_url", "checked_on"):
+                assert _nonempty_str(a.get(key)), f"ticket_zones.json: {zid!r} acceptance needs '{key}'"
+            assert a["source_url"].startswith("https://")
+            date.fromisoformat(a["checked_on"])
+
     _assert_unique_ids(zones, "ticket_zones.json")
 
 
@@ -502,6 +517,19 @@ def test_official_updates_schema():
 
 def test_community_updates_schema():
     _assert_updates("community_updates.json", needs_name=True)
+
+
+def test_every_article_names_its_tab():
+    """Travel Updates (diversions and disruptions) or News and Analysis
+    (everything else the project publishes). An article without one would land
+    in News by default, and a disruption notice filed there is one a passenger
+    planning a journey never sees."""
+    for u in _load("updates.json")["updates"]:
+        assert u.get("section") in ("travel", "news"), (
+            f"updates.json: '{u.get('id')}' needs section 'travel' or 'news'")
+        if u.get("topic") in ("Disruption", "Diversion"):
+            assert u["section"] == "travel", (
+                f"updates.json: '{u['id']}' is about a disruption but is filed under news")
 
 
 # ── Council boundaries ──────────────────────────────────────

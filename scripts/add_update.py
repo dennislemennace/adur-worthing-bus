@@ -5,7 +5,7 @@ Add a Network Updates article.
     python scripts/add_update.py                      # type it in
     python scripts/add_update.py --community          # publish a passenger report
     python scripts/add_update.py --from-issue 42      # publish an approved submission
-    python scripts/add_update.py '{"title": "...", "body": "..."}'
+    python scripts/add_update.py '{"title": "...", "body": "...", "section": "news"}'
     wl-paste | python scripts/add_update.py
 
 Writes to data/updates.json (official) or data/community_updates.json
@@ -202,6 +202,11 @@ def validate(doc: dict, path: Path, community: bool) -> None:
                 sys.exit(f"{path.name}: '{uid}' needs a non-empty '{field}'")
         if u["status"] != "published":
             sys.exit(f"{path.name}: '{uid}' status must be 'published'")
+        # Which of the section's two tabs it goes in. Passenger reports are
+        # always Travel Updates, so only the project's own articles say.
+        if not community and u.get("section") not in ("travel", "news"):
+            sys.exit(f"{path.name}: '{uid}' needs \"section\": \"travel\" (a diversion or "
+                     f"disruption, shown in Travel Updates) or \"news\" (News and Analysis)")
         date.fromisoformat(u["date"])
         if uid in seen:
             sys.exit(f"{path.name}: duplicate id '{uid}'")
@@ -266,6 +271,10 @@ def main() -> None:
         topic = prompt("Topic tag, e.g. Fares (blank for none)", required=False)
         if topic:
             entry["topic"] = topic
+        if not args.community:
+            while entry.get("section") not in ("travel", "news"):
+                entry["section"] = prompt("Tab: 'travel' for a diversion or disruption, "
+                                          "'news' for news and analysis").lower()
         img = prompt("Image path under media/updates/ (blank for none)", required=False)
         if img:
             entry["image"] = {
