@@ -160,6 +160,7 @@ const state = {
   busMarkers:    {},    // vehicleRef → Leaflet marker
   selectedStop:  null,  // { atcoCode, name }
   boardFilter:   null,  // service shown on the stop board, or null for all
+  boardNearby:   null,  // an empty board's nearest stops with a bus coming (showBoardNearby)
   stopDetails:   null,  // data/stop_details.json stops: atco -> [indicator, street, landmark, bearing]
   stopOsm:       null,  // data/stop_osm.json stops: atco -> {id, shelter, bench, wheelchair, ...}
   refreshTimer:  null,  // setInterval handle for bus positions
@@ -209,6 +210,8 @@ const state = {
   railVisible:             true,   // header toggle: show stations + train dots
   railStations:            null,   // /api/rail-stations response, fetched lazily
   railStationMarkers:      {},     // crs → L.marker
+  railReplacementMarkers:  {},     // "crs:i" → L.marker, where replacement buses stop
+  railReplacementStops:    null,   // data/rail_replacement_stops.json stations
   railStationByCrs:        {},     // crs → station object (lat/lon/name)
   selectedRailStation:     null,   // { crs, name } shown in the panel, or null
   railBoard:               null,   // last /api/rail-departures response for selectedRailStation
@@ -7156,6 +7159,8 @@ function buildBusPopupHtml(vehicle, label) {
   }
 
   const destText = prettifyName(vehicle.destination || vehicle.trip_headsign) || "Unknown";
+  // A rail replacement bus's destination is a placeholder ("Destination").
+  const destLine = isRailReplacementVehicle(vehicle) ? "Rail replacement bus" : `To ${destText}`;
 
   return `
     <div class="bus-popup">
@@ -7163,7 +7168,7 @@ function buildBusPopupHtml(vehicle, label) {
         ${iconHtml}
         <span class="service-badge ${badgeTextCls}" style="background:${colour}">${escapeHtml(label)}</span>
       </div>
-      <p class="bus-popup-destination">To ${escapeHtml(destText)}</p>
+      <p class="bus-popup-destination">${escapeHtml(destLine)}</p>
       ${statusHtml}
       <p class="bus-popup-hint">See Bus tab for full details →</p>
     </div>`;
@@ -7181,7 +7186,8 @@ function buildBusPopupHtml(vehicle, label) {
 function busMarkerName(vehicle, label) {
   const parts = [`Service ${label || "?"}`];
   const dest = prettifyName(vehicle.destination || vehicle.trip_headsign);
-  if (dest) parts.push(`to ${dest}`);
+  if (isRailReplacementVehicle(vehicle)) parts.push("rail replacement bus");
+  else if (dest) parts.push(`to ${dest}`);
   const op = getOperatorName(vehicle.operator_ref);
   if (op && op !== "Unknown operator") parts.push(`(${op})`);
   return parts.join(" ");
@@ -7623,7 +7629,12 @@ window.openDepartures = async function(atcoCode, stopName) {
   const idEl = document.getElementById("departures-stop-id");
   if (idEl) idEl.textContent = `Stop ID ${atcoCode}`;
   renderStopAccess(atcoCode);
-  if (changedStop) { state.boardFilter = null; hideBoardNext(); }
+  if (changedStop) {
+    state.boardFilter = null;
+    hideBoardNext();
+    state.boardNearby = null;
+    showBoardNearby();
+  }
 
   // Make sure the Stop tab is the one in front
   setActiveTab("stop");
@@ -8149,6 +8160,10 @@ function renderDepartures(data) {
   const here = Array.isArray(data?.services_here) ? data.services_here : [];
   const hereOperators = Object.fromEntries(here.map(h => [h.service, h.operator || ""]));
 
+  // An empty board's nearest stops with a bus coming, from the same reply.
+  state.boardNearby = departures.length ? null : (data?.nearby_active || null);
+  showBoardNearby();
+
   if (departures.length === 0) {
     // "No services until 06:12" once the timetable's next time is known
     // (showBoardNext), as RTIGT035 words an empty sign.
@@ -8245,6 +8260,7 @@ function applyBoardFilter() {
   document.querySelectorAll("#board-disruptions details[data-services]").forEach(card => {
     card.hidden = !!want && !card.dataset.services.split(" ").includes(want);
   });
+  showBoardNearby();
   if (matching.length) hideBoardNext();
   else showBoardNext(want);
   return matching.length;
@@ -8258,6 +8274,52 @@ const boardNextCache = new Map();
 function hideBoardNext() {
   const host = document.getElementById("board-next");
   if (host) { host.hidden = true; host.innerHTML = ""; }
+}
+
+/** The nearest stops with a bus coming, for a board with none: a button
+ *  each, to that stop's own board (asked for 1 November 2026). The API picks
+ *  them by asking each stop's board as it would be shown (api/main.py
+ *  _nearby_active_stops), so none opens another empty board. Buttons, not the
+ *  closure notice's words: on an empty board there are no buses to crowd.
+ *  Pure, so the wording can be tested. */
+function boardNearbyHtml(stops) {
+  const list = (Array.isArray(stops) ? stops : []).filter(s => s && s.atco);
+  if (!list.length) return "";
+  const meta = bits => escapeHtml(bits.filter(Boolean).join(" · "));
+  return `<p class="board-nearby-title" id="board-nearby-title">Stops nearby with buses in the next 2 hours</p>
+    <ul class="board-nearby-list" aria-labelledby="board-nearby-title">${list.map(s => {
+      // "Stop R1 · Towards Brighton", so two poles of one name read apart.
+      // Nothing while the stop's details are still on their way.
+      const context = stopContextLine(s.atco, { withLocality: false });
+      const next = s.next ? londonClock(new Date(s.next)) : "";
+      return `
+      <li><button type="button" class="board-nearby-stop" data-atco="${escapeAttr(s.atco)}"
+          data-name="${escapeAttr(s.name || s.atco)}" data-focus-key="${escapeAttr(s.atco)}">
+        <span class="board-nearby-name">${escapeHtml(prettifyName(s.name) || s.name || s.atco)}</span>
+        <span class="board-nearby-meta">${meta([/^Stop ID /.test(context) ? "" : context,
+          Number.isFinite(s.metres) && s.direction ? `${s.metres} m ${s.direction}` : ""])}</span>
+        <span class="board-nearby-meta">${meta([(s.routes || []).join(", "),
+          next && `next ${next}${s.destination ? ` to ${s.destination}` : ""}`])}</span>
+      </button></li>`;
+    }).join("")}</ul>`;
+}
+
+/** Fill or clear the nearby stops under the board. Only an empty board has
+ *  any, and not while a route is chosen: they are for whatever comes first. */
+function showBoardNearby() {
+  const host = document.getElementById("board-nearby");
+  if (!host) return;
+  const html = state.boardFilter ? "" : boardNearbyHtml(state.boardNearby);
+  // Redrawn only when it changes, so a refresh keeps a focused button.
+  patchHtml(host, html);
+  host.hidden = !html;
+  if (!host.dataset.bound) {
+    host.dataset.bound = "1";
+    host.addEventListener("click", (e) => {
+      const btn = e.target.closest(".board-nearby-stop");
+      if (btn && btn.dataset.atco) openDepartures(btn.dataset.atco, btn.dataset.name || btn.dataset.atco);
+    });
+  }
 }
 
 /** "Today", "Tomorrow, Sunday 18 October" or "Monday 19 October": the London
@@ -9024,6 +9086,7 @@ function openBusInfo(vehicle, { fromBoard = false } = {}) {
   // per-vehicle; a stale baseline against a new bus would fire instantly).
   if (changedBus) {
     clearBusTrail();
+    clearBusJourney();
     state.notifyOnMove = false;
     state.notifyBaseline = null;
     state.notifyOverThresholdCount = 0;
@@ -9061,6 +9124,7 @@ async function fetchBusDetails(vehicleRef) {
     state.busDetails        = data;
     state.busDetailsLoading = false;
     drawBusTrail(data && data.trail);
+    drawBusJourney(data && data.vehicle && data.vehicle.trip_id);
     renderBusTab();
     if (state.busScrollToStops === vehicleRef) {
       state.busScrollToStops = null;
@@ -9109,6 +9173,63 @@ function drawBusTrail(points) {
 function clearBusTrail() {
   if (state.busTrailLayer && state.map) state.map.removeLayer(state.busTrailLayer);
   state.busTrailLayer = null;
+}
+
+/* ── The selected bus's journey ──────────────────────────────
+ * The whole journey as a faint line in the route's colour, fainter behind the
+ * bus, where it has come from, and stronger ahead, where it is going (asked
+ * for 1 November 2026). The journey's shape from the timetable
+ * (/api/trip-shape); the dashed trail over it is where the bus has really
+ * been. Redrawn on each refresh so the split follows the bus; the shape is
+ * fetched once per journey. */
+const busJourneyShapes = new Map();
+
+/** The index of the journey's point nearest the bus, measured on the ground:
+ *  a degree of longitude here is about 0.63 of a degree of latitude. 0 when
+ *  the bus has no position, so the whole journey is still ahead. */
+function busJourneySplit(points, position) {
+  if (!Array.isArray(points) || !points.length || !Array.isArray(position)
+      || !Number.isFinite(position[0]) || !Number.isFinite(position[1])) return 0;
+  const k = Math.cos(position[0] * Math.PI / 180);
+  let best = 0, bestD = Infinity;
+  points.forEach(([lat, lon], i) => {
+    const d = (lat - position[0]) ** 2 + ((lon - position[1]) * k) ** 2;
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  return best;
+}
+
+async function drawBusJourney(tripId) {
+  const ref = state.selectedVehicleRef;
+  if (!state.map || !ref || !tripId) { clearBusJourney(); return; }
+  let shape = busJourneyShapes.get(tripId);
+  if (!shape) {
+    try {
+      shape = await apiFetch(`/api/trip-shape?tripId=${encodeURIComponent(tripId)}`);
+    } catch {
+      return;   // no line is better than a wrong one; the trail still shows
+    }
+    busJourneyShapes.set(tripId, shape);
+  }
+  const v = state.selectedVehicle;
+  if (state.selectedVehicleRef !== ref || !v) return;   // the reader moved on
+  const pts = (shape.points || []).filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  clearBusJourney();
+  if (pts.length < 2) return;
+  const at = busJourneySplit(pts, [v.latitude, v.longitude]);
+  const colour = getRouteColour(v.service_ref || "", v.operator_ref);
+  const line = (latlngs, opacity) => L.polyline(latlngs, {
+    color: colour, weight: 6, opacity, lineCap: "round", interactive: false,
+  });
+  const parts = [];
+  if (at > 0) parts.push(line(pts.slice(0, at + 1), 0.22));       // where it has come from
+  if (at < pts.length - 1) parts.push(line(pts.slice(at), 0.45)); // where it is going
+  state.busJourneyLayer = L.layerGroup(parts).addTo(state.map);
+}
+
+function clearBusJourney() {
+  if (state.busJourneyLayer && state.map) state.map.removeLayer(state.busJourneyLayer);
+  state.busJourneyLayer = null;
 }
 
 /** Build the Bus tab body from the latest selected vehicle.
@@ -9346,7 +9467,9 @@ function updateBusTabLive() {
   // which service it is, and "Service N7" above "N7" said it twice.
   // A screen reader still hears the service first, since the badge it would
   // otherwise pair the heading with is not read until after it.
-  const dest = prettifyName(v.destination || det.trip_headsign || v.trip_headsign);
+  const railBus = isRailReplacementVehicle(v);
+  const dest = railBus ? "Rail replacement bus"
+    : prettifyName(v.destination || det.trip_headsign || v.trip_headsign);
   const svc  = `Service ${v.service_ref || "?"}`;
   const heading = dest
     ? `<span class="visually-hidden">${escapeHtml(svc)} to </span>${escapeHtml(dest)}`
@@ -9361,10 +9484,16 @@ function updateBusTabLive() {
   const services = v.service_ref ? [{ service: v.service_ref, operator: v.operator_ref || "" }] : null;
   patchHtml(document.getElementById("bus-disruptions"),
     compactDisruptionsHtml(state.busDetails?.disruptions || [], services));
-  patchHtml(document.getElementById("bus-upcoming"), buildUpcomingStopsHtml());
+  // A rail replacement bus names no journey, so it has no stops or times
+  // here, and bus tickets are not what it takes.
+  patchHtml(document.getElementById("bus-upcoming"), railBus
+    ? `<p class="bus-rail-note">This bus gives its route as "Rail", so it is almost certainly
+        replacing trains. Its feed does not say which journey, so there are no stops or times
+        for it here: a station's board lists the replacement buses due, and where they leave from.</p>`
+    : buildUpcomingStopsHtml());
   patchHtml(document.getElementById("bus-next-journey"),
     buildNextJourneyHtml(state.busDetails && state.busDetails.next_journey));
-  const tickets = buildTicketInfoHtml(v.operator_ref, null, v.service_ref || "");
+  const tickets = railBus ? "" : buildTicketInfoHtml(v.operator_ref, null, v.service_ref || "");
   patchHtml(document.getElementById("bus-tickets"), tickets);
   // Folded away; a coach has no fares here, so no fold.
   document.getElementById("bus-more-tickets")?.toggleAttribute?.("hidden", !tickets);
@@ -10173,6 +10302,13 @@ function sheetDetentPixels() {
   return { peek: read("--sheet-peek", 200), half, tall: (half + full) / 2, full };
 }
 
+/** The named detent nearest a height in pixels. */
+function nearestSheetDetent(height) {
+  const d = sheetDetentPixels();
+  return SHEET_DETENTS.reduce((best, name) =>
+    Math.abs(d[name] - height) < Math.abs(d[best] - height) ? name : best);
+}
+
 function syncCollapseButtons(collapsed) {
   document.querySelectorAll(".btn-collapse-panel").forEach(btn => {
     btn.setAttribute("aria-pressed", collapsed ? "true" : "false");
@@ -10185,6 +10321,9 @@ function setSheetDetent(detent) {
   if (!SHEET_DETENTS.includes(detent)) return;
   state.sheetDetent = detent;
   document.body.dataset.sheet = detent;
+  // A height set exactly, by the stop search lifting itself above the
+  // keyboard (bindSearchAboveKeyboard), gives way to the next detent asked for.
+  delete document.body.dataset.sheetSearch;
 
   const collapsed = detent === "peek";
   document.body.classList.toggle("panel-collapsed", collapsed);
@@ -10371,10 +10510,7 @@ function initSheet() {
     wasDrag = moved >= TAP_SLOP;
     if (!wasDrag) return;                     // a tap: the click handler has it
 
-    const d = sheetDetentPixels();
-    const nearest = SHEET_DETENTS.reduce((best, name) =>
-      Math.abs(d[name] - height) < Math.abs(d[best] - height) ? name : best);
-    setSheetDetent(nearest);
+    setSheetDetent(nearestSheetDetent(height));
     if (state.map) state.map.invalidateSize();
   };
   handle.addEventListener("pointerup", endDrag);
@@ -10475,6 +10611,7 @@ function clearStopSelection() {
 /** Put down the selected bus, leaving any stop open. */
 function clearBusSelection() {
   clearBusTrail();
+  clearBusJourney();
   state.selectedVehicleRef      = null;
   state.selectedVehicle         = null;
   state.selectedVehicleLastSeen = null;
@@ -11433,6 +11570,9 @@ async function applyViewMode() {
       await Promise.all([loadRouteLines(), loadProposals(), loadCouncilBoundaries()]);
       if (!mine()) return;
       showRouteLines();
+      // The service filters start open, and chips drawn while this view was
+      // hidden had no rows to measure: fit them to three rows now there are.
+      if (dom.routeFiltersDisc && dom.routeFiltersDisc.open) reflowRouteChips();
       reconcileCouncilBoundaries();
       reconcileProposalLayers();
       if (state.selectedProposalId) showProposal(state.selectedProposalId);
@@ -13741,6 +13881,10 @@ function renderStopSearchResults(listEl, matches, query) {
  */
 function revealPanelForSelection({ stop = false } = {}) {
   if (!isSheetLayout()) return;
+  // A stop chosen from the search keeps the height the search lifted the
+  // sheet to, as its nearest detent rather than an exact height. The tap has
+  // landed by now, so the sheet may move.
+  if (document.body.dataset.sheetSearch) setSheetDetent(state.sheetDetent);
   if (document.body.dataset.sheet !== "peek") return;
   const preferred = defaultDetentForViewport();
   setSheetDetent(preferred !== "peek" ? preferred : stop ? "tall" : "half");
@@ -13843,6 +13987,83 @@ function bindRovingTabs() {
   }
 }
 
+/* ── The stop search, above the keyboard ─────────────────────
+ *
+ * On a phone the search sits in the sheet at `peek`, near the foot of the
+ * screen, and the keyboard comes up over it. The browser then nudges the page
+ * just far enough to show the box above the keys, which leaves the matching
+ * stops under them. So the sheet rises until the box is halfway up the space
+ * the keyboard leaves, with the stops listed below it (asked for 1 November
+ * 2026): to an exact height while the box has focus.
+ *
+ * Nothing moves when the box is left. Tapping a result is what leaves it, and
+ * a sheet that settled then would slide the result out from under the finger
+ * before the tap lands. The next detent asked for takes over (setSheetDetent).
+ */
+
+/* A phone keyboard and its suggestion strip take about two fifths of a
+   portrait screen. Used only between focus and the keyboard arriving: lifting
+   then, before the browser decides to nudge the page, is what stops the nudge. */
+const KEYBOARD_SHARE = 0.4;
+
+/** The space above the keyboard: the visual viewport's once the keyboard has
+ *  taken its share, or the estimate while it is still on its way. */
+function searchVisibleHeight(visualHeight, layoutHeight) {
+  return visualHeight < layoutHeight * 0.85
+    ? visualHeight
+    : Math.round(layoutHeight * (1 - KEYBOARD_SHARE));
+}
+
+/** The sheet height that puts the box's middle at the middle of what shows.
+ *  The sheet is pinned to the bottom, so raising it a pixel raises the box a
+ *  pixel: the answer is the gap, within the sheet's own limits. */
+function searchSheetHeight({ sheetH, boxTop, boxHeight, visibleTop, visibleHeight, minH, maxH }) {
+  const gap = (boxTop + boxHeight / 2) - (visibleTop + visibleHeight / 2);
+  return Math.round(Math.min(maxH, Math.max(minH, sheetH + gap)));
+}
+
+function bindSearchAboveKeyboard(input) {
+  const panel = dom.departurePanel;
+  if (!input || !panel) return;
+  const vv = window.visualViewport;
+  const place = (estimate) => {
+    if (!isSheetLayout() || document.activeElement !== input) return;
+    const d = sheetDetentPixels();
+    const box = input.getBoundingClientRect();
+    const layoutH = window.innerHeight;
+    const shown = vv ? vv.height : layoutH;
+    const where = {
+      sheetH: panel.getBoundingClientRect().height,
+      boxTop: box.top, boxHeight: box.height,
+      visibleTop: vv ? vv.offsetTop : 0,
+      visibleHeight: estimate ? searchVisibleHeight(shown, layoutH) : shown,
+    };
+    // The sheet is also capped to the area it sits in (style.css).
+    const maxH = Math.min(d.full, panel.offsetParent ? panel.offsetParent.clientHeight : d.full);
+    const h = searchSheetHeight({ ...where, minH: d.peek, maxH });
+    // The panel's heading and the field's label sit above the box, so even a
+    // full sheet left it 65px short of the middle on a 390x844 phone. The
+    // sheet's own scroller takes it the rest of the way, the heading and the
+    // label sliding under the tabs (style.css gives it the room).
+    const rest = searchSheetHeight({ ...where, minH: -Infinity, maxH: Infinity }) - h;
+    // The detent nearest, so the handle, the classes and the next tap agree
+    // with where the sheet is; then the exact height (style.css,
+    // body[data-sheet-search]).
+    setSheetDetent(nearestSheetDetent(h));
+    document.body.style.setProperty("--sheet-search-h", `${h}px`);
+    document.body.dataset.sheetSearch = "1";
+    const scroller = input.closest(".panel-tab-content");
+    if (scroller && rest) scroller.scrollBy({ top: rest, behavior: motionReduced() ? "auto" : "smooth" });
+    if (state.map) state.map.invalidateSize();
+  };
+  // A frame later: focusing the box hides the footer first (bindKeyboardFooter),
+  // which moves the sheet down by the footer's height.
+  input.addEventListener("focus", () => requestAnimationFrame(() => place(true)));
+  // The keyboard arriving, or going while the box keeps focus (Android's
+  // back button), is a visual viewport resize; place it for the real space.
+  if (vv) vv.addEventListener("resize", () => place(false));
+}
+
 function bindStopSearch() {
   bindNearMe();
   initJourneyPlanner();
@@ -13850,6 +14071,7 @@ function bindStopSearch() {
   const input = document.getElementById("stop-search-input");
   const list  = document.getElementById("stop-search-results");
   if (!form || !input || !list) return;
+  bindSearchAboveKeyboard(input);
 
   const update = () => {
     if (!state.stopDetails) {
@@ -13858,6 +14080,10 @@ function bindStopSearch() {
     const matches = stopSearchMatches(input.value);
     renderStopSearchResults(list, matches, input.value);
     input.setAttribute("aria-expanded", matches.length ? "true" : "false");
+    // Once two letters are in, "Stops near me" and the hint have done their
+    // job: the stops go straight under the box, above the keyboard on a
+    // 320x568 phone too, where those two lines pushed the first one under it.
+    form.classList.toggle("is-searching", input.value.trim().length >= 2);
   };
 
   input.addEventListener("input", update);
@@ -18901,6 +19127,7 @@ function showRailStations() {
     m.addTo(state.map);
     state.railStationMarkers[s.crs] = m;
   }
+  loadRailReplacementStops().then(drawRailReplacementStops).catch(() => {});
 }
 
 function hideRailStations() {
@@ -18908,6 +19135,93 @@ function hideRailStations() {
     state.map.removeLayer(state.railStationMarkers[crs]);
     delete state.railStationMarkers[crs];
   }
+  for (const key of Object.keys(state.railReplacementMarkers)) {
+    state.map.removeLayer(state.railReplacementMarkers[key]);
+    delete state.railReplacementMarkers[key];
+  }
+}
+
+/* ── Rail replacement buses ──────────────────────────────────
+ * Where they stop at a station, from the operator's own poster
+ * (data/rail_replacement_stops.json), drawn with the stations and named on a
+ * station's board when a replacement bus is due (asked for 1 November 2026).
+ * A live bus whose route is "Rail" is said to be one. */
+
+function loadRailReplacementStops() {
+  if (!state._railReplacementPromise) {
+    state._railReplacementPromise = fetch("data/rail_replacement_stops.json")
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(d => { state.railReplacementStops = Array.isArray(d?.stations) ? d.stations : []; })
+      .catch(err => { state._railReplacementPromise = null; throw err; });
+  }
+  return state._railReplacementPromise;
+}
+
+/** Metrobus 6986 ran Brighton's replacement buses on 1 November 2026
+ *  reporting its route as "Rail" and its destination as "Destination". */
+function isRailReplacementVehicle(v) {
+  return !!v && /^rail$/i.test(String(v.service_ref || "").trim());
+}
+
+const lowerFirst = (s) => String(s || "").charAt(0).toLowerCase() + String(s || "").slice(1);
+
+/** The line under a station's board when a replacement bus is due: where they
+ *  leave from, from the operator's poster, or, at a station whose poster we
+ *  have not read, to follow the signs. Nothing when only trains are due. */
+function railReplacementNoteHtml(crs, services, stations) {
+  if (!(services || []).some(s => s && s.mode === "bus")) return "";
+  const stop = ((stations || []).find(s => s.crs === crs)?.stops || [])[0];
+  if (!stop) {
+    return `<p class="rail-board-buses">Replacement buses are running. Follow the signs at the
+      station to where they leave from.</p>`;
+  }
+  const source = safeUrl(stop.source_url || "");
+  return `<p class="rail-board-buses">
+      <span>Replacement buses leave from <strong>${escapeHtml(stop.name)}</strong> (${
+        escapeHtml([lowerFirst(stop.access), stop.walk].filter(Boolean).join(", "))}).${
+        source ? ` <a href="${escapeAttr(source)}" target="_blank" rel="noopener">The operator's poster</a>.` : ""}</span>
+      <button type="button" class="btn-text" data-rail-action="rrb-stop"
+              data-crs="${escapeAttr(crs)}">Show on map</button>
+    </p>`;
+}
+
+function railReplacementPopupHtml(station, stop) {
+  return `<strong>Rail replacement buses</strong><br>${escapeHtml(stop.name)}<br>${
+    escapeHtml([stop.access, stop.walk].filter(Boolean).join(", "))}<br>
+    <span class="rrb-popup-source">From the poster at ${escapeHtml(station.station)} station${
+      stop.what3words ? ` · what3words ///${escapeHtml(stop.what3words)}` : ""}</span>`;
+}
+
+function drawRailReplacementStops() {
+  if (!state.map || state.viewMode !== "live" || !state.railVisible) return;
+  ensureRailPanes();
+  for (const station of state.railReplacementStops || []) {
+    (station.stops || []).forEach((stop, i) => {
+      const key = `${station.crs}:${i}`;
+      if (state.railReplacementMarkers[key] || !Number.isFinite(stop.lat)) return;
+      const m = L.marker([stop.lat, stop.lon], {
+        icon: L.divIcon({ className: "rrb-stop-divicon", iconSize: [28, 28], iconAnchor: [14, 14],
+          html: `<span class="rrb-stop-icon"><svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg></span>` }),
+        pane: "railStationPane",
+        title: `Rail replacement buses, ${station.station}: ${stop.name}`,
+        keyboard: false,
+        bubblingMouseEvents: false,
+      }).bindPopup(railReplacementPopupHtml(station, stop));
+      m.addTo(state.map);
+      state.railReplacementMarkers[key] = m;
+    });
+  }
+}
+
+/** "Show on map" on a station's board: the stop, centred, its popup open. */
+async function showRailReplacementStop(crs) {
+  try { await loadRailReplacementStops(); } catch { return; }
+  drawRailReplacementStops();
+  const m = state.railReplacementMarkers[`${crs}:0`];
+  if (!m || !state.map) return;
+  if (isSheetLayout()) setSheetDetent("half");
+  centreAboveSheet(m.getLatLng(), Math.max(state.map.getZoom(), 17));
+  m.openPopup();
 }
 
 // ── Departure board (panel reuse) ────────────────────────────
@@ -18916,6 +19230,7 @@ async function openRailBoard(crs, name) {
   // Clear any bus stop / bus selection so the panel's other state is consistent.
   state.selectedStop            = null;
   clearBusTrail();
+  clearBusJourney();
   state.selectedVehicleRef      = null;
   state.selectedVehicle         = null;
   state.busDetails              = null;
@@ -18940,7 +19255,11 @@ async function openRailBoard(crs, name) {
     && state.selectedRailStation && state.selectedRailStation.crs === crs;
 
   try {
-    const data = await apiFetch(`/api/rail-departures?crs=${encodeURIComponent(crs)}`);
+    // Where replacement buses leave from, for the line under the board.
+    const [data] = await Promise.all([
+      apiFetch(`/api/rail-departures?crs=${encodeURIComponent(crs)}`),
+      loadRailReplacementStops().catch(() => {}),
+    ]);
     if (!mine()) return;
     state.railBoard = data;
   } catch (err) {
@@ -18991,12 +19310,16 @@ function renderRailBoard() {
         </thead>
         <tbody>${rowsHtml}</tbody>
       </table>
+      ${railReplacementNoteHtml(state.selectedRailStation.crs, services, state.railReplacementStops)}
       <p class="rail-board-footer">
         Live data from Realtime Trains. Train positions are estimated
         between stations. There is no GPS on this feed.
       </p>
     </div>
   `;
+  host.querySelector("[data-rail-action='rrb-stop']")?.addEventListener("click", (e) => {
+    showRailReplacementStop(e.currentTarget.dataset.crs);
+  });
   // Wire the "Show on map" buttons after the table is in the DOM.
   host.querySelectorAll("[data-rail-action='select']").forEach(btn => {
     btn.addEventListener("click", (e) => {
@@ -19025,8 +19348,12 @@ function renderRailBoardRow(svc) {
   const isChanged = sched && live.iso && sched !== live.iso;
   const destList = (svc.destination || []).map(d => d.description).filter(Boolean);
   const destination = destList.join(" & ") || (svc.headcode ? `Headcode ${svc.headcode}` : "—");
-  const plat   = svc.platform || "–";
-  const platCls = svc.platformConfirmed ? "rail-plat rail-plat--confirmed"
+  // A replacement bus (api/main.py marks the 0B headcodes) leaves from the
+  // road outside, not a platform, and has no train position to track.
+  const isBus  = svc.mode === "bus";
+  const plat   = isBus ? "Bus" : (svc.platform || "–");
+  const platCls = isBus ? "rail-plat rail-plat--bus"
+                : svc.platformConfirmed ? "rail-plat rail-plat--confirmed"
                                         : "rail-plat rail-plat--unconfirmed";
   const opCode = svc.atocCode || "";
   const opCol  = railOperatorColour(opCode);
@@ -19036,7 +19363,8 @@ function renderRailBoardRow(svc) {
   const date = svc.departureDate || "";
   const isSelected = !!state.selectedRailServices[uid];
   const actLabel = isSelected ? "Hide" : "Track";
-  const actCls   = isSelected ? "rail-track-btn rail-track-btn--on" : "rail-track-btn";
+  // Dense: a short control in every row, like the board's route chips.
+  const actCls   = isSelected ? "rail-track-btn rail-track-btn--on target-dense" : "rail-track-btn target-dense";
   const liveCls = isCancelled ? "rail-time rail-time--cancelled"
                 : isChanged   ? "rail-time rail-time--changed"
                 : live.kind === "actual"   ? "rail-time rail-time--actual"
@@ -19049,15 +19377,16 @@ function renderRailBoardRow(svc) {
           ? `<span class="${liveCls}">→ ${escapeHtml(liveTxt)}</span>`
           : ''}
       </td>
-      <td class="rail-col-dest">${escapeHtml(destination)}</td>
+      <td class="rail-col-dest">${escapeHtml(destination)}${
+        isBus ? ` <span class="rail-bus-tag">Replacement bus</span>` : ""}</td>
       <td class="rail-col-plat"><span class="${platCls}">${escapeHtml(plat)}</span></td>
       <td class="rail-col-op">
-        <span class="rail-op-badge" style="background:${opCol};color:${opTxt};">
+        <span class="rail-op-badge" title="${escapeAttr(opName)}" style="background:${opCol};color:${opTxt};">
           ${escapeHtml(opName)}
         </span>
       </td>
       <td class="rail-col-act">
-        ${uid && date
+        ${uid && date && !isBus
           ? `<button type="button" class="${actCls}"
                   data-rail-action="select" data-uid="${escapeAttr(uid)}"
                   data-date="${escapeAttr(date)}">${actLabel}</button>`

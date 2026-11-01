@@ -1,0 +1,27 @@
+{
+  "_comment": "Where rail replacement buses stop at each station, from the train operator's own poster, which National Rail links from the station's page. app.js draws each on the map and names it on the station's board when a replacement bus is due. Positions are worked out, not given: position_basis says how. Brighton first (1 November 2026); the other stations' posters are on their National Rail pages too.",
+  "stations": [
+    {
+      "crs": "BTN",
+      "station": "Brighton",
+      "stops": [
+        {
+          "name": "Turning circle on Stroudley Road",
+          "access": "From platform 8",
+          "walk": "1 minute's walk from the station",
+          "what3words": "upper.herb.frog",
+          "lat": 50.832152,
+          "lon": -0.141385,
+          "position_basis": "The poster places the stop by what3words only. This is FlixBus's Brighton stop on the same turning circle (9000F22A3795 in the timetable), which matches the poster's map.",
+          "source": "Southern, Rail Replacement Bus Services: Brighton (poster 2025-01_CI_SN_RRB_BTN_DR)",
+          "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/4YWUEIKuHxPdvH1F1muvX9/23242c2897a2cbfc168df52961fcd977/2025-01_CI_SN_RRB_BTN_DR.pdf",
+          "station_page": "https://www.nationalrail.co.uk/stations/brighton/",
+          "source_sha256": "d80bb7dd46b0af9126198a59b9723825384dea58e0e290ab5d23aa15eac9a7a0",
+          "poster_date": "2025-01",
+          "display_until": "2025-07-06",
+          "checked_on": "2026-11-01"
+        }
+      ]
+    }
+  ]
+}

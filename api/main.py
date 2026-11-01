@@ -715,9 +715,15 @@ def _project_board_service(svc: dict, board_crs: str | None = None,
        and board_crs:
         origin_proj = [{"description": board_name or board_crs, "crs": board_crs}]
 
+    headcode = sm.get("trainReportingIdentity") or ""
     return {
         "uid":            sm.get("identity"),
         "headcode":       sm.get("trainReportingIdentity"),
+        # A replacement bus runs under a 0B headcode. Realtime Trains lists it
+        # on the board beside the trains: Southern's to Lewes on 1 November
+        # 2026 were 0B00, with no platform. Said, so the page can say where
+        # the buses leave from instead.
+        "mode":           "bus" if re.fullmatch(r"0B\d\d", headcode) else "train",
         "departureDate":  _normalise_date(sm.get("departureDate")),
         "atocCode":       op.get("code"),
         "atocName":       op.get("name"),
@@ -1278,6 +1284,10 @@ async def get_vehicle(vehicleRef: str = Query(...)):
             "recorded_at":   vehicle.get("recorded_at"),
             "report_age_secs": vehicle.get("report_age_secs"),
             "trip_source":   vehicle["trip_source"] if declared else ("inferred" if trip_id else None),
+            # The journey the upcoming stops come from, which the map draws as
+            # the bus's route line (/api/trip-shape); trip_source says whether
+            # the bus named it or it was inferred.
+            "trip_id":       trip_id or None,
             "journey_start": vehicle.get("journey_start") if declared else None,
             "lateness_secs": vehicle.get("lateness_secs") if declared else None,
             "on_diversion":  bool(vehicle.get("on_diversion")),
@@ -1510,7 +1520,10 @@ async def get_departures(
                                  _disruptions_now(await _disruptions_state(wait=False)), tt)
     # Cached `base` can be up to a minute old, and the grace window deliberately
     # keeps recently-scheduled rows, so the final cut happens per request.
-    return _public_departures(_drop_departed(result))
+    board = _public_departures(_drop_departed(result))
+    if board["departures"]:
+        return board
+    return await off_loop(_with_nearby_active, board, tt, resolved)
 
 
 def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime,
@@ -1608,6 +1621,73 @@ def _public_departures(payload: dict) -> dict:
             "departures": [{**{k: v for k, v in dep.items() if not k.startswith("_")},
                             **({"trip_id": dep["_trip_id"]} if dep.get("_trip_id") else {})}
                            for dep in rows]}
+
+
+# ── An empty board: the nearest stops with a bus coming ───────
+NEARBY_ACTIVE_COUNT = 3
+# A walk, not a journey: further than this, a reader would take a bus there.
+NEARBY_ACTIVE_RADIUS = 1000
+# Stops tried, nearest first. Each costs one board build, cached a minute in
+# the boards' own cache, so at three in the morning, with nothing near
+# running, the search stays bounded.
+NEARBY_ACTIVE_TRIES = 30
+
+
+def _nearby_active_stops(tt, stop_id: str) -> list:
+    """The nearest stops whose own board has a bus on it, for a board with none.
+
+    Each is asked as its board is (the timetable's next two hours, the stop's
+    closures, then whatever has already gone), so a button never opens another
+    empty board. Nearest first, at most `NEARBY_ACTIVE_COUNT`, none further
+    than `NEARBY_ACTIVE_RADIUS`; each with the routes due there and the next
+    time from the timetable.
+    """
+    here = tt.stops.get(stop_id)
+    if not here or here.get("lat") is None:
+        return []
+    now = datetime.now(UK_TZ)
+    near = sorted((local_disruptions._metres(here, s), atco)
+                  for atco, s in tt.stops.items()
+                  if atco != stop_id and s.get("lat") is not None)
+    out = []
+    for metres, atco in near[:NEARBY_ACTIVE_TRIES]:
+        if metres > NEARBY_ACTIVE_RADIUS or len(out) == NEARBY_ACTIVE_COUNT:
+            break
+        base = cache_get(f"dep:{atco}")
+        if base is None:
+            base = _departures_for_stop(tt, atco)
+            cache_set(f"dep:{atco}", base, 60)
+        rows = [d for d in _drop_departed(_apply_stop_closure(base, tt, atco), now)["departures"]
+                if not d.get("not_served")]
+        if not rows:
+            continue
+        s = tt.stops[atco]
+        first = min(rows, key=_aimed_key)
+        out.append({
+            "atco": atco,
+            "name": s.get("name", ""),
+            "metres": round(metres / 10) * 10,
+            "direction": local_disruptions._direction(here, s),
+            "routes": sorted({d["service"] for d in rows}, key=local_disruptions._route_order),
+            "next": first["aimed_departure"],
+            # Where it goes: what tells two poles of one name apart, either
+            # side of the road, when the stop is not in the site's stop list.
+            "destination": first.get("destination", ""),
+        })
+    return out
+
+
+def _with_nearby_active(payload: dict, tt, stop_id: str) -> dict:
+    """An empty board, with the nearest stops that have a bus coming
+    (`nearby_active`). A board with buses on it is returned as it is."""
+    if payload.get("departures"):
+        return payload
+    key = f"nearby:{stop_id}"
+    nearby = cache_get(key)
+    if nearby is None:
+        nearby = _nearby_active_stops(tt, stop_id)
+        cache_set(key, nearby, 60)
+    return {**payload, "nearby_active": nearby}
 
 
 # ── /api/stop-span ────────────────────────────────────────────
@@ -2047,6 +2127,32 @@ async def get_trip(
         "calls": [{"atco": atco, "name": (tt.stops.get(atco) or {}).get("name", ""),
                    "time": _secs_to_hhmm(secs)} for secs, atco in calls[start:]],
     }
+
+
+@app.get("/api/trip-shape")
+async def get_trip_shape(
+    tripId: str = Query(..., max_length=120, pattern=r"^[A-Za-z0-9_:.\-]+$"),
+):
+    """The line one journey follows, start to end, for a bus opened on the map:
+    where it has come from and where it is going (asked for 1 November 2026).
+    The timetable's own shape, the one Route view draws, or the journey's stops
+    joined up. Reads the local timetable only; cached, since a journey's line
+    changes only with the timetable."""
+    key = f"tripshape:{tripId}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+    tt = await _get_timetable()
+    points = await off_loop(tt.shape_for_trip, tripId)
+    if not points:
+        raise HTTPException(status_code=404, detail="Journey not in the timetable.")
+    trip = tt.trips.get(tripId) or {}
+    route = tt.routes.get(trip.get("route_id", "")) or {}
+    result = {"trip_id": tripId, "service": route.get("short_name", ""),
+              "operator": route.get("noc", ""),
+              "points": [[round(lat, 5), round(lon, 5)] for lat, lon in points]}
+    cache_set(key, result, 3600)
+    return result
 
 
 @app.get("/api/journey")

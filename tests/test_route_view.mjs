@@ -37,6 +37,13 @@ test("the service chips are inside the disclosure, not above it", () => {
   }
 });
 
+test("Route view opens with its service filter open", () => {
+  // Asked for 1 November 2026: the filters are what the tab is used for, so
+  // they are open on arrival rather than behind a tap.
+  assert.match(INDEX, /<details\b[^>]*\bid="route-filters-disclosure"[^>]*\sopen[\s>]/,
+    "the Existing services control starts closed");
+});
+
 test("the closed control can say how many services are on the map", () => {
   assert.match(INDEX, /id="route-filters-count"/,
     "collapsed, nothing says how much of the network is drawn");

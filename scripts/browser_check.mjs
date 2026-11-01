@@ -1218,25 +1218,30 @@ async function checkRouteViewOnAPhone(page, where) {
     "no .route-chip after 45s — the API never answered");
   await sleep(500);
 
-  // The list now lives inside the "Existing services" disclosure, closed by
-  // default. What the tab owes a reader on arrival is therefore different:
-  // not a row of chips, but a control they can find and the prose the tab is
-  // about. The old assertions measured a chip grid that is no longer there.
+  // The list lives inside the "Existing services" disclosure, which starts
+  // open (asked for 1 November 2026): the filters are what the tab is used
+  // for. So on arrival the control is on screen and so are its first
+  // services; the prose under them is a scroll away (checkReachable).
   const m = JSON.parse(await page.evaluate(`
     (() => {
       const g = el => el ? el.getBoundingClientRect() : null;
       const panel = document.getElementById("departure-panel");
       const disc = document.getElementById("route-filters-disclosure");
       const summary = document.querySelector(".filter-disclosure-summary");
-      const prose = document.querySelector(".improvements-intro");
-      const pr = g(panel), sr = g(summary), prr = g(prose);
+      // The filters' first row: on a 320x568 phone or a landscape one the
+      // service chips under the filters are a scroll away, but what opens
+      // has to start on screen.
+      const row = document.querySelector("#route-filters-disclosure .filter-strip-row");
+      const pr = g(panel), sr = g(summary), cr = g(row);
       return JSON.stringify({
-        closed: disc ? !disc.open : null,
+        open: disc ? disc.open : null,
         summaryH: sr ? Math.round(sr.height) : null,
         summaryVisible: (sr && pr)
           ? Math.round(Math.max(0, Math.min(sr.bottom, pr.bottom) - Math.max(sr.top, pr.top))) : 0,
         count: (document.getElementById("route-filters-count") || {}).textContent || "",
-        proseTop: prr ? Math.round(prr.top) : null,
+        chipTop: cr ? Math.round(cr.top) : null,
+        chipBottom: cr ? Math.round(cr.bottom) : null,
+        panelTop: pr ? Math.round(pr.top) : null,
         panelBottom: pr ? Math.round(pr.bottom) : null,
         chipCount: document.querySelectorAll(".route-chip").length,
       });
@@ -1252,27 +1257,29 @@ async function checkRouteViewOnAPhone(page, where) {
   check(`the service control is on screen when Route view opens — ${where}`,
     m.summaryH !== null && m.summaryVisible >= m.summaryH - 2, JSON.stringify(m));
 
-  // The count is what makes collapsing it honest — closed, it is the only
-  // thing saying how much of the network the map is drawing.
-  check(`the closed control says how many services are shown — ${where}`,
+  // The count is what makes closing it honest: closed, it is the only thing
+  // saying how much of the network the map is drawing.
+  check(`the service control says how many services are shown — ${where}`,
     /\d/.test(m.count), JSON.stringify(m));
 
-  // And the point of the move: the tab's own prose is reachable without
-  // scrolling past a list. It was below the fold on every phone viewport.
-  check(`the tab's explanation is visible without scrolling — ${where}`,
-    m.proseTop !== null && m.proseTop < m.panelBottom, JSON.stringify(m));
+  // Open on arrival, its filters starting inside the sheet, not merely an
+  // open element whose contents sit below the fold.
+  check(`Route view opens with its service filters open and showing — ${where}`,
+    m.open === true && m.chipTop !== null
+      && m.chipTop >= m.panelTop && m.chipBottom <= m.panelBottom, JSON.stringify(m));
 
   // Opened, the list is capped to a few rows with the rest behind "+N more",
   // so it cannot push the prose away again.
   const opened = JSON.parse(await page.evaluate(`
     (() => {
       const d = document.getElementById("route-filters-disclosure");
+      const was = d.open;
       d.open = true; d.dispatchEvent(new Event("toggle"));
       const chips = [...document.querySelectorAll(".route-chip")];
       const shown = chips.filter(c => !c.classList.contains("route-chip--clipped"));
       const more = document.getElementById("route-chips-more");
       const rows = [...new Set(shown.map(c => c.offsetTop))].length;
-      d.open = false;
+      d.open = was;
       return JSON.stringify({
         total: chips.length, shown: shown.length, rows,
         moreHidden: more ? more.classList.contains("hidden") : null,
@@ -2617,6 +2624,239 @@ async function checkStopClosure(page, where) {
   check(`a closed stop does not also apologise for missing live times — ${where}`, r.liveNoticeHidden);
   await checkLayout(page, `closed stop — ${where}`);
   await checkContrastBothThemes(page, `closed stop — ${where}`);
+}
+
+/**
+ * An empty board offers the nearest stops with a bus coming, a button each,
+ * and keeps the timetable's next times under them (asked for 1 November
+ * 2026). The stops are a fixture, so the check does not depend on the hour;
+ * which stops the API picks is tests/test_nearby_active.py.
+ */
+async function checkBoardNearby(page, where) {
+  const r = JSON.parse(await page.evaluate(`(async () => {
+    setViewMode("live");
+    const atcos = Object.keys(state.stopData || {});
+    if (atcos.length < 4) return JSON.stringify({ skip: "no stops loaded" });
+    const [here, a, b, c] = atcos;
+    await openDepartures(here, (state.stopData[here] || {}).name || here);
+    const soon = (m) => new Date(Date.now() + m * 60000).toISOString();
+    renderDepartures({ stop_name: "Fixture Empty Stop", live: false, live_reason: "not_configured",
+      services_here: [], departures: [],
+      nearby_active: [
+        { atco: a, name: "Rudgwick Avenue", metres: 240, direction: "north-west", routes: ["11"],
+          next: soon(12), destination: "Durrington" },
+        { atco: b, name: "Rudgwick Avenue", metres: 260, direction: "north-west", routes: ["11"],
+          next: soon(30), destination: "Goring" },
+        { atco: c, name: "Sackville College, with a name long enough to wrap on the narrowest phone",
+          metres: 350, direction: "south", routes: ["270", "400", "500"], next: soon(5),
+          destination: "Haywards Heath" } ] });
+    const vis = ${VISIBLE_FN};
+    const panel = document.getElementById("departure-panel").getBoundingClientRect();
+    const host = document.getElementById("board-nearby");
+    const buttons = [...host.querySelectorAll("button.board-nearby-stop")];
+    const next = document.getElementById("board-next");
+    return JSON.stringify({ target: a,
+      shown: !host.hidden && vis(host), count: buttons.filter(vis).length,
+      tall: buttons.every(el => el.getBoundingClientRect().height >= 44),
+      inside: buttons.every(el => { const q = el.getBoundingClientRect();
+        return q.left >= panel.left - 0.5 && q.right <= panel.right + 0.5; }),
+      before: !!(host.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING),
+      text: buttons.map(el => el.textContent.replace(/\\s+/g, " ").trim()) });
+  })()`));
+  if (r.skip) { skip(`an empty board offers the stops nearby — ${where}`, r.skip); return; }
+  check(`an empty board offers the nearest stops with a bus coming, a button each — ${where}`,
+    r.shown && r.count === 3 && r.tall && r.inside, JSON.stringify(r));
+  check(`each says how far, which way, and where its next bus goes — ${where}`,
+    /240 m north-west/.test(r.text[0]) && /next \d\d:\d\d to Durrington/.test(r.text[0])
+      && /to Goring/.test(r.text[1]), JSON.stringify(r.text));
+  // The timetable's next times for this stop stay, below the buttons.
+  const nextShown = await waitFor(page, `(() => { const n = document.getElementById("board-next");
+    return !n.hidden && !/Looking up/.test(n.textContent); })()`, 45000);
+  check(`the timetable's next times stay, under the stops nearby — ${where}`,
+    r.before && nextShown, JSON.stringify({ before: r.before, nextShown }));
+  await checkLayout(page, `empty board with stops nearby — ${where}`);
+  await checkContrastBothThemes(page, `empty board with stops nearby — ${where}`);
+  await page.evaluate(`(() => { document.querySelector("#board-nearby .board-nearby-stop")?.click(); return ""; })()`);
+  const opened = await waitFor(page, `state.selectedStop && state.selectedStop.atcoCode === ${JSON.stringify(r.target)}`, 15000);
+  const gone = await page.evaluate(`document.getElementById("board-nearby").hidden`);
+  check(`a stop nearby opens its own board — ${where}`, opened && gone === true,
+    JSON.stringify({ opened, gone }));
+  await page.evaluate(`(() => { closePanel(); return ""; })()`);
+  await sleep(300);
+}
+
+/**
+ * Typing in the stop search on a phone: the box goes halfway up the space
+ * the keyboard leaves, with the matching stops under it (asked for 1 November
+ * 2026). A headless browser has no keyboard, so the space is the estimate the
+ * page lifts to before a keyboard arrives; the arithmetic with a real one, and
+ * a page the browser has already nudged, is tests/test_board_nearby.mjs.
+ */
+async function checkSearchAboveKeyboard(page, where) {
+  const r = JSON.parse(await page.evaluate(`(async () => {
+    setViewMode("live");
+    closePanel();
+    const input = document.getElementById("stop-search-input");
+    if (!input || !isSheetLayout()) return JSON.stringify({ skip: "no sheet at this width" });
+    const wait = (ms) => new Promise(res => setTimeout(res, ms));
+    const panel = document.getElementById("departure-panel");
+    // The half detent's height as drawn: on a landscape phone it is a calc()
+    // that sheetDetentPixels cannot read.
+    setSheetDetent("half");
+    await wait(100);
+    const halfH = panel.getBoundingClientRect().height;
+    setSheetDetent("peek");
+    await wait(300);
+    input.value = "";
+    input.focus();
+    await wait(400);
+    input.value = "worthing";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await wait(300);
+    const box = input.getBoundingClientRect();
+    const first = document.querySelector("button.stop-search-result");
+    const keyboardTop = searchVisibleHeight(innerHeight, innerHeight);
+    const out = { lifted: document.body.dataset.sheetSearch === "1",
+      mid: Math.round(box.top + box.height / 2), want: Math.round(keyboardTop / 2), keyboardTop,
+      boxBottom: Math.round(box.bottom),
+      firstTop: first ? Math.round(first.getBoundingClientRect().top) : null,
+      firstBottom: first ? Math.round(first.getBoundingClientRect().bottom) : null };
+    // Leaving the box: measured in the same task, as a tap's click lands.
+    const h = panel.getBoundingClientRect().height;
+    input.blur();
+    out.moved = Math.round(Math.abs(panel.getBoundingClientRect().height - h));
+    // The next detent asked for takes over.
+    setSheetDetent("half");
+    await wait(100);
+    out.released = !document.body.dataset.sheetSearch;
+    out.halfOff = Math.round(Math.abs(panel.getBoundingClientRect().height - halfH));
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    setSheetDetent(defaultDetentForViewport());
+    return JSON.stringify(out);
+  })()`));
+  if (r.skip) { skip(`the stop search sits halfway up the space a keyboard leaves — ${where}`, r.skip); return; }
+  check(`the stop search sits halfway up the space a keyboard leaves — ${where}`,
+    r.lifted && Math.abs(r.mid - r.want) <= 12, JSON.stringify(r));
+  check(`the matching stops start under the box, above the keyboard — ${where}`,
+    r.firstTop !== null && r.firstTop >= r.boxBottom && r.firstBottom <= r.keyboardTop, JSON.stringify(r));
+  check(`leaving the search box does not move the sheet under a tap — ${where}`,
+    r.moved === 0, JSON.stringify(r));
+  check(`the next detent takes the sheet back from the search — ${where}`,
+    r.released && r.halfOff <= 2, JSON.stringify(r));
+  await sleep(300);
+}
+
+/**
+ * A bus opened on the map draws its whole journey as a faint line in its
+ * route's colour, fainter behind it than ahead (asked for 1 November 2026).
+ * The journey is a real one from the local timetable; the bus is a fixture,
+ * since the local API has no live feed.
+ */
+async function checkBusJourneyLine(page, where) {
+  const r = JSON.parse(await page.evaluate(`(async () => {
+    setViewMode("live");
+    const atcos = Object.keys(state.stopData || {});
+    let dep = null;
+    for (const atco of atcos.slice(0, 40)) {
+      try {
+        const d = await apiFetch("/api/next-departures?stopId=" + encodeURIComponent(atco));
+        dep = (d.departures || []).find(x => x.trip_id);
+        if (dep) break;
+      } catch (e) {}
+    }
+    if (!dep) return JSON.stringify({ skip: "no journey in the local timetable" });
+    const shape = await apiFetch("/api/trip-shape?tripId=" + encodeURIComponent(dep.trip_id));
+    const mid = shape.points[Math.floor(shape.points.length / 2)];
+    openBusInfo({ vehicle_ref: "FIXTURE-JOURNEY", service_ref: dep.service, operator_ref: dep.operator || "",
+                  latitude: mid[0], longitude: mid[1], bearing: 90 });
+    await drawBusJourney(dep.trip_id);
+    const layers = state.busJourneyLayer ? state.busJourneyLayer.getLayers() : [];
+    const out = { trip: dep.trip_id, points: shape.points.length, parts: layers.length,
+      opacities: layers.map(l => l.options.opacity), drawn: layers.every(l => state.map.hasLayer(l)),
+      colourOk: layers.every(l => l.options.color === getRouteColour(dep.service, dep.operator || "")) };
+    const group = state.busJourneyLayer;
+    clearBusSelection();
+    out.cleared = !state.busJourneyLayer && !(group && state.map.hasLayer(group));
+    closePanel();
+    return JSON.stringify(out);
+  })()`));
+  if (r.skip) { skip(`a bus's journey is drawn on the map — ${where}`, r.skip); return; }
+  check(`a bus's journey is drawn on the map, faint, in its route's colour — ${where}`,
+    r.parts === 2 && r.drawn && r.colourOk && r.opacities.every(o => o > 0 && o < 0.6)
+      && r.opacities[0] < r.opacities[1], JSON.stringify(r));
+  check(`the journey line goes when the bus is put down — ${where}`, r.cleared, JSON.stringify(r));
+  await sleep(300);
+}
+
+/**
+ * Rail replacement buses (asked for 1 November 2026): on a station's board a
+ * replacement bus is a bus, with where the buses leave from under it, and
+ * "Show on map" finds that stop. A live bus whose route is "Rail" says what
+ * it is. The board is a fixture: the local API has no Realtime Trains token.
+ */
+async function checkRailReplacement(page, where) {
+  const r = JSON.parse(await page.evaluate(`(async () => {
+    setViewMode("live");
+    const wasVisible = state.railVisible;
+    state.railVisible = true;
+    await loadRailReplacementStops();
+    const soon = (m) => new Date(Date.now() + m * 60000).toISOString().slice(0, 19);
+    state.selectedRailStation = { crs: "BTN", name: "Brighton" };
+    state.railBoardLoading = false;
+    state.railBoard = { crs: "BTN", name: "Brighton", services: [
+      { mode: "bus", uid: "RRB1", departureDate: "2026-11-01", atocCode: "SN", headcode: "0B00",
+        destination: [{ description: "Lewes" }], departure: { scheduled: soon(10) } },
+      { mode: "train", uid: "TRN1", departureDate: "2026-11-01", atocCode: "SN", headcode: "1A23",
+        platform: "4", destination: [{ description: "Lewes" }], departure: { scheduled: soon(20) } } ] };
+    revealPanelForSelection();
+    setActiveTab("stop");
+    showPanelState("rail");
+    renderRailBoard();
+    const vis = ${VISIBLE_FN};
+    const rows = [...document.querySelectorAll(".rail-board-table .rail-row")];
+    const note = document.querySelector(".rail-board-buses");
+    const btn = note && note.querySelector('[data-rail-action="rrb-stop"]');
+    const out = {
+      busRow: rows[0] ? { chip: rows[0].querySelector(".rail-plat--bus")?.textContent, tag: !!rows[0].querySelector(".rail-bus-tag"),
+                          track: !!rows[0].querySelector('[data-rail-action="select"]') } : null,
+      trainTrack: !!(rows[1] && rows[1].querySelector('[data-rail-action="select"]')),
+      note: note && vis(note) ? note.textContent.replace(/\\s+/g, " ").trim() : null,
+      buttonH: btn ? Math.round(btn.getBoundingClientRect().height) : null };
+    if (btn) btn.click();
+    await new Promise(res => setTimeout(res, 600));
+    const icon = document.querySelector(".rrb-stop-icon");
+    const popup = document.querySelector(".leaflet-popup-content");
+    out.marker = !!icon && vis(icon);
+    out.popup = popup ? popup.textContent.replace(/\\s+/g, " ").trim() : null;
+    state.railVisible = wasVisible;
+    return JSON.stringify(out);
+  })()`));
+  check(`a replacement bus on a station's board is a bus, with no train to track — ${where}`,
+    r.busRow && r.busRow.chip === "Bus" && r.busRow.tag && !r.busRow.track && r.trainTrack, JSON.stringify(r));
+  check(`the board says where the replacement buses leave from — ${where}`,
+    /Turning circle on Stroudley Road/.test(r.note || "") && /platform 8/.test(r.note || ""), JSON.stringify(r));
+  check(`"Show on map" finds the replacement bus stop — ${where}`,
+    r.marker && /Turning circle on Stroudley Road/.test(r.popup || ""), JSON.stringify(r));
+  await checkLayout(page, `rail board with replacement buses — ${where}`);
+  await checkContrastBothThemes(page, `rail board with replacement buses — ${where}`);
+
+  const bus = JSON.parse(await page.evaluate(`(async () => {
+    state.map.closePopup();
+    openBusInfo({ vehicle_ref: "FIXTURE-RAIL", service_ref: "Rail", operator_ref: "METR",
+                  destination: "Destination", latitude: 50.8321, longitude: -0.1414, bearing: 0 });
+    await new Promise(res => setTimeout(res, 200));
+    const name = document.getElementById("panel-bus-name")?.textContent || "";
+    const note = document.querySelector("#bus-upcoming .bus-rail-note");
+    const tickets = (document.getElementById("bus-tickets")?.textContent || "").trim();
+    clearBusSelection();
+    closePanel();
+    return JSON.stringify({ name, note: !!note, tickets });
+  })()`));
+  check(`a live bus whose route is Rail says it is a replacement bus, not where "Destination" is — ${where}`,
+    /Rail replacement bus/.test(bus.name) && !/Destination/.test(bus.name) && bus.note && !bus.tickets,
+    JSON.stringify(bus));
+  await sleep(300);
 }
 
 /**
@@ -4520,6 +4760,10 @@ await checkGapMonitor(page, VIEWPORTS[0].name);
 await checkBusJourney(page, VIEWPORTS[0].name);
 await checkStopBoardPolish(page, VIEWPORTS[0].name);
 await checkStopClosure(page, VIEWPORTS[0].name);
+await checkBoardNearby(page, VIEWPORTS[0].name);
+await checkSearchAboveKeyboard(page, VIEWPORTS[0].name);
+await checkBusJourneyLine(page, VIEWPORTS[0].name);
+await checkRailReplacement(page, VIEWPORTS[0].name);
 await checkUpcomingStops(page, VIEWPORTS[0].name);
 await checkA11yMenu(page, VIEWPORTS[0].name, { desktop: false });
 await checkLargestText(page, VIEWPORTS[0].name);
@@ -4571,6 +4815,10 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkBoardNext(p, vp.name);
   await checkRouteViewStop(p, vp.name);
   await checkStopClosure(p, vp.name);
+  await checkBoardNearby(p, vp.name);
+  if (vp.mobile) await checkSearchAboveKeyboard(p, vp.name);
+  await checkBusJourneyLine(p, vp.name);
+  await checkRailReplacement(p, vp.name);
   await checkUpcomingStops(p, vp.name);
   await checkContrastBothThemes(p, vp.name);
   await checkLargestText(p, vp.name);

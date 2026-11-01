@@ -2619,6 +2619,49 @@ class Timetable:
             # silently. Next weekly workflow run replaces the artifact.
             return None
 
+    def shape_for_trip(self, trip_id: str) -> Optional[list]:
+        """The line one journey follows, start to end, as ``[lat, lon]`` pairs:
+        its own road-following shape, or its stops joined up when it has none.
+        None for a journey not in the timetable."""
+        try:
+            row = self._conn().execute(
+                "SELECT tid FROM trips WHERE trip_id=?", (trip_id,)
+            ).fetchone()
+        except sqlite3.OperationalError:
+            row = None
+        if not row:
+            return None
+        pts = self._shape_points_for_trip(row[0]) or self._shape_of_same_stops(row[0])
+        if pts:
+            return [[lat, lon] for lat, lon in pts]
+        line = [[s["lat"], s["lon"]] for s in
+                (self.stops.get(atco) or {} for _secs, atco in (self.trip_stops_for(trip_id) or []))
+                if s.get("lat") is not None]
+        return line if len(line) >= 2 else None
+
+    def _shape_of_same_stops(self, tid: int) -> Optional[list]:
+        """The shape of another journey on the same route calling at the same
+        stops in the same order, which is the same road. One journey in seven
+        carries a shape of its own, and on 1 November 2026 none of the 40 on
+        the road with a journey id did."""
+        conn = self._conn()
+        stops_of = lambda t: [sid for (sid,) in conn.execute(
+            "SELECT sid FROM stop_times WHERE tid=? ORDER BY seq", (t,))]
+        try:
+            pattern = stops_of(tid)
+            others = conn.execute(
+                "SELECT t2.tid FROM trips t1 JOIN trips t2 ON t2.rid = t1.rid "
+                "WHERE t1.tid=? AND t2.tid != t1.tid AND t2.shape_id != '' LIMIT 200",
+                (tid,)).fetchall()
+            for (other,) in others:
+                if stops_of(other) == pattern:
+                    pts = self._shape_points_for_trip(other)
+                    if pts:
+                        return pts
+        except sqlite3.OperationalError:
+            pass
+        return None
+
     @classmethod
     def _clip_to_bbox(cls, pts: list, bbox: tuple) -> tuple:
         """Return ``(best_run, lost_before, lost_after)``.

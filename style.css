@@ -729,6 +729,13 @@ html.dark-mode .map-loading {
      here, not on :root, so it follows --sheet-half's media queries. */
   body[data-sheet="tall"] { --sheet-h: calc((var(--sheet-half) + var(--sheet-full)) / 2); }
   body[data-sheet="full"] { --sheet-h: var(--sheet-full); }
+  /* The stop search, lifted above the keyboard to an exact height (app.js
+     bindSearchAboveKeyboard). Two attributes, so it outranks both the detent
+     rules and body.panel-collapsed below; the next detent clears it. */
+  body[data-sheet][data-sheet-search] { --sheet-h: var(--sheet-search-h); }
+  /* Room for the sheet's own scroller to take the box the rest of the way
+     up, even before anything is typed and the list is still short. */
+  body[data-sheet-search] .panel-prompt { padding-bottom: 50vh; padding-bottom: 50svh; }
 
   /* Leaflet's attribution is a licence condition, so it may not be parked
      under the sheet. */
@@ -2583,6 +2590,41 @@ html.dark-mode .btn-text {
   font-size: var(--font-size-sm);
 }
 .board-next-title { margin: 0 0 var(--space-xs); font-weight: 600; color: var(--color-text); }
+
+/* An empty board's nearest stops with a bus coming: a button each, laid out
+   like the search results, since each is the same act of opening a stop. In
+   a frame like the next times' below it: on a phone the board runs to the
+   screen's edges, and buttons there lost their corners to it. */
+.board-nearby {
+  margin: var(--space-sm) 0;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+}
+.board-nearby-title { margin: 0 0 var(--space-xs); font-weight: 600; color: var(--color-text); }
+.board-nearby-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-xs); }
+.board-nearby-stop {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: var(--target-min);
+  padding: var(--space-xs) var(--space-sm);
+  font: inherit;
+  text-align: left;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.board-nearby-stop:hover,
+.board-nearby-stop:focus-visible { border-color: var(--color-primary); }
+.board-nearby-stop:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.board-nearby-name { font-weight: 600; overflow-wrap: anywhere; }
+.board-nearby-meta { font-size: var(--font-size-xs); color: var(--color-text-muted); overflow-wrap: anywhere; }
 .board-next-day {
   margin: var(--space-sm) 0 2px;
   font-size: var(--font-size-sm);
@@ -6402,6 +6444,9 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 }
 .rail-board-table {
   width: 100%;
+  /* Fixed, so the columns keep their shares: an operator's name that would
+     not wrap pushed the table 12px past a 320px phone's edge. */
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: var(--font-size-sm);
 }
@@ -6445,14 +6490,67 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 }
 .rail-plat--unconfirmed { opacity: 0.65; font-style: italic; }
 
+/* A rail replacement bus: "Bus" where the platform would be, a tag by its
+   destination, and where the buses leave from under the board (app.js
+   renderRailBoardRow, railReplacementNoteHtml). */
+.rail-plat--bus { font-family: inherit; }
+.rail-bus-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.rail-board-buses {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  margin: var(--space-sm) 0;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+.rail-board-buses a { color: var(--color-link); }
+/* Where they stop, on the map: a bus in a dark green disc, white-ringed so it
+   reads on any basemap. */
+.rrb-stop-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #1d5c3a;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.rrb-stop-icon .icon { width: 16px; height: 16px; }
+.rrb-popup-source { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.bus-rail-note { margin: var(--space-sm) 0; font-size: var(--font-size-sm); color: var(--color-text); }
+
 .rail-op-badge {
   display: inline-block;
+  max-width: 100%;
   padding: 2px 7px;
   border-radius: 999px;
   font-size: var(--font-size-2xs);
   font-weight: 700;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  /* A long name ends in an ellipsis inside its column; the full name is the
+     badge's title, and what a screen reader reads. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 .rail-track-btn {
@@ -6669,6 +6767,10 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   cursor: pointer;
 }
 .stop-near-me[hidden] { display: none; }
+/* With a search typed, the stops go straight under the box (app.js
+   bindStopSearch sets is-searching): above the keyboard on a small phone. */
+.stop-search.is-searching .stop-near-me,
+.stop-search.is-searching .stop-search-hint { display: none; }
 .stop-near-me:hover,
 .stop-near-me:focus-visible { border-color: var(--color-primary); }
 .stop-near-me:disabled { opacity: 0.6; cursor: progress; }

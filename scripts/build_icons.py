@@ -36,8 +36,51 @@ OUT_DIR = ROOT / "icons"
 
 # Three times the 56px CSS box, so the asset is pixel-exact on a 3x phone and
 # oversampled on nothing. object-fit: contain means a 3:2 bus renders 56x37, so
-# scaling the long edge to 168 is 3x the drawn size rather than a guess.
+# a 168px-wide canvas is 3x the drawn size rather than a guess.
 WEB_PX = 168
+CANVAS = (WEB_PX, 112)
+
+# Every vehicle to one scale (asked for 1 November 2026). Scaling each master's
+# long edge to the canvas drew a vehicle as big as its master happened to frame
+# it: the Metrobus double-decker came out 18% longer than Brighton & Hove's and
+# the 700's. So each is cropped to the vehicle and drawn at its kind's length.
+# The double-deckers are the reference, at the length Brighton & Hove's and the
+# 700's already were; a single-decker is a little longer, as on the road, and
+# every coach one length, longer again. Lengths of the solid body, without the
+# soft edge round it.
+LENGTH_PX = {"double": 120, "single": 128, "coach": 137}
+VEHICLE_KIND = {
+    "SCSO-17.png": "single",
+    "CMPA.png": "coach",
+    "FLIX.png": "coach",
+    "NTXP.png": "coach",
+    "TNXB.png": "coach",
+}
+# The reference buses' middle sits a little below the canvas's, leaving the
+# shadow room underneath; across, every vehicle is centred, because the marker
+# turns the image about its middle (iconTransformForBearing).
+CENTRE_Y = 59
+
+
+def vehicle_kind(name: str) -> str:
+    return VEHICLE_KIND.get(name, "double")
+
+
+def fit_vehicle(im: Image.Image, kind: str) -> Image.Image:
+    """The vehicle alone, its body at its kind's length, centred on the canvas."""
+    alpha = im.getchannel("A")
+    box = alpha.point(lambda v: 255 if v > 8 else 0).getbbox()      # the vehicle, soft edge and all
+    body = alpha.point(lambda v: 255 if v > 160 else 0).getbbox()   # its solid body
+    scale = LENGTH_PX[kind] / (body[2] - body[0])
+    vehicle = im.crop(box)
+    vehicle = vehicle.resize((round(vehicle.width * scale), round(vehicle.height * scale)),
+                             Image.LANCZOS)
+    # Where the body's middle falls in the cropped, scaled vehicle.
+    mid_x = ((body[0] + body[2]) / 2 - box[0]) * scale
+    mid_y = ((body[1] + body[3]) / 2 - box[1]) * scale
+    out = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
+    out.paste(vehicle, (round(CANVAS[0] / 2 - mid_x), round(CENTRE_Y - mid_y)))
+    return out
 
 # The shadow the stylesheet used to draw: drop-shadow(0 2px 4px rgba(0,0,0,.5)).
 # A CSS blur radius is twice the Gaussian standard deviation, so 4px CSS is a
@@ -74,8 +117,7 @@ def shadow_room(im: Image.Image) -> int:
 
 
 def build(master: Path, dest: Path) -> str:
-    im = Image.open(master).convert("RGBA")
-    im.thumbnail((WEB_PX, WEB_PX), Image.LANCZOS)
+    im = fit_vehicle(Image.open(master).convert("RGBA"), vehicle_kind(master.name))
 
     room = shadow_room(im)
     needed = SHADOW_OFFSET_PX + SHADOW_BLUR_PX * 2

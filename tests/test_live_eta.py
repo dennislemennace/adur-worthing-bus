@@ -290,6 +290,9 @@ def test_the_bus_tab_lists_the_journey_the_feed_named(monkeypatch):
     out = asyncio.run(main.get_vehicle(vehicleRef="BUS-1"))
     assert out["source"] == "trip"
     assert out["vehicle"]["trip_source"] == "feed"
+    # The journey its upcoming stops come from, which the map draws as the
+    # bus's route line (asked for 1 November 2026).
+    assert out["vehicle"]["trip_id"] == "VJ_1400"
     assert out["vehicle"]["lateness_secs"] == 120
     assert any(r["expected"] for r in out["upcoming_stops"]), "the named journey was replaced"
 

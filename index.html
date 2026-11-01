@@ -612,6 +612,10 @@
               <!-- Rows injected by app.js -->
             </tbody>
           </table>
+          <!-- A board with nothing on it: the nearest stops that have a bus
+               coming, a button each. Filled by app.js showBoardNearby from
+               the board's own reply (api/main.py _nearby_active_stops). -->
+          <div class="board-nearby" id="board-nearby" hidden></div>
           <!-- A route with nothing on the board: its next times from the
                timetable, dated. Filled by app.js showBoardNext. -->
           <div class="board-next" id="board-next" hidden aria-live="polite"></div>
@@ -836,14 +840,15 @@
                disclosure — which between them took the whole tab on a phone
                and left the prose below the fold. Closed, this is a single
                44px row; open, it is everything that decides what the map
-               shows, in the order you would use it. -->
+               shows, in the order you would use it. It starts open (asked
+               for 1 November 2026): the filters are what the tab is used for. -->
           <div class="route-filters" id="route-filters">
-          <details class="filter-disclosure route-filters-disclosure" id="route-filters-disclosure">
+          <details class="filter-disclosure route-filters-disclosure" id="route-filters-disclosure" open>
             <summary class="filter-disclosure-summary">
               <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
               <span>Existing services</span>
-              <!-- "18 of 44" is the reason this can be closed by default: the
-                   count says what the map is showing without opening it. -->
+              <!-- "18 selected": closed, the count still says what the map is
+                   showing without opening it again. -->
               <span class="route-filters-count" id="route-filters-count"></span>
               <svg class="icon filter-disclosure-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
             </summary>

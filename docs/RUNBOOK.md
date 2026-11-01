@@ -310,6 +310,15 @@ timetabled times below it, dated by the day they run (`/api/next-departures`,
 `app.js` `showBoardNext`): a weekday-only route asked about on a Saturday
 answers with Monday. An empty board shows the next times of every route.
 
+**Stops nearby.** An empty board also carries `nearby_active` on
+`/api/departures`: the three nearest stops within 1 km whose own board has a
+bus in the next two hours (`api/main.py` `_nearby_active_stops`), each with
+its distance, which way to walk, the routes due and where the next bus goes.
+Each is asked exactly as its board is, closures included, so a button never
+opens another empty board; the search tries the 30 nearest stops at most and
+shares the boards' one-minute cache. The page draws them as buttons above the
+next times (`app.js` `showBoardNearby`).
+
 **Last bus home.** From Brighton (Old Steine, Churchill Square, North Street)
 and from Worthing (the eight Marine Parade poles by the pier), whichever serve
 the stop; a stop in one town shows only the other. The boxes are

@@ -920,6 +920,99 @@ def test_every_served_icon_has_a_master():
         f"master-only: {sorted(masters - served)}")
 
 
+# ── rail_replacement_stops.json ─────────────────────────────
+#
+# Where replacement buses stop at a station, from the operator's poster. The
+# position is worked out (the posters give what3words), so it must say how,
+# and it must be by the station it belongs to: a pin a mile off sends people
+# to the wrong road with a train to catch.
+
+RAIL_REPLACEMENT = ROOT / "data" / "rail_replacement_stops.json"
+RAIL_REPLACEMENT_MAX_M = 800
+
+
+def _rail_replacement_problems(doc):
+    import math
+    stations = {s["crs"]: s for s in json.loads((ROOT / "data" / "rail_stations.json").read_text())["stations"]}
+    problems = []
+    for st in doc.get("stations", []):
+        where = st.get("crs", "?")
+        home = stations.get(st.get("crs"))
+        if not home:
+            problems.append(f"{where}: not a station on the site")
+            continue
+        if not st.get("stops"):
+            problems.append(f"{where}: no stops")
+        for stop in st.get("stops", []):
+            here = f'{where}: {stop.get("name") or "?"}'
+            for key in ("name", "position_basis", "source"):
+                if not (isinstance(stop.get(key), str) and stop[key].strip()):
+                    problems.append(f"{here}: no {key}")
+            for key in ("source_url", "station_page"):
+                if not str(stop.get(key, "")).startswith("https://"):
+                    problems.append(f"{here}: {key} is not a link")
+            try:
+                date.fromisoformat(stop.get("checked_on", ""))
+            except ValueError:
+                problems.append(f"{here}: checked_on is not a date")
+            if not re.fullmatch(r"[0-9a-f]{64}", str(stop.get("source_sha256", ""))):
+                problems.append(f"{here}: source_sha256 is not a SHA-256")
+            lat, lon = stop.get("lat"), stop.get("lon")
+            if not (isinstance(lat, (int, float)) and isinstance(lon, (int, float))):
+                problems.append(f"{here}: no position")
+                continue
+            dy = (lat - home["lat"]) * 111_195
+            dx = (lon - home["lon"]) * 111_195 * math.cos(math.radians(home["lat"]))
+            if math.hypot(dx, dy) > RAIL_REPLACEMENT_MAX_M:
+                problems.append(f"{here}: {math.hypot(dx, dy):.0f} m from the station")
+    return problems
+
+
+def test_rail_replacement_stops_are_sourced_and_by_their_station():
+    assert not _rail_replacement_problems(json.loads(RAIL_REPLACEMENT.read_text()))
+
+
+def test_the_rail_replacement_checks_catch_what_they_are_for():
+    doc = json.loads(RAIL_REPLACEMENT.read_text())
+    stop = doc["stations"][0]["stops"][0]
+    for broken, why in ((dict(stop, lat=stop["lat"] + 0.02), "from the station"),
+                        (dict(stop, source_url=""), "source_url"),
+                        (dict(stop, position_basis=""), "position_basis"),
+                        (dict(stop, checked_on="soon"), "checked_on")):
+        bad = {"stations": [dict(doc["stations"][0], stops=[broken])]}
+        assert any(why in p for p in _rail_replacement_problems(bad)), why
+    assert _rail_replacement_problems({"stations": [{"crs": "ZZZ", "stops": []}]})
+
+
+def test_every_vehicle_is_drawn_to_one_scale():
+    """Each master used to be scaled by its own framing, so the Metrobus
+    double-decker drew 18% longer than Brighton & Hove's and the 700's. Asked
+    for 1 November 2026: every double-decker at the reference length, a
+    single-decker a little longer, as on the road, and every coach one length,
+    longer again. All on one canvas, centred, since the marker turns the
+    image about its middle."""
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import build_icons
+    from PIL import Image
+    wrong = []
+    for path in _served_icons():
+        with Image.open(path) as im:
+            im = im.convert("RGBA")
+            if im.size != build_icons.CANVAS:
+                wrong.append(f"{path.name}: canvas {im.width}x{im.height}")
+                continue
+            # The body, not its baked shadow, which is at most half opaque.
+            box = im.getchannel("A").point(lambda v: 255 if v > 160 else 0).getbbox()
+        kind = build_icons.vehicle_kind(path.name)
+        length, want = box[2] - box[0], build_icons.LENGTH_PX[kind]
+        if abs(length - want) > 2:
+            wrong.append(f"{path.name}: {length}px long, a {kind} is {want}px")
+        if abs((box[0] + box[2]) / 2 - build_icons.CANVAS[0] / 2) > 2:
+            wrong.append(f"{path.name}: off centre ({box[0]}..{box[2]})")
+    assert not wrong, "; ".join(wrong) + ". Run scripts/build_icons.py."
+
+
 def test_served_icons_are_small_enough_to_ship():
     """Twelve icons load before the first bus appears; the whole set should cost
     less than a single photograph."""
