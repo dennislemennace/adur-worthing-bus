@@ -49,8 +49,12 @@ COACH_NOCS = frozenset({"NATX", "FLIX", "OXBC", "GHOP", "BMCS", "UNTM"})
 # The ways a live bus's journey is known from the operator rather than guessed
 # by us. "feed": GTFS-RT named a trip id we hold. "feed_start": SIRI-VM named it
 # by line, first stop and scheduled start, and exactly one journey fits (see
-# `journey_by_start`). Anything that trusts a bus's own lateness checks this.
-DECLARED_SOURCES = frozenset({"feed", "feed_start"})
+# `journey_by_start`). "feed_moved": the bus named a journey of its route it
+# had long outlived, and the one of that route due where it is was claimed by
+# no bus (main._move_outlived_declarations; live views only, so no recorded
+# or scored minute ever carries it). Anything that trusts a bus's own
+# lateness checks this.
+DECLARED_SOURCES = frozenset({"feed", "feed_start", "feed_moved"})
 
 
 def clock(secs: int) -> str:

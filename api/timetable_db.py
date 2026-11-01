@@ -2639,6 +2639,133 @@ class Timetable:
                 if s.get("lat") is not None]
         return line if len(line) >= 2 else None
 
+    # ── Route view's route picker (asked for 1 November 2026) ──────────────
+    #
+    # A number alone is not a route: Brighton & Hove, Stagecoach and Metrobus
+    # each run a 1 here. So the list is of operator and number together, and a
+    # route is asked for by both.
+
+    @staticmethod
+    def _number_order(name: str):
+        digits = "".join(ch for ch in name if ch.isdigit())
+        return (int(digits) if digits else 10 ** 6, name)
+
+    def route_catalogue(self, bbox: Optional[tuple] = None) -> list:
+        """Every route in the area as ``{"operator", "service"}``, by operator
+        and then number."""
+        conn = self._conn()
+        rids = None
+        if bbox is not None:
+            min_lat, max_lat, min_lon, max_lon = bbox
+            rids = {rid for (rid,) in conn.execute(
+                "SELECT DISTINCT t.rid FROM stop_times st JOIN stops s ON s.sid = st.sid "
+                "JOIN trips t ON t.tid = st.tid "
+                "WHERE s.lat BETWEEN ? AND ? AND s.lon BETWEEN ? AND ?",
+                (min_lat, max_lat, min_lon, max_lon))}
+        pairs = set()
+        for rid, route_id, short in conn.execute("SELECT rid, route_id, short_name FROM routes"):
+            if not short or short in self._EXCLUDED_SERVICES or (rids is not None and rid not in rids):
+                continue
+            pairs.add((self.noc_for_route(route_id), short))
+        return [{"operator": noc, "service": short}
+                for noc, short in sorted(pairs, key=lambda p: (p[0], self._number_order(p[1])))]
+
+    def route_detail(self, short_name: str, noc: str, day=None) -> Optional[dict]:
+        """One operator's route as the picker shows it: each direction's stops
+        in order, with the operator's timing points marked and the line it
+        follows, and when it runs on `day`. None for a route that operator
+        does not run.
+
+        The directions are chosen as Route view's lines are: the journey with
+        the most stops, then the longest one starting near where it ends.
+        """
+        import datetime as _dt
+        import statistics
+        day = day or _dt.date.today()
+        conn = self._conn()
+        rids = [rid for rid, route_id in conn.execute(
+            "SELECT rid, route_id FROM routes WHERE short_name=?", (short_name,))
+            if self.noc_for_route(route_id) == noc]
+        if not rids:
+            return None
+        marks = ",".join("?" * len(rids))
+        trips = conn.execute(
+            f"SELECT tid, trip_id, service_id, headsign FROM trips WHERE rid IN ({marks})", rids).fetchall()
+        if not trips:
+            return None
+        tp_col = "st.timepoint" if self._has_timepoint() else "NULL"
+        calls: dict = {}
+        for tid, sid, dep, tp in conn.execute(
+                f"SELECT st.tid, st.sid, st.dep_secs, {tp_col} FROM stop_times st "
+                f"WHERE st.tid IN (SELECT tid FROM trips WHERE rid IN ({marks})) "
+                "ORDER BY st.tid, st.seq", rids):
+            calls.setdefault(tid, []).append((sid, dep, tp))
+        trips = [t for t in trips if len(calls.get(t[0], [])) >= 2]
+        if not trips:
+            return None
+        sids = {sid for c in calls.values() for sid, _d, _t in c}
+        marks_s = ",".join("?" * len(sids))
+        stop_rows = {sid: (atco, name, lat, lon, locality) for sid, atco, name, lat, lon, locality in conn.execute(
+            f"SELECT sid, stop_id, name, lat, lon, locality FROM stops WHERE sid IN ({marks_s})", list(sids))}
+
+        by_size = sorted(trips, key=lambda t: len(calls[t[0]]), reverse=True)
+        chosen = [by_size[0]]
+        first_sid, last_sid = calls[by_size[0][0]][0][0], calls[by_size[0][0]][-1][0]
+        end = stop_rows.get(last_sid)
+        for t in by_size[1:]:
+            start = stop_rows.get(calls[t[0]][0][0])
+            if end and start and calls[t[0]][0][0] != first_sid \
+                    and (start[2] - end[2]) ** 2 + (start[3] - end[3]) ** 2 <= 0.0001:
+                chosen.append(t)
+                break
+
+        directions = []
+        for tid, trip_id, _service_id, headsign in chosen:
+            stops = []
+            for sid, _dep, tp in calls[tid]:
+                atco, name, lat, lon, locality = stop_rows.get(sid, ("", "", None, None, ""))
+                stops.append({"atco": atco, "name": name, "locality": locality or "",
+                              "lat": lat, "lon": lon, "timing": tp == 1})
+            directions.append({
+                "from": stops[0]["name"], "to": headsign or stops[-1]["name"],
+                "trip_id": trip_id, "stops": stops,
+                "line": self.shape_for_trip(trip_id)
+                        or [[s["lat"], s["lon"]] for s in stops if s["lat"] is not None],
+            })
+
+        runs: dict = {}
+
+        def runs_on(service_id, d):
+            if (service_id, d) not in runs:
+                runs[(service_id, d)] = self.runs_on(service_id, d)
+            return runs[(service_id, d)]
+
+        today = [t for t in trips if runs_on(t[2], day)]
+        starts = sorted(calls[t[0]][0][1] for t in today)
+        primary_starts = sorted(calls[t[0]][0][1] for t in today
+                                if calls[t[0]][0][0] == first_sid and 7 * 3600 <= calls[t[0]][0][1] <= 19 * 3600)
+        gaps = [b - a for a, b in zip(primary_starts, primary_starts[1:]) if b > a]
+        clock = lambda secs: f"{(secs // 3600) % 24:02d}:{(secs // 60) % 60:02d}"
+        week = [day + _dt.timedelta(days=i) for i in range(7)]
+        names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        days = sorted({d.weekday() for d in week if any(runs_on(t[2], d) for t in trips)})
+        # GTFS files a journey after midnight under the day before (24:30), so
+        # the day's last is the last before midnight and the rest are counted
+        # apart: read as clock times, they made the 700's "last" 04:43.
+        before = [s for s in starts if s < 86400]
+        return {
+            "service": short_name, "operator": noc, "day": day.isoformat(),
+            "days": [names[i] for i in days],
+            "journeys": len(today),
+            "first": clock(before[0]) if before else None,
+            "last": clock(before[-1]) if before else None,
+            "after_midnight": len(starts) - len(before),
+            # The typical daytime gap from the first stop, where there are
+            # enough journeys between 07:00 and 19:00 for one to mean anything.
+            "every_min": round(statistics.median(gaps) / 60) if len(gaps) >= 3 else None,
+            "directions": directions,
+        }
+
     def _shape_of_same_stops(self, tid: int) -> Optional[list]:
         """The shape of another journey on the same route calling at the same
         stops in the same order, which is the same road. One journey in seven

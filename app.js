@@ -161,6 +161,10 @@ const state = {
   selectedStop:  null,  // { atcoCode, name }
   boardFilter:   null,  // service shown on the stop board, or null for all
   boardNearby:   null,  // an empty board's nearest stops with a bus coming (showBoardNearby)
+  routeFocus:    null,  // Route view's one route: { operator, service, detail, dir, expanded }
+  routeFocusLayer:   null,
+  routeCatalogue:    null,  // /api/routes: every route in the area, operator and number
+  routePickerGroups: null,
   stopDetails:   null,  // data/stop_details.json stops: atco -> [indicator, street, landmark, bearing]
   stopOsm:       null,  // data/stop_osm.json stops: atco -> {id, shelter, bench, wheelchair, ...}
   refreshTimer:  null,  // setInterval handle for bus positions
@@ -648,6 +652,7 @@ async function init() {
   bindA11yControls();
   bindKeyboardFooter();
   bindStopSearch();
+  initRoutePicker();
   bindRovingTabs();
   ["evidence-dialog", "councillor-dialog", "a11y-dialog"]
     .forEach(id => bindDialogBackdropClose(document.getElementById(id)));
@@ -8817,7 +8822,10 @@ function departureBus(tr) {
     const v = marker && marker._vehicle;
     // "feed_start": named by line, first stop and start where the feed gave
     // no id we hold. Still the operator's word, so still not a guess.
-    if (v && (v.trip_source === "feed" || v.trip_source === "feed_start")
+    // "feed_moved": the bus named its route's journey it had long outlived,
+    // and is on the one due where it is, which no bus claims (api/main.py
+    // _move_outlived_declarations, 1 November 2026).
+    if (v && ["feed", "feed_start", "feed_moved"].includes(v.trip_source)
         && v.declared_trip_id === trip) return v;
   }
   return null;
@@ -11517,8 +11525,11 @@ async function applyViewMode() {
   // The conference guide's markers belong to its view alone.
   if (state.viewMode !== "conference" && typeof conferenceHide === "function") conferenceHide();
   if (state.viewMode !== "tour" && typeof tourHide === "function") tourHide();
-  // Route view's chosen stop belongs to Route view.
-  if (state.viewMode !== "improvements") closeRouteStop();
+  // Route view's chosen stop and chosen route belong to Route view.
+  if (state.viewMode !== "improvements") {
+    closeRouteStop();
+    clearRouteFocus({ restore: false });
+  }
 
   if (state.viewMode !== "journeytimes") {
     // And the delay map, which is the same view's third claim on the map.
@@ -11570,6 +11581,7 @@ async function applyViewMode() {
       await Promise.all([loadRouteLines(), loadProposals(), loadCouncilBoundaries()]);
       if (!mine()) return;
       showRouteLines();
+      fillRoutePicker();
       // The service filters start open, and chips drawn while this view was
       // hidden had no rows to measure: fit them to three rows now there are.
       if (dom.routeFiltersDisc && dom.routeFiltersDisc.open) reflowRouteChips();
@@ -12213,6 +12225,7 @@ function makeEndpointTag([lat, lon], service, place, side, placement, bg, fg, st
  *  Day↔Night. */
 function showRouteLines() {
   if (!state.visibleRoutes) return;
+  if (state.routeFocus) { hideRouteLines(); return; }   // one route chosen: it alone
   const isNight = state.serviceMode === "night";
   for (const [service, layers] of Object.entries(state.routeLineLayers)) {
     const matchesMode = isNightService(service) === isNight;
@@ -12234,6 +12247,291 @@ function hideRouteLines() {
   }
 }
 
+/* ============================================================
+ * ROUTE VIEW: ONE ROUTE
+ *
+ * Choose an operator, then a number, and the tab shows that route alone
+ * (asked for 1 November 2026): only its line on the map, its main places with
+ * every stop a tap away, when it runs, its tickets and its disruptions. On a
+ * computer its main places also run in a strip along the foot of the map; on
+ * a phone the same list is in the sheet, where a strip of names would not
+ * fit. A number alone is not a route (three companies run a 1 here), so both
+ * are asked for (/api/routes, /api/route).
+ * ============================================================ */
+
+const ROUTE_MAIN_PLACES = 7;
+const ROUTE_DAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const ROUTE_DAY_NAMES = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday",
+                          Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
+
+/** The stops a route is known by: its operator's timing points, both ends
+ *  kept, spread out to at most `max`; evenly spaced stops where the timetable
+ *  marks none. Indices into `stops`, in route order. */
+function routeMainPlaces(stops, max = ROUTE_MAIN_PLACES) {
+  const n = (stops || []).length;
+  if (!n) return [];
+  let pool = stops.map((s, i) => (s.timing ? i : -1)).filter(i => i >= 0);
+  if (pool.length < 2) pool = stops.map((_s, i) => i);
+  if (pool[0] !== 0) pool.unshift(0);
+  if (pool[pool.length - 1] !== n - 1) pool.push(n - 1);
+  // The same name twice running (both sides of a square) is one place.
+  pool = pool.filter((i, k) => k === 0 || i === n - 1 || stops[i].name !== stops[pool[k - 1]].name);
+  if (pool.length <= max) return pool;
+  const out = [];
+  for (let k = 0; k < max; k++) out.push(pool[Math.round(k * (pool.length - 1) / (max - 1))]);
+  return [...new Set(out)];
+}
+
+/** "every day", "Monday to Saturday", "Saturday and Sunday". */
+function routeDaysText(days) {
+  const idx = (days || []).map(d => ROUTE_DAY_ORDER.indexOf(d)).filter(i => i >= 0).sort((a, b) => a - b);
+  if (!idx.length) return "";
+  if (idx.length === 7) return "every day";
+  const names = idx.map(i => ROUTE_DAY_NAMES[ROUTE_DAY_ORDER[i]]);
+  const runOn = idx.every((v, k) => k === 0 || v === idx[k - 1] + 1);
+  return runOn && idx.length >= 3 ? `${names[0]} to ${names[names.length - 1]}` : andList(names);
+}
+
+/** How often, the day's first and last, and which days: from the timetable. */
+function routeWhenText(r) {
+  const days = routeDaysText(r.days);
+  const runs = days ? `Runs ${days}.` : "";
+  if (!r.journeys) return `No journeys today. ${runs}`.trim();
+  const m = r.every_min;
+  const every = !m ? ""
+    : m % 60 === 0 ? `About every ${m === 60 ? "hour" : `${m / 60} hours`} in the daytime. `
+    : `About every ${m} minutes in the daytime. `;
+  const span = r.first && r.last
+    ? `Today from ${r.first} to ${r.last}${r.after_midnight ? ", and after midnight" : ""}. ` : "";
+  return `${every}${span}${runs}`.trim();
+}
+
+/** The route in the tab: which way, when, its main places or every stop,
+ *  and the hosts for its tickets and disruptions (renderRouteFocus). */
+function routeDetailHtml(r, dir = 0, expanded = false) {
+  const d = r.directions[dir] || r.directions[0];
+  const colour = getLineColour(r.service, r.operator);
+  const main = new Set(routeMainPlaces(d.stops));
+  const shown = d.stops.map((s, i) => ({ s, i })).filter(({ i }) => expanded || main.has(i));
+  const name = (x) => escapeHtml(prettifyName(x) || x || "");
+  const dirs = r.directions.length > 1
+    ? `<div class="route-dirs" role="group" aria-label="Which way">${r.directions.map((x, i) =>
+        `<button type="button" class="route-dir-btn" data-route-dir="${i}" aria-pressed="${i === dir}">To ${
+          name(x.to)}</button>`).join("")}</div>` : "";
+  return `
+    <div class="route-detail-head">
+      <span class="service-badge" style="background:${colour};color:${textColourOn(colour)}">${escapeHtml(r.service)}</span>
+      <span class="route-detail-title"><strong>${name(d.from)} to ${name(d.to)}</strong>
+        <span class="route-detail-op">${escapeHtml(getOperatorName(r.operator))}</span></span>
+    </div>
+    ${dirs}
+    <p class="route-detail-when">${escapeHtml(routeWhenText(r))}</p>
+    <h4 class="route-detail-sub">${expanded ? "Every stop" : "Main places"}</h4>
+    <ol class="route-line" style="--route-colour:${colour}">${shown.map(({ s, i }) => `
+      <li class="route-line-stop${main.has(i) ? " route-line-stop--main" : ""}">
+        <button type="button" class="route-line-btn" data-route-stop="${i}">
+          <span class="route-line-name">${name(s.name)}</span>${
+          s.locality ? `<span class="route-line-sub">${escapeHtml(s.locality)}</span>` : ""}
+        </button></li>`).join("")}
+    </ol>
+    <button type="button" class="btn-text route-line-all" data-route-all>${
+      expanded ? "Show the main places only" : `Show all ${d.stops.length} stops`}</button>
+    <div class="route-detail-disruptions" id="route-detail-disruptions"></div>
+    <div class="route-detail-tickets" id="route-detail-tickets"></div>
+    <button type="button" class="btn-text route-detail-clear" data-route-clear>Show all routes again</button>`;
+}
+
+/** The strip along the foot of the map, on a computer: the number, then the
+ *  main places of the way chosen, each a button to it. */
+function routeStripHtml(r, dir = 0) {
+  const d = r.directions[dir] || r.directions[0];
+  const colour = getLineColour(r.service, r.operator);
+  return `
+    <span class="service-badge route-strip-badge" style="background:${colour};color:${textColourOn(colour)}">${
+      escapeHtml(r.service)}</span>
+    <ol class="route-strip-line" style="--route-colour:${colour}">${routeMainPlaces(d.stops).map(i => {
+      const s = d.stops[i];
+      return `<li><button type="button" class="route-strip-place" data-route-stop="${i}">
+        <span class="route-strip-dot" aria-hidden="true"></span>
+        <span class="route-strip-name">${escapeHtml(prettifyName(s.name) || s.name)}</span>${
+        s.locality ? `<span class="route-strip-sub">${escapeHtml(s.locality)}</span>` : ""}</button></li>`;
+    }).join("")}</ol>`;
+}
+
+/** The picker's lists: each operator, by name, with its routes by number. */
+function routePickerGroups(routes) {
+  const by = new Map();
+  for (const r of routes || []) {
+    if (!r || !r.operator || !r.service) continue;
+    if (!by.has(r.operator)) by.set(r.operator, new Set());
+    by.get(r.operator).add(r.service);
+  }
+  return [...by].map(([operator, set]) => ({
+    operator, name: getOperatorName(operator), services: [...set].sort(compareServiceLabels),
+  })).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function loadRouteCatalogue() {
+  if (!state._routeCataloguePromise) {
+    state._routeCataloguePromise = apiFetch("/api/routes")
+      .then(d => (state.routeCatalogue = Array.isArray(d?.routes) ? d.routes : []))
+      .catch(err => { state._routeCataloguePromise = null; throw err; });
+  }
+  return state._routeCataloguePromise;
+}
+
+/** Fill the operator list, once; Route view calls it on every visit. */
+async function fillRoutePicker() {
+  const opSel = document.getElementById("route-pick-operator");
+  if (!opSel || state.routePickerGroups) return;
+  try {
+    await loadRouteCatalogue();
+  } catch {
+    opSel.innerHTML = `<option value="">The routes could not be loaded</option>`;
+    return;
+  }
+  state.routePickerGroups = routePickerGroups(state.routeCatalogue);
+  opSel.innerHTML = `<option value="">Choose an operator</option>` + state.routePickerGroups.map(g =>
+    `<option value="${escapeAttr(g.operator)}">${escapeHtml(g.name)}</option>`).join("");
+}
+
+function initRoutePicker() {
+  const opSel  = document.getElementById("route-pick-operator");
+  const svcSel = document.getElementById("route-pick-service");
+  const host   = document.getElementById("route-detail");
+  if (!opSel || !svcSel || !host) return;
+  opSel.addEventListener("change", () => {
+    const g = (state.routePickerGroups || []).find(x => x.operator === opSel.value);
+    svcSel.innerHTML = `<option value="">${g ? "Choose a route" : "Choose an operator first"}</option>`
+      + (g ? g.services.map(s => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join("") : "");
+    svcSel.disabled = !g;
+    if (state.routeFocus) clearRouteFocus();
+  });
+  svcSel.addEventListener("change", () => {
+    if (opSel.value && svcSel.value) focusRoute(opSel.value, svcSel.value);
+    else clearRouteFocus();
+  });
+  host.addEventListener("click", onRouteFocusClick);
+  document.getElementById("route-strip")?.addEventListener("click", onRouteFocusClick);
+}
+
+async function focusRoute(operator, service) {
+  const host = document.getElementById("route-detail");
+  if (!host) return;
+  const mine = claimRender("route-focus");
+  host.hidden = false;
+  host.innerHTML = `<p class="route-detail-note">Loading the ${escapeHtml(service)}…</p>`;
+  let detail;
+  try {
+    detail = await apiFetch(`/api/route?operator=${encodeURIComponent(operator)}&service=${encodeURIComponent(service)}`);
+  } catch {
+    if (mine()) host.innerHTML = `<p class="route-detail-note">That route could not be loaded. Try again in a moment.</p>`;
+    return;
+  }
+  if (!mine() || state.viewMode !== "improvements") return;
+  state.routeFocus = { operator, service, detail, dir: 0, expanded: false };
+  // The route has the tab now: the list of every route folds away.
+  if (dom.routeFiltersDisc) dom.routeFiltersDisc.open = false;
+  closeRouteStop();
+  renderRouteFocus({ fit: true });
+}
+
+function renderRouteFocus({ fit = false, refocus = null } = {}) {
+  const f = state.routeFocus;
+  const host = document.getElementById("route-detail");
+  if (!f || !host) return;
+  host.hidden = false;
+  host.innerHTML = routeDetailHtml(f.detail, f.dir, f.expanded);
+  const dis = document.getElementById("route-detail-disruptions");
+  if (dis) dis.innerHTML = compactDisruptionsHtml(f.detail.disruptions || [],
+    [{ service: f.service, operator: f.operator }]);
+  const tickets = document.getElementById("route-detail-tickets");
+  if (tickets) tickets.innerHTML = buildTicketInfoHtml(f.operator, null, f.service);
+  const strip = document.getElementById("route-strip");
+  if (strip) { strip.innerHTML = routeStripHtml(f.detail, f.dir); strip.hidden = false; }
+  // A control redrawn under the reader's keyboard gets its focus back.
+  if (refocus) host.querySelector(refocus)?.focus();
+  drawRouteFocus({ fit });
+}
+
+function drawRouteFocus({ fit = false } = {}) {
+  clearRouteFocusLayers();
+  const f = state.routeFocus;
+  if (!f || !state.map) return;
+  hideRouteLines();
+  const colour = getLineColour(f.service, f.operator);
+  const d = f.detail.directions[f.dir] || f.detail.directions[0];
+  const layers = [];
+  // The other way, faint and dashed, under the way chosen.
+  f.detail.directions.forEach((x, i) => {
+    if (i !== f.dir && Array.isArray(x.line) && x.line.length >= 2) {
+      layers.push(L.polyline(x.line, { color: colour, weight: 4, opacity: 0.35, dashArray: "6 8", interactive: false }));
+    }
+  });
+  if (Array.isArray(d.line) && d.line.length >= 2) {
+    layers.push(L.polyline(d.line, { color: colour, weight: 6, opacity: 0.9, interactive: false }));
+  }
+  const main = new Set(routeMainPlaces(d.stops));
+  d.stops.forEach((s, i) => {
+    if (!Number.isFinite(s.lat) || !Number.isFinite(s.lon)) return;
+    layers.push(L.circleMarker([s.lat, s.lon], {
+      radius: main.has(i) ? 6 : 3.5, color: colour, weight: 2, fillColor: "#ffffff", fillOpacity: 1,
+    }).bindTooltip(escapeHtml(prettifyName(s.name) || s.name), { direction: "top" })
+      .on("click", () => openRouteStop(s.atco, s.name)));
+  });
+  state.routeFocusLayer = L.layerGroup(layers).addTo(state.map);
+  if (fit && Array.isArray(d.line) && d.line.length >= 2) fitBoundsAboveSheet(L.latLngBounds(d.line));
+}
+
+function clearRouteFocusLayers() {
+  if (state.routeFocusLayer && state.map) state.map.removeLayer(state.routeFocusLayer);
+  state.routeFocusLayer = null;
+}
+
+/** Put the route down. `restore` brings every route back; leaving Route view
+ *  passes false, since the next view draws its own map. */
+function clearRouteFocus({ restore = true } = {}) {
+  clearRouteFocusLayers();
+  const had = !!state.routeFocus;
+  state.routeFocus = null;
+  const host = document.getElementById("route-detail");
+  if (host) { host.hidden = true; host.innerHTML = ""; }
+  const strip = document.getElementById("route-strip");
+  if (strip) { strip.hidden = true; strip.innerHTML = ""; }
+  const svcSel = document.getElementById("route-pick-service");
+  if (svcSel) svcSel.value = "";
+  if (had && restore && state.viewMode === "improvements") {
+    if (dom.routeFiltersDisc) dom.routeFiltersDisc.open = true;
+    showRouteLines();
+  }
+}
+
+function onRouteFocusClick(e) {
+  const f = state.routeFocus;
+  if (!f) return;
+  const dirBtn = e.target.closest("[data-route-dir]");
+  if (dirBtn) {
+    f.dir = Number(dirBtn.dataset.routeDir) || 0;
+    renderRouteFocus({ fit: true, refocus: `[data-route-dir="${f.dir}"]` });
+    return;
+  }
+  if (e.target.closest("[data-route-all]")) {
+    f.expanded = !f.expanded;
+    renderRouteFocus({ refocus: "[data-route-all]" });
+    return;
+  }
+  if (e.target.closest("[data-route-clear]")) {
+    clearRouteFocus();
+    document.getElementById("route-pick-service")?.focus();
+    return;
+  }
+  const stopBtn = e.target.closest("[data-route-stop]");
+  if (stopBtn && state.map) {
+    const s = ((f.detail.directions[f.dir] || {}).stops || [])[Number(stopBtn.dataset.routeStop)];
+    if (s && Number.isFinite(s.lat)) centreAboveSheet([s.lat, s.lon], Math.max(state.map.getZoom(), 16));
+  }
+}
+
 /**
  * Toggle a single route's polylines on/off. Used by the route filter chips.
  * Only adds the layer to the map if the route also matches the current
@@ -12245,7 +12543,9 @@ function setRouteVisible(service, visible) {
   else         state.visibleRoutes.delete(service);
 
   const matchesMode = isNightService(service) === (state.serviceMode === "night");
-  const showOnMap   = visible && matchesMode && isServicePassingFilters(service);
+  // With one route chosen, the map shows that route alone; the choice of
+  // which others to show is kept for when it is put down.
+  const showOnMap   = !state.routeFocus && visible && matchesMode && isServicePassingFilters(service);
 
   const layers = state.routeLineLayers[service] || [];
   for (const layer of layers) {

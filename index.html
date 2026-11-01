@@ -341,6 +341,10 @@
         <select id="ticket-operator-select"></select>
       </div>
       <p class="visually-hidden" id="gap-monitor-live" role="status" aria-live="polite"></p>
+      <!-- Route view, one route chosen, on a computer: its main places in a
+           strip along the foot of the map (app.js routeStripHtml). A phone has
+           the same list in the sheet; a strip of names would not fit. -->
+      <nav class="route-strip" id="route-strip" hidden aria-label="Main places on this route"></nav>
 
       <!-- What the council boundary means, opened from the label on the map.
            A native <dialog> so Escape, focus trapping and the backdrop come
@@ -831,22 +835,18 @@
                how often, the last bus home, tickets and access. Filled by
                app.js openRouteStop; first in the tab so it is what you see. -->
           <section class="route-stop" id="route-stop" hidden aria-labelledby="route-stop-name"></section>
-          <!-- The route list comes first. It is what this tab is for — the
-               map is a picture of it — and it was below three paragraphs of
-               prose that only make sense once you have seen the list. -->
-          <!-- The service list and the controls that narrow it are one thing,
-               so they are one control. They used to be three stacked blocks —
-               a chip list, a checkbox, and a separate "Filter services"
-               disclosure — which between them took the whole tab on a phone
-               and left the prose below the fold. Closed, this is a single
-               44px row; open, it is everything that decides what the map
-               shows, in the order you would use it. It starts open (asked
-               for 1 November 2026): the filters are what the tab is used for. -->
+          <!-- Two sections (asked for 1 November 2026): every route at once,
+               plain until its filters are opened, and one route on its own,
+               chosen by operator and number. Both fold. -->
+          <!-- Every route. The service list and the controls that narrow it
+               are one control: as three stacked blocks they took the whole
+               tab on a phone. Open on arrival, it shows the routes
+               themselves; the rest of the filters fold away under them. -->
           <div class="route-filters" id="route-filters">
           <details class="filter-disclosure route-filters-disclosure" id="route-filters-disclosure" open>
             <summary class="filter-disclosure-summary">
               <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
-              <span>Existing services</span>
+              <span>All routes</span>
               <!-- "18 selected": closed, the count still says what the map is
                    showing without opening it again. -->
               <span class="route-filters-count" id="route-filters-count"></span>
@@ -854,29 +854,6 @@
             </summary>
 
             <div class="route-filters-body">
-              <div class="filter-strip-group" aria-label="Service filters">
-                <div class="filter-strip-row">
-                  <span class="filter-strip-label">Type</span>
-                  <div class="filter-strip" id="service-category-toggle"></div>
-                </div>
-                <div class="filter-strip-row">
-                  <span class="filter-strip-label">Operator</span>
-                  <div class="filter-strip" id="service-operator-toggle"></div>
-                </div>
-              </div>
-
-              <label class="filter-toggle route-filters-limited" for="show-limited-services">
-                <input type="checkbox" id="show-limited-services">
-                <span>Show limited services</span>
-              </label>
-
-              <div class="route-filters-header">
-                <div class="route-filters-actions">
-                  <button class="btn-text" id="routes-all-btn">Show all</button>
-                  <button class="btn-text" id="routes-none-btn">Hide all</button>
-                </div>
-              </div>
-
               <div class="route-filter-chips" id="route-filter-chips" aria-live="polite">
                 <p class="route-filters-empty">Loading route list…</p>
               </div>
@@ -885,40 +862,69 @@
                    filters frees rows, so this disappears on its own. -->
               <button type="button" class="route-chips-more hidden" id="route-chips-more"
                       aria-expanded="false" aria-controls="route-filter-chips"></button>
+
+              <details class="route-filters-more" id="route-filters-more">
+                <summary class="route-filters-more-summary">More filters</summary>
+                <div class="filter-strip-group" aria-label="Service filters">
+                  <div class="filter-strip-row">
+                    <span class="filter-strip-label">Type</span>
+                    <div class="filter-strip" id="service-category-toggle"></div>
+                  </div>
+                  <div class="filter-strip-row">
+                    <span class="filter-strip-label">Operator</span>
+                    <div class="filter-strip" id="service-operator-toggle"></div>
+                  </div>
+                </div>
+
+                <label class="filter-toggle route-filters-limited" for="show-limited-services">
+                  <input type="checkbox" id="show-limited-services" aria-describedby="route-filters-limited-hint">
+                  <span>Show limited services</span>
+                </label>
+                <p class="route-filters-hint" id="route-filters-limited-hint">Limited services are routes
+                  that don't run every day, have no journeys after 18:00, or run less often than every
+                  30 minutes.</p>
+
+                <div class="route-filters-header">
+                  <div class="route-filters-actions">
+                    <button class="btn-text" id="routes-all-btn">Show all</button>
+                    <button class="btn-text" id="routes-none-btn">Hide all</button>
+                  </div>
+                </div>
+              </details>
             </div>
           </details>
           </div>
 
+          <!-- One route on its own: operator, then number, since a number
+               alone is not a route (three companies run a 1 here). Choosing
+               one fills the detail under the pickers (app.js focusRoute). -->
+          <section class="route-pick" id="route-pick">
+            <details class="filter-disclosure route-pick-disclosure" id="route-pick-disclosure" open>
+              <summary class="filter-disclosure-summary">
+                <svg class="icon" aria-hidden="true"><use href="#i-route"/></svg>
+                <span>One route</span>
+                <svg class="icon filter-disclosure-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+              </summary>
+              <div class="route-pick-body">
+                <div class="route-pick-fields">
+                  <label class="route-pick-field" for="route-pick-operator">Operator
+                    <select id="route-pick-operator"><option value="">Choose an operator</option></select>
+                  </label>
+                  <label class="route-pick-field" for="route-pick-service">Route
+                    <select id="route-pick-service" disabled><option value="">Choose an operator first</option></select>
+                  </label>
+                </div>
+                <div class="route-detail" id="route-detail" hidden aria-live="polite"></div>
+              </div>
+            </details>
+          </section>
+
           <div class="improvements-intro">
-            <h2 class="improvements-title">The network as it is today</h2>
             <p>
-              The current network leaves parts of Adur poorly served: long
-              waits, awkward interchanges, and gaps between the coastal
-              corridor and the neighbourhoods inland.
-            </p>
-            <p>
-              The <strong>Proposals</strong> tab sketches a network where a
-              handful of simple changes (re-routings, new links, better night
-              coverage) would have an outsized impact on day-to-day life
-              across Adur. The map shows every existing service as a coloured
-              line; toggle routes below to compare coverage, or open Proposals
-              to see the targeted additions.
-            </p>
-            <p class="improvements-opensource">
-              This site is <strong>open source</strong>. It's built and shared on
-              <a href="https://github.com/dennislemennace/adur-worthing-bus"
-                 target="_blank" rel="noopener noreferrer">GitHub</a>, the platform
-              that hosts the code. You don't need an account to contribute: hit
-              <strong>Submit</strong> in the editor and your proposal goes privately to
-              the maintainers to review. If it's approved it's published here with the
-              name you give.
-            </p>
-            <p class="improvements-note">
-              Tip: turning on <strong>“Show limited services”</strong> reveals
-              how, on paper, the map looks well covered. But many of those
-              routes are infrequent, run only at peak times, or don't run at
-              weekends, so locals can't actually rely on them for everyday
-              travel.
+              Every bus route in the area, from the operators' published
+              timetables. Choose one to see where it goes, when it runs and
+              which tickets it takes. Ideas for changes are in
+              <strong>Proposals</strong>.
             </p>
           </div>
 
@@ -934,6 +940,15 @@
                 Pick a proposal to highlight it on the map. Use the
                 <strong>Show proposals</strong> toggle on the map to layer
                 all proposals over the existing network for comparison.
+              </p>
+              <p class="improvements-opensource">
+                This site is <strong>open source</strong>. It's built and shared on
+                <a href="https://github.com/dennislemennace/adur-worthing-bus"
+                   target="_blank" rel="noopener noreferrer">GitHub</a>, the platform
+                that hosts the code. You don't need an account to contribute: hit
+                <strong>Submit</strong> in the editor and your proposal goes privately to
+                the maintainers to review. If it's approved it's published here with the
+                name you give.
               </p>
               <button class="new-proposal-btn" id="new-proposal-btn" type="button">
                 <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>

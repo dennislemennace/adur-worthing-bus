@@ -750,7 +750,8 @@ test("Route view's stop lists each service with when and how often it calls", ()
 
 test("a stop clicked in Route view opens its panel, and leaving the view closes it", () => {
   assert.match(APP, /if \(state\.viewMode === "improvements"\) \{\s*state\.map\.closePopup\(\);\s*openRouteStop\(atcoCode, stopName\);/);
-  assert.match(APP, /if \(state\.viewMode !== "improvements"\) closeRouteStop\(\);/);
+  // With the chosen route (1 November 2026), which also belongs to Route view.
+  assert.match(APP, /if \(state\.viewMode !== "improvements"\) \{\s*closeRouteStop\(\);/);
   assert.match(INDEX, /id="tab-content-about"[^>]*>\s*<!--[\s\S]*?-->\s*<section class="route-stop" id="route-stop" hidden/);
 });
 

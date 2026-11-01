@@ -3117,8 +3117,18 @@ html.a11y-reduce-motion .a11y-switch::after { transition: none; }
 
 .leaflet-popup-content {
   margin: 12px 14px !important;
+  /* Clear of the close button, now a full-size target. */
+  margin-right: 36px !important;
   font-size: var(--font-size-sm) !important;
   color: var(--color-text) !important;
+}
+/* Leaflet draws a popup's close button 24px square: its only way out gets
+   the 44px every other control has. */
+.leaflet-container a.leaflet-popup-close-button {
+  width: 44px;
+  height: 44px;
+  font: 700 22px/44px var(--font-family);
+  color: var(--color-text-muted);
 }
 
 .popup-stop-name {
@@ -4743,6 +4753,216 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 /* The disclosure is the whole control now, so the block around it adds
    nothing: it used to supply padding and a gap for three stacked children. */
 .route-filters-disclosure { margin: 0; }
+
+/* All routes, plain: the chips, with the rest of the filters folded under
+   "More filters" (asked for 1 November 2026). */
+.route-filters-more { margin: 0 var(--space-md) var(--space-sm); }
+.route-filters-more-summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--target-min);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-link);
+}
+.route-filters-more[open] .route-filters-more-summary { color: var(--color-text); }
+.route-filters-hint {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* One route: the picker, then its detail (app.js routeDetailHtml). */
+.route-pick-body { padding: 0 var(--space-md) var(--space-md); }
+.route-pick-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-sm);
+}
+.route-pick-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.route-pick-field select {
+  min-height: var(--target-min);
+  width: 100%;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+.route-pick-field select:disabled { opacity: 0.6; }
+.route-detail { margin-top: var(--space-md); color: var(--color-text); }
+.route-detail-note { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.route-detail-head { display: flex; align-items: flex-start; gap: var(--space-sm); }
+.route-detail-title { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-sm); }
+.route-detail-op { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.route-dirs { display: flex; flex-wrap: wrap; gap: var(--space-xs); margin-top: var(--space-sm); }
+.route-dir-btn {
+  min-height: var(--target-min);
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+.route-dir-btn[aria-pressed="true"] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-fill);
+}
+.route-detail-when { margin: var(--space-sm) 0; font-size: var(--font-size-sm); }
+.route-detail-sub {
+  margin: var(--space-sm) 0 var(--space-xs);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+/* The line diagram: the route's colour down the left, a dot at each stop,
+   bigger at its main places. */
+.route-line { list-style: none; margin: 0; padding: 0; }
+.route-line-stop { position: relative; padding-left: 26px; }
+.route-line-stop::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--route-colour, var(--color-primary));
+}
+.route-line-stop:first-child::before { top: 50%; }
+.route-line-stop:last-child::before { bottom: 50%; }
+.route-line-stop::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  border: 3px solid var(--route-colour, var(--color-primary));
+  border-radius: 50%;
+  background: var(--color-surface);
+  box-sizing: border-box;
+}
+.route-line-stop--main::after { left: 3px; width: 14px; height: 14px; margin-top: -7px; }
+.route-line-btn {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--target-min);
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.route-line-stop--main .route-line-name { font-weight: 700; }
+.route-line-sub { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.route-line-all,
+.route-detail-clear { min-height: var(--target-min); }
+.route-detail-tickets,
+.route-detail-disruptions { margin-top: var(--space-sm); }
+
+/* On a computer, the route's main places along the foot of the map. A phone
+   has the list in its sheet instead: a strip of names would not fit. */
+.route-strip {
+  position: absolute;
+  left: var(--space-md);
+  right: var(--space-md);
+  bottom: 28px;
+  z-index: 800;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  color: var(--color-text);
+}
+.route-strip-badge { flex-shrink: 0; font-size: var(--font-size-md); }
+.route-strip-line {
+  position: relative;
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* The bar through the dots, from the first to the last. */
+.route-strip-line::before {
+  content: "";
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  top: 9px;
+  height: 4px;
+  background: var(--route-colour, var(--color-primary));
+}
+.route-strip-line li { flex: 1; min-width: 0; }
+.route-strip-place {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-height: var(--target-min);
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+.route-strip-dot {
+  width: 22px;
+  height: 22px;
+  border: 4px solid var(--route-colour, var(--color-primary));
+  border-radius: 50%;
+  background: var(--color-surface);
+  box-sizing: border-box;
+}
+.route-strip-name {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.route-strip-sub {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .route-strip { display: none !important; }
+}
 
 .route-filters-empty,
 .proposals-empty {
@@ -6467,7 +6687,9 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 .rail-col-time { width: 22%; white-space: nowrap; font-family: var(--font-mono); }
 .rail-col-plat { width: 10%; text-align: center; }
 .rail-col-op   { width: 22%; }
-.rail-col-act  { width: 14%; text-align: right; }
+/* Wide enough for "TRACK" at its 32px target, whatever the panel's width: as
+   14% it was 42px on a 320px phone and the button ran 8px off the screen. */
+.rail-col-act  { width: 4.5rem; text-align: right; }
 
 .rail-time-sched { font-weight: 600; }
 .rail-time { margin-left: 4px; font-size: var(--font-size-xs); font-weight: 600; }

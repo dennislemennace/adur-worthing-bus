@@ -2129,6 +2129,47 @@ async def get_trip(
     }
 
 
+@app.get("/api/routes")
+async def get_routes():
+    """Every route in the area, operator and number together, for Route
+    view's picker (asked for 1 November 2026). Cached an hour: the
+    timetable changes weekly."""
+    cached = cache_get("route_catalogue")
+    if cached:
+        return cached
+    tt = await _get_timetable()
+    bbox = (BBOX_MIN_LAT, BBOX_MAX_LAT, BBOX_MIN_LON, BBOX_MAX_LON)
+    result = {"routes": await off_loop(tt.route_catalogue, bbox)}
+    cache_set("route_catalogue", result, 3600)
+    return result
+
+
+@app.get("/api/route")
+async def get_route(
+    operator: str = Query(..., max_length=8, pattern=r"^[A-Z0-9]+$"),
+    service: str = Query(..., max_length=12, pattern=r"^[A-Za-z0-9]+$"),
+):
+    """One operator's route, as Route view's picker shows it: its stops each
+    way with the timing points, the line it follows, and when it runs today.
+    A number alone is not a route; three companies run a 1 here."""
+    day = datetime.now(UK_TZ).date()
+    key = f"route:{operator}:{service}:{day.isoformat()}"
+    detail = cache_get(key)
+    if detail is None:
+        tt = await _get_timetable()
+        detail = await off_loop(tt.route_detail, service, operator, day)
+        if not detail:
+            raise HTTPException(status_code=404, detail="That operator runs no such route here.")
+        cache_set(key, detail, 600)
+    # The route's own notices, as its buses' Bus tab has them; asked for each
+    # time, since they change more often than the timetable.
+    stops = [s["atco"] for d in detail["directions"] for s in d["stops"]]
+    notices = [d for d in sx.affecting(_disruptions_now(await _disruptions_state(wait=False)),
+                                       services={(operator, service)})
+               if local_disruptions.sub_entry_applies(d, operator, service, lambda: stops)]
+    return {**detail, "disruptions": notices}
+
+
 @app.get("/api/trip-shape")
 async def get_trip_shape(
     tripId: str = Query(..., max_length=120, pattern=r"^[A-Za-z0-9_:.\-]+$"),
@@ -3385,7 +3426,8 @@ DECLARATION_DOUBT_KM = 0.1
 
 
 def _attach_declared_journeys(vehicles: list, tt: Timetable,
-                              now_local: Optional[datetime] = None) -> None:
+                              now_local: Optional[datetime] = None,
+                              move_outlived: bool = False) -> None:
     """Use the journey the feed names, where it names one we hold.
 
     Attaches `trip_id`, `trip_headsign` and `lateness_secs` — the last being
@@ -3413,6 +3455,85 @@ def _attach_declared_journeys(vehicles: list, tt: Timetable,
         # The map finds the bus on a board row's journey by this.
         if v.get("trip_source") == "feed_start":
             v["declared_trip_id"] = trip_id
+    if move_outlived:
+        _move_outlived_declarations(vehicles, tt, now_local)
+
+
+# A claim this far behind, with the route's next journey due where the bus is
+# and claimed by no bus, has outlived its journey.
+OUTLIVED_SECS = 40 * 60
+
+
+def _move_outlived_declarations(vehicles: list, tt: Timetable, now_local: datetime) -> None:
+    """Move a bus off a journey it has outlived, onto the one it is driving.
+
+    A ticket machine can go on naming a journey after the next one has begun.
+    On 1 November 2026 Brighton & Hove's 212 named the 17:42 route 20 at 19:20,
+    at Open Market, where the 19:03 was due: the board showed it 77 minutes
+    late on a journey long over, and its real journey again below, unclaimed.
+    The heading rule in `_attach_journey` cannot see this, since both journeys
+    go the same way down the same road.
+
+    Moved only when all of these hold: the claim has the bus OUTLIVED_SECS or
+    more behind; another journey of the same route is due where the bus is,
+    within the matcher's window; and no bus claims that one. A bus really that
+    late, with the next journey's bus missing, is moved too, and then shows
+    as the one bus coming at that place and time, which it is. Live views
+    only (`move_outlived`): the nightly figures keep the operator's claim.
+    """
+    taken = {v.get("trip_id") for v in vehicles if v.get("trip_source") in trip_match.DECLARED_SOURCES}
+    for v in vehicles:
+        if v.get("trip_source") not in ("feed", "feed_start"):
+            continue
+        if (v.get("lateness_secs") or 0) < OUTLIVED_SECS:
+            continue
+        better = _journey_due_here(v, tt, now_local, taken)
+        if not better:
+            continue
+        old = v["trip_id"]
+        taken.discard(old)
+        taken.add(better)
+        _attach_journey(v, tt, better, "feed_moved", now_local)
+        if v.get("trip_source") != "feed_moved":
+            continue      # the heading rule refused the new journey too
+        v["outlived_trip_id"] = old
+        v["declared_trip_id"] = better     # the map finds the bus on the board row by this
+        v.setdefault("identity_flags", []).append("declared_journey_outlived")
+
+
+def _journey_due_here(v: dict, tt: Timetable, now_local: datetime, taken: set) -> Optional[str]:
+    """The journey of the bus's own route that has it about on time where it
+    is now, among those no bus claims; None when there is none."""
+    route_id = (tt.trips.get(v.get("trip_id") or "") or {}).get("route_id")
+    if not route_id:
+        return None
+    reported = _parse_iso_datetime(v.get("recorded_at"))
+    at = (reported.astimezone(UK_TZ) if reported else (now_local or datetime.now(UK_TZ)))
+    best, best_off = None, None
+    for trip_id, trip in tt.trips.items():
+        if trip.get("route_id") != route_id or trip_id == v.get("trip_id") or trip_id in taken:
+            continue
+        calls = [(secs, atco) for secs, atco in tt.trip_stops_for(trip_id) if secs is not None]
+        if len(calls) < 2:
+            continue
+        idx = trip_match.nearest_call(tt, {"calls": calls}, v.get("latitude"), v.get("longitude"))
+        if idx is None:
+            continue
+        stop = tt.stops.get(calls[idx][1]) or {}
+        if stop.get("lat") is None or trip_match.km(v["latitude"], v["longitude"],
+                                                     stop["lat"], stop["lon"]) > DECLARATION_DOUBT_KM:
+            continue
+        due = trip_match.scheduled_at_position(tt, calls, idx, v)
+        for offset in (-1, 0, 1):
+            day = at.date() + timedelta(days=offset)
+            off = at.timestamp() - (trip_match._service_origin(day) + due)
+            if not (-trip_match.EARLY_TOLERANCE_SECS <= off <= trip_match.MATCH_TOLERANCE_SECS):
+                continue
+            if not tt.runs_on(trip.get("service_id", ""), day):
+                continue
+            if best_off is None or abs(off) < best_off:
+                best, best_off = trip_id, abs(off)
+    return best
 
 
 def _journeys_by_start(vehicles: list, tt: Timetable) -> list:
@@ -3558,7 +3679,8 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: Timetable) -> None:
     # What the feed states, before anything we infer. GTFS-RT names the
     # journey; the two strategies below exist because SIRI-VM does not, and
     # they are guesses by comparison — measured at about 80% on this feed.
-    _attach_declared_journeys(vehicles, tt)
+    # Live, a claim the bus has long outlived moves to the journey it drives.
+    _attach_declared_journeys(vehicles, tt, move_outlived=True)
 
     now_local = datetime.now(UK_TZ)
     now_secs  = (now_local.hour * 3600

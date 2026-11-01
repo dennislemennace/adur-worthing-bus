@@ -1228,11 +1228,11 @@ async function checkRouteViewOnAPhone(page, where) {
       const panel = document.getElementById("departure-panel");
       const disc = document.getElementById("route-filters-disclosure");
       const summary = document.querySelector(".filter-disclosure-summary");
-      // The filters' first row: on a 320x568 phone or a landscape one the
-      // service chips under the filters are a scroll away, but what opens
-      // has to start on screen.
-      const row = document.querySelector("#route-filters-disclosure .filter-strip-row");
-      const pr = g(panel), sr = g(summary), cr = g(row);
+      // The routes themselves come first, the rest of the filters folded
+      // under them (1 November 2026), so the first chip starts on screen.
+      const chip = [...document.querySelectorAll(".route-chip")]
+        .find(c => !c.classList.contains("route-chip--clipped") && c.offsetParent);
+      const pr = g(panel), sr = g(summary), cr = g(chip);
       return JSON.stringify({
         open: disc ? disc.open : null,
         summaryH: sr ? Math.round(sr.height) : null,
@@ -1262,9 +1262,9 @@ async function checkRouteViewOnAPhone(page, where) {
   check(`the service control says how many services are shown — ${where}`,
     /\d/.test(m.count), JSON.stringify(m));
 
-  // Open on arrival, its filters starting inside the sheet, not merely an
+  // Open on arrival, the routes starting inside the sheet, not merely an
   // open element whose contents sit below the fold.
-  check(`Route view opens with its service filters open and showing — ${where}`,
+  check(`Route view opens with every route showing — ${where}`,
     m.open === true && m.chipTop !== null
       && m.chipTop >= m.panelTop && m.chipBottom <= m.panelBottom, JSON.stringify(m));
 
@@ -1302,6 +1302,90 @@ async function checkRouteViewOnAPhone(page, where) {
   // Leave the page as it was found: the header-row check that follows
   // measures the live status pill, which only Live view shows.
   await page.evaluate("setViewMode('live')");
+  await sleep(600);
+}
+
+/**
+ * Route view's one route (asked for 1 November 2026): an operator, then a
+ * number, and the map shows that route alone, the tab its main places, every
+ * stop on request, either way, and when it runs; on a computer a strip of its
+ * main places runs along the foot of the map. Uses the local API's timetable.
+ */
+async function checkRoutePicker(page, where) {
+  await page.evaluate("setViewMode('improvements')");
+  // Null-safe: a page without the picker fails this check rather than
+  // stopping the run.
+  const listed = await waitFor(page, `(document.getElementById("route-pick-operator")?.options.length || 0) > 1`, 45000);
+  check(`the route picker lists the operators — ${where}`, listed, "no operators after 45s");
+  // Leave the page as it was found, or the next check measures Route view.
+  if (!listed) { await page.evaluate("setViewMode('live')"); await sleep(600); return; }
+  const r = JSON.parse(await page.evaluate(`(async () => {
+    const wait = (ms) => new Promise(res => setTimeout(res, ms));
+    const op = document.getElementById("route-pick-operator");
+    const svc = document.getElementById("route-pick-service");
+    // Stagecoach's 700, which runs both ways; any route where it is not listed.
+    op.value = [...op.options].some(o => o.value === "SCSO") ? "SCSO" : op.options[1].value;
+    op.dispatchEvent(new Event("change"));
+    const pick = [...svc.options].find(o => o.value === "700") || svc.options[1];
+    svc.value = pick.value;
+    svc.dispatchEvent(new Event("change"));
+    for (let i = 0; i < 150 && !state.routeFocus; i++) await wait(100);
+    await wait(400);
+    const vis = ${VISIBLE_FN};
+    const host = document.getElementById("route-detail");
+    const strip = document.getElementById("route-strip");
+    const drawn = () => Object.values(state.routeLineLayers).flat().filter(l => state.map.hasLayer(l)).length;
+    const out = { operator: op.value, service: pick.value, focused: !!state.routeFocus, detailShown: !host.hidden && vis(host),
+      mainPlaces: host.querySelectorAll(".route-line-stop").length, otherLines: drawn(),
+      focusLayer: !!(state.routeFocusLayer && state.map.hasLayer(state.routeFocusLayer)),
+      allFolded: !document.getElementById("route-filters-disclosure").open,
+      when: (host.querySelector(".route-detail-when") || {}).textContent || "",
+      stripShown: !strip.hidden && getComputedStyle(strip).display !== "none",
+      stripPlaces: strip.querySelectorAll(".route-strip-place").length,
+      dirs: host.querySelectorAll("[data-route-dir]").length };
+    const all = host.querySelector("[data-route-all]");
+    if (all) { all.focus(); all.click(); }
+    out.allStops = host.querySelectorAll(".route-line-stop").length;
+    out.focusKept = document.activeElement === host.querySelector("[data-route-all]");
+    const other = host.querySelector('[data-route-dir="1"]');
+    if (other) {
+      other.click();
+      out.otherWay = host.querySelector('[data-route-dir="1"]').getAttribute("aria-pressed");
+    }
+    return JSON.stringify(out);
+  })()`));
+  check(`choosing an operator and a route shows that route alone — ${where}`,
+    r.focused && r.detailShown && r.focusLayer && r.otherLines === 0 && r.allFolded, JSON.stringify(r));
+  check(`the route shows its main places, and every stop on request — ${where}`,
+    r.mainPlaces >= 2 && r.mainPlaces <= 7 && r.allStops > r.mainPlaces && r.focusKept, JSON.stringify(r));
+  check(`the route says when it runs — ${where}`, /Runs |No journeys today/.test(r.when), JSON.stringify(r));
+  if (r.dirs > 1) check(`the route can be shown the other way — ${where}`, r.otherWay === "true", JSON.stringify(r));
+  const desktop = (await page.evaluate("window.innerWidth")) > 900;
+  check(`the strip along the map is on a computer only — ${where}`,
+    desktop ? (r.stripShown && r.stripPlaces >= 2) : !r.stripShown, JSON.stringify(r));
+  await checkLayout(page, `one route — ${where}`);
+  await checkReachable(page, `one route — ${where}`);
+  await checkContrastBothThemes(page, `one route — ${where}`);
+
+  const after = JSON.parse(await page.evaluate(`(async () => {
+    const wait = (ms) => new Promise(res => setTimeout(res, ms));
+    const drawn = () => Object.values(state.routeLineLayers).flat().filter(l => state.map.hasLayer(l)).length;
+    document.querySelector("#route-detail [data-route-clear]")?.click();
+    await wait(300);
+    const back = { focus: !!state.routeFocus, lines: drawn(), stripHidden: document.getElementById("route-strip").hidden,
+      open: document.getElementById("route-filters-disclosure").open };
+    // Chosen again, then Route view left: the route goes with it.
+    await focusRoute(${JSON.stringify(r.operator)}, ${JSON.stringify(r.service)});
+    const layer = state.routeFocusLayer;
+    setViewMode("live");
+    await wait(300);
+    back.leftClean = !state.routeFocus && !(layer && state.map.hasLayer(layer))
+      && document.getElementById("route-strip").hidden;
+    return JSON.stringify(back);
+  })()`));
+  check(`"Show all routes again" brings every route back — ${where}`,
+    !after.focus && after.lines > 0 && after.stripHidden && after.open, JSON.stringify(after));
+  check(`leaving Route view puts the route down — ${where}`, after.leftClean, JSON.stringify(after));
   await sleep(600);
 }
 
@@ -4734,6 +4818,7 @@ await checkHeaderControlRow(page, VIEWPORTS[0].name);
 await checkLayout(page, "live view");
 await checkFailureIsVisible(page, VIEWPORTS[0].name);
 await checkRouteViewOnAPhone(page, VIEWPORTS[0].name);
+await checkRoutePicker(page, VIEWPORTS[0].name);
 await checkSearchResults(page, VIEWPORTS[0].name);
 await checkFirstUsefulAction(page, VIEWPORTS[0].name);
 await checkFareEntryReachable(page, VIEWPORTS[0].name);
@@ -4802,6 +4887,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkLayout(p, vp.name);
   await checkFailureIsVisible(p, vp.name);
   if (vp.mobile) await checkRouteViewOnAPhone(p, vp.name);
+  await checkRoutePicker(p, vp.name);
   await checkHeaderControlRow(p, vp.name);
   await checkWakingBanner(p, vp.name);
   await checkGapMonitor(p, vp.name);
