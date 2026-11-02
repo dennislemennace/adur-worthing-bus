@@ -21,7 +21,12 @@ Positive means we record the bus as leaving later than it did. Reported:
 Rides logged on ride.html read the same way: one row per stop, the doors
 opening as arrived_at and closing as departed_at (`departed_basis` says so).
 Doors closing comes a few seconds before the bus pulls away, so a ride's
-error runs a few seconds more positive than a stop session's.
+error runs a few seconds more positive than a stop session's. A ride also logs
+rows that are not door times, named in its `event` column: `skipped` (the bus
+passed a stop without stopping, the moment in `passed_at`) and `unscheduled`
+(it stood somewhere that is not a stop, at lights or for a driver change, from
+arrived_at to departed_at). They are counted in the summary and never scored.
+A row with no `event` column, as every timing.html row, is a stop.
 
 Most buses are logged by route alone. They are matched on **route, pole and
 time**: the bus of that route we recorded leaving that same pole nearest the
@@ -139,19 +144,48 @@ def _epoch(iso):
     return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).timestamp()
 
 
+# The ride.html rows that are door times. Anything else it logs is counted,
+# not scored.
+SCORED_EVENT = "stop"
+EVENT_NAMES = {"skipped": ("stop skipped", "stops skipped"),
+               "unscheduled": ("unscheduled stop", "unscheduled stops")}
+
+
+def _number(text):
+    """A number from a cell. Exports before 2 November 2026 kept a negative
+    number as text with a leading apostrophe ('-2500), as a formula guard."""
+    return float(str(text or "").strip().lstrip("'") or 0)
+
+
 def read_timings(paths):
     """Logged buses, one dict each, with `departed` and `arrived` as epochs
-    corrected by the phone's measured clock offset (positive: phone fast)."""
+    corrected by the phone's measured clock offset (positive: phone fast),
+    and `event` ("stop" unless a ride said otherwise)."""
     out = []
     for path in paths:
         with open(path, newline="", encoding="utf-8") as handle:
             for row in csv.DictReader(handle):
-                offset = float(row.get("clock_offset_ms") or 0) / 1000
+                offset = _number(row.get("clock_offset_ms")) / 1000
                 dep, arr = _epoch(row.get("departed_at")), _epoch(row.get("arrived_at"))
                 out.append({**row, "source": Path(path).name,
+                            "event": (row.get("event") or SCORED_EVENT).strip().lower(),
                             "departed": dep - offset if dep is not None else None,
                             "arrived": arr - offset if arr is not None else None})
     return out
+
+
+def scored(entries):
+    """The logged rows that are door times at a stop."""
+    return [e for e in entries if (e.get("event") or SCORED_EVENT) == SCORED_EVENT]
+
+
+def not_scored(entries):
+    """How many rows of each other kind were logged: {"skipped": 2, ...}."""
+    counts = defaultdict(int)
+    for e in entries:
+        if (e.get("event") or SCORED_EVENT) != SCORED_EVENT:
+            counts[e["event"]] += 1
+    return dict(sorted(counts.items()))
 
 
 def siblings(stops, atco):
@@ -249,7 +283,7 @@ def compare(entries, observation_rows, stops, plates=None, schedule_calls=None):
         if key not in seen:
             unseen[c["atco"]].append({**c, "estimated_epoch": estimated.get(key)})
     results = []
-    for e in entries:
+    for e in scored(entries):
         row, how = match(e, by_atco, stops, plates, unseen)
         result = {"id": e.get("id"), "day": e.get("day"), "atco": e.get("atco"), "stop": e.get("stop_name"),
                   "route": e.get("route"), "vehicle": e.get("vehicle"), "matched": how if row else None,
@@ -348,7 +382,12 @@ def fetch(days, folder, base=PUBLISHED):
     """Download the published observation files for `days` into `folder`."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
-    with urllib.request.urlopen(f"{base}/index.json", timeout=60) as res:
+    # Named, as the fleet fetch is: the Worker's host refuses Python's default
+    # user agent with a 403 (found 2 November 2026).
+    def get(url):
+        return urllib.request.urlopen(
+            urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=60)
+    with get(f"{base}/index.json") as res:
         index = json.load(res)
     for day in days:
         name = f"observations-{day}.json.gz"
@@ -357,7 +396,8 @@ def fetch(days, folder, base=PUBLISHED):
             print(f"{name}: not published yet")
             continue
         if not (folder / name).exists():
-            urllib.request.urlretrieve(f"{base}/{entry['file']}", folder / name)
+            with get(f"{base}/{entry['file']}") as res:
+                (folder / name).write_bytes(res.read())
 
 
 def fetch_fleet(path, operators=FLEET_OPERATORS, opener=urllib.request.urlopen, pause=1.0):
@@ -417,6 +457,9 @@ def markdown(summary):
              f"pole nearest the moment timed, within {ROUTE_WINDOW_SECS // 60} minutes. It is set aside when "
              f"another bus of the route was within {AMBIGUITY_MARGIN_SECS} seconds of being as close, or when "
              f"a journey we never recorded there could have been it.", ""]
+    if summary.get("not_scored"):
+        said = [f"{n} {EVENT_NAMES.get(k, (k, k))[n != 1]}" for k, n in summary["not_scored"].items()]
+        lines += ["Not scored, as they are not door times: " + ", ".join(said) + ".", ""]
     if summary["unmatched"]:
         lines += ["Not matched: " + "; ".join(f"{n} {why}" for why, n in summary["unmatched"].items()), ""]
     for title, key in (("By how the bus was matched", None), ("By kind of stop", "by_kind"),
@@ -465,10 +508,12 @@ def main(argv=None):
         except (OSError, ValueError, KeyError) as exc:
             print(f"Fleet list unavailable ({exc}): plates match Compass buses only.", file=sys.stderr)
     calls = []
-    poles = {a for e in entries for a in siblings(stops, e.get("atco"))}
+    poles = {a for e in scored(entries) for a in siblings(stops, e.get("atco"))}
     rows = load_observations(wanted, folder, poles, calls)
     results = compare(entries, rows, stops, plates, calls)
     summary = summarise(results)
+    if not_scored(entries):
+        summary["not_scored"] = not_scored(entries)
     if args.out:
         Path(args.out).write_text(json.dumps({"summary": summary, "results": results}, indent=1) + "\n")
     print(markdown(summary))

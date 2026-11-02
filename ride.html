@@ -11,93 +11,175 @@
   <link rel="stylesheet" href="fonts/fonts.css" />
   <style>
     /* Self-contained, like timing.html. Built for one hand on a moving bus:
-       two big buttons, the clock in view, nothing to scroll past to tap. */
+       where the bus is and two big buttons at the top, everything else below,
+       nothing to scroll past to tap. */
     :root { color-scheme: light dark; --ink: #12202f; --muted: #4a5868; --bg: #fbfaf7; --rule: #d8d3c8;
-            --link: #1a4b82; --panel: #f1eee6; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff; }
+            --link: #1a4b82; --panel: #f1eee6; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff;
+            --on-link: #ffffff; --backdrop: rgba(18, 32, 47, .55); --target-min: 44px; }
     @media (prefers-color-scheme: dark) {
       :root { --ink: #e8eef5; --muted: #a9b6c6; --bg: #090e1a; --rule: #263349; --link: #7fb3e8;
-              --panel: #121a2b; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff; }
+              --panel: #121a2b; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff; --on-link: #090e1a;
+              --backdrop: rgba(0, 0, 0, .7); }
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 Outfit, system-ui, sans-serif; }
     .wrap { max-width: 34rem; margin: 0 auto; padding: 12px 16px 48px; }
+    .top { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
     h1 { font-family: Fraunces, Georgia, serif; font-size: 1.35rem; margin: .25rem 0; }
     h2 { font-size: 1rem; margin: 1.25rem 0 .4rem; }
     a { color: var(--link); }
     .muted { color: var(--muted); font-size: .9rem; }
-    #clock { font: 700 2.4rem/1.1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .02em; margin: .25rem 0; }
+    .nowrap { white-space: nowrap; }
+    #clock { font: 700 1.6rem/1.1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .02em; }
     button, input, select { font: inherit; }
-    button { min-height: 44px; border-radius: 8px; border: 1px solid var(--rule); background: var(--panel);
+    button { min-height: var(--target-min); border-radius: 8px; border: 1px solid var(--rule); background: var(--panel);
              color: var(--ink); padding: .4rem .8rem; cursor: pointer; }
-    input, select { min-height: 44px; width: 100%; padding: .4rem .6rem; border: 1px solid var(--rule); border-radius: 8px;
-            background: var(--bg); color: var(--ink); }
+    button.primary { background: var(--link); border-color: var(--link); color: var(--on-link); font-weight: 700; }
+    input, select { min-height: var(--target-min); width: 100%; padding: .4rem .6rem; border: 1px solid var(--rule);
+            border-radius: 8px; background: var(--bg); color: var(--ink); }
     input:disabled { opacity: .7; }
     label { display: block; margin: .4rem 0; font-weight: 600; }
     .row { display: flex; gap: .5rem; }
     .row > * { flex: 1; min-width: 0; }
+    .ride-bar { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    .ride-bar > span { min-width: 0; }
+    /* Where the bus is: the stop before, the one it is at, the one after. */
+    .where { border: 2px solid var(--link); border-radius: 12px; background: var(--panel); padding: .5rem .75rem;
+             margin: .5rem 0; }
+    .where-row { display: grid; grid-template-columns: 4rem minmax(0, 1fr); gap: .5rem; align-items: baseline;
+                 padding: .15rem 0; overflow-wrap: anywhere; }
+    .where-key { color: var(--muted); font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+    .where-row.now { padding: .35rem 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+    .where-row.now #where-now { font-size: 1.3rem; font-weight: 700; line-height: 1.25; }
+    .where-row.now #where-now .muted { font-size: .9rem; font-weight: 400; }
+    .where label { margin: .5rem 0 0; font-size: .9rem; }
+    .where select { background: var(--bg); }
+    #gps { margin: .35rem 0 0; }
+    .doors-state { font-weight: 700; margin: .25rem 0; min-height: 1.5em; }
     .tap { min-height: 120px; font-size: 1.3rem; font-weight: 700; border: 0; color: var(--on-fill); }
     .tap[data-kind="open"] { background: var(--stop); }
     .tap[data-kind="closed"] { background: var(--go); }
     .tap:disabled { opacity: .45; cursor: not-allowed; }
+    .minor { min-height: 56px; font-weight: 700; border-width: 2px; }
+    .minor[aria-pressed="true"] { background: var(--link); border-color: var(--link); color: var(--on-link); }
     [hidden] { display: none !important; }
     #log { list-style: none; margin: 0; padding: 0; }
     #log li { border-top: 1px solid var(--rule); padding: .5rem 0; }
+    #log li[data-event="skipped"] .row-head strong, #log li[data-event="unscheduled"] .row-head strong { color: var(--link); }
     .row-head { display: flex; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
-    .delete { margin-top: .25rem; }
+    .row-head > * { min-width: 0; overflow-wrap: anywhere; }
+    .delete, .use { margin-top: .25rem; }
+    .use { margin-right: .5rem; }
     details { margin: .5rem 0; }
-    summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
+    summary { cursor: pointer; min-height: var(--target-min); display: flex; align-items: center; font-weight: 600; }
     .exports { display: flex; flex-wrap: wrap; gap: .5rem; }
+    dialog { max-width: min(30rem, calc(100vw - 32px)); border: 1px solid var(--rule); border-radius: 12px;
+             background: var(--bg); color: var(--ink); padding: 1rem; }
+    dialog::backdrop { background: var(--backdrop); }
+    dialog h2 { margin-top: 0; font-family: Fraunces, Georgia, serif; font-size: 1.2rem; }
+    .dialog-actions { display: flex; flex-direction: column; gap: .5rem; }
   </style>
   <script src="analytics-page.js" defer></script>
   <script src="ride.js" defer></script>
 </head>
 <body>
 <div class="wrap" id="ride">
-  <h1>On-bus door timing</h1>
-  <p class="muted">Ride one bus and time its doors at every stop, to check our recorded stop times and how long
-    buses stand at each stop. Everything stays on this phone until you export it.
-    <a href="timing.html">Timing buses from a stop instead?</a></p>
-  <div id="clock" aria-live="off">--:--:--</div>
-  <p class="muted" id="offset">Checking this phone's clock…</p>
+  <div class="top">
+    <h1>On-bus door timing</h1>
+    <div id="clock" aria-live="off">--:--:--</div>
+  </div>
 
-  <details>
-    <summary>How to time a ride</summary>
-    <ol class="muted">
-      <li>When you board, type the route, and the bus's fleet number or registration if you can see it, then tap
-        <strong>Start ride</strong>. Allow location: it is how each stop is found.</li>
-      <li>At each stop, tap <strong>Doors open</strong> as the doors open and <strong>Doors closed</strong> as they
-        close. If you miss one, tap the other: the stop is still logged.</li>
-      <li>Check the stop shown for each row in the list below, and change it if the guess is wrong. A note is useful
-        for anything unusual: a ramp, a driver change, waiting for time.</li>
-      <li>Tap <strong>End ride</strong> when you get off, and export at the end of the session.</li>
-    </ol>
-  </details>
+  <section id="setup">
+    <p class="muted">Ride one bus and time its doors at every stop, to check our recorded stop times and how long
+      buses stand at each stop. Everything stays on this phone until you export it.
+      <a href="timing.html">Timing buses from a stop instead?</a></p>
+    <p class="muted" id="offset">Checking this phone's clock…</p>
+    <h2>This bus</h2>
+    <div class="row">
+      <label>Route <input id="route" autocomplete="off" autocapitalize="characters" placeholder="e.g. 700" /></label>
+      <label>Fleet number or registration <span class="muted">(optional)</span>
+        <input id="vehicle" autocomplete="off" autocapitalize="characters" placeholder="e.g. 10950" /></label>
+    </div>
+    <div class="row" style="margin-top:.5rem">
+      <button type="button" id="start" class="primary">Start ride</button>
+    </div>
+    <p class="muted">Location is used only while a ride is running, to find each stop. It never leaves this phone
+      unless you export the log.</p>
+    <details>
+      <summary>How to time a ride</summary>
+      <ol class="muted">
+        <li>When you board, type the route, and the bus's fleet number or registration if you can see it, then tap
+          <strong>Start ride</strong>. Allow location: it is how each stop is found.</li>
+        <li>The box at the top shows the stop before, the stop the bus is at, and the stop after. If the stop is
+          wrong, choose the right one there before you tap.</li>
+        <li>At each stop, tap <strong>Doors open</strong> as the doors open and <strong>Doors closed</strong> as they
+          close. If you miss one, tap the other: the stop is still logged.</li>
+        <li>If the bus goes past a stop without stopping, tap <strong>Stop skipped</strong> as it passes. If it stops
+          where there is no stop (lights, a driver change), tap <strong>Unscheduled stop</strong>, then
+          <strong>Moving again</strong> when it moves off.</li>
+        <li>Check each row in the list below and add a note for anything unusual. Tap <strong>End ride</strong> when
+          you get off, and export at the end of the session.</li>
+      </ol>
+    </details>
+  </section>
 
-  <h2>This bus</h2>
-  <div id="ride-status" aria-live="polite"></div>
-  <div class="row">
-    <label>Route <input id="route" autocomplete="off" autocapitalize="characters" placeholder="e.g. 700" /></label>
-    <label>Fleet number or registration <span class="muted">(optional)</span>
-      <input id="vehicle" autocomplete="off" autocapitalize="characters" placeholder="e.g. 10950" /></label>
-  </div>
-  <div class="row" style="margin-top:.5rem">
-    <button type="button" id="start">Start ride</button>
-    <button type="button" id="end" hidden>End ride</button>
-  </div>
-  <p class="muted" id="gps">Location is used only while a ride is running.</p>
-  <div class="row" style="margin-top:.5rem">
-    <button type="button" class="tap" data-kind="open" disabled>Doors open</button>
-    <button type="button" class="tap" data-kind="closed" disabled>Doors closed</button>
-  </div>
+  <section id="riding" hidden>
+    <div class="ride-bar">
+      <span id="ride-status"></span>
+      <button type="button" id="end">End ride</button>
+    </div>
+    <div class="where" id="where">
+      <div class="where-row"><span class="where-key">Before</span><span id="where-before"></span></div>
+      <div class="where-row now"><span class="where-key">Now</span><span id="where-now"></span></div>
+      <div class="where-row"><span class="where-key">After</span><span id="where-after"></span></div>
+      <label>Not right? Choose the stop <select id="pick"></select></label>
+      <p class="muted" id="gps"></p>
+    </div>
+    <p class="doors-state" id="doors-state" aria-live="polite"></p>
+    <div class="row">
+      <button type="button" class="tap" data-kind="open">Doors open</button>
+      <button type="button" class="tap" data-kind="closed">Doors closed</button>
+    </div>
+    <div class="row" style="margin-top:.5rem">
+      <button type="button" class="minor" id="skip">Stop skipped</button>
+      <button type="button" class="minor" id="unscheduled" aria-pressed="false">Unscheduled stop</button>
+    </div>
+  </section>
   <p class="muted" id="status" role="status" aria-live="polite"></p>
 
   <h2 id="count">0 stops logged</h2>
+  <p class="muted" id="export-note"></p>
   <div class="exports">
     <button type="button" id="share">Share or copy CSV</button>
     <button type="button" id="download">Download CSV</button>
     <button type="button" id="clear">Clear log</button>
   </div>
   <ul id="log"></ul>
+
+  <datalist id="ride-notes">
+    <option value="I boarded here"></option>
+    <option value="I got off here"></option>
+    <option value="Wheelchair ramp used"></option>
+    <option value="Buggy or wheelchair space shuffle"></option>
+    <option value="Lots of people boarding"></option>
+    <option value="Waiting for time"></option>
+    <option value="Driver change"></option>
+    <option value="Stopped at traffic lights"></option>
+    <option value="Doors opened twice"></option>
+    <option value="Ticket machine problem"></option>
+    <option value="Bus full, people left waiting"></option>
+    <option value="Stop closed or moved"></option>
+  </datalist>
+
+  <dialog id="dup" aria-labelledby="dup-title" aria-describedby="dup-text">
+    <h2 id="dup-title">You have already exported this log</h2>
+    <p id="dup-text"></p>
+    <div class="dialog-actions">
+      <button type="button" id="dup-new" class="primary">Download only the new rows</button>
+      <button type="button" id="dup-clear">Remove the exported rows from this phone</button>
+      <button type="button" id="dup-keep">Keep everything for now</button>
+    </div>
+  </dialog>
 </div>
 </body>
 </html>

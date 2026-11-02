@@ -31,6 +31,7 @@ STOPS = [
     ("4400TS001", "First Stop",  50.8300, -0.2700),
     ("4400TS002", "Middle Stop", 50.8310, -0.2650),
     ("4400TS003", "Last Stop",   50.8320, -0.2600),
+    ("4400TS004", "Off Route",   50.8200, -0.2650),   # a kilometre south of the road
 ]
 # The shaped journey bends north between its stops, as a road would.
 SHAPE = [(50.8300, -0.2700), (50.8340, -0.2675), (50.8310, -0.2650), (50.8350, -0.2625), (50.8320, -0.2600)]
@@ -53,6 +54,10 @@ def tt(tmp_path_factory):
     # PLAIN runs straight from first to last.
     twin = [(seq, sid, "11" + hms[2:]) for seq, sid, hms in calls]
     plain = [calls[0], (2, "4400TS003", "10:08:00")]
+    # SHORT turns back at the middle stop; DETOUR leaves the road for a stop
+    # off it.
+    short = [(seq, sid, "12" + hms[2:]) for seq, sid, hms in calls[:2]]
+    detour = [calls[0], (2, "4400TS004", "10:06:00"), (3, "4400TS003", "10:12:00")]
     feed = tmp_path_factory.mktemp("gtfs") / "feed.zip"
     with zipfile.ZipFile(feed, "w") as z:
         z.writestr("agency.txt", _csv([("SC", "Stagecoach", "SCSO")], ["agency_id", "agency_name", "agency_noc"]))
@@ -60,10 +65,12 @@ def tt(tmp_path_factory):
         z.writestr("routes.txt", _csv([("R1", "SC", "1", "1", 3)],
                                       ["route_id", "agency_id", "route_short_name", "route_long_name", "route_type"]))
         z.writestr("trips.txt", _csv([("SHAPED", "R1", "WK", "Last Stop", "S1"), ("TWIN", "R1", "WK", "Last Stop", ""),
-                                      ("PLAIN", "R1", "WK", "Last Stop", "")],
+                                      ("PLAIN", "R1", "WK", "Last Stop", ""), ("SHORT", "R1", "WK", "Middle Stop", ""),
+                                      ("DETOUR", "R1", "WK", "Last Stop", "")],
                                      ["trip_id", "route_id", "service_id", "trip_headsign", "shape_id"]))
         z.writestr("stop_times.txt", _csv(
-            [(t, seq, sid, hms, hms) for t, cs in (("SHAPED", calls), ("TWIN", twin), ("PLAIN", plain))
+            [(t, seq, sid, hms, hms) for t, cs in (("SHAPED", calls), ("TWIN", twin), ("PLAIN", plain),
+                                                   ("SHORT", short), ("DETOUR", detour))
              for seq, sid, hms in cs],
             ["trip_id", "stop_sequence", "stop_id", "arrival_time", "departure_time"]))
         z.writestr("shapes.txt", _csv([("S1", lat, lon, i + 1) for i, (lat, lon) in enumerate(SHAPE)],
@@ -90,9 +97,22 @@ def test_a_journey_without_one_borrows_the_shape_of_the_same_stops(tt):
     assert [tuple(round(c, 4) for c in p) for p in pts] == SHAPE
 
 
-def test_a_journey_with_no_shape_to_borrow_joins_its_stops(tt):
+def test_a_journey_on_its_routes_road_follows_that_road(tt):
+    # PLAIN skips the middle stop but runs the same road as SHAPED, so it
+    # takes SHAPED's line rather than a straight one across (2 November 2026:
+    # a third of the journeys drawn stop to stop could follow a road this way).
     pts = tt.shape_for_trip("PLAIN")
-    assert [tuple(round(c, 4) for c in p) for p in pts] == [(STOPS[0][2], STOPS[0][3]), (STOPS[2][2], STOPS[2][3])]
+    assert [tuple(round(c, 4) for c in p) for p in pts] == SHAPE
+
+
+def test_a_short_working_takes_its_piece_of_the_routes_road(tt):
+    pts = tt.shape_for_trip("SHORT")
+    assert [tuple(round(c, 4) for c in p) for p in pts] == SHAPE[:3]
+
+
+def test_a_journey_that_leaves_the_road_joins_its_stops(tt):
+    pts = tt.shape_for_trip("DETOUR")
+    assert [tuple(round(c, 4) for c in p) for p in pts] == [(s[2], s[3]) for s in (STOPS[0], STOPS[3], STOPS[2])]
 
 
 def test_an_unknown_journey_has_no_line(tt):

@@ -35,6 +35,54 @@ def _haversine_km(a: tuple, b: tuple) -> float:
     return 6371.0 * 2 * math.asin(math.sqrt(d))
 
 
+def cut_line_through(line: list, stops: list, tol_m: float) -> Optional[list]:
+    """The piece of `line` from the first of `stops` to the last, when every
+    stop lies within `tol_m` metres of it in order; else None.
+
+    Each stop is matched to the first segment, from where the one before it
+    matched, that passes within `tol_m`, so a line that doubles back is read
+    in the direction the journey runs. The piece starts and ends where the
+    first and last stops meet the line. Flat-earth metres, as `_haversine_km`
+    would give at this scale."""
+    import math
+    if len(line) < 2 or len(stops) < 2:
+        return None
+    ky = 111320.0
+    kx = ky * math.cos(math.radians(stops[0][0]))
+    hits = []          # (segment index, fraction along it)
+    seg = 0
+    for lat, lon in stops:
+        found = None
+        for i in range(seg, len(line) - 1):
+            (a_lat, a_lon), (b_lat, b_lon) = line[i], line[i + 1]
+            ax, ay = (a_lon - lon) * kx, (a_lat - lat) * ky
+            dx, dy = (b_lon - a_lon) * kx, (b_lat - a_lat) * ky
+            span = dx * dx + dy * dy
+            u = 0.0 if span == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / span))
+            if (ax + u * dx) ** 2 + (ay + u * dy) ** 2 <= tol_m * tol_m:
+                if i == seg and hits and u < hits[-1][1]:
+                    continue        # behind the stop before, on the same segment
+                found = (i, u)
+                break
+        if found is None:
+            return None
+        hits.append(found)
+        seg = found[0]
+
+    def at(i, u):
+        (a_lat, a_lon), (b_lat, b_lon) = line[i], line[i + 1]
+        return (a_lat + u * (b_lat - a_lat), a_lon + u * (b_lon - a_lon))
+
+    (i0, u0), (i1, u1) = hits[0], hits[-1]
+    piece = [at(i0, u0)] + [tuple(p) for p in line[i0 + 1:i1 + 1]] + [at(i1, u1)]
+    # Drop a point repeated where a stop meets the line at a vertex.
+    out = [piece[0]]
+    for p in piece[1:]:
+        if abs(p[0] - out[-1][0]) > 1e-9 or abs(p[1] - out[-1][1]) > 1e-9:
+            out.append(p)
+    return out if len(out) >= 2 else None
+
+
 def _split_long_chords(pts: list, threshold_km: float = 2.0) -> list:
     """Split a polyline at any consecutive-pair distance > threshold_km.
     Returns a list of contiguous sub-polylines. A polyline with no long
@@ -2631,7 +2679,8 @@ class Timetable:
             row = None
         if not row:
             return None
-        pts = self._shape_points_for_trip(row[0]) or self._shape_of_same_stops(row[0])
+        pts = (self._shape_points_for_trip(row[0]) or self._shape_of_same_stops(row[0])
+               or self._shape_cut_from_route(row[0]))
         if pts:
             return [[lat, lon] for lat, lon in pts]
         line = [[s["lat"], s["lon"]] for s in
@@ -2788,6 +2837,45 @@ class Timetable:
         except sqlite3.OperationalError:
             pass
         return None
+
+    # A journey on its route's road but with stops of its own (a short working,
+    # an express skipping some) takes its piece of a road line the same
+    # operator's route already has, where every one of its stops lies within
+    # this of it, in order (asked for 2 November 2026). Two-thirds of the
+    # journeys still drawn stop to stop then had no line to cut from; the
+    # weekly build traces those (scripts/build_timetable.py, _osrm_fill).
+    CUT_TOLERANCE_M = 60
+    _CUT_CANDIDATES = 40
+
+    def _shape_cut_from_route(self, tid: int) -> Optional[list]:
+        conn = self._conn()
+        try:
+            stops = conn.execute(
+                "SELECT s.sid, s.lat, s.lon FROM stop_times st JOIN stops s ON s.sid = st.sid "
+                "WHERE st.tid=? ORDER BY st.seq", (tid,)).fetchall()
+            if len(stops) < 2:
+                return None
+            pattern = tuple(sid for sid, _lat, _lon in stops)
+            cache = self.__dict__.setdefault("_cut_cache", {})
+            if pattern in cache:
+                return cache[pattern]
+            shape_ids = [sid for (sid,) in conn.execute(
+                "SELECT DISTINCT t2.shape_id FROM trips t1 "
+                "JOIN routes r1 ON r1.rid = t1.rid "
+                "JOIN routes r2 ON r2.short_name = r1.short_name AND r2.noc = r1.noc "
+                "JOIN trips t2 ON t2.rid = r2.rid "
+                "WHERE t1.tid=? AND t2.shape_id != '' LIMIT ?", (tid, self._CUT_CANDIDATES))]
+        except sqlite3.OperationalError:
+            return None
+        found = None
+        for shape_id in shape_ids:
+            pts = conn.execute("SELECT lat, lon FROM shapes WHERE shape_id=? ORDER BY seq",
+                               (shape_id,)).fetchall()
+            found = cut_line_through(pts, [(lat, lon) for _sid, lat, lon in stops], self.CUT_TOLERANCE_M)
+            if found:
+                break
+        cache[pattern] = found
+        return found
 
     @classmethod
     def _clip_to_bbox(cls, pts: list, bbox: tuple) -> tuple:

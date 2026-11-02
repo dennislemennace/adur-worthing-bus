@@ -118,11 +118,11 @@ async function connect(url) {
     return r.result.value;
   };
 
-  return { ws, send, evaluate, events, consoleErrors };
+  return { ws, send, evaluate, events, consoleErrors, targetId: target.id };
 }
 
-async function openPage(viewport) {
-  const page = await connect(SITE);
+async function openPage(viewport, url = SITE) {
+  const page = await connect(url);
   await page.send("Page.enable");
   await page.send("Runtime.enable");
   // Without this the harness happily validates the *previous* build: Chrome
@@ -134,7 +134,7 @@ async function openPage(viewport) {
     width: viewport.width, height: viewport.height,
     deviceScaleFactor: 2, mobile: viewport.mobile,
   });
-  await page.send("Page.navigate", { url: SITE });
+  await page.send("Page.navigate", { url });
   for (let i = 0; i < 40 && !page.events.includes("Page.loadEventFired"); i++) {
     await sleep(250);
   }
@@ -963,6 +963,201 @@ async function checkStaticPages() {
 }
 
 /**
+ * timing.html and ride.html in use, not just at rest: checkStaticPages sees
+ * each page before anything is chosen, which is not what anyone taps at. On a
+ * phone, with the position faked: the ride page must show the stop before,
+ * now and after, its Stop skipped and Unscheduled stop buttons must log, a
+ * row with no position must still offer stops to choose (on 1 November 2026
+ * such a row offered only "Choose the stop"), and an entry after an export
+ * must open the duplicate reminder as a real dialog that Escape closes. The
+ * timing page must keep a pole each side of the road and log each bus at the
+ * pole lit when it was tapped.
+ */
+async function checkHandTimingPages() {
+  const base = new URL(SITE);
+  const origin = `${base.origin}${base.pathname.replace(/[^/]*$/, "")}`;
+  const LONDON_ROAD_SHOPS = { latitude: 50.830298, longitude: -0.136103, accuracy: 5 };
+  const OPEN_MARKET = { latitude: 50.831048, longitude: -0.134638, accuracy: 5 };
+  const page = await connect("about:blank");
+  // A probe that throws (an element missing) reports, rather than ending the run.
+  const js = (expr) => page.evaluate(`(() => { try { ${expr} } catch (e) { return "error: " + e.message; } })()`);
+  const click = (selector) => js(`const el = document.querySelector(${JSON.stringify(selector)});
+    if (el) el.click(); return !!el;`);
+  const scans = async (where) => {
+    const over = await page.evaluate(OVERFLOW_SCAN);
+    check(`nothing overflows the viewport — ${where}`, over.length === 0, over.join(", "));
+    const small = await page.evaluate(TARGET_SCAN);
+    check(`touch targets are at least 44px — ${where}`, small.length === 0, small.join(", "));
+    const bad = await page.evaluate(CONTRAST_SCAN);
+    check(`text meets WCAG AA contrast — ${where}`, bad.length === 0, bad.join(", "));
+  };
+  const scheme = (value) => page.send("Emulation.setEmulatedMedia",
+    { features: [{ name: "prefers-color-scheme", value }] });
+  const escape = () => page.send("Input.dispatchKeyEvent",
+    { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  const fresh = async (name) => {
+    await page.send("Page.navigate", { url: origin + name });
+    await sleep(800);
+    await js(`localStorage.clear(); return 1;`);
+    await page.send("Page.navigate", { url: origin + name });
+    await sleep(1500);
+  };
+  try {
+    await page.send("Page.enable");
+    await page.send("Runtime.enable");
+    await page.send("Network.enable");
+    await page.send("Network.setCacheDisabled", { cacheDisabled: true });
+    await page.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+    try { await page.send("Browser.setDownloadBehavior", { behavior: "deny" }); } catch {}
+    await page.send("Browser.grantPermissions", { origin: base.origin, permissions: ["geolocation"] });
+    await page.send("Emulation.setGeolocationOverride", LONDON_ROAD_SHOPS);
+    await scheme("light");
+
+    // ride.html
+    await fresh("ride.html");
+    await js(`document.getElementById("route").value = "37"; document.getElementById("start").click(); return 1;`);
+    const found = await waitFor(page, `!!document.getElementById("where-now")?.textContent.includes("London Road Shops")`, 15000, 500);
+    check("ride page: the stop the bus is at is shown from the position", found,
+      await js(`return document.getElementById("where-now").textContent;`));
+    await click(`.tap[data-kind="open"]`);
+    await sleep(300);
+    const logged = await js(`const s = document.querySelector("#log li select"); return s ? s.value : "";`);
+    check("ride page: doors open logs the stop found", logged === "149000007030", logged);
+    await click(`.tap[data-kind="closed"]`);
+    await page.send("Emulation.setGeolocationOverride", OPEN_MARKET);
+    const moved = await waitFor(page, `!!document.getElementById("where-now")?.textContent.includes("Open Market")
+      && !!document.getElementById("where-before")?.textContent.includes("London Road Shops")
+      && !/Not known/.test(document.getElementById("where-after")?.textContent ?? "Not known")`, 10000, 500);
+    check("ride page: before, now and after follow the bus", moved, await js(`return ["before", "now", "after"]
+      .map(k => document.getElementById("where-" + k).textContent.trim().replace(/\\s+/g, " ")).join(" | ");`));
+    await screenshot(page, "ride-riding-light");
+    await scans("ride.html riding, mobile, light");
+    await click("#skip");
+    await sleep(200);
+    const skipped = await js(`const li = document.querySelector("#log li"); return li ? li.dataset.event : "";`);
+    check("ride page: Stop skipped logs a skipped row", skipped === "skipped", skipped);
+    await click("#unscheduled");
+    await sleep(200);
+    const stopped = await js(`return document.getElementById("unscheduled").textContent + "|" + document.querySelector("#log li").dataset.event;`);
+    await click("#unscheduled");
+    await sleep(200);
+    const movedOn = await js(`return document.getElementById("unscheduled").textContent;`);
+    check("ride page: Unscheduled stop logs its own row, then Moving again ends it",
+      stopped === "Moving again|unscheduled" && movedOn === "Unscheduled stop", `${stopped} then ${movedOn}`);
+    await click("#download");
+    await sleep(300);
+    await click(`.tap[data-kind="open"]`);
+    await sleep(200);
+    const waited = await js(`return document.getElementById("dup").open;`);
+    await click(`.tap[data-kind="closed"]`);
+    await sleep(300);
+    const dialog = await js(`const d = document.getElementById("dup");
+      return JSON.stringify({ open: d.open, focus: document.activeElement && document.activeElement.id,
+        modal: d.matches(":modal") });`);
+    check("ride page: after an export, a finished stop opens the reminder as a modal dialog with focus in it",
+      !waited && /"open":true/.test(dialog) && /"focus":"dup-keep"/.test(dialog) && /"modal":true/.test(dialog),
+      `${dialog}, open while doors open: ${waited}`);
+    await screenshot(page, "ride-dialog-light");
+    await escape();
+    await sleep(200);
+    const closed = await js(`return JSON.stringify({ open: document.getElementById("dup").open,
+      back: document.activeElement && document.activeElement.dataset.kind });`);
+    check("ride page: Escape closes the reminder and focus goes back to the button tapped",
+      closed === `{"open":false,"back":"closed"}`, closed);
+    await scheme("dark");
+    await sleep(300);
+    await screenshot(page, "ride-riding-dark");
+    await scans("ride.html riding, mobile, dark");
+    await js(`document.getElementById("dup").showModal(); return 1;`);
+    await sleep(200);
+    await screenshot(page, "ride-dialog-dark");
+    await scans("ride.html reminder, mobile, dark");
+    await escape();
+    // No position at all: the row must still offer stops, not a bare
+    // "Choose the stop".
+    await page.send("Browser.setPermission", { permission: { name: "geolocation" }, setting: "denied", origin: base.origin });
+    await page.send("Emulation.clearGeolocationOverride");
+    await js(`location.reload(); return 1;`);
+    await sleep(2000);
+    await click(`.tap[data-kind="open"]`);
+    await sleep(500);
+    const blank = await js(`const li = document.querySelector("#log li"); const s = li.querySelector("select");
+      return JSON.stringify({ lat: !!li.textContent && s.value, options: s.options.length,
+        groups: [...s.querySelectorAll("optgroup")].map(g => g.label), use: !!li.querySelector("button.use") });`);
+    check("ride page: a row with no position still offers the stops ahead and every stop on the route",
+      /"options":\d{2,}/.test(blank) && /Next along the route/.test(blank) && /Every stop on the 37/.test(blank)
+        && /"use":true/.test(blank), blank);
+    await screenshot(page, "ride-no-location-dark");
+    await page.send("Browser.grantPermissions", { origin: base.origin, permissions: ["geolocation"] });
+    await page.send("Emulation.setGeolocationOverride", LONDON_ROAD_SHOPS);
+
+    // timing.html
+    await scheme("light");
+    await fresh("timing.html");
+    await js(`const s = document.getElementById("search"); s.value = "Elm Grove";
+      s.dispatchEvent(new Event("input", { bubbles: true })); return 1;`);
+    await sleep(300);
+    await js(`const b = [...document.querySelectorAll("#stop-choices button.choice")]
+      .find(x => /Elm Grove/.test(x.textContent) && /Northfield/.test(x.textContent)); if (b) b.click(); return !!b;`);
+    await sleep(300);
+    const sides = await js(`return ["L", "R"].map(k => document.getElementById("side-" + k).textContent.trim().replace(/\\s+/g, " ")).join(" | ");`);
+    check("timing page: choosing a pole sets L and the pole across the road as R",
+      /^Elm Grove.*Northfield Crescent \| Elm Grove.*towards (?!Northfield)/.test(sides), sides);
+    await js(`document.getElementById("route").value = "25"; return 1;`);
+    await click(`.tap[data-kind="arrived"]`);
+    await click(`.side[data-side="R"]`);
+    await click(`.tap[data-kind="arrived"]`);
+    await click(`.side[data-side="L"]`);
+    await click(`.tap[data-kind="departed"]`);
+    await sleep(200);
+    // Switching sides is only quick if the switch and the buttons are on one
+    // screen together.
+    const span = await js(`const a = document.getElementById("sides").getBoundingClientRect();
+      const b = document.querySelector('.tap[data-kind="departed"]').getBoundingClientRect();
+      document.getElementById("stop-chosen").scrollIntoView(); return Math.round(b.bottom - a.top);`);
+    check("timing page: the L and R switch sits with the timing buttons, on one phone screen",
+      span > 0 && span < 400, `${span}px from the switch to the bottom of Bus left`);
+    await sleep(200);
+    await screenshot(page, "timing-sides-light");
+    await scans("timing.html both sides, mobile, light");
+    const leftNow = await click(`#log button.left-now`);
+    await sleep(200);
+    const rows = await js(`return JSON.stringify([...document.querySelectorAll("#log li")].map(li =>
+      li.querySelector(".side-badge") && li.querySelector(".side-badge").textContent + (li.querySelector(".left-now") ? " open" : " left")));`);
+    check("timing page: each bus is logged at its own side's pole, and Bus left now finishes the other",
+      leftNow && rows === `["R left","L left"]`, rows);
+    await click("#download");
+    await sleep(300);
+    await click(`.tap[data-kind="departed"]`);
+    await sleep(300);
+    const tDialog = await js(`return JSON.stringify({ open: document.getElementById("dup").open,
+      focus: document.activeElement && document.activeElement.id });`);
+    check("timing page: after an export, the next bus opens the reminder with focus in it",
+      tDialog === `{"open":true,"focus":"dup-keep"}`, tDialog);
+    await screenshot(page, "timing-dialog-light");
+    await escape();
+    await sleep(200);
+    check("timing page: Escape closes the reminder",
+      (await js(`return document.getElementById("dup").open === false;`)) === true);
+    await scheme("dark");
+    await sleep(300);
+    await screenshot(page, "timing-sides-dark");
+    await scans("timing.html both sides, mobile, dark");
+    await js(`document.getElementById("dup").showModal(); return 1;`);
+    await sleep(200);
+    await screenshot(page, "timing-dialog-dark");
+    await escape();
+    const errors = page.consoleErrors.filter((e) => JS_ERROR.test(e));
+    check("no JavaScript exceptions — timing.html and ride.html in use", errors.length === 0,
+      errors.slice(0, 2).join(" | "));
+  } finally {
+    try { await page.send("Emulation.clearGeolocationOverride"); } catch {}
+    try { await page.send("Browser.resetPermissions"); } catch {}
+    page.ws.close();
+  }
+}
+
+/**
  * report.html: one route's report, laid out from a fixture served in place of
  * the published build (no route report is published until the first nightly
  * run after this change), at a phone and a desktop width, in both themes.
@@ -1596,6 +1791,77 @@ async function checkMapTaps(page, where) {
     JSON.stringify(r));
   check(`the Bus tab's follow and notify switches share a row — ${where}`,
     r.oneRow && r.tall, JSON.stringify(r));
+}
+
+/**
+ * Each bus in its own livery (asked for 2 November 2026), only with
+ * ?preview=1. Without the flag the fleet list is never fetched and a bus
+ * keeps its route icon; with it, buses named in data/fleet.json wear their
+ * own, the picture loads at the served size in the same box as a route icon,
+ * single-deckers drawn longer than double-deckers as the other icons are, and
+ * the Bus tab says what the bus is, crediting bustimes.org.
+ */
+async function checkLiveryPreview(plain, where) {
+  const before = JSON.parse(await plain.evaluate(`JSON.stringify({
+    fetched: performance.getEntriesByType("resource").some(e => /fleet\\.json/.test(e.name)),
+    icon: iconForVehicle({ operator_ref: "BHBC", vehicle_ref: "740", service_ref: "1X" }, "1X"),
+    route: iconForService("BHBC", "1X") })`));
+  check(`without ?preview=1 no fleet list is fetched and buses keep their route icons — ${where}`,
+    !before.fetched && before.icon === before.route, JSON.stringify(before));
+
+  const url = new URL(SITE);
+  url.searchParams.set("preview", "1");
+  const page = await openPage(VIEWPORTS.find(v => v.mobile) || VIEWPORTS[0], url.href);
+  try {
+    await waitFor(page, "!!state.fleet", 20000, 250);
+    const r = JSON.parse(await page.evaluate(`(async () => {
+      const ops = state.fleet.operators;
+      const pick = (op, re) => Object.entries(ops[op].vehicles).find(([, v]) => v.i && re.test(v.i));
+      const wanted = [["BHBC", /bh-teal-1x-dd/], ["SCSO", /sc-local-sd/], ["COMT", /compass-sd/], ["METR", /mb-new-dd/]];
+      const d = state.stopData[Object.keys(state.stopData)[0]];
+      setViewMode('live'); closePanel();
+      state.map.setView([d.lat, d.lon], 16, { animate: false });
+      const out = [];
+      // The box an ordinary route icon is drawn in, to hold the liveries to.
+      const ref = L.marker([d.lat, d.lon], { icon: createBusIcon("BHBC", "7", 90) }).addTo(state.map);
+      const refImg = ref.getElement().querySelector(".bus-icon-img");
+      await (refImg.complete ? Promise.resolve() : new Promise(res => { refImg.onload = refImg.onerror = res; }));
+      const refBox = refImg.getBoundingClientRect();
+      out.push({ op: "route icon", src: refImg.getAttribute("src"), w: Math.round(refBox.width), h: Math.round(refBox.height) });
+      state.map.removeLayer(ref);
+      for (const [op, re] of wanted) {
+        const hit = pick(op, re);
+        if (!hit) { out.push({ op, missing: true }); continue; }
+        const ref = op === "SCSO" ? "SCSO-" + hit[0] : hit[0];
+        const v = { vehicle_ref: ref, operator_ref: op, service_ref: "1", latitude: d.lat, longitude: d.lon, bearing: 90 };
+        const m = L.marker([d.lat, d.lon], { icon: createBusIcon(op, "1", 90, v) }).addTo(state.map);
+        m._vehicle = v;
+        const img = m.getElement().querySelector(".bus-icon-img");
+        await (img.complete ? Promise.resolve() : new Promise(res => { img.onload = img.onerror = res; }));
+        const box = img.getBoundingClientRect();
+        out.push({ op, src: img.getAttribute("src"), natural: img.naturalWidth, w: Math.round(box.width), h: Math.round(box.height) });
+        state.map.removeLayer(m);
+      }
+      const bh = pick("BHBC", /bh-teal-1x-dd/);
+      openBusInfo({ vehicle_ref: bh[0], operator_ref: "BHBC", service_ref: "1X", latitude: d.lat, longitude: d.lon });
+      await new Promise(res => setTimeout(res, 300));
+      const line = document.getElementById("bus-fleet-line");
+      const link = line && line.querySelector('a[href="https://bustimes.org/"]');
+      closePanel();
+      return JSON.stringify({ out, line: line ? line.textContent.replace(/\\s+/g, " ").trim() : null, credited: !!link });
+    })()`));
+    const [refIcon, ...liveries] = r.out;
+    const ok = liveries.every(o => !o.missing && /^icons\/liveries\//.test(o.src) && o.natural === 168
+      && o.w === refIcon.w && o.h === refIcon.h);
+    check(`with ?preview=1 buses wear their own liveries, loaded at the served size — ${where}`, ok, JSON.stringify(r.out));
+    check(`the Bus tab says what the bus is and credits bustimes.org — ${where}`,
+      !!r.line && /Brighton & Hove Buses colours/.test(r.line) && r.credited, JSON.stringify(r));
+  } finally {
+    // Close the tab, not just the connection: a preview map left running
+    // polls buses beside the rest of the run.
+    page.ws.close();
+    await fetch(`${CDP}/json/close/${page.targetId}`).catch(() => {});
+  }
 }
 
 /**
@@ -3864,7 +4130,14 @@ async function checkJourneySimple(page, viewport) {
     const dotStops = simple ? simple.querySelectorAll(".jt-chart [tabindex]").length : -1;
     const range = simple?.querySelector(".jt-hour-range");
     const before = range?.getAttribute("aria-valuetext") || "";
-    if (range) { range.value = String(Math.min(Number(range.max), Number(range.min) + 3)); range.dispatchEvent(new Event("input", {bubbles: true})); }
+    // An hour other than the one showing: the slider opens at the current
+    // hour, so a fixed target could be where it already is (between 10:00
+    // and 11:00 it was, and nothing moved).
+    if (range) {
+      const lo = Number(range.min), hi = Number(range.max), now = Number(range.value);
+      range.value = String(now === lo + 3 ? Math.min(hi, lo + 4) : Math.min(hi, lo + 3));
+      range.dispatchEvent(new Event("input", {bubbles: true}));
+    }
     const tapped = host.querySelector(".jt-hour-detail")?.textContent || "";
     const moved = (range?.getAttribute("aria-valuetext") || "") !== before;
     const badge = simple?.querySelector(".jt-evidence-badge")?.textContent.trim() || "";
@@ -4848,6 +5121,7 @@ await checkStopClosure(page, VIEWPORTS[0].name);
 await checkBoardNearby(page, VIEWPORTS[0].name);
 await checkSearchAboveKeyboard(page, VIEWPORTS[0].name);
 await checkBusJourneyLine(page, VIEWPORTS[0].name);
+await checkLiveryPreview(page, VIEWPORTS[0].name);
 await checkRailReplacement(page, VIEWPORTS[0].name);
 await checkUpcomingStops(page, VIEWPORTS[0].name);
 await checkA11yMenu(page, VIEWPORTS[0].name, { desktop: false });
@@ -4875,6 +5149,7 @@ await shootThemes(page);
 await checkPanelCollapse(page);   // must stay last — see the note on the function
 await checkDeepLinkIndependence();   // own page + request interception; keep it apart
 await checkStaticPages();           // own pages: about, privacy, terms
+await checkHandTimingPages();       // timing.html and ride.html in use
 await checkReportPage();            // own page, fixture served in place of the build
 await checkTourSlides();            // own page: slides, keys, print
 

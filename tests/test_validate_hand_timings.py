@@ -164,6 +164,49 @@ def test_the_csv_from_timing_html_is_read_with_the_clock_offset_corrected(tmp_pa
     assert e["arrived"] == vh._epoch("2026-10-20T08:59:57Z")
 
 
+RIDE_HEAD = ["id", "day", "atco", "stop_name", "towards", "route", "vehicle", "arrived_at", "departed_at",
+             "clock_offset_ms", "note", "ride_id", "seq", "lat", "lon", "accuracy_m", "departed_basis",
+             "event", "passed_at", "fix_offset_s"]
+
+
+def test_a_stop_skipped_and_an_unscheduled_stop_are_counted_but_never_scored(tmp_path, capsys):
+    # ride.html logs a stop the bus passed without stopping, and a halt that
+    # was not at a stop. Neither is a door time: scoring the first would put
+    # a bus that never stopped against our recorded departure, and the
+    # second has no pole to match.
+    obs = tmp_path / "obs"
+    obs.mkdir()
+    dep = vh._epoch("2026-10-20T09:00:30Z")
+    doc = {"observations": [row("SCSO-10950", "4400AD0204", dep + 12),
+                            row("SCSO-10950", "4400AD0205", dep + 100)]}
+    (obs / "observations-2026-10-20.json.gz").write_bytes(gzip.compress(json.dumps(doc).encode()))
+    (tmp_path / "fleet.json").write_text(json.dumps({"plates": {}}))
+    path = tmp_path / "rides-2026-10-20.csv"
+    with open(path, "w", newline="") as h:
+        w = csv.writer(h)
+        w.writerow(RIDE_HEAD)
+        # An export made before the fix: a phone 2.5 s slow wrote '-2500.
+        w.writerow(["a", "2026-10-20", "4400AD0204", "High Street", "", "700", "", "2026-10-20T09:00:00.000Z",
+                    "2026-10-20T09:00:27.500Z", "'-2500", "", "r", "1", "50.83", "'-0.27", "5", "doors closed",
+                    "stop", "", "0"])
+        w.writerow(["b", "2026-10-20", "4400AD0205", "Next Street", "", "700", "", "", "", "0", "", "r", "2",
+                    "50.83", "-0.27", "5", "", "skipped", "2026-10-20T09:02:10.000Z", "0"])
+        w.writerow(["c", "2026-10-20", "", "", "", "700", "", "2026-10-20T09:03:00.000Z",
+                    "2026-10-20T09:03:40.000Z", "0", "Driver change", "r", "3", "50.83", "-0.27", "5",
+                    "moving again", "unscheduled", "", "0"])
+    entries = vh.read_timings([path])
+    assert entries[0]["departed"] == vh._epoch("2026-10-20T09:00:30Z"), "the old '-2500 is still read"
+    assert vh.not_scored(entries) == {"skipped": 1, "unscheduled": 1}
+    out = tmp_path / "r.json"
+    assert vh.main(["--timings", str(path), "--observations", str(obs), "--fleet", str(tmp_path / "fleet.json"),
+                    "--out", str(out)]) == 0
+    report = json.loads(out.read_text())
+    assert report["summary"]["logged"] == 1, "only the stop with door times is a logged bus"
+    assert report["summary"]["all"]["matched"] == 1 and report["results"][0]["error_secs"] == 12
+    assert report["summary"]["not_scored"] == {"skipped": 1, "unscheduled": 1}
+    assert "1 stop skipped, 1 unscheduled stop" in capsys.readouterr().out
+
+
 def test_the_command_reports_from_local_files(tmp_path, capsys):
     obs = tmp_path / "obs"
     obs.mkdir()

@@ -26,13 +26,19 @@ on screen at once. Baked, it costs nothing at runtime and looks identical.
 """
 import argparse
 import sys
+from functools import lru_cache
 from pathlib import Path
 
-from PIL import Image, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageStat
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_DIR = ROOT / "icons" / "source"
 OUT_DIR = ROOT / "icons"
+# Per-bus liveries (asked for 2 November 2026): flat patterns drawn by
+# scripts/render_liveries.mjs from scripts/livery_designs.py, each repainted
+# over a master below and served from icons/liveries/.
+LIVERY_SOURCE_DIR = SOURCE_DIR / "liveries"
+LIVERY_OUT_DIR = OUT_DIR / "liveries"
 
 # Three times the 56px CSS box, so the asset is pixel-exact on a 3x phone and
 # oversampled on nothing. object-fit: contain means a 3:2 bus renders 56x37, so
@@ -137,23 +143,148 @@ def build(master: Path, dest: Path) -> str:
             f"{was:7.0f} KB -> {now:6.1f} KB   decoded {decoded:6.0f} KB")
 
 
+# ── Liveries ─────────────────────────────────────────────────────────────────
+#
+# A livery is drawn by repainting a master: the paint of one master bus is
+# found by its colours, and replaced by the livery's pattern with the master's
+# own fine shading (panel lines, the edge of the roof) laid back over it.
+# Windows, wheels, mirrors and lights are left as drawn. So every livery is the
+# same bus as its master at the same scale, and only the paint differs.
+#
+# Colour families of each master's paint, as Pillow's HSV bands (0-255 each);
+# flood-filled from the seeds, so a red seat seen through a window, which
+# never touches the paint, stays a seat. The single-decker's swirl logo is
+# painted over whole.
+_RED = lambda h, s, v: s > 115 and (h <= 14 or h >= 234) and v > 64
+_CREAM = lambda h, s, v: s < 97 and v > 184 and 18 <= h <= 53
+_ORANGE = lambda h, s, v: s > 115 and 14 < h < 34 and v > 153
+_NAVY = lambda h, s, v: s > 89 and 142 <= h <= 181 and v > 31
+LIVERY_TEMPLATES = {
+    "dd": {"master": "BHBC.png", "families": (_RED, _CREAM, _ORANGE),
+           "seeds": ((600, 470),), "logo": None},
+    "sd": {"master": "SCSO-17.png", "families": (_NAVY,),
+           "seeds": ((700, 580),), "logo": (262, 418, 398, 580)},
+}
+LIVERY_KIND = {"dd": "double", "sd": "single"}
+LIVERY_SHADING = 0.9
+
+
+def _mask(hsv: Image.Image, test) -> Image.Image:
+    """255 where `test(h, s, v)` holds, from a lookup over all three bands."""
+    h, s, v = hsv.split()
+    hs = Image.merge("RGB", (h, s, v))
+    out = Image.new("L", hsv.size, 0)
+    px, src = out.load(), hs.load()
+    w, ht = hsv.size
+    for y in range(ht):
+        for x in range(w):
+            if test(*src[x, y]):
+                px[x, y] = 255
+    return out
+
+
+@lru_cache(maxsize=None)
+def livery_template(kind: str):
+    """The master for `kind`, the mask of its paint, the fine shading of that
+    paint as a float image centred on 0, and the paint's bounding box."""
+    t = LIVERY_TEMPLATES[kind]
+    master = Image.open(SOURCE_DIR / t["master"]).convert("RGBA")
+    opaque = master.getchannel("A").point(lambda a: 255 if a > 127 else 0)
+    hsv = master.convert("RGB").convert("HSV")
+    families = [ImageChops.multiply(_mask(hsv, f), opaque) for f in t["families"]]
+    paint_like = families[0]
+    for m in families[1:]:
+        paint_like = ImageChops.lighter(paint_like, m)
+    if t["logo"]:
+        logo = Image.new("L", master.size, 0)
+        logo.paste(opaque.crop(t["logo"]), t["logo"][:2])
+        paint_like = ImageChops.lighter(paint_like, logo)
+    flood = paint_like.copy()
+    for seed in t["seeds"]:
+        ImageDraw.floodfill(flood, seed, 128)
+    paint = flood.point(lambda v: 255 if v == 128 else 0)
+
+    # Each family's luminance less its own median (at half scale, about 128),
+    # so the old livery's edges leave no step; then only the fine detail is
+    # kept, and none where families meet. `detail` is centred on 128.
+    lum = master.convert("L")
+    half = Image.new("L", master.size, 128)
+    for fam in families:
+        fam = ImageChops.multiply(fam, paint)
+        if fam.getbbox():
+            med = ImageStat.Stat(lum, mask=fam).median[0]
+            half.paste(lum.point(lambda v, m=med: max(0, min(255, round(128 + (v - m) / 2)))), mask=fam)
+    if t["logo"]:
+        half.paste(128, t["logo"])
+    detail = ImageChops.subtract(half, half.filter(ImageFilter.GaussianBlur(5)), 1, 128)
+    seams = Image.new("L", master.size, 0)
+    for fam in families:
+        grow, shrink = fam.filter(ImageFilter.MaxFilter(7)), fam.filter(ImageFilter.MinFilter(7))
+        seams = ImageChops.lighter(seams, ImageChops.subtract(grow, shrink))
+    outline = ImageChops.invert(paint).filter(ImageFilter.MaxFilter(5))
+    detail.paste(128, mask=ImageChops.subtract(seams, outline))
+    detail.paste(128, mask=ImageChops.invert(paint))
+    return master, paint, detail, paint.getbbox()
+
+
+def repaint(kind: str, pattern: Image.Image) -> Image.Image:
+    """The master for `kind` in the livery `pattern`, at the master's size."""
+    master, paint, detail, box = livery_template(kind)
+    size = (box[2] - box[0], box[3] - box[1])
+    region = master.crop(box)
+    flat = Image.alpha_composite(region, pattern.convert("RGBA").resize(size, Image.LANCZOS))
+    # The half-scale detail, back to full scale and by LIVERY_SHADING.
+    gain = 2 * LIVERY_SHADING
+    shade = detail.crop(box).point(lambda v: max(0, min(255, round(128 + gain * (v - 128)))))
+    bands = [ImageChops.add(c, shade, 1, -128) for c in flat.convert("RGB").split()]
+    painted = Image.merge("RGBA", (*bands, region.getchannel("A")))
+    out = master.copy()
+    out.paste(painted, box[:2], mask=paint.crop(box))
+    return out
+
+
+def build_livery(pattern_path: Path, dest: Path) -> str:
+    """A served livery icon from its flat pattern: repainted, then fitted,
+    shadowed and quantised as every other icon is. The key's -dd or -sd says
+    which master and which length (a single-decker is drawn at its own
+    LENGTH_PX, not the master's: the single-deck master is as long as the
+    double-deckers)."""
+    kind = pattern_path.stem[-2:]
+    im = fit_vehicle(repaint(kind, Image.open(pattern_path)), LIVERY_KIND[kind])
+    out = bake_shadow(im)
+    quant = out.quantize(colors=255, method=Image.FASTOCTREE)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    quant.save(dest, optimize=True)
+    return f"liveries/{dest.name:30s} {dest.stat().st_size / 1024:6.1f} KB"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Build served icons from masters.")
-    ap.add_argument("names", nargs="*", help="filenames to rebuild (default: all)")
+    ap.add_argument("names", nargs="*",
+                    help="filenames to rebuild, liveries as liveries/KEY.png (default: all)")
+    ap.add_argument("--liveries", action="store_true", help="rebuild only the liveries")
     args = ap.parse_args()
 
     if not SOURCE_DIR.is_dir():
         sys.exit(f"{SOURCE_DIR} is missing — the masters live there.")
 
-    masters = sorted(SOURCE_DIR.glob("*.png"))
+    masters = [] if args.liveries else sorted(SOURCE_DIR.glob("*.png"))
+    patterns = sorted(LIVERY_SOURCE_DIR.glob("*.png"))
     if args.names:
         wanted = set(args.names)
         masters = [m for m in masters if m.name in wanted]
-        missing = wanted - {m.name for m in masters}
+        patterns = [p for p in patterns if f"liveries/{p.name}" in wanted]
+        missing = wanted - {m.name for m in masters} - {f"liveries/{p.name}" for p in patterns}
         if missing:
             sys.exit(f"No master for: {', '.join(sorted(missing))}")
-    if not masters:
+    if not masters and not patterns:
         sys.exit("No masters found.")
+
+    for p in patterns:
+        print(" ", build_livery(p, LIVERY_OUT_DIR / p.name))
+    if not masters:
+        print(f"\n  {len(patterns)} liveries built into {LIVERY_OUT_DIR.relative_to(ROOT)}/")
+        return
 
     total_before = total_after = total_decoded = 0
     for m in masters:

@@ -690,6 +690,9 @@ async function init() {
   // Start live bus position loop
   startVehicleRefresh();
 
+  // Each bus in its own livery, for now only with ?preview=1.
+  if (previewEnabled()) loadFleet().then(refreshBusMarkerIcons).catch(() => {});
+
   // The council boundary is part of the Live map, so it loads with it rather
   // than waiting for the first switch into Route view.
   if (state.viewMode === "live") {
@@ -7083,7 +7086,7 @@ function updateVehicleMarkers(vehicles) {
         if (el) el.setAttribute("title", name);
       }
     } else {
-      const icon = createBusIcon(vehicle.operator_ref, label, bearing);
+      const icon = createBusIcon(vehicle.operator_ref, label, bearing, vehicle);
       // A name a screen reader can tell apart. Every bus announced only its
       // route number, so eleven vehicles on the 700 were eleven identical
       // buttons. Destination and operator are what distinguish them, where
@@ -7147,7 +7150,7 @@ function updateVehicleMarkers(vehicles) {
  * status chip and a hint pointing the user at the side panel.
  */
 function buildBusPopupHtml(vehicle, label) {
-  const iconUrl = OPERATOR_ICONS[vehicle.operator_ref];
+  const iconUrl = previewEnabled() ? iconForVehicle(vehicle, label) : OPERATOR_ICONS[vehicle.operator_ref];
   const colour  = getRouteColour(vehicle.service_ref || label, vehicle.operator_ref);
   const badgeTextCls = pickTextOn(colour) === "dark"
     ? "service-badge--dark-text"
@@ -7198,8 +7201,8 @@ function busMarkerName(vehicle, label) {
   return parts.join(" ");
 }
 
-function createBusIcon(operatorRef, label, bearing) {
-  const iconUrl  = iconForService(operatorRef, label);
+function createBusIcon(operatorRef, label, bearing, vehicle = null) {
+  const iconUrl  = vehicle ? iconForVehicle(vehicle, label) : iconForService(operatorRef, label);
   const transform = iconTransformForBearing(bearing);
 
   let inner;
@@ -7272,6 +7275,10 @@ function updateBusMarkerInPlace(marker, label, bearing) {
   const img = el.querySelector(".bus-icon-img");
   if (img) {
     img.style.transform = iconTransformForBearing(bearing);
+    // The picture follows the bus: its livery once the fleet list arrives,
+    // or a new route's icon when it changes journey.
+    const url = marker._vehicle ? safeUrl(iconForVehicle(marker._vehicle, label)) : null;
+    if (url && img.getAttribute("src") !== url) img.setAttribute("src", url);
   }
 
   const labelEl = el.querySelector(".bus-icon-label, .bus-icon-fallback");
@@ -9437,6 +9444,10 @@ function busTabShellHtml(v) {
     <details class="bus-more">
       <summary>About the ${escapeHtml(service)} · ${escapeHtml(operatorName)}${fleet ? `, fleet ${escapeHtml(fleet)}` : ""}</summary>
       <p class="bus-more-note">Run by ${escapeHtml(operatorName)}${fleet ? `; this bus is fleet number ${escapeHtml(fleet)}` : ""}.</p>
+      ${previewEnabled() && fleetEntry(v.operator_ref, v.vehicle_ref)
+        ? `<p class="bus-more-note" id="bus-fleet-line">${escapeHtml(fleetSentence(fleetEntry(v.operator_ref, v.vehicle_ref)))}.
+             Vehicle details from <a href="https://bustimes.org/" target="_blank" rel="noopener">bustimes.org</a>.</p>`
+        : ""}
       <div id="bus-registration"></div>
     </details>
 
@@ -18910,6 +18921,66 @@ function iconForService(operatorRef, service) {
   return ROUTE_ICONS[`${operatorRef}:${svc}`]
       || ROUTE_ICONS[`${operatorRef}:${stripNightPrefix(svc)}`]
       || OPERATOR_ICONS[operatorRef];
+}
+
+// ============================================================
+// EACH BUS IN ITS OWN LIVERY
+// Asked for 2 November 2026, and shown only with ?preview=1 until it has been
+// looked over: everyone else keeps the route and operator icons above.
+// data/fleet.json is bustimes.org's vehicle list (scripts/build_fleet.py),
+// naming the drawn livery each bus wears (scripts/livery_designs.py).
+// ============================================================
+const FLEET_OPERATOR = { SCSC: "SCSO", CMPA: "COMT" };
+
+function loadFleet() {
+  if (!state._fleetPromise) {
+    state._fleetPromise = fetch("data/fleet.json")
+      .then(res => (res.ok ? res.json() : null))
+      .catch(err => { console.warn("Fleet list load failed:", err); return null; })
+      .then(data => {
+        state.fleet = data && data.operators ? data : null;
+        return state.fleet;
+      });
+  }
+  return state._fleetPromise;
+}
+
+/** This bus's row in the fleet list, or null. The feed names a bus "212",
+ *  "SCSO-10941" or "YW25_DFC"; the list keys each by capitals and digits,
+ *  without the operator's prefix. */
+function fleetEntry(operatorRef, vehicleRef, fleet = state.fleet) {
+  const op = fleet && fleet.operators && fleet.operators[FLEET_OPERATOR[operatorRef] || operatorRef];
+  if (!op || !op.vehicles || !vehicleRef) return null;
+  const k = String(vehicleRef).toUpperCase().replace(/^[A-Z]{4}-/, "").replace(/[^A-Z0-9]/g, "");
+  return op.vehicles[k] || null;
+}
+
+/** The picture for this bus: its own livery, where the fleet list draws one
+ *  and the preview is on, else its route's or its operator's. */
+function iconForVehicle(vehicle, label, fleet = state.fleet, preview = previewEnabled()) {
+  if (preview && vehicle) {
+    const row = fleetEntry(vehicle.operator_ref, vehicle.vehicle_ref, fleet);
+    if (row && row.i) return `icons/${row.i}`;
+  }
+  return iconForService(vehicle && vehicle.operator_ref, label);
+}
+
+/** Once the fleet list arrives, give the buses already on the map theirs. */
+function refreshBusMarkerIcons() {
+  Object.values(state.busMarkers || {}).forEach(marker => {
+    const v = marker._vehicle;
+    if (!v) return;
+    const bearing = v.bearing != null && !isNaN(v.bearing) ? Number(v.bearing) : null;
+    updateBusMarkerInPlace(marker, v.service_ref || "?", bearing);
+  });
+}
+
+/** "A Wright StreetDeck Ultroliner double-decker, in Coaster colours", or "". */
+function fleetSentence(row) {
+  if (!row) return "";
+  const kind = { dd: "double-decker", sd: "single-decker", coach: "coach" }[row.d] || "bus";
+  const what = row.t ? `${/^[AEIOU]/i.test(row.t) ? "An" : "A"} ${row.t} ${kind}` : `A ${kind}`;
+  return row.l ? `${what}, in ${row.l} colours` : what;
 }
 
 const OPERATOR_ICONS = {

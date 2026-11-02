@@ -82,3 +82,64 @@ test("a stop letter typed finds that pole, and a stop's own name beats buses hea
     "the station's own poles before stops whose buses go there");
   assert.match(fn("timingStopLabel")(stops[2]), /Brighton Station, stop B6, towards George Street/);
 });
+
+const plain = (v) => JSON.parse(JSON.stringify(v));
+/* Two poles of one stop either side of the road, and a neighbour on the
+   same side further along. */
+const POLES = [
+  { atco_code: "N1", name: "Elm Grove", towards: "Northfield Crescent", latitude: 50.832874, longitude: -0.129013, bearing: "NE", services: ["25"] },
+  { atco_code: "S1", name: "Elm Grove", towards: "Old Steine", latitude: 50.832702, longitude: -0.128949, bearing: "SW", services: ["25"] },
+  { atco_code: "N2", name: "St Paul's Street", towards: "Northfield Crescent", latitude: 50.834177, longitude: -0.127285, bearing: "NE", services: ["25"] },
+];
+
+test("the pole across the road is found: same stop, the other way", () => {
+  const other = fn("timingOtherSide");
+  assert.equal(other(POLES, POLES[0]).atco_code, "S1");
+  assert.equal(other(POLES, POLES[1]).atco_code, "N1");
+  assert.equal(other(POLES, POLES[2]), null, "no pole of its own across the road");
+});
+
+test("an L and R pole each record their own stop, and switching keeps both", () => {
+  const set = fn("timingSetPole");
+  let sides = plain(set({ L: null, R: null, current: "L" }, "L", POLES[0], POLES));
+  assert.deepEqual([sides.L.atco_code, sides.R.atco_code, sides.current], ["N1", "S1", "L"],
+    "choosing one side fills the other with the pole across the road");
+  sides = plain(set(sides, "R", POLES[2], POLES));
+  assert.deepEqual([sides.L.atco_code, sides.R.atco_code, sides.current], ["N1", "N2", "R"],
+    "a side chosen by hand is kept");
+  const tap = fn("timingTap");
+  let log = tap([], "arrived", { stop: POLES[0], route: "25", vehicle: "", now: new Date("2026-11-01T10:00:00Z") });
+  log = tap(log, "arrived", { stop: POLES[1], route: "25", vehicle: "", now: new Date("2026-11-01T10:00:10Z") });
+  log = tap(log, "departed", { stop: POLES[0], route: "", vehicle: "", now: new Date("2026-11-01T10:00:30Z") });
+  const n1 = log.find(e => e.atco === "N1"), s1 = log.find(e => e.atco === "S1");
+  assert.deepEqual([n1.departed_at, n1.towards, s1.departed_at, s1.towards],
+    ["2026-11-01T10:00:30.000Z", "Northfield Crescent", "", "Old Steine"]);
+});
+
+test("a negative clock offset stays a number in the CSV", () => {
+  // A phone 2.5 s slow exported '-2500, which the validator could not read.
+  const log = fn("timingTap")([], "departed", { stop: STOP, route: "700", vehicle: "", offsetMs: -2500,
+    now: new Date("2026-10-20T08:00:00Z") });
+  assert.match(fn("timingCsv")(log), /,-2500,/);
+});
+
+test("after an export, the next finished bus asks before the same rows go out twice", () => {
+  const tap = fn("timingTap");
+  let log = tap([], "departed", { stop: STOP, route: "700", vehicle: "", now: new Date("2026-10-20T08:00:00Z") });
+  const exported = { ids: log.map(e => e.id), reminded: false };
+  const remind = fn("timingShouldRemind");
+  log = tap(log, "arrived", { stop: STOP, route: "700", vehicle: "", now: new Date("2026-10-20T08:05:00Z") });
+  assert.equal(remind(log, exported, log[0]), false, "not between doors open and the bus leaving");
+  log = tap(log, "departed", { stop: STOP, route: "", vehicle: "", now: new Date("2026-10-20T08:05:30Z") });
+  assert.equal(remind(log, exported, log[0]), true);
+  assert.deepEqual(plain(fn("timingNewSinceExport")(log, exported)).map(e => e.id), [log[0].id]);
+});
+
+test("the timing page has the side toggle, notes with suggestions and a real dialog", () => {
+  const html = readFileSync(join(ROOT, "timing.html"), "utf8");
+  assert.match(html, /id="sides"/);
+  assert.match(html, /<datalist id="timing-notes">[\s\S]*?<option value="[^"]+">/);
+  assert.match(html, /<dialog id="dup"/);
+  assert.match(readFileSync(join(ROOT, "timing.js"), "utf8"), /list="timing-notes"/);
+  assert.doesNotMatch(html, /—/, "no em dashes in the copy");
+});

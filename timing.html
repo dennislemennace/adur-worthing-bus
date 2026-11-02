@@ -14,10 +14,11 @@
        big targets, the clock in view, nothing to scroll past to tap. */
     :root { color-scheme: light dark; --ink: #12202f; --muted: #4a5868; --bg: #fbfaf7; --rule: #d8d3c8;
             --link: #1a4b82; --panel: #f1eee6; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff;
-            --on-link: #ffffff; }
+            --on-link: #ffffff; --backdrop: rgba(18, 32, 47, .55); --target-min: 44px; }
     @media (prefers-color-scheme: dark) {
       :root { --ink: #e8eef5; --muted: #a9b6c6; --bg: #090e1a; --rule: #263349; --link: #7fb3e8;
-              --panel: #121a2b; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff; --on-link: #090e1a; }
+              --panel: #121a2b; --go: #1d6b3a; --stop: #8a3b00; --on-fill: #ffffff; --on-link: #090e1a;
+              --backdrop: rgba(0, 0, 0, .7); }
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 Outfit, system-ui, sans-serif; }
@@ -28,9 +29,9 @@
     .muted { color: var(--muted); font-size: .9rem; }
     #clock { font: 700 2.4rem/1.1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .02em; margin: .25rem 0; }
     button, input { font: inherit; }
-    button { min-height: 44px; border-radius: 8px; border: 1px solid var(--rule); background: var(--panel);
+    button { min-height: var(--target-min); border-radius: 8px; border: 1px solid var(--rule); background: var(--panel);
              color: var(--ink); padding: .4rem .8rem; cursor: pointer; }
-    input { min-height: 44px; width: 100%; padding: .4rem .6rem; border: 1px solid var(--rule); border-radius: 8px;
+    input { min-height: var(--target-min); width: 100%; padding: .4rem .6rem; border: 1px solid var(--rule); border-radius: 8px;
             background: var(--bg); color: var(--ink); }
     label { display: block; margin: .4rem 0; font-weight: 600; }
     .row { display: flex; gap: .5rem; }
@@ -45,11 +46,34 @@
     .row-head { display: flex; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
     .delete { margin-top: .25rem; }
     details { margin: .5rem 0; }
-    summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
+    summary { cursor: pointer; min-height: var(--target-min); display: flex; align-items: center; font-weight: 600; }
     .exports { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+                       white-space: nowrap; }
     .chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .25rem 0 .5rem; }
     .chip { min-width: 56px; font-weight: 700; }
     .chip[aria-pressed="true"] { background: var(--link); border-color: var(--link); color: var(--on-link); }
+    [hidden] { display: none !important; }
+    /* L and R: the poles either side of the road, one tap apart. */
+    .sides-label { font-weight: 600; margin: .75rem 0 .25rem; }
+    .sides { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin: 0 0 .5rem; }
+    #change-stop { margin-top: .5rem; }
+    .side { display: flex; align-items: center; gap: .6rem; text-align: left; min-height: 64px; border-width: 2px;
+            min-width: 0; }
+    .side[aria-pressed="true"] { background: var(--link); border-color: var(--link); color: var(--on-link); }
+    .side-key { flex: none; display: grid; place-items: center; width: 2.1rem; height: 2.1rem; border-radius: 6px;
+                border: 2px solid currentColor; font: 700 1.3rem/1 "JetBrains Mono", ui-monospace, monospace; }
+    .side-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; overflow-wrap: anywhere; }
+    .side-towards { font-size: .85rem; }
+    .side-badge { display: inline-block; min-width: 1.5rem; text-align: center; border: 1px solid currentColor;
+                  border-radius: 4px; font: 700 .85rem/1.4 "JetBrains Mono", ui-monospace, monospace; }
+    .left-now { margin-top: .25rem; font-weight: 700; border-color: var(--go); border-width: 2px; }
+    dialog { max-width: min(30rem, calc(100vw - 32px)); border: 1px solid var(--rule); border-radius: 12px;
+             background: var(--bg); color: var(--ink); padding: 1rem; }
+    dialog::backdrop { background: var(--backdrop); }
+    dialog h2 { margin-top: 0; font-family: Fraunces, Georgia, serif; font-size: 1.2rem; }
+    .dialog-actions { display: flex; flex-direction: column; gap: .5rem; }
+    button.primary { background: var(--link); border-color: var(--link); color: var(--on-link); font-weight: 700; }
   </style>
   <script src="analytics-page.js" defer></script>
   <script src="timing.js" defer></script>
@@ -65,25 +89,31 @@
   <details>
     <summary>How to time a bus</summary>
     <ol class="muted">
-      <li>Choose the stop pole you are standing at: nearest, or search.</li>
+      <li>Choose the stop pole you are standing at: nearest, or search. The pole across the road is set for you
+        as the other side, so you can time buses both ways: tap <strong>L</strong> or <strong>R</strong>, just above
+        the timing buttons, to switch before you tap a bus.</li>
       <li>As a bus pulls in, tap its route (or type it). That is all most buses need: each is matched to the bus
         of that route we recorded at this pole.</li>
       <li>If two buses of the same route are at the stop together, also type the registration plate of the one you
         are timing.</li>
       <li>Tap <strong>Doors open</strong> when they open, and <strong>Bus left</strong> the moment it pulls away.
         If you missed the doors, just tap Bus left.</li>
+      <li>A bus still at the other pole can be finished from the list with <strong>Bus left now</strong>.</li>
       <li>Fix any typing in the list below; it saves as you go. Export at the end of the session.</li>
     </ol>
   </details>
 
   <h2>Stop</h2>
   <div id="stop-chosen" aria-live="polite"></div>
-  <div class="row" style="margin-top:.5rem">
-    <button type="button" id="near">Nearest stops</button>
+  <button type="button" id="change-stop" hidden>Change the stop</button>
+  <div id="finder">
+    <div class="row" style="margin-top:.5rem">
+      <button type="button" id="near">Nearest stops</button>
+    </div>
+    <label for="search">Or search</label>
+    <input id="search" type="search" placeholder="Stop name, and its letter: Brighton Station B6" autocomplete="off" />
+    <ul id="stop-choices"></ul>
   </div>
-  <label for="search">Or search</label>
-  <input id="search" type="search" placeholder="Stop name, and its letter: Brighton Station B6" autocomplete="off" />
-  <ul id="stop-choices"></ul>
 
   <h2>This bus</h2>
   <div class="chips" id="route-chips" role="group" aria-label="Routes at this stop"></div>
@@ -92,19 +122,51 @@
     <label>Registration <span class="muted">(optional)</span>
       <input id="vehicle" autocomplete="off" autocapitalize="characters" placeholder="e.g. YX12 FRC" /></label>
   </div>
-  <div class="row" style="margin-top:.5rem">
+  <p class="sides-label" id="sides-label">Which pole: tap L or R to switch sides of the road</p>
+  <div class="sides" id="sides" role="group" aria-labelledby="sides-label">
+    <button type="button" class="side" data-side="L" aria-pressed="true"><span class="side-key" aria-hidden="true">L</span>
+      <span class="side-name"><span class="visually-hidden">Left: </span><span id="side-L"></span></span></button>
+    <button type="button" class="side" data-side="R" aria-pressed="false"><span class="side-key" aria-hidden="true">R</span>
+      <span class="side-name"><span class="visually-hidden">Right: </span><span id="side-R"></span></span></button>
+  </div>
+  <div class="row">
     <button type="button" class="tap" data-kind="arrived" disabled>Doors open</button>
     <button type="button" class="tap" data-kind="departed" disabled>Bus left</button>
   </div>
   <p class="muted" id="status" role="status" aria-live="polite"></p>
 
   <h2 id="count">0 buses logged</h2>
+  <p class="muted" id="export-note"></p>
   <div class="exports">
     <button type="button" id="share">Share or copy CSV</button>
     <button type="button" id="download">Download CSV</button>
     <button type="button" id="clear">Clear log</button>
   </div>
   <ul id="log"></ul>
+
+  <datalist id="timing-notes">
+    <option value="Bus full, did not stop"></option>
+    <option value="Passed without stopping"></option>
+    <option value="Two buses together"></option>
+    <option value="Waiting for time"></option>
+    <option value="Driver change"></option>
+    <option value="Wheelchair ramp used"></option>
+    <option value="Lots of people boarding"></option>
+    <option value="Not in service"></option>
+    <option value="Diverted"></option>
+    <option value="Doors opened twice"></option>
+    <option value="Left before its time"></option>
+  </datalist>
+
+  <dialog id="dup" aria-labelledby="dup-title" aria-describedby="dup-text">
+    <h2 id="dup-title">You have already exported this log</h2>
+    <p id="dup-text"></p>
+    <div class="dialog-actions">
+      <button type="button" id="dup-new" class="primary">Download only the new buses</button>
+      <button type="button" id="dup-clear">Remove the exported buses from this phone</button>
+      <button type="button" id="dup-keep">Keep everything for now</button>
+    </div>
+  </dialog>
 </div>
 </body>
 </html>

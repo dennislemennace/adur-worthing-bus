@@ -255,8 +255,15 @@ About page and both footers carry.
   the site loads the file when a stop is opened or searched. If NaPTAN is
   down the workflow keeps last week's file.
 
-## bustimes.org — plate to fleet number (hand-timing check only)
+## bustimes.org — the fleet list, and plate to fleet number
 
+- **Weekly, in the timetable workflow** (asked for 2 November 2026, used with
+  bustimes.org's permission): `scripts/build_fleet.py` reads `/api/vehicles/`
+  once for each of BHBC, METR, SCSO and COMT (four requests, a second apart,
+  `limit=1000` so none pages, a User-Agent naming the site) and writes
+  `data/fleet.json`: each bus's livery, model and deck, and the icon drawn
+  for its livery. If it fails, last week's file stays and the run warns; the
+  map never calls bustimes.org. Shown only with `?preview=1` for now.
 - `scripts/validate_hand_timings.py`, run by hand, never in a workflow. Only
   when a timing log has a registration typed, and only when its cached
   `fleet.json` is missing (or `--refresh-fleet`): one paged read of
@@ -264,6 +271,18 @@ About page and both footers carry.
   500 vehicles, a second apart, with a User-Agent naming the site. The list is
   community-maintained and is used only to read a typed plate; it is never
   published or committed.
+
+## OSRM — road lines for journeys, in the weekly timetable build
+
+- `scripts/build_timetable.py` (`_osrm_fill`) asks the public OSRM demo server
+  (`router.project-osrm.org`, fair use: at most one request a second, no SLA)
+  for a road-following line for each journey pattern that touches the map and
+  has none: about 230 requests once a week, 1.2 seconds apart, about seven
+  minutes of the run (measured 2 November 2026; before then it traced one or
+  two journeys per route, 30 to 50 requests). A pattern the API can already
+  cut from a line its route has is not traced. A failed request leaves that
+  pattern drawn stop to stop; the build never fails on OSRM. Weekly only:
+  the nightly delay map must not call it (see the delay map section).
 
 ## OpenStreetMap Overpass — stop accessibility
 

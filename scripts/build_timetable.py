@@ -94,9 +94,10 @@ SHAPE_PAD = 0.10
 SHAPE_BOX = (BBOX_MIN_LAT - SHAPE_PAD, BBOX_MAX_LAT + SHAPE_PAD,
              BBOX_MIN_LON - SHAPE_PAD, BBOX_MAX_LON + SHAPE_PAD)
 
-# Public OSRM demo. Fair-use, no SLA — we hit it ~30-50× per weekly
-# build, well under any reasonable threshold. Override with a self-
-# hosted or Mapbox endpoint via env var if needed.
+# Public OSRM demo. Fair-use (no more than one request a second), no SLA.
+# Since 2 November 2026 every journey pattern without a line is traced,
+# about 230 requests once a week, 1.2 s apart (LIMITS.md). Override with a
+# self-hosted or Mapbox endpoint via env var if needed.
 OSRM_BASE_URL  = os.getenv("OSRM_BASE_URL", "https://router.project-osrm.org")
 OSRM_SLEEP_SEC = float(os.getenv("OSRM_SLEEP_SEC", "1.2"))
 OSRM_MAX_STOPS = 80   # URL/coord-count guard for the public demo
@@ -782,53 +783,53 @@ def _osrm_fill(timetable: dict, ws_stop_ids: set, bbox_stop_ids: set) -> None:
     for tid, calls in per_trip.items():
         calls.sort(key=lambda p: (p[0], p[1]))
 
-    # Group trips by route short_name, filtered to trips that touch the
-    # tight bbox — same condition as runtime bbox_trip_ids.
-    trips_by_short: dict = {}
+    # Every journey pattern (route, operator and the stops in order) that
+    # touches the map and has no line yet, longest first (2 November 2026;
+    # before, one or two journeys per route were traced, and only on a route
+    # with no line at all, which left 43% of journeys drawn stop to stop).
+    # A pattern is skipped where the runtime can already take its piece of a
+    # line: every stop within the cut tolerance of a shaped line of the same
+    # route (api/timetable_db.py, cut_line_through), or its stops a stretch
+    # of a longer pattern traced here. Each traced line is given to every
+    # journey with the same stops.
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from api.timetable_db import Timetable, cut_line_through
+
+    patterns: dict = {}   # (short, noc) -> {stop tuple: [tid, ...]}
+    lines: dict = {}      # (short, noc) -> [shape points, ...]
     for tid, t in timetable["trips"].items():
         if tid not in per_trip:
             continue
         if not any(sid in tight_in_bbox_sids for _sq, _ds, sid in per_trip[tid]):
             continue
         route = timetable["routes"].get(t.get("route_id", ""))
-        if not route:
+        if not route or not route.get("short_name"):
             continue
-        short = route.get("short_name") or ""
-        if not short:
-            continue
-        trips_by_short.setdefault(short, []).append(tid)
+        rk = (route["short_name"], route.get("noc") or "")
+        if t.get("shape_id") and t["shape_id"] in timetable["shapes"]:
+            lines.setdefault(rk, []).append(timetable["shapes"][t["shape_id"]])
+        patterns.setdefault(rk, {}).setdefault(tuple(sid for _sq, _ds, sid in per_trip[tid]), []).append(tid)
 
-    # Per route, pick representative trips (primary = most stops; reverse
-    # = most stops with different first_sid near primary's last). Skip if
-    # any of the *bbox-touching* candidates already has a shape — runtime
-    # will pick those via shape-aware sort. (Don't check trips outside
-    # the bbox; those are filtered out at runtime anyway.)
-    TERMINUS_NEAR_SQ = 0.0001
-    targets: list = []   # list of tids needing OSRM
-    for short, tids in trips_by_short.items():
-        if any(timetable["trips"][tid].get("shape_id") for tid in tids):
-            continue
-        tids.sort(key=lambda tid: len(per_trip[tid]), reverse=True)
-        primary = tids[0]
-        targets.append(primary)
-        primary_first = per_trip[primary][0][2]
-        primary_last_id = per_trip[primary][-1][2]
-        last_coord = (stops[primary_last_id]["lat"],
-                      stops[primary_last_id]["lon"]) if primary_last_id in stops else None
-        if last_coord is None:
-            continue
-        for tid in tids[1:]:
-            first_id = per_trip[tid][0][2]
-            if first_id == primary_first:
+    targets: list = []    # one tid per pattern needing a line
+    same_stops: dict = {} # that tid -> every tid with its stops
+    for rk, pats in patterns.items():
+        shaped = lines.get(rk, [])
+        chosen: list = []
+        for pat in sorted(pats, key=len, reverse=True):
+            tids = pats[pat]
+            if any(timetable["trips"][t].get("shape_id") for t in tids):
                 continue
-            fc = stops.get(first_id)
-            if not fc:
+            coords = [(stops[s]["lat"], stops[s]["lon"]) for s in pat if s in stops]
+            if len(coords) < 3:
                 continue
-            dlat = fc["lat"] - last_coord[0]
-            dlon = fc["lon"] - last_coord[1]
-            if dlat * dlat + dlon * dlon <= TERMINUS_NEAR_SQ:
-                targets.append(tid)
-                break
+            if any(len(q) > len(pat) and any(q[i:i + len(pat)] == pat for i in range(len(q) - len(pat) + 1))
+                   for q in chosen):
+                continue
+            if any(cut_line_through(line, coords, Timetable.CUT_TOLERANCE_M) for line in shaped):
+                continue
+            chosen.append(pat)
+            targets.append(tids[0])
+            same_stops[tids[0]] = tids
 
     if not targets:
         log.info("OSRM phase: no shapeless routes need filling — skipping")
@@ -871,7 +872,8 @@ def _osrm_fill(timetable: dict, ws_stop_ids: set, bbox_stop_ids: set) -> None:
                 # OSRM returns [lon, lat]; we store [lat, lon].
                 shape_id = f"osrm:{tid}"
                 timetable["shapes"][shape_id] = [[lat, lon] for lon, lat in geo]
-                timetable["trips"][tid]["shape_id"] = shape_id
+                for same in same_stops.get(tid, [tid]):
+                    timetable["trips"][same]["shape_id"] = shape_id
                 ok += 1
         except Exception as exc:
             log.warning("  OSRM %s: %s", tid, exc)
