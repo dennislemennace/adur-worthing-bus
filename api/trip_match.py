@@ -57,6 +57,45 @@ COACH_NOCS = frozenset({"NATX", "FLIX", "OXBC", "GHOP", "BMCS", "UNTM"})
 DECLARED_SOURCES = frozenset({"feed", "feed_start", "feed_moved"})
 
 
+# Operators whose buses the site has always named "OP-number". On 2 November
+# 2026 Stagecoach's buses began arriving twice in BODS, a few seconds apart,
+# once as "SCSO-10952" and once as "10952".
+PREFIXED_REFS = frozenset({"SCSO", "SCSC"})
+
+
+def merge_double_reports(vehicles: list) -> list:
+    """One report per bus. Reports of one operator whose refs differ only by
+    that operator's "OP-" prefix are one bus: the latest is kept, under the
+    name the site has always used for it, so a bus keeps one identity on the
+    map, in a followed link and in the night's figures whichever feed reported
+    it. Order is kept; a report with no ref is left alone."""
+    out, at = [], {}
+    for v in vehicles:
+        op = str(v.get("operator_ref") or "")
+        ref = str(v.get("vehicle_ref") or "")
+        if not ref:
+            out.append(v)
+            continue
+        number = ref[len(op) + 1:] if op and ref.upper().startswith(op.upper() + "-") else ref
+        v = {**v, "vehicle_ref": f"{op}-{number}" if op in PREFIXED_REFS else number}
+        key = (op, number)
+        if key not in at:
+            at[key] = len(out)
+            out.append(v)
+        elif _reported(v) > _reported(out[at[key]]):
+            out[at[key]] = v
+    return out
+
+
+def _reported(v) -> float:
+    """When a report was made, as an epoch; the two feeds need not write the
+    time alike ("Z" or "+00:00")."""
+    try:
+        return datetime.fromisoformat(str(v.get("recorded_at")).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return float("-inf")
+
+
 def clock(secs: int) -> str:
     secs = int(secs) % 86400
     return f"{secs // 3600:02d}:{secs % 3600 // 60:02d}"

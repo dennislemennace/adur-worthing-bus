@@ -245,7 +245,8 @@ def parse_snapshot(xml_text, at_utc=None):
             # has to stand in.
             "recorded_secs": _local_secs(reported_at),
         })
-    return out
+    # A bus reported twice is timed once (trip_match.merge_double_reports).
+    return trip_match.merge_double_reports(out)
 
 
 def _local_secs(when):

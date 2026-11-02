@@ -1426,6 +1426,7 @@ def _parse_siri_vm(xml_text: str, now: Optional[datetime] = None) -> list:
     if dropped_stale:
         log.info("Dropped %d stale vehicle(s) (>%ds old)",
                  dropped_stale, VEHICLE_STALE_SECONDS)
+    vehicles = trip_match.merge_double_reports(vehicles)
     with_calls = sum(1 for v in vehicles if v.get("calls"))
     log.info("SIRI-VM parsed: %d vehicles (%d with onward calls)",
              len(vehicles), with_calls)
