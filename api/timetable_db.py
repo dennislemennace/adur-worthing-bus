@@ -485,6 +485,8 @@ class Timetable:
         self._hub_sids_cache = {}
         self._last_bus_cache = {}
         self._services_cache = {}
+        self._starts_cache = {}
+        self._turn_memo = {}
 
     def _open_and_preload(self) -> None:
         if self._allow_fetch:
@@ -735,6 +737,85 @@ class Timetable:
             "from_stop": stop,
             "from_name": (self.stops.get(stop) or {}).get("name", ""),
         }
+
+    def next_by_turnaround(self, trip_id: str, day, doc: Optional[dict]) -> Optional[dict]:
+        """The journey the same bus most likely runs next on `day`, or None.
+
+        From what buses ending here really went on to (api/turnarounds.py),
+        for every operator, blocks or not: the first journey of the service
+        most of them took, starting near this journey's last stop no sooner
+        than the usual gap after it ends and within the hour. The same shape
+        as `next_in_block`. A guess about one bus, not a promise.
+        """
+        from api import turnarounds
+
+        trip = self.trips.get(trip_id)
+        if not trip or not (doc or {}).get("cells"):
+            return None
+        # Asked for every bus on every board request; the answer only changes
+        # with the day or a new night's cells.
+        memo_key = (trip_id, day, doc.get("as_of") or id(doc))
+        if memo_key in self._turn_memo:
+            return self._turn_memo[memo_key]
+        if len(self._turn_memo) > 20000:
+            self._turn_memo.clear()
+        self._turn_memo[memo_key] = found = self._next_by_turnaround(trip_id, trip, day, doc)
+        return found
+
+    def _next_by_turnaround(self, trip_id: str, trip: dict, day, doc: dict) -> Optional[dict]:
+        from api import turnarounds
+
+        route_id = trip.get("route_id", "")
+        operator = self.noc_for_route(route_id)
+        service = (self.routes.get(route_id) or {}).get("short_name", "")
+        calls = [c for c in self.trip_stops_for(trip_id) if c[0] is not None]
+        if not calls or not operator or not service:
+            return None
+        ends, terminus = calls[-1]
+        cell = turnarounds.lookup(doc, operator, service, terminus, day, ends)
+        if not cell or not cell.get("next"):
+            return None
+        here = self.stops.get(terminus) or {}
+        if here.get("lat") is None:
+            return None
+        family = turnarounds.recovery.family(operator)
+        earliest = ends + int(cell.get("after") or 0)
+        for secs, other, stop in self._journey_starts(family, cell["next"]):
+            if secs < earliest:
+                continue
+            if secs > ends + turnarounds.WITHIN_SECS:
+                break
+            t = self.trips.get(other) or {}
+            if other == trip_id or not self.runs_on(t.get("service_id", ""), day):
+                continue
+            there = self.stops.get(stop) or {}
+            if there.get("lat") is None or stop != terminus and _haversine_km(
+                    (here["lat"], here["lon"]), (there["lat"], there["lon"])) * 1000 > turnarounds.NEAR_M:
+                continue
+            return {
+                "trip_id": other,
+                "service": cell["next"],
+                "headsign": t.get("headsign", ""),
+                "depart_secs": secs,
+                "from_stop": stop,
+                "from_name": there.get("name", ""),
+            }
+        return None
+
+    def _journey_starts(self, family: str, short_name: str) -> list:
+        """[(first_secs, trip_id, first_stop)] of one operator family's
+        service, soonest first, built once per service."""
+        from api import turnarounds
+
+        cache = self._starts_cache
+        key = (family, short_name)
+        if key not in cache:
+            cache[key] = sorted(
+                (secs, trip_id, first)
+                for trip_id, first, _last, secs in self.service_endpoints(short_name)
+                if turnarounds.recovery.family(
+                    self.noc_for_route((self.trips.get(trip_id) or {}).get("route_id", ""))) == family)
+        return cache[key]
 
     def trip_stops_for(self, trip_id: str) -> list:
         """Return [(dep_secs, stop_id), ...] in trip sequence order."""

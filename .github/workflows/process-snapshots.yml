@@ -84,7 +84,7 @@ jobs:
       # The matcher these figures rest on. If it is broken, publishing a
       # punctuality number is worse than publishing nothing at all.
       - name: Test the matcher and the processor
-        run: python -m pytest -q tests/test_trip_match.py tests/test_process_snapshots.py tests/test_review_accuracy.py tests/test_delay_hotspots.py tests/test_publication_bundle.py tests/test_schedule_record.py tests/test_restore_recorded_day.py
+        run: python -m pytest -q tests/test_trip_match.py tests/test_process_snapshots.py tests/test_review_accuracy.py tests/test_delay_hotspots.py tests/test_publication_bundle.py tests/test_schedule_record.py tests/test_restore_recorded_day.py tests/test_turnarounds.py
 
       - name: Choose the day
         id: day
@@ -365,7 +365,8 @@ jobs:
           import hashlib, json, sys, urllib.request
           artifacts = json.load(open("previous-index.json")).get("artifacts") or {}
           for name, out in (("diversion-adjustments.json", "served-diversions.json"),
-                            ("running-recovery.json", "served-recovery.json")):
+                            ("running-recovery.json", "served-recovery.json"),
+                            ("turnarounds.json", "served-turnarounds.json")):
               entry = artifacts.get(name)
               if entry:
                   # Named, as every other download here is: the Worker
@@ -379,6 +380,7 @@ jobs:
           DIV=""
           [ -f served-diversions.json ] && DIV="--diversions served-diversions.json"
           [ -f served-recovery.json ] && DIV="$DIV --recovery served-recovery.json"
+          [ -f served-turnarounds.json ] && DIV="$DIV --turnarounds served-turnarounds.json"
           shopt -s nullglob
           PRED=(predlog/*/*.json)
           python scripts/score_served_estimates.py day --day "$DAY" --timetable data/timetable.sqlite \
@@ -438,6 +440,12 @@ jobs:
           # test on days it never saw (docs/reliability/running-recovery-2026-10-25.md).
           python scripts/build_running_recovery.py --observations "inputs/window/*.json.gz" \
             --percentile 30 --out running-recovery.json
+          # Which journey each bus goes on to run, so the board can time a
+          # journey before its bus sets off (api/turnarounds.py). Every operator:
+          # learned, it named the right journey more often than Stagecoach's
+          # and Compass's own blocks (docs/reliability/next-journey-2026-11-03.md).
+          python scripts/build_turnarounds.py --observations "inputs/window/*.json.gz" \
+            --timetable data/timetable.sqlite --out turnarounds.json
           # One report per route, drawing the figures above together with
           # their denominators, method and sources (report.html reads them).
           python scripts/build_route_reports.py --observations inputs/window \
@@ -462,6 +470,7 @@ jobs:
             --artifact "diversion-adjustments.json=diversion-adjustments.json" \
             --artifact "identification.json=identification.json" \
             --artifact "running-recovery.json=running-recovery.json" \
+            --artifact "turnarounds.json=turnarounds.json" \
             "${MAP_ARTIFACTS[@]}" \
             --sources inputs/sources.json --evidence evidence.json \
             --previous-index previous-index.json --out candidate > build-id.txt

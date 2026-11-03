@@ -141,6 +141,8 @@ def build_bundle(journey_dir, extras, out, sources, evidence, previous=None):
             checks.check_served(doc, name, failures, raw=raw)
         elif name == "running-recovery.json":
             checks.check_recovery(doc, name, failures, raw=raw)
+        elif name == "turnarounds.json":
+            checks.check_turnarounds(doc, name, failures, raw=raw)
         elif name.startswith("route-report-"):
             checks.check_route_report(doc, name, failures, raw=raw)
         binary[name] = raw

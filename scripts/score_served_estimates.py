@@ -97,12 +97,13 @@ class Day:
     """One day's board, rebuilt and scored."""
 
     def __init__(self, tt, observations, diversions_doc=None, events=(), coords=None, origin=0, day=None,
-                 recovery_doc=None):
+                 recovery_doc=None, turnarounds_doc=None):
         from api import main, trip_match
         self.main, self.trip_match = main, trip_match
         self.tt = tt
         self.doc = diversions_doc
         self.recovery = recovery_doc
+        self.turnarounds = turnarounds_doc
         # Journeys through a recorded disruption (data/analysis_exclusions.json)
         # are scored apart, as scripts/backtest_live_eta.py scores them: the
         # headline is the board on an ordinary day.
@@ -189,7 +190,8 @@ class Day:
             # The journey this bus works next, where the board has no bus on it
             # yet (live_eta.from_previous_journey): scored apart, below.
             if self.day is not None:
-                nxt = live_eta.from_previous_journey(self.tt, v, now, self.day, self.doc, self.recovery)
+                nxt = live_eta.from_previous_journey(self.tt, v, now, self.day, self.doc, self.recovery,
+                                                     self.turnarounds)
                 if nxt and nxt["trip_id"] not in running:
                     _o, _s, next_calls = self.trip_info(nxt["trip_id"])
                     for index, (secs, atco) in enumerate(next_calls):
@@ -334,12 +336,13 @@ def prediction_rows(paths):
 
 
 def run_day(day, tt, siri_dir, rt_dir, observations, diversions_doc=None, box=None,
-            events=(), coords=None, predictions=None, recovery_doc=None):
+            events=(), coords=None, predictions=None, recovery_doc=None, turnarounds_doc=None):
     from api import main
     siri = minute_files(siri_dir, "xml")
     rt = minute_files(rt_dir, "pb") if rt_dir else {}
     origin = int(main._service_day_start(day).timestamp())
-    scorer = Day(tt, observations, diversions_doc, events, coords, origin, day, recovery_doc)
+    scorer = Day(tt, observations, diversions_doc, events, coords, origin, day, recovery_doc,
+                 turnarounds_doc)
     predictions = predictions or {}
     by_actual = sorted((actual, key) for key, actual in scorer.outcomes.items())
     lo = 0
@@ -417,6 +420,7 @@ def main(argv=None):
     one.add_argument("--observations", required=True)
     one.add_argument("--diversions", help="diversion_adjustments.json in force that day")
     one.add_argument("--recovery", help="running-recovery.json in force that day (api/recovery.py)")
+    one.add_argument("--turnarounds", help="turnarounds.json in force that day (api/turnarounds.py)")
     one.add_argument("--prediction-log", nargs="*", default=[],
                      help="the Worker's prediction log files for the day (api/prediction_log.py)")
     one.add_argument("--out", required=True)
@@ -436,7 +440,8 @@ def main(argv=None):
         doc = run_day(date.fromisoformat(args.day), tt, args.snapshots, args.rt,
                       obs.get("observations") or [], diversions_doc, set(stops_in_box(tt)),
                       ax.load(), ax.stop_coords(), prediction_rows(args.prediction_log),
-                      load_json(args.recovery) if args.recovery else None)
+                      load_json(args.recovery) if args.recovery else None,
+                      load_json(args.turnarounds) if args.turnarounds else None)
         doc["timetable_data_version"] = obs.get("data_version")
     doc["as_of"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     Path(args.out).write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n")

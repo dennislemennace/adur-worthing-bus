@@ -80,6 +80,15 @@ def next_call(tt, calls: list, vehicle: dict) -> Optional[int]:
     return near
 
 
+# How much of a late bus's lateness an estimate passes on. A bus shown later
+# than it comes is a bus missed; one shown sooner is a short wait. All of it, for
+# now: on the replayed days 80% cut "came before the time shown" from 5.4% to
+# 3.4% but took estimates within RTIG's window from 77.3% to 72.0%
+# (docs/reliability/next-journey-2026-11-03.md), the maintainer's call to make.
+ROAD_LATE_SHARE = 1.0
+ROAD_CAUTION_SECS = 0
+
+
 def projected_lateness(lateness: int, timing_points: list, start: int, count: int) -> list:
     """Lateness expected at each call from `start` to the end of the journey.
 
@@ -150,6 +159,8 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime,
         secs, atco = calls[j]
         if j in closed:
             late = None
+        if late is not None and late > 0:
+            late = max(0, round(late * ROAD_LATE_SHARE) - ROAD_CAUTION_SECS)
         extra = allowance.get(j, 0) if late is not None else 0
         late = late + extra if late is not None else None
         scheduled = datetime.fromtimestamp(origin + secs, LONDON)
@@ -225,18 +236,36 @@ def _allowances(tt, trip_id, calls, start, origin, lateness, projected, doc, now
     return out
 
 
+# How much of the late start a bus's previous journey implies is passed on.
+# Being wrong about the bus (a swap, a driver change, a journey it never ran)
+# shows a late time for a bus that comes on time, and the reader misses it:
+# the costly way to be wrong. Replayed on 29 October to 1 November 2026
+# (docs/reliability/next-journey-2026-11-03.md), passing on all of it left 3.5%
+# of these estimates later than the bus came; half left 1.5%, still more often
+# within RTIG's window than the timetable for every operator (69.9% against 66.0%).
+PREVIOUS_JOURNEY_SHARE = 0.5
+PREVIOUS_JOURNEY_SLACK_SECS = 0
+
+
 def from_previous_journey(tt, vehicle: dict, now: datetime, day,
                           diversions_doc: Optional[dict] = None,
-                          recovery_doc: Optional[dict] = None) -> Optional[dict]:
+                          recovery_doc: Optional[dict] = None,
+                          turnarounds_doc: Optional[dict] = None) -> Optional[dict]:
     """The journey this bus works next, and how late it will start it.
 
-    From the operator's block (`Timetable.next_in_block`, Stagecoach and
-    Compass only): the next journey leaves its first stop at its timetabled
-    time, or when this bus gets there from the end of the journey it is on now,
-    whichever is later. RTIG's "cross journey prediction" (RTIGT041-1.0, 3.4):
-    without it a bus station shows no live time until the bus has set off.
-    It can be wrong in ways an estimate on the road cannot (a driver change, a
-    swapped bus, a journey cut short: RTIGT041 3.6.6), so the board marks it.
+    Which journey: what buses ending here have gone on to
+    (`Timetable.next_by_turnaround`, api/turnarounds.py), for every operator,
+    else the operator's block (`Timetable.next_in_block`, Stagecoach and
+    Compass), which named the right journey less often (86% against 97% for
+    Stagecoach, 22 October to 1 November 2026). The next journey leaves its
+    first stop at its timetabled time, or when this bus gets there from the end
+    of the journey it is on now, whichever is later: no break allowed for at
+    the stand, so if anything the board says the bus comes sooner than it does,
+    which is the safe way to be wrong. RTIG's "cross journey prediction"
+    (RTIGT041-1.0, 3.4): without it a bus station shows no live time until the
+    bus has set off. It can be wrong in ways an estimate on the road cannot (a
+    driver change, a swapped bus, a journey cut short: RTIGT041 3.6.6), so the
+    board marks it.
 
     `{"trip_id", "lateness_secs"}`, or None when the bus names no journey,
     has no estimate for its last stop, or works nothing after it.
@@ -244,9 +273,11 @@ def from_previous_journey(tt, vehicle: dict, now: datetime, day,
     trip_id = vehicle.get("trip_id")
     if not trip_id or vehicle.get("trip_source") not in trip_match.DECLARED_SOURCES:
         return None
-    if not hasattr(tt, "next_in_block"):
-        return None
-    nxt = tt.next_in_block(trip_id, day)
+    nxt = None
+    if turnarounds_doc and hasattr(tt, "next_by_turnaround"):
+        nxt = tt.next_by_turnaround(trip_id, day, turnarounds_doc)
+    if not nxt and hasattr(tt, "next_in_block"):
+        nxt = tt.next_in_block(trip_id, day)
     if not nxt:
         return None
     rows = project_trip(tt, trip_id, vehicle, now, diversions_doc, recovery_doc)
@@ -256,7 +287,8 @@ def from_previous_journey(tt, vehicle: dict, now: datetime, day,
     arrives = datetime.fromisoformat(last["expected"])
     starts = place_on_day(nxt["depart_secs"], now)
     return {"trip_id": nxt["trip_id"],
-            "lateness_secs": max(0, round((arrives - starts).total_seconds()))}
+            "lateness_secs": max(0, round((arrives - starts).total_seconds() * PREVIOUS_JOURNEY_SHARE
+                                          - PREVIOUS_JOURNEY_SLACK_SECS))}
 
 
 def estimate_at(tt, trip_id: str, vehicle: dict, stop_id: str,

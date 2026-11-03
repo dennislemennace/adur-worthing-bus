@@ -385,6 +385,32 @@ def check_recovery(doc, name, fails, raw=None):
             break
 
 
+TURNAROUNDS_MAX_BYTES = 1024 * 1024
+
+
+def check_turnarounds(doc, name, fails, raw=None):
+    """Which journey buses go on to run (scripts/build_turnarounds.py), which
+    the API uses to estimate a journey before its bus sets off. A cell that
+    names no service, or a gap past the hour the API looks within, would hand
+    a bus a journey nobody saw it take."""
+    if raw is not None and len(raw) > TURNAROUNDS_MAX_BYTES:
+        fails.add("turnarounds are too large", f"{name}: {len(raw)} bytes")
+    if doc.get("schema_version") != 1 or not isinstance(doc.get("cells"), dict):
+        fails.add("turnarounds have no readable cells", name)
+        return
+    for field in ("method", "as_of", "days"):
+        if not doc.get(field):
+            fails.add("turnarounds are missing their provenance", f"{name}: no {field}")
+    for key, cell in doc["cells"].items():
+        if (not isinstance(key, str) or key.count("|") not in (3, 4) or not isinstance(cell, dict)
+                or not isinstance(cell.get("next"), str) or not cell["next"]
+                or type(cell.get("after")) is not int or not 0 <= cell["after"] <= 3600
+                or type(cell.get("journeys")) is not int or cell["journeys"] < 1
+                or not isinstance(cell.get("share"), (int, float)) or not 0.5 < cell["share"] <= 1):
+            fails.add("turnarounds have an unreadable or implausible cell", f"{name} {key}")
+            break
+
+
 ROUTE_REPORT_MAX_BYTES = 256 * 1024
 ROUTE_REPORT_BANDS = ("on_time", "early", "late", "very_late")
 

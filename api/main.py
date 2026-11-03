@@ -1512,7 +1512,8 @@ async def get_departures(
     if any(d.get("operator") == flixbus.NOC for d in result.get("departures") or []):
         result = _apply_flixbus_delays(result, tt, resolved, await _flixbus_updates(tt))
     result = await off_loop(_apply_own_feed_estimates, result, tt, resolved,
-                            datetime.now(UK_TZ), await _diversions_doc(), await _recovery_doc())
+                            datetime.now(UK_TZ), await _diversions_doc(), await _recovery_doc(),
+                            await _turnarounds_doc())
     if "live" not in result and not (NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY):
         # Say so rather than letting scheduled times pass as live ones.
         result = {**result, "live": False, "live_reason": "not_configured"}
@@ -1529,7 +1530,8 @@ async def get_departures(
 
 def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime,
                               diversions_doc: Optional[dict] = None,
-                              recovery_doc: Optional[dict] = None) -> dict:
+                              recovery_doc: Optional[dict] = None,
+                              turnarounds_doc: Optional[dict] = None) -> dict:
     """Estimates from the buses themselves, for rows no prediction reached.
 
     TransportAPI's predictions are capped at 300 calls a day, which a busy day
@@ -1562,7 +1564,8 @@ def _apply_own_feed_estimates(payload: dict, tt, stop_id: str, now: datetime,
                 continue
             trip = tt.trips.get(v["trip_id"]) or {}
             on = day if tt.runs_on(trip.get("service_id", ""), day) else day - timedelta(days=1)
-            nxt = live_eta.from_previous_journey(tt, v, now, on, diversions_doc, recovery_doc)
+            nxt = live_eta.from_previous_journey(tt, v, now, on, diversions_doc, recovery_doc,
+                                                 turnarounds_doc)
             if nxt and nxt["trip_id"] not in running:
                 upcoming[nxt["trip_id"]] = (nxt, v)
     departures = payload.get("departures") or []
@@ -2596,8 +2599,14 @@ RECENT_VEHICLES_KEY = "vehicles:recent"
 # (scripts/score_served_estimates.py, `previous_journey`); see docs/RUNBOOK.md.
 # 8–24 October 2026, ordinary days, RTIG acceptable against the timetable's own
 # time for the same departures: Compass 78.7% against 68.2%, Stagecoach 84.4%
-# against 72.4% (docs/reliability/live-eta-served-2026-10-25.md).
-PREVIOUS_JOURNEY_OPERATORS: frozenset = frozenset({"COMT", "SCSO"})
+# against 72.4% (docs/reliability/live-eta-served-2026-10-25.md). With the next
+# journey learned for every operator (api/turnarounds.py) and half the late start
+# passed on, 29 October to 1 November: Brighton & Hove 68.7% against 64.8%,
+# Compass 69.9% against 65.9%, Stagecoach 77.1% against 72.8%. Metrobus is left
+# off: 63.0% against 62.5% then, but 48.5% against 49.4% on 22 and 23 October
+# (docs/reliability/next-journey-2026-11-03.md). The nightly scoring keeps
+# measuring it.
+PREVIOUS_JOURNEY_OPERATORS: frozenset = frozenset({"BHBC", "COMT", "SCSO"})
 RECENT_VEHICLES_TTL = 120
 
 # ── Where each bus has been ───────────────────────────────────
@@ -2826,6 +2835,18 @@ RECOVERY_ARTIFACT = "running-recovery.json"
 
 async def _recovery_doc() -> Optional[dict]:
     return _published_doc(RECOVERY_KEY, lambda: _fetch_published(RECOVERY_ARTIFACT, {"cells": {}}),
+                          DIVERSIONS_TTL)
+
+
+# Which journey each bus goes on to run (api/turnarounds.py), built nightly by
+# scripts/build_turnarounds.py from the recorded days, so a journey can be
+# estimated before its bus sets off (live_eta.from_previous_journey).
+TURNAROUNDS_KEY = "turnarounds"
+TURNAROUNDS_ARTIFACT = "turnarounds.json"
+
+
+async def _turnarounds_doc() -> Optional[dict]:
+    return _published_doc(TURNAROUNDS_KEY, lambda: _fetch_published(TURNAROUNDS_ARTIFACT, {"cells": {}}),
                           DIVERSIONS_TTL)
 
 
