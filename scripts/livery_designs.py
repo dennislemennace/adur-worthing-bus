@@ -14,7 +14,7 @@ The patterns are drawn here, from photographs: Brighton & Hove's fleet
 history (history.buses.co.uk, used with permission) for Brighton & Hove and
 Metrobus, and freely licensed photographs on Wikimedia Commons for Stagecoach
 and Compass. A few one-off buses use bustimes.org's own drawing of the livery
-(its "right" CSS, used with permission) where no photograph was to hand.
+(its "right" CSS) where no photograph was to hand.
 
 No lettering, as on every icon, with one exception: the 1X and 3X carry their
 route number in a coloured pill on the side, as the buses do (asked for

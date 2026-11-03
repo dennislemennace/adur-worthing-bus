@@ -1,11 +1,10 @@
 """Write data/fleet.json: each bus's livery, model and deck, so the map can
-draw every bus in its own colours (asked for 2 November 2026; shown only
-with ?preview=1 until it has been looked over).
+draw every bus in its own colours (asked for 2 November 2026; shown to
+everyone from 3 November).
 
 bustimes.org keeps a community-maintained list of every operator's vehicles,
 with each one's livery, branding, model and garage, and serves it as JSON
-with no key. It is used here with bustimes.org's permission, and credited on
-the About page. One request per operator, once a week in the timetable
+with no key. It is credited on the About page and in the site footer. One request per operator, once a week in the timetable
 workflow (LIMITS.md); the map never calls bustimes.org itself.
 
 A bus is matched to the live feed the way each operator names its buses
@@ -199,7 +198,7 @@ def main(argv=None) -> int:
         "checked_on": date.today().isoformat(),
         "source_url": SITE,
         "api": API,
-        "permission": "Used with bustimes.org's permission (2 November 2026).",
+        "credit": "Vehicle details from bustimes.org.",
         "method": ("bustimes.org's vehicle list for Brighton & Hove, Metrobus, Stagecoach South "
                    "and Compass, withdrawn vehicles left out: each bus's livery, branding, model "
                    "and deck, and the icon drawn for that livery (scripts/build_fleet.py)."),

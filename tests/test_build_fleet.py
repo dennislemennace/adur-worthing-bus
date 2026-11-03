@@ -89,7 +89,7 @@ def test_nothing_is_built_that_no_design_draws():
 def test_the_published_fleet_list_says_where_it_came_from():
     doc = json.loads((ROOT / "data" / "fleet.json").read_text())
     assert doc["source_url"].startswith("https://bustimes.org")
-    assert len(doc["checked_on"]) == 10 and doc["permission"]
+    assert len(doc["checked_on"]) == 10 and doc["credit"]
     assert set(doc["operators"]) == set(bf.OPERATORS)
     for op in doc["operators"].values():
         for k, row in op["vehicles"].items():

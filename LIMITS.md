@@ -257,13 +257,14 @@ About page and both footers carry.
 
 ## bustimes.org — the fleet list, and plate to fleet number
 
-- **Weekly, in the timetable workflow** (asked for 2 November 2026, used with
-  bustimes.org's permission): `scripts/build_fleet.py` reads `/api/vehicles/`
+- **Weekly, in the timetable workflow** (asked for 2 November 2026, credited on
+  the About page and in the footer): `scripts/build_fleet.py` reads `/api/vehicles/`
   once for each of BHBC, METR, SCSO and COMT (four requests, a second apart,
   `limit=1000` so none pages, a User-Agent naming the site) and writes
   `data/fleet.json`: each bus's livery, model and deck, and the icon drawn
   for its livery. If it fails, last week's file stays and the run warns; the
-  map never calls bustimes.org. Shown only with `?preview=1` for now.
+  map never calls bustimes.org. Shown to everyone from 3 November 2026; the
+  map fetches `data/fleet.json` once per visit after it has drawn.
 - `scripts/validate_hand_timings.py`, run by hand, never in a workflow. Only
   when a timing log has a registration typed, and only when its cached
   `fleet.json` is missing (or `--refresh-fleet`): one paged read of

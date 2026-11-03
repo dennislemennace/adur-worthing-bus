@@ -44,3 +44,24 @@ def test_the_third_party_notices_list_flixbus():
     section = _between(NOTICES, "## FlixBus", "\n## ")
     assert "Open Database Licence" in section
     assert ODBL in section
+
+
+# bustimes.org's vehicle list draws each bus in its own livery and names its
+# fleet number and model (data/fleet.json, scripts/build_fleet.py). Shown to
+# everyone from 3 November 2026, so it is credited where the other sources are.
+
+def test_the_about_page_credits_bustimes_org():
+    sources = _between(ABOUT, '<h2 id="data">', "</dl>")
+    assert "https://bustimes.org/" in sources, "the About page leaves bustimes.org out"
+
+
+def test_both_footers_credit_bustimes_org():
+    full = _between(INDEX, '<footer class="site-footer">', '<p class="site-footer-links">')
+    compact = _between(INDEX, '<p class="site-footer-compact">', "</p>")
+    assert "bustimes.org" in full, "the desktop footer leaves bustimes.org out"
+    assert "bustimes.org" in compact, "the phone footer leaves bustimes.org out"
+
+
+def test_the_third_party_notices_list_bustimes_org():
+    section = _between(NOTICES, "## bustimes.org", "\n## ")
+    assert "https://bustimes.org/" in section and "data/fleet.json" in section

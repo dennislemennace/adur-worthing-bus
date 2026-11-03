@@ -79,6 +79,13 @@ The FlixBus journeys in the weekly timetable database this project publishes
 (`timetable.sqlite`, the `timetable-latest` release asset) are derived from it
 and stay under the same licence.
 
+## bustimes.org vehicle list
+
+Each bus's livery, branding, fleet number, model and deck (`data/fleet.json`,
+written weekly by `scripts/build_fleet.py`) come from the vehicle list kept by
+bustimes.org (https://bustimes.org/), credited on the About page and in the
+site footer.
+
 ## Timetable and boundary data — Open Government Licence v3.0
 
 Bus Open Data Service (Department for Transport) and the ONS Open Geography

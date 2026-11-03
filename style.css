@@ -7733,6 +7733,42 @@ html.dark-mode .gap-fab { color: #0f1726; border-color: #0f1726; }
   outline-offset: 2px;
 }
 
+/* The route report offered as a card (routeReportCardHtml): one look in Bus
+   Performance, the delay map and Route view. The accent is a fill; the title
+   is link text, so it takes --color-link. */
+.report-cta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  min-height: var(--target-min);
+  margin: var(--space-sm) 0;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  transition: background var(--transition), border-color var(--transition);
+}
+.report-cta-title {
+  color: var(--color-link);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.report-cta-sub {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+@media (hover: hover) {
+  .report-cta:hover { background: var(--color-surface-2); }
+}
+.report-cta:focus-visible {
+  outline: 3px solid var(--color-link);
+  outline-offset: 2px;
+}
+
 .jt-headline { margin: .5rem 0 .75rem; line-height: 1.5; }
 
 .jt-chart {
@@ -8888,15 +8924,10 @@ button.target-dense {
   body[data-tour-coach] .status-pill { top: calc(var(--header-height) + var(--tour-coach-h, 0px)); }
 }
 
-/* Waiting and punctuality preview, under Simple view's answer. */
+/* Waiting and punctuality, under Simple view's answer. */
 .jt-reliability { margin: var(--space-sm) 0 0; padding: var(--space-sm) 0 0; border-top: 1px solid var(--color-border); }
 .jt-reliability p { margin: var(--space-2xs) 0 0; line-height: 1.45; }
 .jt-reliability-title { margin: 0; font-size: var(--font-size-md); }
-.jt-preview-tag {
-  display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; vertical-align: middle;
-  background: var(--color-surface-2); color: var(--color-text-muted); border: 1px solid var(--color-border);
-  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-}
 .jt-reliability-thin, .jt-reliability-basis { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 
 /* A departure whose bus is not on the road yet: its own journey, opened under

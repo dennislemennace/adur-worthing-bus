@@ -52,9 +52,9 @@ async function connect(url) {
 
 async function main() {
   const base = new URL(SITE);
-  // ?preview=1: while data/tour.json is preview_only, tour.html draws its
-  // slides only for that address (tour-page.js), and the PDF is printed for
-  // the same people the gated link is: drawn nothing, it could not be built.
+  // ?preview=1 is harmless on a public tour and needed should data/tour.json
+  // ever be marked preview_only again: tour.html then draws its slides only
+  // for that address (tour-page.js), and drawn nothing, no PDF could be built.
   const url = `${base.origin}${base.pathname.replace(/[^/]*$/, "")}tour.html?preview=1`;
   const page = await connect("about:blank");
   try {

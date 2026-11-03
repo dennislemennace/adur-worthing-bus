@@ -186,8 +186,8 @@ function reportHtml(doc, index) {
   return `<h1>Route report: ${name}</h1>
     <p class="lede">${from ? `${esc(dayLabel(from))} to ${esc(dayLabel(to))}` : ""}${(doc.days || []).length
       ? `, ${doc.days.length} days recorded` : ""}.</p>
-    <p class="draft"><strong>Draft.</strong> Stop times come from the buses' own location reports and have not yet
-      been checked against times someone saw. Read every figure with its count, and the caveats below.</p>
+    <p class="draft"><strong>Draft.</strong> Stop times come from the buses' own location reports. Hand-timed checks
+      against times someone saw at the stop are under way. Read every figure with its count, and the caveats below.</p>
     <h2>What was measured</h2>
     ${identificationHtml(doc)}
     ${punctualityHtml(doc)}

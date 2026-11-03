@@ -34,30 +34,34 @@ const tour = {
 };
 
 /** What a "Show me" can do. data/tour.json is tested against this list. */
-const TOUR_ACTIONS = ["board", "live-map", "evidence", "route-view", "tickets", "planner",
-                      "journey-times", "delay-map", "link"];
+const TOUR_ACTIONS = ["board", "live-map", "evidence", "route-view", "route", "tickets", "planner",
+                      "journey-times", "delay-map", "updates", "better-buses", "a11y", "link"];
 
 /** The actions that open a view, and so are stops on the walk. The others
- *  (the evidence over the page, another page in a new tab) are buttons on the
- *  card and leave the walk where it is. */
-const TOUR_VIEWS = ["board", "live-map", "route-view", "tickets", "planner",
-                    "journey-times", "delay-map"];
+ *  (the evidence or the accessibility settings over the page, another page in
+ *  a new tab) are buttons on the card and leave the walk where it is. */
+const TOUR_VIEWS = ["board", "live-map", "route-view", "route", "tickets", "planner",
+                    "journey-times", "delay-map", "updates", "better-buses"];
 
 /** The site's view each of those opens. */
 const TOUR_VIEW_OF = {
   board: "live", "live-map": "live", planner: "live", "route-view": "improvements",
-  tickets: "tickets", "journey-times": "journeytimes", "delay-map": "journeytimes",
+  route: "improvements", tickets: "tickets", "journey-times": "journeytimes",
+  "delay-map": "journeytimes", updates: "updates", "better-buses": "network",
 };
 
 /** The control each stop's hint is about, for the ring. The live map has
  *  none: the hint is about the buses, which are the whole map. */
 const TOUR_TARGETS = {
   "route-view":    '.panel-mode[data-mode="improvements"] .service-mode-toggle',
+  "route":         "#route-detail .route-detail-head",
   "board":         "#departures-container",
   "tickets":       "#jc-result",
   "planner":       "#plan-journey",
   "journey-times": ".jt-simple-chart",
   "delay-map":     "#jt-delay-panel",
+  "updates":       '.panel-mode[data-mode="updates"] .panel-tabs',
+  "better-buses":  '.panel-mode[data-mode="network"] .panel-tabs',
 };
 
 /** Stops whose target is the point of the stop: it goes to the top of the
@@ -74,7 +78,8 @@ const TOUR_COAST = [[50.815, -0.335], [50.85, -0.125]];
  *  journey's chart is the stop, so it has the whole sheet. */
 const TOUR_DETENTS = {
   "live-map": "peek", "delay-map": "peek", "route-view": "peek", "board": "half",
-  "tickets": "half", "planner": "half", "journey-times": "full",
+  "tickets": "half", "planner": "half", "journey-times": "full", "route": "half",
+  "updates": "half", "better-buses": "half",
 };
 
 function loadTour() {
@@ -87,8 +92,8 @@ function loadTour() {
   return tour.promise;
 }
 
-/** Shown to everyone once its copy is approved; until then, only with
- *  ?preview=1, so drafts can be checked on the live site. */
+/** Shown to everyone unless the file marks it preview_only, when it is
+ *  offered only with ?preview=1 so a draft can be checked on the live site. */
 function tourOffered(data, preview = (typeof previewEnabled === "function" && previewEnabled())) {
   return Boolean(data && (!data.preview_only || preview));
 }
@@ -102,7 +107,17 @@ async function tourInitMenu() {
   const label = item.querySelector(".section-nav-text");
   const badge = item.querySelector(".section-nav-new");
   if (label) label.textContent = data.menu.label;
-  if (badge) badge.textContent = data.menu.badge;
+  if (badge) {
+    badge.textContent = data.menu.badge;
+    badge.hidden = !tourBadgeShown(data);
+  }
+}
+
+/** The menu's "New" badge, until the event the tour was written for is over. */
+function tourBadgeShown(data, now = new Date()) {
+  const until = data && data.event && data.event.show_until;
+  if (!until) return true;
+  return now.toLocaleDateString("en-CA", { timeZone: "Europe/London" }) <= until;
 }
 
 function tourText(text, values) {
@@ -369,6 +384,28 @@ async function tourRunAction(t) {
     case "route-view":
       await tourGo("improvements");
       return;
+    case "route": {
+      // One route, as the reader would choose it from the pickers.
+      await tourGo("improvements");
+      // The pickers are on the About tab, which a reader may have left.
+      if (state.improvementsTab !== "about") setImprovementsTab("about");
+      const pick = document.getElementById("route-pick-disclosure");
+      if (pick) pick.open = true;
+      // Always drawn afresh: a route chosen earlier may be remembered after
+      // leaving Route view took its panel down.
+      await focusRoute(t.operator, t.service);
+      return;
+    }
+    case "updates":
+      await tourGo("updates");
+      return;
+    case "better-buses":
+      await tourGo("network");
+      return;
+    case "a11y":
+      // A dialog over whatever is open, like the evidence.
+      openA11yDialog(document.activeElement);
+      return;
     case "tickets": {
       await tourGo("tickets");
       const presets = await loadJourneyPresets().catch(() => []);
@@ -402,7 +439,7 @@ async function tourRunAction(t) {
     case "link":
       // Another page opens beside the tour rather than in place of it.
       if (/^mailto:/i.test(t.href)) location.href = t.href;
-      else if (/^(https:\/\/|[a-z0-9_-]+\.html(#[a-z0-9_-]*)?$)/i.test(t.href)) window.open(t.href, "_blank", "noopener");
+      else if (/^(https:\/\/|[a-z0-9_-]+\.html(\?[a-z0-9=&_-]*)?(#[a-z0-9_-]*)?$)/i.test(t.href)) window.open(t.href, "_blank", "noopener");
       return;
     default:
   }

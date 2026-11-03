@@ -32,7 +32,7 @@ test("another operator's 17 does not borrow Stagecoach's livery", () => {
   assert.notEqual(app.iconForService("BHBC", "17"), "icons/SCSO-17.png");
 });
 
-// ── Each bus in its own livery (asked for 2 November 2026; ?preview=1 only) ──
+// ── Each bus in its own livery (asked for 2 November 2026; for everyone from 3 November) ──
 
 const FLEET = {
   operators: {
@@ -44,22 +44,22 @@ const FLEET = {
 };
 const bus = (operator_ref, vehicle_ref, service_ref = "1") => ({ operator_ref, vehicle_ref, service_ref });
 
-test("with ?preview=1 a bus wears its own livery, found by fleet number or plate", () => {
-  assert.equal(app.iconForVehicle(bus("BHBC", "212", "20"), "20", FLEET, true), "icons/liveries/bh-teal-dd.png");
-  assert.equal(app.iconForVehicle(bus("SCSO", "SCSO-10941", "700"), "700", FLEET, true), "icons/liveries/sc-coastliner-dd.png");
-  assert.equal(app.iconForVehicle(bus("SCSC", "SCSO-10941", "700"), "700", FLEET, true), "icons/liveries/sc-coastliner-dd.png");
-  assert.equal(app.iconForVehicle(bus("COMT", "YW25_DFC", "37"), "37", FLEET, true), "icons/liveries/compass-sd.png");
+test("a bus wears its own livery, found by fleet number or plate", () => {
+  assert.equal(app.iconForVehicle(bus("BHBC", "212", "20"), "20", FLEET), "icons/liveries/bh-teal-dd.png");
+  assert.equal(app.iconForVehicle(bus("SCSO", "SCSO-10941", "700"), "700", FLEET), "icons/liveries/sc-coastliner-dd.png");
+  assert.equal(app.iconForVehicle(bus("SCSC", "SCSO-10941", "700"), "700", FLEET), "icons/liveries/sc-coastliner-dd.png");
+  assert.equal(app.iconForVehicle(bus("COMT", "YW25_DFC", "37"), "37", FLEET), "icons/liveries/compass-sd.png");
 });
 
-test("without the preview flag every bus keeps its route or operator icon", () => {
-  assert.equal(app.iconForVehicle(bus("BHBC", "212", "7"), "7", FLEET, false), app.iconForService("BHBC", "7"));
-  assert.equal(app.iconForVehicle(bus("COMT", "YW25_DFC", "37"), "37", FLEET, false), app.iconForService("COMT", "37"));
+test("liveries need no preview flag: everyone sees them", () => {
+  app.location.search = "";
+  assert.equal(app.iconForVehicle(bus("BHBC", "212", "7"), "7", FLEET), "icons/liveries/bh-teal-dd.png");
 });
 
 test("a bus with no livery icon, or not in the list, falls back to the route icon", () => {
-  assert.equal(app.iconForVehicle(bus("BHBC", "201", "7"), "7", FLEET, true), app.iconForService("BHBC", "7"));
-  assert.equal(app.iconForVehicle(bus("BHBC", "999", "1"), "1", FLEET, true), app.iconForService("BHBC", "1"));
-  assert.equal(app.iconForVehicle(bus("BHBC", "212", "7"), "7", null, true), app.iconForService("BHBC", "7"));
+  assert.equal(app.iconForVehicle(bus("BHBC", "201", "7"), "7", FLEET), app.iconForService("BHBC", "7"));
+  assert.equal(app.iconForVehicle(bus("BHBC", "999", "1"), "1", FLEET), app.iconForService("BHBC", "1"));
+  assert.equal(app.iconForVehicle(bus("BHBC", "212", "7"), "7", null), app.iconForService("BHBC", "7"));
 });
 
 test("every livery icon in data/fleet.json is a file that exists", () => {

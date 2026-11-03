@@ -75,6 +75,30 @@ test("offered only once approved, or with ?preview=1", () => {
   assert.equal(app.tourOffered(null, true), false);
 });
 
+test("the tour is public, and its New badge goes once the expo is over", () => {
+  // Public from 3 November 2026 at the maintainer's request.
+  assert.equal(TOUR.preview_only, false, "the tour is still behind ?preview=1");
+  const app = loadTour();
+  const data = { event: { show_until: "2026-11-05" } };
+  assert.equal(app.tourBadgeShown(data, new Date("2026-11-05T22:30:00Z")), true, "the last day, London time");
+  assert.equal(app.tourBadgeShown(data, new Date("2026-11-06T00:30:00Z")), false);
+  assert.equal(app.tourBadgeShown({}, new Date("2030-01-01T00:00:00Z")), true, "no event, no end date");
+});
+
+test("every stop has a view and a ring, and one stop opens a single route", () => {
+  const app = loadTour();
+  const views = vm.runInContext("TOUR_VIEWS", app);
+  const viewOf = vm.runInContext("TOUR_VIEW_OF", app);
+  const detents = vm.runInContext("TOUR_DETENTS", app);
+  for (const v of views) {
+    assert.ok(viewOf[v], `${v} opens no view`);
+    assert.ok(detents[v], `${v} has no sheet height`);
+  }
+  const route = TOUR.steps.flatMap(s => s.try).find(t => t.action === "route");
+  assert.ok(route && route.operator && route.service, "no stop opens one route");
+  assert.ok(views.includes("route") && vm.runInContext("TOUR_TARGETS", app).route);
+});
+
 test("the tour's page is a way in, not the tour: a start, the slides, and a contents list", () => {
   const app = loadTour();
   const doc = JSON.parse(JSON.stringify(TOUR));

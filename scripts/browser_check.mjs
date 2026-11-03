@@ -1794,24 +1794,25 @@ async function checkMapTaps(page, where) {
 }
 
 /**
- * Each bus in its own livery (asked for 2 November 2026), only with
- * ?preview=1. Without the flag the fleet list is never fetched and a bus
- * keeps its route icon; with it, buses named in data/fleet.json wear their
- * own, the picture loads at the served size in the same box as a route icon,
- * single-deckers drawn longer than double-deckers as the other icons are, and
- * the Bus tab says what the bus is, crediting bustimes.org.
+ * Each bus in its own livery (asked for 2 November 2026, for everyone from 3
+ * November). With no flag in the address the fleet list is fetched once and
+ * buses named in data/fleet.json wear their own; the picture loads at the
+ * served size in the same box as a route icon, single-deckers drawn longer
+ * than double-deckers as the other icons are, and the Bus tab says what the
+ * bus is, crediting bustimes.org.
  */
-async function checkLiveryPreview(plain, where) {
+async function checkLiveries(plain, where) {
+  await waitFor(plain, "!!state.fleet", 20000, 250).catch(() => {});
   const before = JSON.parse(await plain.evaluate(`JSON.stringify({
-    fetched: performance.getEntriesByType("resource").some(e => /fleet\\.json/.test(e.name)),
+    search: location.search,
+    fetched: performance.getEntriesByType("resource").filter(e => /fleet\\.json/.test(e.name)).length,
     icon: iconForVehicle({ operator_ref: "BHBC", vehicle_ref: "740", service_ref: "1X" }, "1X"),
     route: iconForService("BHBC", "1X") })`));
-  check(`without ?preview=1 no fleet list is fetched and buses keep their route icons — ${where}`,
-    !before.fetched && before.icon === before.route, JSON.stringify(before));
+  check(`with no preview flag the fleet list is fetched once and a fleet bus wears its livery — ${where}`,
+    !/preview/.test(before.search) && before.fetched === 1 && /^icons\/liveries\//.test(before.icon)
+      && before.icon !== before.route, JSON.stringify(before));
 
-  const url = new URL(SITE);
-  url.searchParams.set("preview", "1");
-  const page = await openPage(VIEWPORTS.find(v => v.mobile) || VIEWPORTS[0], url.href);
+  const page = await openPage(VIEWPORTS.find(v => v.mobile) || VIEWPORTS[0], SITE);
   try {
     await waitFor(page, "!!state.fleet", 20000, 250);
     const r = JSON.parse(await page.evaluate(`(async () => {
@@ -1853,11 +1854,11 @@ async function checkLiveryPreview(plain, where) {
     const [refIcon, ...liveries] = r.out;
     const ok = liveries.every(o => !o.missing && /^icons\/liveries\//.test(o.src) && o.natural === 168
       && o.w === refIcon.w && o.h === refIcon.h);
-    check(`with ?preview=1 buses wear their own liveries, loaded at the served size — ${where}`, ok, JSON.stringify(r.out));
+    check(`buses wear their own liveries, loaded at the served size — ${where}`, ok, JSON.stringify(r.out));
     check(`the Bus tab says what the bus is and credits bustimes.org — ${where}`,
       !!r.line && /Brighton & Hove Buses colours/.test(r.line) && r.credited, JSON.stringify(r));
   } finally {
-    // Close the tab, not just the connection: a preview map left running
+    // Close the tab, not just the connection: a second map left running
     // polls buses beside the rest of the run.
     page.ws.close();
     await fetch(`${CDP}/json/close/${page.targetId}`).catch(() => {});
@@ -2021,12 +2022,13 @@ async function checkConference(page, where) {
  * is talking about, the menu still on the tour and the stop in the address.
  * The page under the card stays usable, the card's Back and the browser's
  * Back walk back, and End, Escape, Finish and the menu all leave. `full`
- * walks every stop; otherwise the first three, which cover a stop with no
- * view, one with a ring in the panel and one over the map.
+ * walks every stop; otherwise the first three: the map with no ring, then the
+ * board and the planner, each with a ring in the panel.
  */
 const TOUR_EXPECT = {
-  board: "live", "live-map": "live", "route-view": "improvements",
+  board: "live", "live-map": "live", "route-view": "improvements", route: "improvements",
   tickets: "tickets", planner: "live", "journey-times": "journeytimes", "delay-map": "journeytimes",
+  updates: "updates", "better-buses": "network",
 };
 
 /** Where the tour is and where its card sits. */
@@ -2130,9 +2132,11 @@ async function checkTour(page, where, { full = false } = {}) {
   const stops = JSON.parse(await page.evaluate(`JSON.stringify(tourStops(tour.data).map((x, n) => {
     const t = x.tryIndex == null ? null : tour.data.steps[x.step].try[x.tryIndex];
     return { n, step: x.step, tryIndex: x.tryIndex, action: t ? t.action : null, from: t && t.from, to: t && t.to,
+      service: t && t.service,
       title: t ? t.label : tour.data.steps[x.step].title, target: !!(t && TOUR_TARGETS[t.action]) };
   }))`)).map(x => ({ ...x, view: x.action ? TOUR_EXPECT[x.action] : null }));
   const walk = full ? stops : stops.slice(0, 3);
+  await page.evaluate("loadJourneyTimesIndex().then(i => { state._tourIndex = i; }).catch(() => {})");
   await page.evaluate(`document.querySelector('#tab-content-tour [data-tour-mode="explore"]').click()`);
   let audited = false;
   for (const stop of walk) {
@@ -2145,7 +2149,11 @@ async function checkTour(page, where, { full = false } = {}) {
         chart: (() => { const c = document.querySelector(".jt-simple-chart .jt-chart--day");
           if (!c) return null; const b = c.getBoundingClientRect();
           return { top: Math.round(b.top), bottom: Math.round(b.bottom), h: innerHeight }; })(),
-        lines: document.querySelectorAll(".route-network-line").length });
+        lines: document.querySelectorAll(".route-network-line").length,
+        focus: state.routeFocus && state.routeFocus.service,
+        // The route report is offered wherever the index has one for the route.
+        report: !!(state._tourIndex && routeReportHref(${JSON.stringify(stop.service || "700")}, "SCSO", state._tourIndex)),
+        routeCard: !!document.querySelector("#route-detail-report .report-cta") });
     })()`));
     const extra = stop.action === "board" ? got.stop === "149000007936"
       : stop.action === "planner" ? got.planTag
@@ -2156,6 +2164,7 @@ async function checkTour(page, where, { full = false } = {}) {
         && (!s.sheet || !s.card || got.chart.top >= s.card.bottom))
       : stop.action === "delay-map" ? got.section === "delays"
       : stop.action === "route-view" ? got.lines > 0
+      : stop.action === "route" ? got.focus === stop.service && (!got.report || got.routeCard)
       : true;
     const address = `tour=${stop.step + 1}${stop.tryIndex == null ? "" : `-${stop.tryIndex + 1}`}`;
     const inTour = s.demo && s.label === "Take the tour" && s.attr && new RegExp(`${address}(&|$)`).test(s.hash);
@@ -2180,16 +2189,22 @@ async function checkTour(page, where, { full = false } = {}) {
       check(`the view under the tour's card is usable, and the tour waits — ${where}`,
         used.mode === "night" && u.demo && u.demo.step === stop.step && !!u.card, JSON.stringify(used));
       await page.evaluate("document.getElementById('service-mode-day').click()");
-      // The evidence opens over the stop and leaves it where it was.
-      const ev = await page.evaluate(`!!document.querySelector('#tour-coach .tour-coach-extra')`);
-      if (ev) {
-        await page.evaluate(`document.querySelector('#tour-coach .tour-coach-extra').click()`);
-        await waitFor(page, `document.getElementById("evidence-dialog").open`, 10000).catch(() => {});
-        const evs = JSON.parse(await page.evaluate(`(() => { const d = document.getElementById("evidence-dialog");
-          const o = { open: d.open, demo: state.tourDemo, view: state.viewMode }; d.close(); return JSON.stringify(o); })()`));
-        check(`the evidence opens over a stop and leaves it as it was — ${where}`,
-          evs.open && evs.demo && evs.demo.step === stop.step && evs.view === "improvements", JSON.stringify(evs));
-      }
+    }
+    if (stop.action === "route" && got.routeCard) {
+      await checkContrastBothThemes(page, `the route report card in Route view — ${where}`);
+    }
+    // A dialog on the card (the evidence, the accessibility settings) opens
+    // over the stop and leaves it where it was.
+    for (const [action, dialog] of [["evidence", "evidence-dialog"], ["a11y", "a11y-dialog"]]) {
+      const j = await page.evaluate(`tour.data.steps[${stop.step}].try.findIndex(t => t.action === "${action}")`);
+      const btn = j >= 0 ? `#tour-coach .tour-coach-extra[data-tour-try="${stop.step}:${j}"]` : null;
+      if (!btn || !(await page.evaluate(`!!document.querySelector('${btn}')`))) continue;
+      await page.evaluate(`document.querySelector('${btn}').click()`);
+      await waitFor(page, `document.getElementById("${dialog}").open`, 10000).catch(() => {});
+      const evs = JSON.parse(await page.evaluate(`(() => { const d = document.getElementById("${dialog}");
+        const o = { open: d.open, demo: state.tourDemo, view: state.viewMode }; d.close(); return JSON.stringify(o); })()`));
+      check(`the ${action} dialog opens over a stop and leaves it as it was — ${where}`,
+        evs.open && evs.demo && evs.demo.step === stop.step && evs.view === (stop.view || evs.view), JSON.stringify(evs));
     }
   }
 
@@ -2292,8 +2307,8 @@ async function checkTourSlides() {
       await page.send("Network.setCacheDisabled", { cacheDisabled: true });
       await page.send("Emulation.setDeviceMetricsOverride",
         { width: vp.width, height: vp.height, deviceScaleFactor: 2, mobile: vp.mobile });
-      // Preview-only until the tour's copy is approved (tour-page.js).
-      await page.send("Page.navigate", { url: origin + "tour.html?preview=1" });
+      // Public from 3 November 2026: no preview flag.
+      await page.send("Page.navigate", { url: origin + "tour.html" });
       await waitFor(page, "document.querySelectorAll('.slide').length > 1", 20000);
       await sleep(800);
       const shown = () => page.evaluate(`[...document.querySelectorAll('.slide')]
@@ -5121,7 +5136,7 @@ await checkStopClosure(page, VIEWPORTS[0].name);
 await checkBoardNearby(page, VIEWPORTS[0].name);
 await checkSearchAboveKeyboard(page, VIEWPORTS[0].name);
 await checkBusJourneyLine(page, VIEWPORTS[0].name);
-await checkLiveryPreview(page, VIEWPORTS[0].name);
+await checkLiveries(page, VIEWPORTS[0].name);
 await checkRailReplacement(page, VIEWPORTS[0].name);
 await checkUpcomingStops(page, VIEWPORTS[0].name);
 await checkA11yMenu(page, VIEWPORTS[0].name, { desktop: false });

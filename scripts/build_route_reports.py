@@ -62,7 +62,7 @@ METHOD = (
 
 CAVEATS = [
     "Stop times are inferred from the buses' own location reports: the last report within 150 m of a "
-    "stop, about a minute apart. They have not yet been checked against times someone saw.",
+    "stop, about a minute apart. Hand-timed checks against times someone saw at the stop are under way.",
     "A bus that waits at a timing point is timed leaving it, so departures can read later than arrivals.",
     "A timetabled journey with no tracked bus may have run without reporting. It is missing evidence, "
     "never counted as cancelled.",

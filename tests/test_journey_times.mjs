@@ -1926,3 +1926,21 @@ test("the evidence says how each operator's journeys were identified, counted", 
   assert.equal(html(ident, "NATX", "X", ""), "", "an operator the file does not name says nothing");
   assert.equal(html(null, "SCSO", "700", ""), "");
 });
+
+test("the route report is offered to everyone, under the operator's family code", () => {
+  // Public from 3 November 2026 (Bus Performance, the delay map, Route view).
+  // Route view reads the timetable's code, SCSC, where the report is SCSO's.
+  const fresh = loadApp();
+  const href = vm.runInContext("routeReportHref", fresh);
+  const card = vm.runInContext("jtRouteReportLink", fresh);
+  vm.runInContext("location", fresh).search = "";
+  const index = { artifacts: { "route-report-700-SCSO.json": { file: "route-report-700-SCSO.json" } } };
+  assert.equal(href("700", "SCSO", index), "report.html?service=700&operator=SCSO");
+  assert.equal(href("700", "SCSC", index), "report.html?service=700&operator=SCSO", "SCSC is reported as SCSO");
+  assert.equal(href("1", "BHBC", index), "", "a route with no report has no link");
+  assert.equal(href("700", "SCSO", null), "");
+  const html = card({ service: "700", operator: "SCSO" }, index);
+  assert.match(html, /class="report-cta" href="report\.html\?service=700&amp;operator=SCSO"/);
+  assert.match(html, /Route report for the 700/);
+  assert.equal(card(null, index), "");
+});

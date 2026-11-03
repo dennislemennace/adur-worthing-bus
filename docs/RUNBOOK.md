@@ -340,11 +340,11 @@ live-prediction quota is spent.
 **Route reports** (`report.html?service=700&operator=SCSO`). Built nightly by
 `scripts/build_route_reports.py` from the window, `identification.json`, the
 headways files and the delay maps, one `route-report-*.json` per service,
-checked by `check_published.check_route_report`. Linked from Bus Performance
-only with `?preview=1` until stop times have been checked against times
-someone saw (the roadmap's hand-timed check); the page itself carries a Draft
-banner. To make the link public, drop the `previewEnabled()` test in
-`jtRouteReportLink`.
+checked by `check_published.check_route_report`. Public from 3 November 2026:
+offered as a card (`routeReportCardHtml`, app.js) in Bus Performance's Simple
+and Detailed views, on the delay map, in Route view for the route chosen, and
+in the tour. The page keeps its Draft banner, saying hand-timed checks are
+under way, until the roadmap's hand-timed check of stop times has a result.
 
 **Hand timings.** Two phone pages log times seen by hand, kept on the phone
 until exported as CSV: `timing.html` at a stop (every bus that calls) and

@@ -690,8 +690,8 @@ async function init() {
   // Start live bus position loop
   startVehicleRefresh();
 
-  // Each bus in its own livery, for now only with ?preview=1.
-  if (previewEnabled()) loadFleet().then(refreshBusMarkerIcons).catch(() => {});
+  // Each bus in its own livery, once the fleet list has arrived.
+  loadFleet().then(refreshBusMarkerIcons).catch(() => {});
 
   // The council boundary is part of the Live map, so it loads with it rather
   // than waiting for the first switch into Route view.
@@ -2953,7 +2953,9 @@ function renderJourneyTimesIntro(opts = {}) {
   host.innerHTML = `${lead}
     ${showPresets ? `<div class="jt-popular" hidden></div>` : ""}
     ${jtDetailedAvailable() ? `<p class="jt-entry-actions"><button type="button"
-      class="jt-reset-days" data-act="browse">Browse every service</button></p>` : ""}`;
+      class="jt-reset-days" data-act="browse">Browse every service</button></p>` : ""}
+    <p class="jt-entry-actions"><a class="jt-link" href="report.html">Route reports: punctuality,
+      waiting and where time is lost, for every route we track</a></p>`;
 
   if (showPresets) {
     Promise.all([loadJourneyTimesIndex(), loadJourneyTimePresets()]).then(([index, data]) => {
@@ -4403,7 +4405,7 @@ function jtHeadwaysCell(hw, atco, direction, dayKey, periodKey) {
  *  figure counted, never "non-compliant", never "cancelled". `stopName` is
  *  already escaped. */
 function jtReliabilityHtml(hw, cell, stopName) {
-  const head = `<h4 class="jt-reliability-title">How reliable is this route? <span class="jt-preview-tag">Preview</span></h4>`;
+  const head = `<h4 class="jt-reliability-title">How reliable is this route?</h4>`;
   if (!cell) {
     return `${head}<p class="jt-reliability-thin">${stopName} is not a timing point for this route, so it has
       no waiting or punctuality figures.</p>`;
@@ -4459,19 +4461,19 @@ function jtReliabilityHtml(hw, cell, stopName) {
     buses tracked here${days.length ? `, ${escapeHtml(jtDayLabel(days[0], false))} to ${
     escapeHtml(jtDayLabel(days[days.length - 1], false))}` : ""}. A bus we did not see may have run without
     reporting; it is never counted as cancelled.${cell.excluded_by ? " Includes days with a recorded disruption." : ""}
-    Preview figures, which may change.</p>`);
+    Updated every night.</p>`);
   return head + parts.join("");
 }
 
 /** Add the preview under Simple view's answer, once its file has loaded. */
-async function jtShowReliabilityPreview(host, { index, doc, fromIndex, dayKey, periodKey }) {
+async function jtShowReliability(host, { index, doc, fromIndex, dayKey, periodKey }) {
   const answer = host.querySelector(".jt-simple-answer");
   const name = jtHeadwaysFile(doc.service, doc.operator);
   const entry = index && index.artifacts && index.artifacts[name];
   if (!answer || !entry) return;
   const box = document.createElement("section");
   box.className = "jt-reliability";
-  box.setAttribute("aria-label", "How reliable is this route, a preview");
+  box.setAttribute("aria-label", "How reliable is this route");
   box.innerHTML = `<p class="jt-reliability-thin">Loading waiting and punctuality…</p>`;
   answer.after(box);
   try {
@@ -4487,18 +4489,33 @@ async function jtShowReliabilityPreview(host, { index, doc, fromIndex, dayKey, p
 }
 
 
-/** "Route report for the 700": the printable report (report.html), behind
- *  ?preview=1 until stop times have been checked against an independent
- *  record, and only where the build has one for this route. */
-function jtRouteReportLink(doc, index) {
-  if (!doc || !previewEnabled()) return "";
-  const safe = String(doc.service || "").replace(/[^A-Za-z0-9_-]/g, "") || "unknown";
-  const noc = String(doc.operator || "").replace(/[^A-Za-z0-9]/g, "") || "unknown";
-  if (!(index && index.artifacts && index.artifacts[`route-report-${safe}-${noc}.json`])) return "";
-  const params = new URLSearchParams({ service: doc.service, operator: doc.operator });
+/** report.html for one route, or "" where the build has no report for it.
+ *  The operator is taken through its family (SCSC is reported as SCSO), as
+ *  scripts/build_route_reports.py names the files. */
+function routeReportHref(service, operator, index) {
+  const safe = String(service || "").replace(/[^A-Za-z0-9_-]/g, "");
+  const raw = String(operator || "").replace(/[^A-Za-z0-9]/g, "");
+  const noc = JT_OPERATOR_FAMILIES[raw] || raw;
+  if (!safe || !noc || !index?.artifacts?.[`route-report-${safe}-${noc}.json`]) return "";
+  const params = new URLSearchParams({ service: String(service), operator: noc });
   const build = journeyTimesBuildFromUrl();
   if (build) params.set("build", build);
-  return `<a class="jt-link" href="report.html?${escapeAttr(params.toString())}">Route report for the ${escapeHtml(doc.service)}</a>`;
+  return `report.html?${params.toString()}`;
+}
+
+/** The route report offered as a card: one look wherever it appears (Bus
+ *  Performance, the delay map, Route view). */
+function routeReportCardHtml(href, service) {
+  if (!href) return "";
+  return `<a class="report-cta" href="${escapeAttr(href)}">
+      <span class="report-cta-title">Route report for the ${escapeHtml(service)}</span>
+      <span class="report-cta-sub">Punctuality, waiting and where time is lost, week by week. Print or save as PDF.</span>
+    </a>`;
+}
+
+/** "Route report for the 700", for the service a journey-times document covers. */
+function jtRouteReportLink(doc, index) {
+  return doc ? routeReportCardHtml(routeReportHref(doc.service, doc.operator, index), doc.service) : "";
 }
 
 // ── How we knew which journey each bus was running ─────────────
@@ -4904,14 +4921,13 @@ function renderJourneyTimesSimple(ctx) {
       ${fromStop?.atco ? `<button type="button" class="jt-link" data-act="departures">Next buses from ${name(fromIndex)}</button>` : ""}
       <button type="button" class="jt-link" data-act="copy">Copy link to this journey</button>
       ${jtDetailedAvailable() ? `<button type="button" class="jt-link" data-act="detailed">See all the data</button>` : ""}
-      ${jtRouteReportLink(doc, index)}
     </p>
     <p class="jt-copy-status" aria-live="polite"></p>`;
 
-  host.innerHTML = `<div class="jt-simple">${head}${answer}${measurement}${actions}</div>`;
-  // Waiting, bunching and punctuality at the boarding stop: behind ?preview=1
-  // until enough complete days pass the floors.
-  if (summary && previewEnabled()) jtShowReliabilityPreview(host, { index, doc, fromIndex, dayKey, periodKey });
+  host.innerHTML = `<div class="jt-simple">${head}${answer}${jtRouteReportLink(doc, index)}${measurement}${actions}</div>`;
+  // Waiting, bunching and punctuality at the boarding stop, where enough
+  // complete days pass the floors (scripts/build_headways.py).
+  if (summary) jtShowReliability(host, { index, doc, fromIndex, dayKey, periodKey });
   jtShowIdentification(host, index, doc);
 
   // Said once, briefly: the whole panel used to be read out on every change.
@@ -5817,6 +5833,8 @@ async function renderDelayMapPanel() {
       </div>
       ${timeControls}
       <p class="delay-status" role="status">${status}</p>
+      ${(() => { const s = services.find(x => x.file === jtDelay.service);
+        return s ? routeReportCardHtml(routeReportHref(s.service, s.operator, index), s.service) : ""; })()}
       <div class="delay-legend-panel">${delayLegendHtml()}</div>
       <div class="delay-detail" aria-live="polite"></div>
       <details class="delay-list-wrap"${view === "detailed" ? " open" : ""}>
@@ -6393,8 +6411,8 @@ async function renderJourneyTimes() {
         <button type="button" class="btn-secondary jt-json">Download filtered JSON</button>
         <a class="jt-link" href="${escapeAttr(journeyTimesShareUrl(index))}">${index.build_id ? "Link to this view, pinned to this data" : "Link to this view (the data may change)"}</a>
         <a class="jt-link" href="${escapeAttr(CONFIG.JOURNEY_TIMES_BASE + "/" + serviceSel.value)}" target="_blank" rel="noopener">Source JSON</a>
-        ${jtRouteReportLink(doc, index)}
       </div>
+      ${jtRouteReportLink(doc, index)}
       ${journeyTimesEvidenceHtml(doc, index, timings, all.length - timings.length)}
       ${journeyTimesDestinations(direction)}
       <ul class="jt-figures">
@@ -7150,7 +7168,7 @@ function updateVehicleMarkers(vehicles) {
  * status chip and a hint pointing the user at the side panel.
  */
 function buildBusPopupHtml(vehicle, label) {
-  const iconUrl = previewEnabled() ? iconForVehicle(vehicle, label) : OPERATOR_ICONS[vehicle.operator_ref];
+  const iconUrl = iconForVehicle(vehicle, label);
   const colour  = getRouteColour(vehicle.service_ref || label, vehicle.operator_ref);
   const badgeTextCls = pickTextOn(colour) === "dark"
     ? "service-badge--dark-text"
@@ -9444,7 +9462,7 @@ function busTabShellHtml(v) {
     <details class="bus-more">
       <summary>About the ${escapeHtml(service)} · ${escapeHtml(operatorName)}${fleet ? `, fleet ${escapeHtml(fleet)}` : ""}</summary>
       <p class="bus-more-note">Run by ${escapeHtml(operatorName)}${fleet ? `; this bus is fleet number ${escapeHtml(fleet)}` : ""}.</p>
-      ${previewEnabled() && fleetEntry(v.operator_ref, v.vehicle_ref)
+      ${fleetEntry(v.operator_ref, v.vehicle_ref)
         ? `<p class="bus-more-note" id="bus-fleet-line">${escapeHtml(fleetSentence(fleetEntry(v.operator_ref, v.vehicle_ref)))}.
              Vehicle details from <a href="https://bustimes.org/" target="_blank" rel="noopener">bustimes.org</a>.</p>`
         : ""}
@@ -9939,7 +9957,7 @@ function buildUpcomingStopsHtml() {
     const atText = at && !isNaN(at) ? ` at ${formatTimeOfDay(at)}` : "";
     note = `<span class="live-dot" aria-hidden="true"></span> Estimated from how late
       the bus was when it last reported${escapeHtml(atText)}, assuming it stays
-      that late; Scheduled is the timetabled time. Early buses wait at timing points. Buses can
+      most of that late, so you are more likely to be early than to miss it; Scheduled is the timetabled time. Early buses wait at timing points. Buses can
       make up time, so be at your stop by the timetabled time.${allowance}
       <a href="about.html#live-times">How this works</a>`;
   } else if (fromCalls) {
@@ -12337,6 +12355,7 @@ function routeDetailHtml(r, dir = 0, expanded = false) {
     </div>
     ${dirs}
     <p class="route-detail-when">${escapeHtml(routeWhenText(r))}</p>
+    <div class="route-detail-report" id="route-detail-report"></div>
     <h4 class="route-detail-sub">${expanded ? "Every stop" : "Main places"}</h4>
     <ol class="route-line" style="--route-colour:${colour}">${shown.map(({ s, i }) => `
       <li class="route-line-stop${main.has(i) ? " route-line-stop--main" : ""}">
@@ -12458,6 +12477,13 @@ function renderRouteFocus({ fit = false, refocus = null } = {}) {
     [{ service: f.service, operator: f.operator }]);
   const tickets = document.getElementById("route-detail-tickets");
   if (tickets) tickets.innerHTML = buildTicketInfoHtml(f.operator, null, f.service);
+  // The route report, where the recorded days have one for this route. The
+  // index is memoised; a route chosen meanwhile keeps its own card.
+  loadJourneyTimesIndex().then(index => {
+    const box = document.getElementById("route-detail-report");
+    if (!box || state.routeFocus !== f) return;
+    box.innerHTML = routeReportCardHtml(routeReportHref(f.service, f.operator, index), f.service);
+  }).catch(() => {});
   const strip = document.getElementById("route-strip");
   if (strip) { strip.innerHTML = routeStripHtml(f.detail, f.dir); strip.hidden = false; }
   // A control redrawn under the reader's keyboard gets its focus back.
@@ -13940,11 +13966,12 @@ function nearestStops(lat, lon, count = NEAR_ME_COUNT) {
   });
 }
 
-// ── Journey planner (preview) ─────────────────────────────────
+// ── Journey planner (experimental) ───────────────────────────
 //
 // Door-to-door plans from the Buses & Trains API (api/journey_planner.py,
-// /api/plan), shown only with ?preview=1 while its quality is judged against
-// this site's own direct and one-change answers.
+// /api/plan), shown to everyone since 30 September 2026 and tagged
+// Experimental while its quality is judged against this site's own direct and
+// one-change answers.
 
 const PLAN_AGENCY_NOCS = [[/stagecoach/i, "SCSO"], [/brighton\s*&?\s*(and\s*)?hove/i, "BHBC"],
                           [/compass/i, "CMPA"], [/metrobus/i, "METR"], [/national express/i, "NATX"]];
@@ -18925,8 +18952,8 @@ function iconForService(operatorRef, service) {
 
 // ============================================================
 // EACH BUS IN ITS OWN LIVERY
-// Asked for 2 November 2026, and shown only with ?preview=1 until it has been
-// looked over: everyone else keeps the route and operator icons above.
+// Asked for 2 November 2026, shown to everyone from 3 November. A bus the list
+// does not draw keeps its route or operator icon above.
 // data/fleet.json is bustimes.org's vehicle list (scripts/build_fleet.py),
 // naming the drawn livery each bus wears (scripts/livery_designs.py).
 // ============================================================
@@ -18955,10 +18982,10 @@ function fleetEntry(operatorRef, vehicleRef, fleet = state.fleet) {
   return op.vehicles[k] || null;
 }
 
-/** The picture for this bus: its own livery, where the fleet list draws one
- *  and the preview is on, else its route's or its operator's. */
-function iconForVehicle(vehicle, label, fleet = state.fleet, preview = previewEnabled()) {
-  if (preview && vehicle) {
+/** The picture for this bus: its own livery, where the fleet list draws one,
+ *  else its route's or its operator's. */
+function iconForVehicle(vehicle, label, fleet = state.fleet) {
+  if (vehicle) {
     const row = fleetEntry(vehicle.operator_ref, vehicle.vehicle_ref, fleet);
     if (row && row.i) return `icons/${row.i}`;
   }

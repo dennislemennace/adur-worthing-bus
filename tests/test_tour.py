@@ -22,8 +22,10 @@ STOPS = {s["atco_code"] for s in json.loads((ROOT / "data" / "stops.json").read_
 TICKET_PRESETS = {p["id"] for p in json.loads((ROOT / "data" / "journey_presets.json").read_text())["presets"]}
 
 BADGES = {"live", "recorded", "timetable", "sourced", "experimental", "about"}
-ACTIONS = {"board", "live-map", "evidence", "route-view", "tickets", "planner",
-           "journey-times", "delay-map", "link"}
+ACTIONS = {"board", "live-map", "evidence", "route-view", "route", "tickets", "planner",
+           "journey-times", "delay-map", "updates", "better-buses", "a11y", "link"}
+SERVICES = {svc for s in json.loads((ROOT / "data" / "stops.json").read_text())["stops"]
+            for svc in s.get("services") or []}
 ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -79,10 +81,12 @@ def test_every_show_me_points_at_something_real():
                 assert t["preset"] in TICKET_PRESETS, where
             if t["action"] == "journey-times":
                 assert t["from"] in STOPS and t["to"] in STOPS, where
+            if t["action"] == "route":
+                assert re.fullmatch(r"[A-Z]{4}", t["operator"]) and t["service"] in SERVICES, where
             if t["action"] == "link":
                 href = t["href"]
                 assert (href.startswith(("https://", "mailto:"))
-                        or (ROOT / href.split("#")[0]).exists()), where
+                        or (ROOT / re.split(r"[?#]", href)[0]).exists()), where
 
 
 def test_sources_are_dated_and_reachable():
