@@ -81,6 +81,14 @@ def test_every_show_me_points_at_something_real():
                 assert t["preset"] in TICKET_PRESETS, where
             if t["action"] == "journey-times":
                 assert t["from"] in STOPS and t["to"] in STOPS, where
+            if t["action"] in ("journey-times", "delay-map"):
+                # The day and time of day are the view's own chips, so a typo
+                # opens on all day instead of the hours the hint describes.
+                assert t.get("day") in (None, "weekday", "weekend"), where
+                assert t.get("period") in (None, "08-10", "10-16", "16-18", "other"), where
+                assert "service" not in t or (t["service"] in SERVICES
+                                              and re.fullmatch(r"[A-Z]{4}", t.get("operator", ""))), where
+                assert t.get("direction") in (None, "eastbound", "westbound"), where
             if t["action"] == "route":
                 assert re.fullmatch(r"[A-Z]{4}", t["operator"]) and t["service"] in SERVICES, where
             if t["action"] == "link":

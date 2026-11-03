@@ -56,6 +56,10 @@ const VIEWPORTS = [
   { name: "landscape", width: 740, height: 360, mobile: true },
   { name: "tablet",  width: 768,  height: 1024, mobile: true  },
   { name: "desktop", width: 1440, height: 900,  mobile: false },
+  // A phone screen as tall as it is wide (1432x1436 device pixels, a folding
+  // phone opened out), reported "mostly unusable" on 3 November 2026: every
+  // other phone size here is far taller than wide, or a short landscape one.
+  { name: "square",  width: 716, height: 718, mobile: true },
 ];
 
 /** A reliably busy stop, so the departure board renders with real rows. */
@@ -3457,8 +3461,14 @@ async function checkWakingBanner(page, where) {
       // the sheet is on top, this is not the banner.
       const mid = document.elementFromPoint(
         Math.round(b.left + b.width / 2), Math.round(b.top + b.height / 2));
+      // The live-status pill says "Connecting" while the banner is up; on a
+      // phone it floats under the header, and the banner once sat over it.
+      const pill = document.getElementById("live-status-pill");
+      const pb = pill ? pill.getBoundingClientRect() : null;
+      const overPill = !!pb && pb.width > 0 && b.left < pb.right && pb.left < b.right
+        && b.top < pb.bottom && pb.top < b.bottom;
       return JSON.stringify({
-        found: true,
+        found: true, overPill,
         onTop: !!mid && (mid === el || el.contains(mid)),
         top: Math.round(b.top), bottom: Math.round(b.bottom),
         left: Math.round(b.left), right: Math.round(b.right),
@@ -3476,6 +3486,7 @@ async function checkWakingBanner(page, where) {
     && r.top >= r.headerBottom        // not tucked under the header
     && r.bottom <= r.vh               // not off the bottom of a short viewport
     && r.left >= 0 && r.right <= r.vw // not off the side at 320px
+    && !r.overPill                    // not over the connection status
     && r.onTop;
   check(`the waking-up banner is legible where it lands — ${where}`, ok,
     JSON.stringify(r));

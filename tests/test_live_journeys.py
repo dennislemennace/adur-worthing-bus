@@ -603,3 +603,51 @@ def test_the_scheduled_start_stays_internal_in_vehicle_response(monkeypatch):
     monkeypatch.setattr(main, "_check_api_key", lambda: None)
     monkeypatch.setattr(main, "_live_vehicles", vehicles)
     assert asyncio.run(main.get_vehicles())["vehicles"] == [{"vehicle_ref": "bus"}]
+
+
+# ── A guessed journey is the bus's own operator's (3 November 2026) ──
+
+class TwoOperatorTimetable(FakeTimetable):
+    """National Express's 025 and Brighton & Hove's 25, both near the bus:
+    feeds drop the leading zero, so the match reads "025" as "25" too."""
+
+    def __init__(self):
+        super().__init__()
+        start = 14 * 3600 + 22 * 60
+        self.trips = {"VJ_NX": {"headsign": "Victoria", "route_id": "RNX", "service_id": "S"},
+                      "VJ_BH": {"headsign": "Falmer", "route_id": "RBH", "service_id": "S"}}
+        self.routes = {"RNX": {"short_name": "025", "noc": "NATX"},
+                       "RBH": {"short_name": "25", "noc": "BHBC"}}
+        # The 25's journey lines up with the coach's position better than the
+        # coach's own, as it would on the stretch the two share.
+        self._by_trip = {"VJ_NX": [(start - 900 + i * 120, f"STOP{i}") for i in range(5)],
+                         "VJ_BH": [(start + i * 120, f"STOP{i}") for i in range(5)]}
+        self.stop_times = {}
+
+    def trip_stops_for(self, trip_id):
+        return self._by_trip.get(trip_id, [])
+
+    def stop_times_for(self, atco):
+        return [(c[0], t) for t, calls in self._by_trip.items() for c in calls if c[1] == atco]
+
+    def noc_for_route(self, route_id):
+        return (self.routes.get(route_id) or {}).get("noc", "")
+
+    def service_endpoints(self, key):
+        for trip_id, calls in self._by_trip.items():
+            if self.routes[self.trips[trip_id]["route_id"]]["short_name"] == key:
+                yield trip_id, calls[0][1], calls[-1][1], calls[0][0]
+
+
+def test_a_coach_is_not_given_a_local_bus_journey_with_the_same_number(monkeypatch):
+    _freeze(monkeypatch, 14, 26)
+    monkeypatch.setattr(main, "_runs_today", lambda *_a: True)
+    tt = TwoOperatorTimetable()
+    coach = a_bus(service_ref="025", operator_ref="NATX", destination="", vehicle_ref="NX-1")
+    assert main._best_trip_for_vehicle(dict(coach), tt) == "VJ_NX", "the Bus tab took the 25's stops"
+    found = [dict(coach)]
+    main._enrich_vehicles_with_trip_match(found, tt)
+    assert found[0].get("trip_id") == "VJ_NX"
+    # A Brighton & Hove 25 still finds its own.
+    bus = a_bus(service_ref="25", operator_ref="BHBC", destination="")
+    assert main._best_trip_for_vehicle(dict(bus), tt) == "VJ_BH"

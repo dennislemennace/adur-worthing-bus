@@ -195,15 +195,24 @@
       "try": [
         {
           "action": "journey-times",
-          "label": "Worthing to Portslade, measured",
+          "label": "Worthing to Portslade on the 700, measured",
           "from": "4400WO0254",
           "to": "149000006115",
-          "hint": "Each dot is one bus we timed from Worthing to Portslade, across the council line. The solid line is the usual time and the dashed line the timetable. Change the day or the time of day to compare."
+          "service": "700",
+          "operator": "SCSO",
+          "day": "weekday",
+          "period": "16-18",
+          "hint": "Each dot is one 700 we timed from Worthing to Portslade, across the council line, in the weekday evening peak. The solid line is the usual time and the dashed line the timetable. Change the day or the time of day to compare."
         },
         {
           "action": "delay-map",
           "label": "Where buses lose time",
-          "hint": "Each stretch is coloured by the time buses lose there. Tap one for its figures."
+          "service": "7",
+          "operator": "SCSO",
+          "direction": "eastbound",
+          "day": "weekday",
+          "period": "10-16",
+          "hint": "One route with enough journeys behind it to colour most of its stretches, each by the time buses lose there. Tap a stretch for its figures, or choose another route and time."
         },
         {
           "action": "link",

@@ -50,10 +50,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
 OR OTHER DEALINGS IN THE SOFTWARE.
 
-## Fraunces, Outfit, JetBrains Mono — SIL Open Font License 1.1
-
-Loaded from Google Fonts. Full text: https://openfontlicense.org/
-
 ## Map tiles and data — Open Database Licence
 
 © OpenStreetMap contributors. https://www.openstreetmap.org/copyright
@@ -86,15 +82,51 @@ written weekly by `scripts/build_fleet.py`) come from the vehicle list kept by
 bustimes.org (https://bustimes.org/), credited on the About page and in the
 site footer.
 
-## Timetable and boundary data — Open Government Licence v3.0
+## Bus Open Data Service: Open Government Licence v3.0
 
-Bus Open Data Service (Department for Transport) and the ONS Open Geography
-Portal. Contains OS data © Crown copyright and database right 2025.
+The Department for Transport's Bus Open Data Service: timetables
+(the South East GTFS export, built weekly into `timetable.sqlite`), live bus positions
+(SIRI-VM and GTFS-RT), disruptions (SIRI-SX) and fares (NeTEx, summarised in
+`data/fare_tables.json`). National Express coaches come through it too. The
+stop list in `data/stops.json` is built from the same timetable. Contains public sector information licensed under the
+Open Government Licence v3.0:
+https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
 
----
+## NaPTAN: Open Government Licence v3.0
 
-**This project's own licence has not been chosen.** `docs/ASSET_RIGHTS.md`
-records that as an open question for the owner.
+Stop letters, streets and landmarks (`data/stop_details.json`), from the Department for Transport's National Public
+Transport Access Nodes register. Contains public sector information licensed
+under the Open Government Licence v3.0.
+
+## Bus registrations: Open Government Licence v3.0
+
+Each route's registration history (`data/registrations.json`, written by
+`scripts/build_registrations.py`), from the Traffic Commissioners' register of
+local bus services as DVSA publishes it on data.gov.uk
+(https://www.data.gov.uk/dataset/bus-registrations-data-set). Contains public
+sector information licensed under the Open Government Licence v3.0.
+
+## Boundaries and postcodes: Open Government Licence v3.0
+
+Council and electoral boundaries (`data/council_boundaries.json`) from the ONS
+Open Geography Portal, and postcode lookups through postcodes.io
+(https://postcodes.io/), which uses the ONS Postcode Directory. Source: Office
+for National Statistics licensed under the Open Government Licence v3.0.
+Contains OS data © Crown copyright and database right 2026. Contains Royal Mail
+data © Royal Mail copyright and database right 2026.
+
+## TransportAPI
+
+Live departure predictions, fetched by the API at request time and not
+redistributed in this repository. Attribution as TransportAPI's terms ask:
+"Source: http://transportapi.com/".
+
+## Realtime Trains
+
+Train times and platforms, fetched by the API at request time and not
+redistributed in this repository, from Realtime Trains
+(https://www.realtimetrains.co.uk/), with data from Network Rail and other
+sources.
 
 ## Fraunces, Outfit and JetBrains Mono: SIL Open Font License 1.1
 

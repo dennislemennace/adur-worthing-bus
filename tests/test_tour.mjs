@@ -257,3 +257,14 @@ test("every view the tour walks to says what to try there", () => {
     for (const t of s.try) if (views.includes(t.action)) assert.ok(t.hint, `${s.id}: ${t.label} has no hint`);
   }
 });
+
+test("the tour's evening peak gives way to the reader's own choice when it ends", () => {
+  const app = loadTour();
+  vm.runInContext(`jtEntry.day = "weekend"; jtEntry.period = "any"; jtEntry.zoom = false;
+    tourSaveJourneyTimes(); jtEntry.day = "weekday"; jtEntry.period = "16-18"; jtEntry.zoom = true;
+    tourSaveJourneyTimes();   // a second stop must not save the tour's own choice
+    jtEntry.period = "08-10";
+    tourRestoreJourneyTimes();`, app);
+  assert.deepEqual(JSON.parse(vm.runInContext("JSON.stringify([jtEntry.day, jtEntry.period, jtEntry.zoom])", app)),
+    ["weekend", "any", false]);
+});

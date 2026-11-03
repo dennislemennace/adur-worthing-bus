@@ -1,0 +1,262 @@
+# Maintaining Worthing Brighton Bus
+
+How the curated content is published and how parts of the site behave, for
+whoever maintains it. What runs where, and the routine and nightly operations,
+are in [`RUNBOOK.md`](./RUNBOOK.md). The free-tier limits every change has to
+fit are in [`LIMITS.md`](../LIMITS.md).
+
+## Community ideas (Better buses → Ideas)
+
+The Ideas form, the proposal editor's **Submit** button, and the departure
+board's **Report an issue** button all post to a small
+[Cloudflare Worker](../worker/README.md), which files each submission as an
+issue in a **private** GitHub repository. **No account is needed to submit.**
+Nothing is public until a maintainer has read it and published it to `data/`
+with the `scripts/add_*.py` scripts, and every form carries a box the sender
+ticks to confirm they understand that approved submissions are published.
+
+To switch it on, deploy the Worker (see [`worker/README.md`](../worker/README.md)
+for the full runbook: KV namespace, fine-grained PAT, Turnstile keys) and paste
+its URL into `CONFIG.SUBMIT_ENDPOINT` in `app.js`, along with your Turnstile
+**site key** in `CONFIG.TURNSTILE_SITE_KEY`. Until the endpoint is set, the
+forms show a friendly "not switched on yet" message.
+
+Spam is held back by a honeypot, Cloudflare Turnstile, per-client rate limits
+and a global daily cap. Submissions are also sanitised server-side before they
+reach an issue — notably `@mentions` are defused, because an issue body is a
+broadcast.
+
+### Visit counting
+
+Visits and a short list of actions are counted with
+[GoatCounter](https://www.goatcounter.com/): no cookies, no stored IP
+addresses, and not loaded at all for browsers that send Do Not Track or Global
+Privacy Control, nor for readers who switch it off on `privacy.html`. The site
+code (the `MYCODE` in `MYCODE.goatcounter.com`) is set in two places that must
+match: `CONFIG.GOATCOUNTER_CODE` in `app.js`, and `var code` in
+`analytics-page.js`, which the static pages load. `privacy.html` lists what is
+counted; `LIMITS.md` has the rules for adding to it.
+
+### Approving an idea
+
+Nothing is published automatically. Submissions arrive in the private
+`adur-worthing-bus-inbox` repository as issues labelled
+`community-submission` / `unverified`, and stay there until you publish them —
+so junk never reaches the site. Each idea issue carries a ready-to-publish JSON
+blob. To approve one:
+
+```sh
+# straight from the issue number:
+python scripts/add_suggestion.py --from-issue 42
+# …or paste the JSON blob:
+python scripts/add_suggestion.py '{"title":"…","body":"…","area":"…"}'
+# …or pipe it in:  wl-paste | python scripts/add_suggestion.py
+# …or run with no args to type the fields in by hand
+```
+
+`--from-issue` needs the [`gh`](https://cli.github.com) CLI authenticated, and
+closes the issue for you once the idea is published.
+
+**Route proposals** — drawn in the in-app editor rather than typed into the
+Ideas form — go through their own script, because they carry geometry rather
+than prose:
+
+```sh
+python scripts/add_proposal.py --from-issue 2
+```
+
+It publishes as `community`, and will not take `category` from the submission:
+that field decides whether the site draws a route on the map as one of its own,
+so promoting a submission needs `--official` typed by a human. It also
+bounds-checks every coordinate — a transposed `[lon, lat]` pair parses perfectly
+and draws a line into the Indian Ocean — and refuses a stop with no name.
+
+The script gives the entry a unique `id`, fills today's date, forces
+`status: "published"`, appends it to `data/suggestions.json`, and re-validates
+the file. Then review and publish:
+
+```sh
+git add data/suggestions.json && git commit -m "Publish community idea" && git push
+```
+
+(Pass `--commit` to stage + commit for you; it never pushes.) GitHub Pages
+redeploys and the idea appears in the **Ideas** tab after a page reload.
+
+### Network Updates
+
+Short articles in two tabs. **Travel Updates** lists the diversions and
+disruptions in `data/disruptions.json` that are in force or start within two
+weeks, the maintainer's notes about them, and passengers' reports. **News and
+Analysis** has everything else the project publishes: Freedom of Information
+replies, data releases and analysis. Each maintainer article names its tab with
+`"section": "travel"` or `"news"`. Passenger reports are kept in their own file,
+published only after somebody has read them, and always go under Travel Updates.
+
+```sh
+python scripts/add_update.py                  # type it in
+python scripts/add_update.py --community      # publish a passenger report
+python scripts/add_update.py '{"title":"…","summary":"…","body":"…","section":"news"}'
+wl-paste | python scripts/add_update.py
+```
+
+The script gives the entry an id and today's date, forces `status:
+"published"`, and re-validates the whole file *before* writing — a bad file
+that only fails in CI has already been saved. It never commits or pushes.
+
+Body text is split on blank lines into paragraphs. Every article needs a
+`date`, because a dated claim can be judged stale and an undated one cannot,
+and anything asserting a fact should carry a `links` entry pointing at where
+it came from. Long pieces fold after their first two paragraphs behind a
+"Continue reading" button, so a list of ten stays a list.
+
+An article may carry a `topic` tag and an `image`. Put the picture in
+`media/updates/` first, then reference it:
+
+```json
+"image": {
+  "src": "media/updates/ticketer-contactless.jpg",
+  "alt": "A contactless card held against a Ticketer reader on a bus.",
+  "focus": "50% 22%",
+  "credit": "Ticketer"
+}
+```
+
+`src` is repo-relative (the site is served from a project subpath on GitHub
+Pages, so a leading `/` breaks it) and both `add_update.py` and `pytest` check
+the file is actually in the tree — a hero that 404s is only visible once the
+page is live. `alt` is required: a photograph carrying the point of an article
+is not decoration. `focus` is a CSS `object-position`, needed because the card
+crops every hero to 16:9 and the part that matters is not always the middle.
+
+**Credit and licence are yours to establish.** Nothing here checks that you
+have the right to publish a photograph, and a press shot found online usually
+is not free to use. Fill in `credit`, or use a picture you own.
+
+### Other curated content
+
+Network goals (`data/objectives.json`) are maintainer-authored — edit them by
+hand and change a `status` (`not_considered` → `discussed` → `in_progress` →
+`delivered`) as delivery progresses.
+
+Each goal also records **who would have to act on it**, which is what the
+Objectives tab groups by — "which body do I write to about this?" is the
+question that makes an objective useful. `pytest` rejects unknown values:
+
+- `lead` — the bodies that would have to do it. A **list**, because some asks
+  have no single owner: fitting audio-visual announcements is every operator's
+  job, not one nominated operator's.
+- `shared` — bodies without whom it won't happen: the authority that funds or
+  brokers it, or the council that owns the pavement. No body may appear in both.
+- `category` — the theme, still shown on the card.
+- `featured` — pins the objective open at the top of the tab. The live campaign
+  asks are featured; everything else sits behind a collapsed body heading.
+
+Responsibility here is genuinely split, and the data says so rather than
+rounding to one owner. **West Sussex County Council** is the transport and
+highway authority and holds the Bus Service Improvement Plan, but **Adur &
+Worthing Councils** own and maintain many of the shelters — 53 of the 108 in
+Worthing — and **Brighton & Hove City Council** is a unitary authority at the
+other end of the route with its own Enhanced Partnership. Getting this wrong
+sends someone to the wrong place, so each body carries a contact link shown
+inside its group.
+
+The recognised codes are `SCSO`, `BHBC`, `METR`, `COMT` (operators) and `WSCC`,
+`ESCC`, `BHCC`, `ADUR_WORTHING` (authorities), defined once in
+`RESPONSIBLE_BODIES` in `app.js` and mirrored in the tests and
+`scripts/add_suggestion.py`.
+
+Community ideas are grouped the same way. The submitter picks an *area*
+("Fares", "Stops & shelters") — they can't be expected to know which body owns
+the problem — so responsibility is assigned when the idea is published:
+
+```sh
+python scripts/add_suggestion.py --from-issue 42 --responsible WSCC
+```
+
+Omit `--responsible` and the script prompts, offering a default derived from the
+area. That default is never applied silently, and an idea left unassigned is
+grouped under "Not yet assigned" rather than filed against a guess.
+
+Route proposals submitted via the editor's **Submit** button arrive as issues
+labelled `proposal`, carrying a JSON block you paste into `data/proposals.json`.
+Run `pytest` (see `requirements-dev.txt`) to validate any of these files before
+committing.
+
+Stop faults reported from a departure board arrive labelled `stop-issue`, with
+the stop's ATCO code in the title so repeat reports about the same stop fold
+into one thread. Most are council responsibilities rather than operator ones —
+the issue records the report, it doesn't raise a works order.
+
+## The live map
+
+The **bus button** in the status pill opens an operator filter: a master switch
+that still turns every bus off in one click, and a checkbox per operator
+present in the feed with a live count beside it. Choices persist in
+`localStorage`, because a filter you have to re-apply on every visit is one you
+stop using.
+
+It is stored as a **hide-list**, not a show-list. An operator appearing in the
+feed for the first time should show up, not be silently filtered out by a
+preference saved before it existed. The bus currently being followed is never
+hidden — hiding the thing the user asked to be shown helps nobody.
+
+The **council boundary** between Brighton & Hove and West Sussex is drawn on
+both the Live and Route maps from `data/council_boundaries.json`, sourced from
+the ONS Open Geography Portal under the Open Government Licence. It is the
+reason the network stops where it does, so it is labelled: a permanent Leaflet
+tooltip naming the short place name each side, in that body's colour, laid out
+left and right the way they sit on the ground. The label is zoom-gated above
+`COUNCIL_LABEL_MIN_ZOOM` — below it the line is a few pixels long and the label
+would be shouting over a coastline nobody can make out yet.
+
+Note the naming: "boundary" already means the *fare* seam everywhere else in
+`app.js`, so anything administrative is spelled out as `councilBoundary`.
+
+## Ticket view: what does your journey cost?
+
+The Ticket view can check a specific A-to-B journey against the operators' zone
+maps. It asks the backend (`GET /api/journey`) for the **actual ordered stops**
+between the two you pick — the endpoints alone aren't enough, because a bus can
+dip through a third zone on the way — then tests every stop against every zone.
+
+Fares live in `data/ticket_zones.json` under each zone's `fares` block, in
+whole pence, each with a `source_url` and the `checked_on` date. **Prices only
+appear when they can be sourced**: if any zone on a journey has no fare data,
+the boundary warning still shows but the £ figures don't. `pytest` enforces the
+schema, so an undated or unsourced price fails CI rather than reaching the site.
+
+Four rules keep the numbers defensible:
+
+- **Validity is not just geography.** Each zone lists `valid_on_operators`.
+  A Stagecoach ticket isn't accepted on Metrobus or Brighton & Hove; Metrovoyager
+  *is* accepted on Brighton & Hove, and networkSAVER on Metrobus.
+- **Zone tickets and operator-wide tickets are judged separately.** An
+  operator-wide ticket (Stagecoach Gold, networkSAVER) covers every journey on
+  that operator by definition, so folding it into the same search would report
+  "one ticket, no problem" for almost everything and hide the boundary.
+- **The headline price is the cheapest thing you could actually buy.** On an
+  all-Stagecoach Worthing–Brighton run the two zone tickets come to £12, but a
+  Gold DayRider covers it for £8.50 — so £8.50 is what's quoted. Claiming £12
+  would be wrong and would discredit the point.
+- **Night services are priced properly.** `service_supplements` adds the N700's
+  £2 add-on, and the Discovery ticket is marked `not_valid_on_services` for the
+  N700/N1, so it's never offered as a fix on a journey where it can't be used.
+- **Time-restricted tickets are only offered when they apply.** The Gold
+  Nightrider is £4 against the DayRider's £8.50, but only from 19:30
+  (`valid_from_time` / `valid_to_time`, wrapping past midnight so the small-hours
+  N700 still counts as that evening). A midday journey is quoted £8.50, not £4. A
+  ticket with a time window is excluded entirely when the departure time is
+  unknown, rather than assumed usable.
+- **Every journey is costed at midday.** What a trip costs must not depend on
+  when you happened to ask. It used to: `/api/journey` returned the earliest
+  trips of the service day, which on this coast is the 00:45 N700 — a night
+  service carrying a £2 supplement, and one the Discovery ticket isn't valid on.
+  Every quote was a night fare, at any hour. `JOURNEY_TIME_ANCHOR` (12:00) is
+  sent as `?at=` and applied again to whatever comes back, so the answer is the
+  same at two in the afternoon as at two in the morning.
+
+A saving is only claimed when there genuinely is one. The all-operator
+**South Downs Discovery Ticket** (£10) is a real ticket, not a hypothetical —
+but it doesn't beat an £8.50 Gold DayRider on a single-operator journey, and the UI
+says so instead of printing a negative "saving". Where it does pay is journeys
+that need a change between operators.

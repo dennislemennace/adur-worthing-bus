@@ -31,6 +31,9 @@ const tour = {
   data: null, promise: null, values: null, bound: false, rendered: false,
   lastStep: 0, seq: 0, minimised: null, timer: 0, frame: 0, watching: false,
   scrolledFor: "", frontUntil: 0, ringKey: "",
+  // Bus Performance's day, time of day and zoom as the reader left them,
+  // before a stop chose its own; put back when the tour ends.
+  jtSaved: null,
 };
 
 /** What a "Show me" can do. data/tour.json is tested against this list. */
@@ -339,8 +342,31 @@ function tourSetDemo(demo) {
     ? { step: demo.step, tryIndex: demo.tryIndex == null ? null : demo.tryIndex }
     : null;
   if (state.tourDemo) tour.lastStep = state.tourDemo.step;
+  else tourRestoreJourneyTimes();
   syncSectionNavToViewMode();
   tourSyncCoach();
+}
+
+/** Keep the reader's own Bus Performance choices before a stop sets its own. */
+function tourSaveJourneyTimes() {
+  if (!tour.jtSaved) {
+    tour.jtSaved = { day: jtEntry.day, period: jtEntry.period, zoom: jtEntry.zoom,
+                     delayDay: jtDelay.day, delaySlot: jtDelay.slot };
+  }
+}
+
+/** The tour is over: Bus Performance opens on what the reader had chosen,
+ *  not the weekday evening peak a stop picked to make its point. */
+function tourRestoreJourneyTimes() {
+  const saved = tour.jtSaved;
+  if (!saved) return;
+  tour.jtSaved = null;
+  jtEntry.day = saved.day;
+  jtEntry.period = saved.period;
+  jtEntry.zoom = saved.zoom;
+  jtEntry.hour = null;
+  jtDelay.day = saved.delayDay;
+  jtDelay.slot = saved.delaySlot;
 }
 
 /** Called by setViewMode before every change of view. The menu, the header
@@ -420,20 +446,50 @@ async function tourRunAction(t) {
       if (section && !section.hidden) scrollPanelTo(section, 8);
       return;
     }
-    case "journey-times":
+    case "journey-times": {
       await tourGo("journeytimes");
       jtEntry.section = "journey";
       hideDelayMapPanel();
       jtEntry.a = t.from;
       jtEntry.b = t.to;
+      // The route, day and time of day the stop is about, with the chart
+      // zoomed in on those hours (asked for 3 November 2026).
+      if (t.day || t.period) tourSaveJourneyTimes();
+      if (t.day) jtEntry.day = t.day;
+      if (t.period) { jtEntry.period = t.period; jtEntry.hour = null; jtEntry.zoom = true; }
+      if (t.service) {
+        const index = await loadJourneyTimesIndex().catch(() => null);
+        const entry = (index?.services || []).find(e => String(e.service) === t.service
+          && (!t.operator || e.operator === t.operator));
+        if (entry) jtEntry.prefer = entry.file;
+      }
       jtSyncChrome();
       await journeyTimesResolvePair();
       return;
+    }
     case "delay-map":
       await tourGo("journeytimes");
       if (!jtDelayMapAvailable()) return;
       jtEntry.section = "delays";
       jtEnterDelays();
+      // A route, way and time with enough journeys to colour most of it,
+      // rather than whichever the reader last looked at (3 November 2026).
+      // The evidence changes nightly, so where the slot named has thinned
+      // out, the route's best-coloured one is shown instead.
+      if (t.service) {
+        tourSaveJourneyTimes();
+        jtDelay.pendingService = { service: t.service, operator: t.operator || "" };
+        let pick = { direction: t.direction, day: t.day, period: t.period };
+        const doc = await tourDelayDoc(t).catch(() => null);
+        if (doc) {
+          const named = t.direction && t.day && t.period ? delayColoured(doc, t.direction, t.day, t.period) : 0;
+          const best = delayBestSlot(doc);
+          if (best && best.coloured > named) pick = best;
+        }
+        if (pick.direction) jtDelay.pendingDirection = pick.direction;
+        if (pick.day) jtDelay.day = pick.day;
+        if (pick.period) jtDelay.slot = pick.period;
+      }
       renderJourneyTimes();
       return;
     case "link":
@@ -473,7 +529,38 @@ async function tourGoTo(stepIndex, tryIndex) {
   await tourSyncCoach();
   // The stop's page is made above; bring it up to date with what opened.
   pushUrlState();
+  // The next stop's files, fetched while this one is read, so Next does not
+  // wait on them (the Bus Performance stops lagged, 3 November 2026).
+  const stops = tourStops(d);
+  tourPrefetch(stops[tourStopIndex(stops, { step: stepIndex, tryIndex }) + 1], d);
   if (t) await tourFrameMap(t.action, seq);
+}
+
+/** The delay map document for a tour stop's route, or null. */
+async function tourDelayDoc(t) {
+  const { index, mapIndex } = await loadDelayMapIndex();
+  const entry = (mapIndex?.services || []).find(e => e.service === t.service && (!t.operator || e.operator === t.operator));
+  const art = entry && index.artifacts[entry.file];
+  return art ? loadJourneyTimes(art.file, art.sha256 || "") : null;
+}
+
+/** Warm the caches a stop will read. Best effort: a failure here is met
+ *  again, and reported, when the stop itself asks. */
+function tourPrefetch(stop, d) {
+  const t = stop && stop.tryIndex != null ? ((d.steps[stop.step] || {}).try || [])[stop.tryIndex] : null;
+  if (!t) return;
+  const quiet = p => Promise.resolve(p).catch(() => {});
+  if (t.action === "journey-times") {
+    quiet(loadJourneyTimesIndex().then(index => Promise.all(
+      journeyTimesCandidateServices(index, journeyTimesServicesAt(t.from), journeyTimesServicesAt(t.to))
+        .map(entry => quiet(loadJourneyTimes(entry.file))))));
+  } else if (t.action === "delay-map" && t.service) {
+    quiet(tourDelayDoc(t));
+  } else if (t.action === "tickets") {
+    quiet(loadJourneyPresets());
+  } else if (t.action === "route" && t.operator && t.service) {
+    quiet(apiFetch(`/api/route?operator=${encodeURIComponent(t.operator)}&service=${encodeURIComponent(t.service)}`));
+  }
 }
 
 /** On a phone the card covers the top of the map and the sheet its foot, so

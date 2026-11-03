@@ -729,6 +729,12 @@ html.dark-mode .map-loading {
      here, not on :root, so it follows --sheet-half's media queries. */
   body[data-sheet="tall"] { --sheet-h: calc((var(--sheet-half) + var(--sheet-full)) / 2); }
   body[data-sheet="full"] { --sheet-h: var(--sheet-full); }
+  /* Closed: the handle and the view's tabs, measured by app.js
+     (sheetClosedPixels). A step: any of the increments below half a drag can
+     leave it at. Both outrank body.panel-collapsed below, which closed sets
+     too, so the chevron reads "Show panel". */
+  body[data-sheet="closed"], body[data-sheet="closed"].panel-collapsed { --sheet-h: var(--sheet-closed, 100px); }
+  body[data-sheet="step"] { --sheet-h: var(--sheet-step, var(--sheet-half)); }
   /* The stop search, lifted above the keyboard to an exact height (app.js
      bindSearchAboveKeyboard). Two attributes, so it outranks both the detent
      rules and body.panel-collapsed below; the next detent clears it. */
@@ -3847,6 +3853,10 @@ html.dark-mode .header-title { color: var(--color-on-fill); }
        would push this past the 44px the header row is unified on. */
     box-shadow: inset 0 0 0 1px var(--color-border), var(--shadow-md);
   }
+  /* The status pill floats where the banner would sit and says "Connecting"
+     while the banner is up, so the banner goes just under it: the pill's
+     44px and a small gap, no further, so it still keeps off the map. */
+  .waking-banner { top: calc(var(--header-height) + var(--space-sm) + var(--header-control-h) + var(--space-xs)); }
   .status-pill .btn-icon.status-pill-toggle {
     color: var(--color-text-muted);
   }
@@ -6973,13 +6983,16 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   color: var(--color-on-fill, #fff);
   cursor: pointer;
 }
+/* The pin beside the box: a square 44px target, the icon its only content
+   (its name is in aria-label and title). */
 .stop-near-me {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  justify-content: center;
+  width: 44px;
   min-height: 44px;
-  margin-top: 0.5rem;
-  padding: 0 0.9rem;
+  padding: 0;
   font: inherit;
   font-weight: 600;
   border: 1px solid var(--color-border);
@@ -6991,8 +7004,8 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
 .stop-near-me[hidden] { display: none; }
 /* With a search typed, the stops go straight under the box (app.js
    bindStopSearch sets is-searching): above the keyboard on a small phone. */
-.stop-search.is-searching .stop-near-me,
 .stop-search.is-searching .stop-search-hint { display: none; }
+.stop-near-me .icon { width: 20px; height: 20px; }
 .stop-near-me:hover,
 .stop-near-me:focus-visible { border-color: var(--color-primary); }
 .stop-near-me:disabled { opacity: 0.6; cursor: progress; }
@@ -7180,9 +7193,12 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   html.keyboard-open .site-footer { display: none; }
 }
 
-/* One footer or the other, never both. */
+/* One footer or the other, never both. The compact one wherever the panel
+   is a bottom sheet (900px, MOBILE_BREAKPOINT in app.js): on a near-square
+   phone or a folding one opened out, 716x718, the full footer took 98px of
+   718 under the sheet (3 November 2026). */
 .site-footer-compact { display: none; }
-@media (max-width: 700px), (max-height: 500px) {
+@media (max-width: 900px), (max-height: 500px) {
   .site-footer > p:not(.site-footer-compact) { display: none; }
   .site-footer-compact {
     display: block;
@@ -8922,6 +8938,9 @@ button.target-dense {
    under the card. */
 @media (max-width: 700px) {
   body[data-tour-coach] .status-pill { top: calc(var(--header-height) + var(--tour-coach-h, 0px)); }
+  body[data-tour-coach] .waking-banner {
+    top: calc(var(--header-height) + var(--tour-coach-h, 0px) + var(--header-control-h) + var(--space-xs));
+  }
 }
 
 /* Waiting and punctuality, under Simple view's answer. */
@@ -8939,6 +8958,32 @@ button.target-dense {
 }
 .departure-plan-title { margin: 0; font-weight: 700; color: var(--color-text); }
 .departure-plan-sub { margin: 4px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.departure-plan-stops { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
-.departure-plan-stops li { display: flex; gap: 10px; font-size: var(--font-size-sm); color: var(--color-text); }
-.departure-plan-time { flex: none; min-width: 3.2em; font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
+/* Every stop to the end of the journey, as the Bus tab draws a live bus's
+   (one rail, a dot per stop, the end a ring) but tighter, and scrolled in
+   place so a long route does not push the rest of the board away. */
+.departure-plan-stops {
+  list-style: none; margin: 6px 0 0; padding: 0 4px 0 0;
+  max-height: min(16rem, 45vh); overflow-y: auto; overscroll-behavior: contain;
+  border-radius: var(--radius-sm);
+}
+.departure-plan-stops:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.departure-plan-stop {
+  display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: 8px;
+  min-height: 26px; font-size: var(--font-size-sm); color: var(--color-text);
+}
+.departure-plan-dot { position: relative; align-self: stretch; display: flex; align-items: center; justify-content: center; }
+.departure-plan-dot::before {
+  content: ""; position: absolute; left: 50%; width: 2px; transform: translateX(-50%);
+  top: 0; bottom: 0; background: var(--color-border);
+}
+.departure-plan-stop:first-child .departure-plan-dot::before { top: 50%; }
+.departure-plan-stop:last-child .departure-plan-dot::before { bottom: 50%; }
+.departure-plan-dot::after {
+  content: ""; position: relative; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--color-surface-2); border: 2px solid var(--color-text-muted);
+}
+.departure-plan-stop--here .departure-plan-dot::after { background: var(--color-accent); border-color: var(--color-accent); }
+.departure-plan-stop--here .departure-plan-name { font-weight: 700; }
+.departure-plan-stop--terminus .departure-plan-dot::after { width: 10px; height: 10px; border-width: 3px; border-color: var(--color-accent); }
+.departure-plan-name { min-width: 0; overflow-wrap: anywhere; }
+.departure-plan-time { font-variant-numeric: tabular-nums; color: var(--color-text-muted); }

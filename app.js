@@ -3350,26 +3350,37 @@ async function loadJourneyTimes(file, sha256 = "") {
   if (!/^(?:builds\/[a-f0-9]{64}\/)?[A-Za-z0-9_-]{1,100}\.json$/.test(String(file))) {
     throw new Error("Invalid measurement document path");
   }
-  if (!journeyTimesCache.has(file)) {
-    const res = await fetch(`${CONFIG.JOURNEY_TIMES_BASE}/${file}`);
-    if (!res.ok) throw new Error(`${file} ${res.status}`);
-    let doc;
-    if (sha256) {
-      const raw = await res.arrayBuffer();
-      const actual = await sha256Hex(raw);
-      // No SubtleCrypto outside a secure context (a phone previewing over
-      // plain http on the LAN). The path is an immutable build path either
-      // way; the hash is the extra check, not the only one.
-      if (actual && actual !== sha256) throw new Error("Measurement artifact hash mismatch");
-      doc = jtExpandDocument(JSON.parse(new TextDecoder().decode(raw)));
-    } else {
-      doc = jtExpandDocument(await res.json());
-      const build = file.startsWith("builds/") ? file.split("/")[1] : "";
-      if (build && doc.build_id !== build) throw new Error("Measurement build mismatch");
-    }
-    journeyTimesCache.set(file, doc);
+  if (journeyTimesCache.has(file)) return journeyTimesCache.get(file);
+  // One fetch for a file however many ask at once: the tour fetches the next
+  // stop's files ahead (tourPrefetch), and the stop itself may ask before
+  // they have arrived.
+  if (!journeyTimesInflight.has(file)) {
+    journeyTimesInflight.set(file, fetchJourneyTimes(file, sha256)
+      .finally(() => journeyTimesInflight.delete(file)));
   }
-  return journeyTimesCache.get(file);
+  return journeyTimesInflight.get(file);
+}
+const journeyTimesInflight = new Map();
+
+async function fetchJourneyTimes(file, sha256) {
+  const res = await fetch(`${CONFIG.JOURNEY_TIMES_BASE}/${file}`);
+  if (!res.ok) throw new Error(`${file} ${res.status}`);
+  let doc;
+  if (sha256) {
+    const raw = await res.arrayBuffer();
+    const actual = await sha256Hex(raw);
+    // No SubtleCrypto outside a secure context (a phone previewing over
+    // plain http on the LAN). The path is an immutable build path either
+    // way; the hash is the extra check, not the only one.
+    if (actual && actual !== sha256) throw new Error("Measurement artifact hash mismatch");
+    doc = jtExpandDocument(JSON.parse(new TextDecoder().decode(raw)));
+  } else {
+    doc = jtExpandDocument(await res.json());
+    const build = file.startsWith("builds/") ? file.split("/")[1] : "";
+    if (build && doc.build_id !== build) throw new Error("Measurement build mismatch");
+  }
+  journeyTimesCache.set(file, doc);
+  return doc;
 }
 
 /** Lower-case hex SHA-256 of some bytes, or "" where the browser cannot. */
@@ -4679,6 +4690,33 @@ function jtDayChartSpan(timings, schedule) {
                       ...ttPoints.map(pt => jtChartSecs(pt.departSecs))]);
 }
 
+/** The chart hours for a time of day and an hour either side, within the
+ *  day's own span; null for all day, or one that wraps midnight. */
+function jtPeriodZoomSpan(periodKey, fullSpan) {
+  const period = jtPeriod(periodKey);
+  if (period.key === "any") return null;
+  const a = jtChartSecs(jtClockMinutes(period.start) * 60) / 3600;
+  const b = jtChartSecs((jtClockMinutes(period.end) + 1) * 60) / 3600;
+  if (!(b > a)) return null;
+  const from = Math.max(fullSpan.from, Math.floor(a) - 1), to = Math.min(fullSpan.to, Math.ceil(b) + 1);
+  return to > from ? { from, to } : null;
+}
+
+/** The buses, and the timetable, that left within a chart span. */
+function jtTimingsInSpan(timings, span) {
+  return timings.filter(t => {
+    const c = jtChartSecs(jtClockMinutes(t.start) * 60);
+    return c >= span.from * 3600 && c < span.to * 3600;
+  });
+}
+function jtScheduleInSpan(schedule, span) {
+  if (!schedule) return schedule;
+  return { ...schedule, series: (schedule.series || []).map(sr => ({ ...sr, points: sr.points.filter(pt => {
+    const c = jtChartSecs(pt.departSecs);
+    return c >= span.from * 3600 && c < span.to * 3600;
+  }) })) };
+}
+
 /** Simple's chart: every bus timed on the chosen days, across the day.
  *
  *  The dots are the journeys, faded and shrunk as they crowd: on a ten-minute
@@ -4861,7 +4899,13 @@ function renderJourneyTimesSimple(ctx) {
         : `Slowest ${JT_PERIOD_PHRASE[insight.slowest.period.key]}, usually
            ${jtMinutes(insight.slowest.medianSecs)}. Quickest ${JT_PERIOD_PHRASE[insight.quickest.period.key]},
            usually ${jtMinutes(insight.quickest.medianSecs)}.`;
-    const span = jtDayChartSpan(dayAll, schedule);
+    const fullSpan = jtDayChartSpan(dayAll, schedule);
+    // Zoomed to the time of day chosen, an hour either side, so its buses are
+    // spread across the chart rather than a strip of it (asked for the tour,
+    // 3 November 2026). Not for one that wraps midnight.
+    const zoom = jtPeriodZoomSpan(periodKey, fullSpan);
+    const zoomed = !!(jtEntry.zoom && zoom);
+    const span = zoomed ? zoom : fullSpan;
     const inSpan = h => { const c = jtChartSecs(h * 3600) / 3600; return c >= span.from && c < span.to; };
     let nowHour = null;
     try { nowHour = Number(LONDON_CLOCK.format(new Date()).slice(0, 2)); } catch { /* no clock */ }
@@ -4876,7 +4920,8 @@ function renderJourneyTimesSimple(ctx) {
       range ? `The timetable allows ${Math.round(range.min / 60)} to ${Math.round(range.max / 60)} min.` : "",
       "The slider below describes any hour in words, and the table below it lists every hour."]
       .filter(Boolean).join(" ");
-    const chart = journeyTimesDayChart(dayAll, { width: host.clientWidth || 640, schedule, typical,
+    const chart = journeyTimesDayChart(zoomed ? jtTimingsInSpan(dayAll, span) : dayAll, {
+      width: host.clientWidth || 640, schedule: zoomed ? jtScheduleInSpan(schedule, span) : schedule, typical,
       periodKey, dayKey, hour, span, label: chartWords,
       fromName: prettifyName(doc.stops[fromIndex]?.name || "") });
     const first = summary.days[0], last = summary.days[summary.days.length - 1];
@@ -4908,8 +4953,10 @@ function renderJourneyTimesSimple(ctx) {
         </label>
         <p class="jt-hour-detail" aria-live="polite">${escapeHtml(jtHourDetailText(typical[hour], dayKey,
           jtTimetableInHour(schedule, dayAll, hour)))}</p>
+        ${zoom ? `<button type="button" class="jt-link jt-zoom" data-act="zoom" aria-pressed="${zoomed}">${zoomed
+          ? "Show the whole day" : `Zoom in on the ${escapeHtml(jtPeriod(periodKey).label.toLowerCase())}`}</button>` : ""}
       </figure>
-      ${jtHoursTableHtml(typical, span, schedule, dayAll, dayKey)}
+      ${jtHoursTableHtml(typical, fullSpan, schedule, dayAll, dayKey)}
       <p class="jt-simple-basis">Based on ${summary.journeys} ${summary.journeys === 1 ? "bus" : "buses"} timed at
         both stops over ${summary.days.length} ${summary.days.length === 1 ? "day" : "days"}
         (${escapeHtml(jtDayLabel(first, false))}${first === last ? "" : ` to ${escapeHtml(jtDayLabel(last, false))}`}).</p>
@@ -5004,6 +5051,10 @@ function renderJourneyTimesSimple(ctx) {
       track("journey-times-next-buses");
       setViewMode("live");
       openDepartures(fromStop.atco, prettifyName(fromStop.name || ""));
+    } else if (target.dataset.act === "zoom") {
+      jtEntry.zoom = !jtEntry.zoom;
+      track(`journey-times-zoom-${jtEntry.zoom ? "in" : "out"}`);
+      renderJourneyTimesSimple({ ...ctx, focus: jtFocusKey(target) });
     } else if (target.dataset.act === "copy") {
       jtCopyLink(journeyTimesShareUrl(index), host.querySelector(".jt-copy-status"));
     } else if (target.dataset.act === "detailed") {
@@ -5491,6 +5542,30 @@ function delayCellFor(doc, stretchId, slot) {
     || ((b.journeys || 0) - (a.journeys || 0)))[0];
 }
 
+/** How many of a way's stretches the map colours at a time of day: those
+ *  with a cell past the floor. Simple view's slots only. */
+function delayColoured(doc, direction, dayType, period) {
+  const floor = doc.floor || { journeys: 30, distinct_days: 5 };
+  const slot = { dayType, resolution: "period", period };
+  return (doc.stretches || []).filter(s => s.direction === direction
+    && delayBand(delayCellFor(doc, s.id, slot), floor) !== "none").length;
+}
+
+/** The way, day and time of day a route's map colours most of, and how many
+ *  stretches that is: for the tour, so it never opens on a grey map. */
+function delayBestSlot(doc) {
+  let best = null;
+  for (const direction of new Set((doc.stretches || []).map(s => s.direction))) {
+    for (const day of ["weekday", "weekend"]) {
+      for (const period of ["10-16", "08-10", "16-18", "other"]) {
+        const coloured = delayColoured(doc, direction, day, period);
+        if (!best || coloured > best.coloured) best = { direction, day, period, coloured };
+      }
+    }
+  }
+  return best;
+}
+
 /** "40 seconds", "1.5 min": finer than whole minutes, because the bands are. */
 function delayAmount(secs) {
   const s = Math.abs(secs);
@@ -5763,6 +5838,9 @@ async function renderDelayMapPanel() {
 
   const directions = [...new Set(doc.stretches.map(s => s.direction))]
     .sort((a, b) => ["westbound", "eastbound", "unknown"].indexOf(a) - ["westbound", "eastbound", "unknown"].indexOf(b));
+  // A way asked for by name (the tour's stop), where this route runs it.
+  if (directions.includes(jtDelay.pendingDirection)) jtDelay.direction = jtDelay.pendingDirection;
+  jtDelay.pendingDirection = null;
   if (!directions.includes(jtDelay.direction)) jtDelay.direction = directions[0];
   const slot = delaySlot(view);
   const floor = doc.floor || mapIndex.floor || { journeys: 30, distinct_days: 5 };
@@ -8877,7 +8955,6 @@ async function toggleDeparturePlan(tr) {
   if (state.departurePlan === plan) restoreDeparturePlan();
 }
 
-const DEPARTURE_PLAN_STOPS = 12;
 
 /** Minutes past midnight now, in London. */
 function londonMinutesNow() {
@@ -8889,9 +8966,6 @@ function buildDeparturePlanHtml(data, plan, nowMinutes = londonMinutesNow()) {
   const svc = escapeHtml(data.service || plan.service);
   const to = data.headsign ? ` to ${escapeHtml(prettifyName(data.headsign))}` : "";
   const calls = data.calls || [];
-  const shown = calls.slice(0, DEPARTURE_PLAN_STOPS);
-  const rest = calls.length - shown.length;
-  const last = calls[calls.length - 1];
   // Past its start time with no bus declaring it, the journey may be running
   // untracked: "has not set off" would be a guess. Within the last twelve
   // hours counts as past, so a journey starting after midnight is not.
@@ -8909,10 +8983,13 @@ function buildDeparturePlanHtml(data, plan, nowMinutes = londonMinutesNow()) {
         are its stops from the timetable. It shows live once it sets off.`;
   return `<p class="departure-plan-title">${title}</p>
     <p class="departure-plan-sub">${sub}</p>
-    <ol class="departure-plan-stops">${shown.map(c => `<li><span class="departure-plan-time">${
-      escapeHtml(c.time)}</span> <span class="departure-plan-name">${escapeHtml(prettifyName(c.name || c.atco))}</span></li>`).join("")}</ol>
-    ${rest > 0 && last ? `<p class="departure-plan-sub">And ${rest} more ${rest === 1 ? "stop" : "stops"} to
-      ${escapeHtml(prettifyName(last.name || last.atco))}.</p>` : ""}`;
+    ${calls.length ? `<ol class="departure-plan-stops" tabindex="0"
+        aria-label="${calls.length} stops, from this one to the end of the journey">${calls.map((c, i) => `<li class="${[
+          "departure-plan-stop", i === 0 ? "departure-plan-stop--here" : "",
+          i === calls.length - 1 && i > 0 ? "departure-plan-stop--terminus" : ""].filter(Boolean).join(" ")}">
+        <span class="departure-plan-dot" aria-hidden="true"></span>
+        <span class="departure-plan-name">${escapeHtml(prettifyName(c.name || c.atco))}</span>
+        <span class="departure-plan-time">${escapeHtml(c.time)}</span></li>`).join("")}</ol>` : ""}`;
 }
 
 /** Put the open journey back under its row: the board is rebuilt on every
@@ -8936,6 +9013,13 @@ function restoreDeparturePlan() {
     aria-label="This departure's journey">${plan.html}</div></td>`;
   owner.after(row);
   owner.querySelector("button.service-badge-btn")?.setAttribute("aria-expanded", "true");
+  // The board refreshes under the list; a reader scrolled halfway down the
+  // journey keeps their place.
+  const list = row.querySelector(".departure-plan-stops");
+  if (list) {
+    list.scrollTop = plan.scrollTop || 0;
+    list.addEventListener("scroll", () => { plan.scrollTop = list.scrollTop; }, { passive: true });
+  }
 }
 
 function closeDeparturePlan() {
@@ -9916,9 +10000,13 @@ function buildUpcomingStopsHtml() {
   // The stop just passed and each run of stops the bus goes round take a
   // line each, not a row each: they are not where anyone is waiting for it.
   const nameOf = s => prettifyName(s.stop_name) || s.stop_id;
+  // When the bus left it, by its own lateness (api/live_eta.py `departed`);
+  // with no lateness to go on, the timetabled time, and said to be one.
   const timeOf = s => {
-    const t = new Date(s.expected ?? s.expected_departure ?? s.scheduled ?? s.aimed_departure);
-    return isNaN(t) ? "" : ` · ${formatTimeOfDay(t)}`;
+    const left = new Date(s.departed);
+    if (s.departed && !isNaN(left)) return ` at ${formatTimeOfDay(left)}`;
+    const t = new Date(s.scheduled ?? s.aimed_departure);
+    return isNaN(t) ? "" : ` · timetabled ${formatTimeOfDay(t)}`;
   };
   const orList = names => names.length > 1
     ? `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}` : names[0];
@@ -10278,8 +10366,15 @@ function bindA11yControls() {
 const MOBILE_BREAKPOINT = 900;
 
 /* `tall` is halfway between half and full: a stop opens most of the way up,
-   with a sliver of map still showing (asked for 26 October 2026). */
-const SHEET_DETENTS = ["peek", "half", "tall", "full"];
+   with a sliver of map still showing (asked for 26 October 2026). `closed`
+   leaves only the handle and the view's tabs, and `step` is any of the
+   increments below half a drag can leave the sheet at (both asked for
+   3 November 2026). Tapping the handle walks the named ones and wraps from
+   full to closed. */
+const SHEET_DETENTS = ["peek", "half", "tall", "full", "closed", "step"];
+const SHEET_CYCLE = ["peek", "half", "tall", "full", "closed"];
+/* Between closed and half, a drag lands on one of this many equal steps. */
+const SHEET_LOWER_STEPS = 4;
 
 /* Where the sheet sits when a view opens. Each view is answering a different
    question, so each wants a different share of the screen:
@@ -10336,14 +10431,42 @@ function sheetDetentPixels() {
   const half = read("--sheet-half", window.innerHeight * 0.48);
   const full = read("--sheet-full", window.innerHeight * 0.88);
   // --sheet-tall is a calc() of the two, which read() cannot parse.
-  return { peek: read("--sheet-peek", 200), half, tall: (half + full) / 2, full };
+  return { peek: read("--sheet-peek", 200), half, tall: (half + full) / 2, full,
+           closed: sheetClosedPixels(), step: state.sheetStepPx || half };
+}
+
+/** Closed shows the handle and the open view's tabs, and nothing under them:
+ *  measured, since Route view has its Day and Night switch above its tabs. */
+function sheetClosedPixels() {
+  const panel = dom.departurePanel;
+  const bar = panel && [...panel.querySelectorAll(".panel-mode .panel-tabs-bar")]
+    .find(el => el.offsetParent !== null);
+  if (!panel || !bar || !panel.getBoundingClientRect) return 100;
+  const top = panel.getBoundingClientRect().top;
+  return Math.max(60, Math.round(bar.getBoundingClientRect().bottom - top));
+}
+
+/** Where a drag that ends at `height` leaves the sheet: from half up, the
+ *  nearest of half, tall and full; below half, closed or one of the equal
+ *  steps up to half, with peek kept by name where a step lands on it. */
+function sheetDetentForDrop(height, d = sheetDetentPixels()) {
+  if (height >= d.half) {
+    const name = ["half", "tall", "full"].reduce((best, n) =>
+      Math.abs(d[n] - height) < Math.abs(d[best] - height) ? n : best);
+    return { detent: name };
+  }
+  const gap = (d.half - d.closed) / SHEET_LOWER_STEPS;
+  const i = gap > 0 ? Math.max(0, Math.min(SHEET_LOWER_STEPS, Math.round((height - d.closed) / gap))) : 0;
+  if (i === 0) return { detent: "closed" };
+  if (i === SHEET_LOWER_STEPS) return { detent: "half" };
+  const px = Math.round(d.closed + i * gap);
+  return Math.abs(px - d.peek) < gap / 3 ? { detent: "peek" } : { detent: "step", px };
 }
 
 /** The named detent nearest a height in pixels. */
 function nearestSheetDetent(height) {
-  const d = sheetDetentPixels();
-  return SHEET_DETENTS.reduce((best, name) =>
-    Math.abs(d[name] - height) < Math.abs(d[best] - height) ? name : best);
+  const { detent } = sheetDetentForDrop(height);
+  return detent === "step" ? "peek" : detent;
 }
 
 function syncCollapseButtons(collapsed) {
@@ -10354,15 +10477,20 @@ function syncCollapseButtons(collapsed) {
 }
 
 /** Move the sheet to a named detent and tell everything else about it. */
-function setSheetDetent(detent) {
+function setSheetDetent(detent, px) {
   if (!SHEET_DETENTS.includes(detent)) return;
+  if (detent === "step" && !(px > 0)) return;
   state.sheetDetent = detent;
+  state.sheetStepPx = detent === "step" ? px : null;
+  const root = document.documentElement;
+  if (detent === "step") root?.style?.setProperty?.("--sheet-step", `${px}px`);
+  if (detent === "closed") root?.style?.setProperty?.("--sheet-closed", `${sheetClosedPixels()}px`);
   document.body.dataset.sheet = detent;
   // A height set exactly, by the stop search lifting itself above the
   // keyboard (bindSearchAboveKeyboard), gives way to the next detent asked for.
   delete document.body.dataset.sheetSearch;
 
-  const collapsed = detent === "peek";
+  const collapsed = detent === "peek" || detent === "closed";
   document.body.classList.toggle("panel-collapsed", collapsed);
   syncCollapseButtons(collapsed);
   if (dom.sheetHandle) {
@@ -10476,9 +10604,11 @@ function fitBoundsAboveSheet(bounds, options = {}) {
 }
 
 function cycleSheetDetent() {
-  const detents = SHEET_DETENTS;
-  const i = detents.indexOf(state.sheetDetent);
-  setSheetDetent(detents[(i + 1) % detents.length]);
+  // From a step, on to the next named detent above it.
+  const at = state.sheetDetent === "step"
+    ? (state.sheetStepPx > sheetDetentPixels().peek ? "peek" : "closed") : state.sheetDetent;
+  const i = SHEET_CYCLE.indexOf(at);
+  setSheetDetent(SHEET_CYCLE[(i + 1) % SHEET_CYCLE.length]);
   if (state.map) state.map.invalidateSize();
 }
 
@@ -10531,7 +10661,7 @@ function initSheet() {
     const dy = startY - e.clientY;            // dragging up grows the sheet
     moved = Math.max(moved, Math.abs(dy));
     const d = sheetDetentPixels();
-    const h = Math.min(d.full, Math.max(d.peek, startH + dy));
+    const h = Math.min(d.full, Math.max(d.closed, startH + dy));
     document.body.style.setProperty("--sheet-h", `${h}px`);
   });
 
@@ -10547,7 +10677,8 @@ function initSheet() {
     wasDrag = moved >= TAP_SLOP;
     if (!wasDrag) return;                     // a tap: the click handler has it
 
-    setSheetDetent(nearestSheetDetent(height));
+    const drop = sheetDetentForDrop(height);
+    setSheetDetent(drop.detent, drop.px);
     if (state.map) state.map.invalidateSize();
   };
   handle.addEventListener("pointerup", endDrag);
@@ -14418,9 +14549,9 @@ function bindStopSearch() {
     const matches = stopSearchMatches(input.value);
     renderStopSearchResults(list, matches, input.value);
     input.setAttribute("aria-expanded", matches.length ? "true" : "false");
-    // Once two letters are in, "Stops near me" and the hint have done their
-    // job: the stops go straight under the box, above the keyboard on a
-    // 320x568 phone too, where those two lines pushed the first one under it.
+    // Once two letters are in, the hint has done its job: the stops go
+    // straight under the box, above the keyboard on a 320x568 phone too.
+    // "Stops near me" sits in the box's row, so it costs no line.
     form.classList.toggle("is-searching", input.value.trim().length >= 2);
   };
 

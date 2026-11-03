@@ -117,6 +117,23 @@ def test_the_last_stop_passed_leads_the_list():
     assert rows[-1]["is_terminus"] and rows[-1]["stop_id"] == "STOP7"
 
 
+def test_the_stop_just_passed_says_when_the_bus_left_it_not_when_it_was_due():
+    # Asked for 3 November 2026: "Passed Stop 1" with Stop 1's timetabled
+    # time reads as when the bus went by. Five minutes late, it left Stop 1
+    # (due 14:02) at 14:07, from its whole lateness: that one has happened.
+    rows = live_eta.project_trip(FakeTimetable(), "VJ_1400", declared(300), at(14, 8),
+                                 share=live_eta.ROAD_LATE_SHARE)
+    assert rows[0]["stop_id"] == "STOP1" and rows[0]["passed"]
+    assert datetime.fromisoformat(rows[0]["departed"]) == at(14, 7)
+    # Never after the report that put it beyond the stop.
+    bus = declared(600, recorded_at=at(14, 9).isoformat())
+    rows = live_eta.project_trip(FakeTimetable(), "VJ_1400", bus, at(14, 10))
+    assert datetime.fromisoformat(rows[0]["departed"]) <= at(14, 9)
+    # A journey with no lateness to go on gives no time but the timetable's.
+    rows = live_eta.project_trip(FakeTimetable(), "VJ_1400", declared(240, trip_source=None), at(14, 8))
+    assert rows[0]["passed"] and "departed" not in rows[0]
+
+
 def test_a_bus_already_beyond_its_nearest_stop_is_next_at_the_following_one():
     # Nearest to Stop 2 but most of the way to Stop 3: Stop 2 is behind it.
     rows = live_eta.project_trip(FakeTimetable(), "VJ_1400",

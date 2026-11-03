@@ -646,8 +646,13 @@ test("a journey not yet on the road is shown from the timetable, and says so", (
   }, { onRoad: false, service: "700" }, 14 * 60 + 50);
   assert.match(html, /This 700 to Worthing Pier has not set off yet/);
   assert.match(html, /It starts at 15:05\. No bus is running it yet/);
-  assert.equal((html.match(/<li>/g) || []).length, 12);
-  assert.match(html, /And 3 more stops to\s+Stop 14/);
+  // Every stop to the end, scrolled in place, not the first twelve and a count.
+  assert.equal((html.match(/<li class="departure-plan-stop/g) || []).length, 15);
+  assert.match(html, /Stop 14[\s\S]*15:24/);
+  assert.doesNotMatch(html, /more stops/);
+  assert.match(html, /departure-plan-stop departure-plan-stop--here[\s\S]*Stop 0/);
+  assert.match(html, /departure-plan-stop departure-plan-stop--terminus[\s\S]*Stop 14/);
+  assert.match(html, /<ol class="departure-plan-stops" tabindex="0"/, "a scrolled list a keyboard can reach");
   // Past its start with no bus declaring it, it may be running untracked.
   const late = vm.runInContext("buildDeparturePlanHtml", app)({ service: "700", journey_start: "15:05", calls: [] },
     { onRoad: false, service: "700" }, 15 * 60 + 8);
@@ -888,9 +893,23 @@ const route46 = () => upcoming({ source: "trip", vehicle: { trip_source: "feed",
     stopRow(5, { stop_name: "Churchill Square", timing_point: true, scheduled: t("16:27"), expected: t("16:28"), lateness_secs: 60 }),
   ] });
 
+test("the stop just passed gives the time the bus left it, not its timetabled time", () => {
+  const html = upcoming({ source: "trip", vehicle: { trip_source: "feed", recorded_at: t("16:24") },
+    upcoming_stops: [
+      stopRow(1, { stop_name: "Palmeira Square", passed: true, scheduled: t("16:19"), departed: t("16:23"),
+                   expected: null, lateness_secs: null }),
+      stopRow(2, { stop_name: "Waitrose", is_next: true, scheduled: t("16:22"), expected: t("16:26"), lateness_secs: 240 }),
+    ] });
+  const hhmm = (iso) => new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit" })
+    .format(new Date(iso));
+  assert.match(html, new RegExp(`Passed Palmeira Square at ${hhmm(t("16:23"))}<`));
+  assert.doesNotMatch(html, new RegExp(`Passed Palmeira Square[^<]*${hhmm(t("16:19"))}`));
+});
+
 test("the stops ahead read like the board, with passed and skipped stops a line each", () => {
   const html = route46();
-  assert.match(html, /class="upcoming-stop-line">Passed Palmeira Square · 16:19</, "the passed stop took a full row");
+  assert.match(html, /class="upcoming-stop-line">Passed Palmeira Square · timetabled 16:19</,
+    "the passed stop took a full row, and with no lateness its time is said to be the timetable's");
   assert.match(html, /class="upcoming-stop-line upcoming-stop-line--skipped">Not calling at Brunswick Place or Norfolk Square: diversion</,
     "the stops it goes round took a row each");
   assert.doesNotMatch(html, /upcoming-stop--not-served/);

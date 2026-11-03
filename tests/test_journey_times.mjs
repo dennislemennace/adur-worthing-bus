@@ -1944,3 +1944,37 @@ test("the route report is offered to everyone, under the operator's family code"
   assert.match(html, /Route report for the 700/);
   assert.equal(card(null, index), "");
 });
+
+// ── Zoomed in on the time of day chosen (3 November 2026) ─────
+
+test("the chart zooms to the time of day chosen and an hour either side", () => {
+  const zoom = vm.runInContext("jtPeriodZoomSpan", app);
+  const label = vm.runInContext("jtChartHourLabel", app);
+  const day = { from: 1, to: 20 };                    // 05:00 to midnight
+  const peak = zoom("16-18", day);
+  assert.deepEqual([label(peak.from), label(peak.to)], ["15:00", "19:00"]);
+  assert.equal(zoom("any", day), null, "all day has nothing to zoom to");
+  assert.equal(zoom("other", day), null, "early and late wraps midnight");
+  // Never outside the hours the day's buses ran.
+  const short = zoom("08-10", { from: 4, to: 10 });
+  assert.ok(short.from >= 4 && short.to <= 10);
+  const inSpan = vm.runInContext("jtTimingsInSpan", app);
+  const kept = inSpan([{ start: "14:55" }, { start: "15:10" }, { start: "18:50" }, { start: "19:05" }], peak);
+  assert.deepEqual(Array.from(kept, t => t.start), ["15:10", "18:50"]);
+});
+
+test("the tour's delay map finds the way and time a route colours most of", () => {
+  const cell = (stretch, period, ok, over = {}) => ({ stretch, day_type: "weekday", resolution: "period", period,
+    sample_sufficient: ok, median_gained_secs: 30, journeys: ok ? 40 : 3, distinct_days: ok ? 8 : 1, ...over });
+  const doc = { floor: { journeys: 30, distinct_days: 5 },
+    stretches: [{ id: "a", direction: "eastbound" }, { id: "b", direction: "eastbound" }, { id: "c", direction: "westbound" }],
+    cells: [cell("a", "16-18", false), cell("b", "16-18", true),
+            cell("a", "10-16", true), cell("b", "10-16", true),
+            // An earlier timetable's cell is not the map's.
+            cell("c", "10-16", true, { latest: false })] };
+  const coloured = vm.runInContext("delayColoured", app);
+  assert.equal(coloured(doc, "eastbound", "weekday", "16-18"), 1);
+  assert.equal(coloured(doc, "westbound", "weekday", "10-16"), 0, "a superseded cell was counted");
+  const best = vm.runInContext("delayBestSlot", app)(doc);
+  assert.deepEqual({ ...best }, { direction: "eastbound", day: "weekday", period: "10-16", coloured: 2 });
+});

@@ -535,15 +535,17 @@
                      name="stop" autocomplete="off" placeholder="e.g. Marine Parade"
                      aria-describedby="stop-search-hint"
                      aria-controls="stop-search-results" aria-expanded="false">
+              <!-- For a visitor who knows where they are standing but not what
+                   the stop is called. Asks for the location once, on a tap,
+                   and finds the stops on this device (app.js nearestStops).
+                   Beside the box, as the pin alone (3 November 2026), so the
+                   search takes one line. -->
+              <button class="stop-near-me" id="stop-near-me" type="button"
+                      aria-label="Stops near me" title="Stops near me">
+                <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>
+              </button>
               <button class="stop-search-go" type="submit">Search</button>
             </div>
-            <!-- For a visitor who knows where they are standing but not what
-                 the stop is called. Asks for the location once, on a tap,
-                 and finds the stops on this device (app.js nearestStops). -->
-            <button class="stop-near-me" id="stop-near-me" type="button">
-              <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>
-              <span>Stops near me</span>
-            </button>
             <p class="stop-search-hint" id="stop-search-hint">
               Type at least two letters, or tap any stop on the map.
             </p>

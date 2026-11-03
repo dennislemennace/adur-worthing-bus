@@ -23,8 +23,10 @@ SOFTWARE.
 ---
 
 This licence covers the source code in this repository: app.js, style.css,
-analytics-page.js, the HTML pages' markup and scripts, api/, worker/, scripts/
-and tests/.
+the other page scripts (analytics-page.js, report.js, health.js, figures.js,
+tour.js, tour-page.js, tour-figures.js, timing.js, ride.js, conference.js),
+the HTML pages' markup and scripts, api/, worker/, scripts/, tests/ and the
+GitHub Actions workflows in .github/.
 
 It does not cover the site's written content and data, which are licensed
 separately under Creative Commons Attribution 4.0 (see LICENSE-content.md),

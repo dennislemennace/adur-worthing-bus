@@ -228,17 +228,38 @@ test("collapsing and expanding map onto detents", () => {
   assert.equal(detentOf(ctx), "half");
 });
 
-test("cycling walks peek -> half -> tall -> full and wraps", () => {
+test("cycling walks peek -> half -> tall -> full -> closed and wraps", () => {
   // This is the keyboard path: the handle is a button precisely so the sheet
-  // is not pointer-only, and cycling is what Enter and Space do.
+  // is not pointer-only, and cycling is what Enter and Space do. From full it
+  // closes (asked for 3 November 2026: fully open or fully closed).
   const { ctx } = loadApp();
   ctx.setSheetDetent("peek");
   const seen = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     ctx.cycleSheetDetent();
     seen.push(detentOf(ctx));
   }
-  assert.deepEqual(seen, ["half", "tall", "full", "peek", "half"]);
+  assert.deepEqual(seen, ["half", "tall", "full", "closed", "peek", "half"]);
+});
+
+test("a drag below half lands on closed or one of the steps up to it", () => {
+  const { ctx } = loadApp();
+  // An 844px phone: closed at the tabs, peek 248, half and full as style.css.
+  const d = { closed: 100, peek: 248, half: 405, tall: 574, full: 743 };
+  const drop = (h) => vm.runInContext(`JSON.stringify(sheetDetentForDrop(${h}, ${JSON.stringify(d)}))`, ctx);
+  assert.equal(JSON.parse(drop(d.closed + 5)).detent, "closed", "a sheet dragged right down did not close");
+  assert.equal(JSON.parse(drop(d.full - 5)).detent, "full");
+  const gap = (d.half - d.closed) / 4;
+  const steps = [1, 2, 3].map(i => JSON.parse(drop(d.closed + i * gap + 3)));
+  assert.ok(steps.every(s => s.detent === "step" || s.detent === "peek"), JSON.stringify(steps));
+  const heights = steps.map(s => s.detent === "peek" ? d.peek : s.px);
+  assert.ok(heights[0] < heights[1] && heights[1] < heights[2], "the steps do not climb");
+  // A step is applied as its own height, and is not collapsed.
+  const step = steps.find(s => s.detent === "step");
+  ctx.setSheetDetent("step", step.px);
+  assert.equal(ctx.document.body.dataset.sheet, "step");
+  ctx.setSheetDetent("closed");
+  assert.equal(detentOf(ctx), "closed");
 });
 
 // A stop opens most of the way up, with a sliver of map still showing,

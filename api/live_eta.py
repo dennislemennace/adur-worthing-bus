@@ -118,6 +118,8 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime,
     `allowance_reason` where a diversion allowance is included, and
     `not_served` for a stop the diversion skips. The first row is the last stop
     the bus has passed, when there is one, so a reader can see where it is.
+    A passed row carries `departed`, when the bus left it by its own lateness
+    (unscaled: it is already past), where the feed gives one.
     `expected` and `lateness_secs` are None unless the feed named the journey
     and it carries a lateness. `share` of any lateness is passed on
     (ROAD_LATE_SHARE); 1.0 gives the bus's own arrival, unscaled.
@@ -153,6 +155,9 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime,
             (tt.routes.get(route_id) or {}).get("short_name", ""), calls, tps, anchor, start,
             int(lateness), recovery.service_day(origin)))
 
+    # The bus's own lateness, before the caution below: what a passed stop's
+    # time is worked out from, since that one has already happened.
+    own = list(projected)
     # Scaled once, here, so a diversion allowance is weighed against what the
     # board will show rather than the lateness it was scaled from.
     projected = [max(0, round(p * share) - ROAD_CAUTION_SECS) if p is not None and p > 0 else p
@@ -184,14 +189,28 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime,
             "is_terminus": j == len(calls) - 1,
         }
 
+    def departed(j, late, by):
+        # Never later than when the bus was known to be past it.
+        if late is None or j in closed:
+            return None
+        return datetime.fromtimestamp(min(origin + calls[j][0] + late, by), LONDON).isoformat()
+
     rows = []
+    reported = _report_time(vehicle) or now
     if start > 0:
-        rows.append(row(start - 1, None, True))
+        r = row(start - 1, None, True)
+        left = departed(start - 1, lateness, min(reported.timestamp(), now.timestamp()))
+        if left:
+            r["departed"] = left
+        rows.append(r)
     cutoff = now.timestamp() - PASSED_GRACE_SECS
     for k, j in enumerate(range(start, len(calls))):
         r = row(j, projected[k], False)
         if r["expected"] and datetime.fromisoformat(r["expected"]).timestamp() < cutoff:
             r["passed"] = True
+            left = departed(j, own[k], now.timestamp())
+            if left:
+                r["departed"] = left
         rows.append(r)
     # Only the most recent passed stop is worth showing: it says where the bus is.
     last_passed = max((i for i, r in enumerate(rows) if r["passed"]), default=None)
@@ -202,6 +221,13 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime,
             r["is_next"] = True
             break
     return rows
+
+
+def _report_time(vehicle: dict) -> Optional[datetime]:
+    try:
+        return datetime.fromisoformat(str(vehicle.get("recorded_at")).replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def _allowances(tt, trip_id, calls, start, origin, lateness, projected, doc, now) -> dict:

@@ -3726,6 +3726,7 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: Timetable) -> None:
         svc = v.get("service_ref") or ""
         if not svc:
             continue
+        operator = v.get("operator_ref") or ""
 
         # ── Strategy 1: MonitoredCall-based matching ──
         calls = v.get("calls") or []
@@ -3742,7 +3743,7 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: Timetable) -> None:
                                + aimed_local.second)
                 match = _match_by_stop(
                     svc, next_stop, aimed_secs, tt,
-                    today, today_str, dow, calendar, calendar_dates, 120)
+                    today, today_str, dow, calendar, calendar_dates, 120, operator)
                 if match:
                     v["trip_id"]       = match
                     v["trip_headsign"] = trips.get(match, {}).get("headsign") or None
@@ -3767,6 +3768,8 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: Timetable) -> None:
                 continue
             for trip_id, first_stop, last_stop, first_secs in tt.service_endpoints(svc_key):
                 trip = trips.get(trip_id, {})
+                if not _operator_runs(tt, operator, trip):
+                    continue
                 if not _runs_today(trip.get("service_id", ""), today,
                                    today_str, dow, calendar, calendar_dates):
                     continue
@@ -3808,9 +3811,17 @@ def _enrich_vehicles_with_trip_match(vehicles: list, tt: Timetable) -> None:
                  matched_n, len(vehicles))
 
 
+def _operator_runs(tt: Timetable, operator: Optional[str], trip: dict) -> bool:
+    """A guessed journey must be the bus's own operator's. "025" is read as
+    "25" because feeds drop the zero, so a National Express 025 coach was
+    matched to a Brighton & Hove 25 and shown its stops (3 November 2026)."""
+    noc = tt.noc_for_route(trip.get("route_id", "")) if hasattr(tt, "noc_for_route") else ""
+    return _same_operator(operator, noc)
+
+
 def _match_by_stop(svc, stop_id, aimed_secs, tt: Timetable,
                    today, today_str, dow, calendar, calendar_dates,
-                   max_delta):
+                   max_delta, operator: str = ""):
     """Try to match a vehicle to a trip via a stop_id and aimed time."""
     svc_set = _svc_variants(svc)
     entries = tt.stop_times_for(stop_id)
@@ -3821,6 +3832,8 @@ def _match_by_stop(svc, stop_id, aimed_secs, tt: Timetable,
         route = tt.routes.get(trip.get("route_id", ""), {})
         short_name = route.get("short_name", "")
         if not (_svc_variants(short_name) & svc_set):
+            continue
+        if not _operator_runs(tt, operator, trip):
             continue
         if not _runs_today(trip.get("service_id", ""), today, today_str,
                            dow, calendar, calendar_dates):
@@ -3906,6 +3919,8 @@ def _best_trip_for_vehicle(vehicle: dict, tt: Timetable):
             continue
         for trip_id, first_stop, last_stop, first_secs in tt.service_endpoints(svc_key):
             trip = trips.get(trip_id, {})
+            if not _operator_runs(tt, vehicle.get("operator_ref"), trip):
+                continue
             if not _runs_today(trip.get("service_id", ""), today, today_str,
                                dow, calendar, calendar_dates):
                 continue
