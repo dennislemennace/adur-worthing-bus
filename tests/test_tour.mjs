@@ -268,3 +268,43 @@ test("the tour's evening peak gives way to the reader's own choice when it ends"
   assert.deepEqual(JSON.parse(vm.runInContext("JSON.stringify([jtEntry.day, jtEntry.period, jtEntry.zoom])", app)),
     ["weekend", "any", false]);
 });
+
+test("the first step lists the operators by mode, in a few escaped rows, on its card", () => {
+  const app = loadTour();
+  const values = app.tourFigureValues(EVIDENCE, INDEX, { operators: {} });
+  const stops = app.tourStops(TOUR, () => true);
+  const groups = TOUR.steps[0].groups;
+  assert.deepEqual(groups.map(g => g.label), ["Bus", "Coach", "Rail"]);
+  const html = app.tourCoachHtml(TOUR, stops[0], values, stops);
+  assert.match(html, /<dl class="tour-groups">/, "the operators are not on the first card");
+  for (const g of groups) assert.ok(html.includes(app.escapeHtml(g.items.join(" · "))), g.label);
+  const evil = JSON.parse(JSON.stringify(TOUR));
+  evil.steps[0].groups = [{ label: "<img src=x onerror=alert(1)>", items: ["<b>x</b>"] }];
+  assert.doesNotMatch(app.tourCoachHtml(evil, stops[0], values, stops), /<img src=x|<b>x/, "a group was not escaped");
+});
+
+test("a stop with no view of its own keeps the view before it ringed, if that view is still showing", () => {
+  const app = loadTour();
+  const state = vm.runInContext("state", app);
+  const stops = app.tourStops(TOUR, () => true);
+  // The last two cards follow Better buses.
+  const last = stops[stops.length - 1];
+  assert.equal(last.tryIndex, null);
+  state.viewMode = "network";
+  const carried = app.tourCarriedTry(TOUR, last.step);
+  assert.equal(carried && carried.action, "better-buses", "the joined-up plan is not kept in sight under the last card");
+  state.viewMode = "live";
+  assert.equal(app.tourCarriedTry(TOUR, last.step), null, "a view the reader has left is still ringed");
+});
+
+test("the route and journey lookups are asked for once, and a failure is not kept", async () => {
+  const app = loadTour();
+  let calls = 0, fail = true;
+  app.apiFetch = async () => { calls++; if (fail) throw new Error("down"); return { ok: calls }; };
+  await assert.rejects(app.fetchRouteDetail("SCSO", "700"));
+  fail = false;
+  const a = await app.fetchRouteDetail("SCSO", "700");
+  const b = await app.fetchRouteDetail("SCSO", "700");
+  assert.equal(calls, 2, "the second ask went to the API again, or the failure was kept");
+  assert.strictEqual(a, b);
+});

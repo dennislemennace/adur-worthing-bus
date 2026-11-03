@@ -2043,11 +2043,12 @@ const TOUR_STATE = `(() => {
   const card = document.getElementById("tour-coach");
   const ring = document.getElementById("tour-ring");
   const demo = state.tourDemo;
-  const step = demo && tour.data.steps[demo.step];
-  const t = step && demo.tryIndex != null ? step.try[demo.tryIndex] : null;
+  // A stop with no view of its own rings what the view before it did.
+  const t = demo ? tourActiveTry() : null;
   const sel = t && TOUR_TARGETS[t.action];
   const target = sel ? document.querySelector(sel) : null;
-  return JSON.stringify({ view: state.viewMode, demo, hash: location.hash,
+  return JSON.stringify({ view: state.viewMode, demo, hash: location.hash, detent: state.sheetDetent,
+    carried: !!(demo && demo.tryIndex == null && tour.carry),
     label: document.getElementById("section-nav-label").textContent,
     card: shown(card) ? r(card) : null,
     title: card && card.querySelector(".tour-coach-title") ? card.querySelector(".tour-coach-title").textContent : "",
@@ -2136,7 +2137,7 @@ async function checkTour(page, where, { full = false } = {}) {
   const stops = JSON.parse(await page.evaluate(`JSON.stringify(tourStops(tour.data).map((x, n) => {
     const t = x.tryIndex == null ? null : tour.data.steps[x.step].try[x.tryIndex];
     return { n, step: x.step, tryIndex: x.tryIndex, action: t ? t.action : null, from: t && t.from, to: t && t.to,
-      service: t && t.service,
+      service: t && t.service, operator: t && t.operator, atco: t && t.atco,
       title: t ? t.label : tour.data.steps[x.step].title, target: !!(t && TOUR_TARGETS[t.action]) };
   }))`)).map(x => ({ ...x, view: x.action ? TOUR_EXPECT[x.action] : null }));
   const walk = full ? stops : stops.slice(0, 3);
@@ -2155,24 +2156,51 @@ async function checkTour(page, where, { full = false } = {}) {
           return { top: Math.round(b.top), bottom: Math.round(b.bottom), h: innerHeight }; })(),
         lines: document.querySelectorAll(".route-network-line").length,
         focus: state.routeFocus && state.routeFocus.service,
+        // The pickers say which route is open, as if it had been chosen there.
+        picked: [document.getElementById("route-pick-operator").value, document.getElementById("route-pick-service").value],
+        // Route view's Day and Night switch is put away on the tour's stops.
+        modeSwitch: (() => { const m = document.querySelector('.panel-mode[data-mode="improvements"] .service-mode-toggle');
+          return !!m && m.getClientRects().length > 0; })(),
+        // The delay map's route, whole, between the card and the sheet.
+        delayFit: (() => {
+          if (!jtDelay.lines || !jtDelay.lines.size || !isSheetLayout()) return null;
+          const b = L.latLngBounds([]);
+          for (const line of jtDelay.lines.values()) b.extend(line.getBounds());
+          const box = state.map.getContainer().getBoundingClientRect();
+          const nw = state.map.latLngToContainerPoint(b.getNorthWest()), se = state.map.latLngToContainerPoint(b.getSouthEast());
+          const card = document.getElementById("tour-coach").getBoundingClientRect();
+          const sheet = document.getElementById("departure-panel").getBoundingClientRect();
+          return { top: Math.round(box.top + nw.y), bottom: Math.round(box.top + se.y), left: Math.round(nw.x), right: Math.round(se.x),
+            card: Math.round(card.bottom), sheet: Math.round(sheet.top), w: Math.round(box.width) };
+        })(),
         // The route report is offered wherever the index has one for the route.
         report: !!(state._tourIndex && routeReportHref(${JSON.stringify(stop.service || "700")}, "SCSO", state._tourIndex)),
         routeCard: !!document.querySelector("#route-detail-report .report-cta") });
     })()`));
-    const extra = stop.action === "board" ? got.stop === "149000007936"
+    const fitted = (f) => !f || (f.top >= f.card - 2 && f.bottom <= f.sheet + 2 && f.left >= -2 && f.right <= f.w + 2);
+    const extra = stop.action === "board" ? got.stop === stop.atco
       : stop.action === "planner" ? got.planTag
       // The journey's chart is the stop: all of it on screen, and on a phone
       // below the card rather than under it.
       : stop.action === "journey-times" ? (got.a === stop.from && got.b === stop.to && !!got.chart
         && got.chart.top >= s.headerBottom && got.chart.bottom <= got.chart.h + 1
         && (!s.sheet || !s.card || got.chart.top >= s.card.bottom))
-      : stop.action === "delay-map" ? got.section === "delays"
-      : stop.action === "route-view" ? got.lines > 0
-      : stop.action === "route" ? got.focus === stop.service && (!got.report || got.routeCard)
+      : stop.action === "delay-map" ? got.section === "delays" && fitted(got.delayFit)
+      : stop.action === "route-view" ? got.lines > 0 && !got.modeSwitch
+      : stop.action === "route" ? got.focus === stop.service && (!got.report || got.routeCard) && !got.modeSwitch
+        && got.picked[0] === stop.operator && got.picked[1] === stop.service
       : true;
     const address = `tour=${stop.step + 1}${stop.tryIndex == null ? "" : `-${stop.tryIndex + 1}`}`;
     const inTour = s.demo && s.label === "Take the tour" && s.attr && new RegExp(`${address}(&|$)`).test(s.hash);
-    const ringed = !stop.target || tourRinged(s);
+    // A stop with no view keeps the one before it: ringed the same, and the
+    // sheet at the same height.
+    const prev = walk[walk.indexOf(stop) - 1];
+    const ringed = stop.target || s.carried ? tourRinged(s) : true;
+    if (s.carried && prev && prev.detent) {
+      check(`tour stop ${stop.n + 1} keeps the sheet and the ring of the stop before — ${where}`,
+        !s.sheet || s.detent === prev.detent, JSON.stringify({ was: prev.detent, s }));
+    }
+    stop.detent = s.detent;
     check(`tour stop ${stop.n + 1} "${stop.title}" opens ${stop.view || "its card"} inside the tour — ${where}`,
       (!stop.view || s.view === stop.view) && extra && inTour && s.title === stop.title, JSON.stringify({ ...got, ...s }));
     check(`tour stop ${stop.n + 1}: the card is on screen and clear of the panel, the ring on its target — ${where}`,
@@ -2186,13 +2214,16 @@ async function checkTour(page, where, { full = false } = {}) {
     if (stop.action === "route-view") {
       // The page under the card is the reader's: the real control works, and
       // the tour waits where it was.
-      await page.evaluate("document.getElementById('service-mode-night').click()");
+      const chip = "#route-filter-chips .route-chip";
+      const before = await page.evaluate(`(document.querySelector('${chip}') || {}).ariaPressed || ""`);
+      await page.evaluate(`document.querySelector('${chip}')?.click()`);
       await sleep(600);
-      const used = JSON.parse(await page.evaluate(`JSON.stringify({ mode: state.serviceMode, s: ${TOUR_STATE} })`));
+      const used = JSON.parse(await page.evaluate(`JSON.stringify({ before: ${JSON.stringify(before)},
+        after: (document.querySelector('${chip}') || {}).ariaPressed || "", s: ${TOUR_STATE} })`));
       const u = JSON.parse(used.s);
       check(`the view under the tour's card is usable, and the tour waits — ${where}`,
-        used.mode === "night" && u.demo && u.demo.step === stop.step && !!u.card, JSON.stringify(used));
-      await page.evaluate("document.getElementById('service-mode-day').click()");
+        !!used.before && used.after !== used.before && u.demo && u.demo.step === stop.step && !!u.card, JSON.stringify(used));
+      await page.evaluate(`document.querySelector('${chip}')?.click()`);
     }
     if (stop.action === "route" && got.routeCard) {
       await checkContrastBothThemes(page, `the route report card in Route view — ${where}`);
@@ -2235,6 +2266,8 @@ async function checkTour(page, where, { full = false } = {}) {
   };
   await page.evaluate(`document.querySelector('#tour-coach [data-tour-coach="end"]').click()`);
   await out("End");
+  const back = await page.evaluate(`!document.body.dataset.tourStop`);
+  check(`the tour puts away nothing of its own once it ends — ${where}`, back, "body still carries data-tour-stop");
   const restart = async () => {
     await page.evaluate("setViewMode('tour')");
     await waitFor(page, "!!document.querySelector('#tab-content-tour [data-tour-mode=\"explore\"]')", 15000);

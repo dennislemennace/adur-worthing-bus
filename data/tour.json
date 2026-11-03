@@ -1,5 +1,5 @@
 {
-  "_comment": "The guided tour (tour.js in the app, tour.html as slides and PDF). One file drives all three, so the words are written once. In the app the tour is a walk through the site: each view a step opens is a stop, where a card names the step, gives its headline and says what to try (hint). A headline is one figure (value, label) or a comparison (figures, each with its label), and may lead with a claim it supports and say what was measured (measure); a step that opens no view is one card on its own. Numbers are never typed here where the data can say them: a {placeholder} is filled at runtime from data/boundary_evidence.json and the published journey-times index (tourFigureValues in tour-figures.js), so a weekly rebuild cannot leave the tour quoting stale figures. A typed figure names its source and the date it was checked. preview_only would keep the tour behind ?preview=1; it is public from 3 November 2026. Rewritten on 3 November 2026 at the maintainer's request to show what the platform does, step by step, with the boundary evidence as one step of ten. The menu's badge shows until event.show_until.",
+  "_comment": "The guided tour (tour.js in the app, tour.html as slides and PDF). One file drives all three, so the words are written once. In the app the tour is a walk through the site: each view a step opens is a stop, where a card names the step, gives its headline and says what to try (hint). A headline is one figure (value, label) or a comparison (figures, each with its label), and may lead with a claim it supports and say what was measured (measure); a step that opens no view is one card on its own. Numbers are never typed here where the data can say them: a {placeholder} is filled at runtime from data/boundary_evidence.json and the published journey-times index (tourFigureValues in tour-figures.js), so a weekly rebuild cannot leave the tour quoting stale figures. A typed figure names its source and the date it was checked. preview_only would keep the tour behind ?preview=1; it is public from 3 November 2026. Rewritten on 3 November 2026 at the maintainer's request to show what the platform does, step by step, with the boundary evidence as one step of ten. The menu's badge shows until event.show_until. A step's groups (label, items) list what it covers in a few short rows, on the card and the slide. Revised again on 3 November 2026 from the maintainer's walk-through: operators by mode on the first step, a quieter board, the planner's outside allowance, the route pickers filled, the joined-up plan ringed.",
   "schema_version": 1,
   "preview_only": false,
   "checked_on": "2026-11-03",
@@ -38,7 +38,7 @@
       "lead": "Every operator's buses, live, with the trains and coaches that share the coast.",
       "headline": {
         "value": "Every operator",
-        "label": "Brighton & Hove, Metrobus, Stagecoach and Compass, on one live map"
+        "label": "on one live map, refreshed every 20 seconds"
       },
       "badge": {
         "kind": "live",
@@ -68,6 +68,33 @@
           "url": "https://bustimes.org/",
           "checked_on": "2026-11-03"
         }
+      ],
+      "groups": [
+        {
+          "label": "Bus",
+          "items": [
+            "Brighton & Hove",
+            "Metrobus",
+            "Stagecoach South",
+            "Compass Travel"
+          ]
+        },
+        {
+          "label": "Coach",
+          "items": [
+            "FlixBus",
+            "National Express"
+          ]
+        },
+        {
+          "label": "Rail",
+          "items": [
+            "Southern",
+            "Thameslink",
+            "Gatwick Express",
+            "GWR"
+          ]
+        }
       ]
     },
     {
@@ -93,14 +120,14 @@
         {
           "action": "board",
           "label": "One board, every operator",
-          "atco": "149000007936",
-          "name": "St Peter's Church",
-          "hint": "Brighton & Hove, Metrobus, Stagecoach and Compass in one list. Tap any departure to see where that bus is now."
+          "atco": "4400AD0204",
+          "name": "High Street, Shoreham",
+          "hint": "Brighton & Hove, Compass, Stagecoach and National Express coaches all call here, towards Brighton, and share one list. Tap any departure to see where that bus is now."
         },
         {
           "action": "planner",
           "label": "Plan a journey (experimental)",
-          "hint": "Door to door, across operators. Experimental, so check before you travel."
+          "hint": "Door to door, across operators. Experimental because the plans come from an outside service, and its free allowance is about 250 plans a day for everyone using the site. Check before you travel."
         }
       ],
       "sources": []
@@ -127,14 +154,14 @@
         {
           "action": "route-view",
           "label": "The whole network",
-          "hint": "Every route, coloured by operator. Switch to Night buses to see what runs after dark."
+          "hint": "Every route, coloured by operator. Tap a route's pill to hide or show it on the map, or open More filters to narrow by operator or kind of route."
         },
         {
           "action": "route",
           "label": "One route: the 700",
           "operator": "SCSO",
           "service": "700",
-          "hint": "The 700's stops each way, when it runs today, its notices and tickets. Open its route report for punctuality and where it loses time."
+          "hint": "The operator and route are chosen for you: the 700's stops each way, when it runs today, its notices and tickets. Open its route report for punctuality and where it loses time."
         }
       ],
       "sources": []
@@ -206,13 +233,13 @@
         },
         {
           "action": "delay-map",
-          "label": "Where buses lose time",
+          "label": "Bus performance data",
           "service": "7",
           "operator": "SCSO",
           "direction": "eastbound",
           "day": "weekday",
           "period": "10-16",
-          "hint": "One route with enough journeys behind it to colour most of its stretches, each by the time buses lose there. Tap a stretch for its figures, or choose another route and time."
+          "hint": "Where buses lose time, on a route with enough journeys behind it to colour most of its stretches. Tap a stretch for its figures, or choose another route and time."
         },
         {
           "action": "link",
@@ -224,7 +251,7 @@
     },
     {
       "id": "trust",
-      "title": "How far to trust it",
+      "title": "Real-time accuracy and data quality",
       "lead": "Every figure says what it was divided by, how it was made, and what would make it wrong.",
       "headline": {
         "claim": "The live times on this site are closer to when the bus really leaves than the timetable is.",
@@ -278,26 +305,28 @@
     },
     {
       "id": "updates",
-      "title": "Travel updates and analysis",
-      "lead": "Diversions and disruptions in force, in the operators' own words, beside passenger reports and the site's own analysis of the network.",
+      "title": "One portal to the full network",
+      "lead": "What a passenger would otherwise piece together from each operator's app, a rail app and the councils' pages, in one place, with nothing to install.",
       "headline": {
-        "value": "One place",
-        "label": "for every operator's diversions and disruptions"
+        "value": "One portal",
+        "label": "for the whole network, where each operator's own app shows only its own"
       },
       "badge": {
         "kind": "live",
         "label": "Live notices"
       },
       "points": [
-        "Diversions and closures from the operators' notices in the Bus Open Data Service, one card for each set of works.",
-        "Passenger reports and notes, and a form to tell us about something we have missed.",
-        "News and Analysis: Freedom of Information requests, fare changes and how the network is changing, each with its sources."
+        "Every operator's buses live on one map, with the coaches, the trains and rail replacement.",
+        "One departure board for any stop, whoever runs the bus, with live, estimated and timetabled times marked apart.",
+        "Every operator's diversions and closures from the Bus Open Data Service, one card for each set of works, with the nearest stop still served.",
+        "Every route's stops, hours and tickets, and the cheapest ticket for a journey across companies.",
+        "How each route really runs, from the recorded days, and the site's own analysis under News and Analysis, each piece with its sources."
       ],
       "try": [
         {
           "action": "updates",
-          "label": "Travel updates",
-          "hint": "Travel Updates lists what affects a journey now. News and Analysis has the longer pieces, each with its sources."
+          "label": "One portal to the full network",
+          "hint": "Travel Updates gathers those notices, one card for each set of works. News and Analysis has the longer pieces, each with its sources."
         }
       ],
       "sources": [
@@ -305,6 +334,34 @@
           "label": "Bus Open Data Service: \"free open data, and does not require a licence\"",
           "url": "https://www.bus-data.dft.gov.uk/",
           "checked_on": "2026-11-01"
+        }
+      ],
+      "groups": [
+        {
+          "label": "Live",
+          "items": [
+            "every bus, coach and train",
+            "rail replacement"
+          ]
+        },
+        {
+          "label": "Stops",
+          "items": [
+            "one board for every operator",
+            "the last bus home"
+          ]
+        },
+        {
+          "label": "Notices",
+          "items": [
+            "every operator's diversions and closures"
+          ]
+        },
+        {
+          "label": "Fares",
+          "items": [
+            "the cheapest ticket across companies"
+          ]
         }
       ]
     },
@@ -341,8 +398,8 @@
       "try": [
         {
           "action": "better-buses",
-          "label": "Better buses",
-          "hint": "What would improve the network, who is responsible for each change, and how far it has got. Write to your councillor from here."
+          "label": "Better buses: a joined-up plan",
+          "hint": "The first ask: one Bus Service Improvement Plan for the coast, with West Sussex and Brighton & Hove planning across the line at Portslade together. Tap it for the evidence, and to write to your councillor."
         },
         {
           "action": "evidence",

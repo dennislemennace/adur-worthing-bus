@@ -65,6 +65,8 @@ function tourStepSlide(step, i, total, values, contact) {
         tourSlideText(step.badge && step.badge.label, values)}</span></p>
       <h2 class="slide-title">${tourEsc(step.title)}</h2>
       <p class="slide-lead">${tourSlideText(step.lead, values)}</p>
+      ${(step.groups || []).length ? `<dl class="slide-groups">${step.groups.map(g =>
+        `<div><dt>${tourEsc(g.label)}</dt><dd>${(g.items || []).map(tourEsc).join(" · ")}</dd></div>`).join("")}</dl>` : ""}
       ${(step.points || []).length ? `<ul class="slide-points">${step.points.map(p =>
         `<li>${tourSlideText(p, values)}</li>`).join("")}</ul>` : ""}
       ${tourSlideSources(step.sources)}

@@ -5365,11 +5365,11 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 }
 
 /* ── Network plan view: objectives + community ideas ── */
-/* Objectives list reuses the proposal-card visuals; container matches
-   .proposals-list (scroll + padding + gap). */
+/* Objectives list reuses the proposal-card visuals. The tab scrolls, not the
+   list: as a scroller of its own under the intro, a phone's lowered sheet
+   (or the tour's card above it) squeezed it to a 32px slot. */
 .objectives-list {
-  flex: 1;
-  overflow-y: auto;
+  flex: none;
   padding: var(--space-md);
   display: flex;
   flex-direction: column;
@@ -8828,6 +8828,19 @@ button.target-dense {
 .tour-compare-bar span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--color-text-muted); }
 .tour-compare-row--lead .tour-compare-bar span { background: var(--color-link); }
 .tour-coach-lead { font-size: var(--font-size-md); line-height: 1.5; text-wrap: pretty; }
+/* A step's groups: "Bus  Brighton & Hove · Metrobus", one short row each,
+   the labels in a column of their own so the lists line up. */
+.tour-groups {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px var(--space-sm);
+  width: 100%; margin: 0; font-size: var(--font-size-sm); line-height: 1.4;
+}
+.tour-group { display: contents; }
+.tour-group dt { font-weight: 600; color: var(--color-text); }
+.tour-group dd { margin: 0; color: var(--color-text-muted); text-wrap: pretty; }
+/* Route view's two stops keep the phone's sheet for the routes: the Day and
+   Night switch above the tabs is put away while the tour is on them. */
+body[data-tour-stop="route-view"] .panel-mode[data-mode="improvements"] .service-mode-toggle,
+body[data-tour-stop="route"] .panel-mode[data-mode="improvements"] .service-mode-toggle { display: none; }
 .tour-coach-hint {
   display: flex; align-items: flex-start; gap: 8px; width: 100%; box-sizing: border-box;
   padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-md);

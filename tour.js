@@ -31,6 +31,8 @@ const tour = {
   data: null, promise: null, values: null, bound: false, rendered: false,
   lastStep: 0, seq: 0, minimised: null, timer: 0, frame: 0, watching: false,
   scrolledFor: "", frontUntil: 0, ringKey: "",
+  // For a stop with no view of its own, the view stop it carries on from.
+  carry: null,
   // Bus Performance's day, time of day and zoom as the reader left them,
   // before a stop chose its own; put back when the tour ends.
   jtSaved: null,
@@ -56,20 +58,23 @@ const TOUR_VIEW_OF = {
 /** The control each stop's hint is about, for the ring. The live map has
  *  none: the hint is about the buses, which are the whole map. */
 const TOUR_TARGETS = {
-  "route-view":    '.panel-mode[data-mode="improvements"] .service-mode-toggle',
-  "route":         "#route-detail .route-detail-head",
+  "route-view":    "#route-filter-chips",
+  // The operator and route pickers, filled in, with the route under them.
+  "route":         "#route-pick",
   "board":         "#departures-container",
   "tickets":       "#jc-result",
   "planner":       "#plan-journey",
   "journey-times": ".jt-simple-chart",
-  "delay-map":     "#jt-delay-panel",
+  // The route, way and time pickers, first in the panel's body, under its intro.
+  "delay-map":     "#jt-delay-panel .delay-body",
   "updates":       '.panel-mode[data-mode="updates"] .panel-tabs',
-  "better-buses":  '.panel-mode[data-mode="network"] .panel-tabs',
+  // The joined-up plan, the first of the asks, rather than the tabs above it.
+  "better-buses":  "#objectives-list .objective-lead",
 };
 
 /** Stops whose target is the point of the stop: it goes to the top of the
  *  panel, front and centre, rather than only into view. */
-const TOUR_FRONT = ["journey-times"];
+const TOUR_FRONT = ["journey-times", "delay-map", "route", "better-buses"];
 
 // Lancing to Brighton: the council line at Portslade and the coast either
 // side of it. On a phone the map stops show this between the card and the
@@ -249,6 +254,14 @@ function tourHeadlineHtml(head, values) {
   return `${claim}${measure}<ul class="tour-compare">${rows}</ul>`;
 }
 
+/** A step's groups: a few short rows, each a label and what is under it
+ *  ("Bus: Brighton & Hove · Metrobus"), so a list reads at a glance. */
+function tourGroupsHtml(groups) {
+  if (!Array.isArray(groups) || !groups.length) return "";
+  return `<dl class="tour-groups">${groups.map(g => `<div class="tour-group"><dt>${escapeHtml(g.label)}</dt><dd>${
+    (g.items || []).map(escapeHtml).join(" · ")}</dd></div>`).join("")}</dl>`;
+}
+
 function tourTryHtml(t, i, j, className, pressed = false) {
   const toggle = TOUR_VIEWS.includes(t.action) ? ` aria-pressed="${pressed}"` : "";
   const away = t.action === "link" && !/^mailto:/i.test(String(t.href || ""))
@@ -296,7 +309,7 @@ function tourCoachHtml(d, demo, values, stops) {
   ].join("");
   return `
     <div class="tour-coach-top">
-      <p class="tour-coach-eyebrow">Step ${demo.step + 1} of ${steps.length}${t
+      <p class="tour-coach-eyebrow">Step ${demo.step + 1} of ${steps.length}${t && t.label !== step.title
         ? `<span class="tour-coach-chapter">: ${escapeHtml(step.title)}</span>` : ""}</p>
       <button type="button" class="tour-coach-icon tour-coach-min" data-tour-coach="min" aria-expanded="true"
         aria-controls="tour-coach-body" aria-label="Hide the tour's card"><svg class="icon"
@@ -309,6 +322,7 @@ function tourCoachHtml(d, demo, values, stops) {
     <div class="tour-coach-body${t ? "" : " tour-coach-body--solo"}" id="tour-coach-body">
       ${badge("wide")}
       ${head && firstOfStep ? tourHeadlineHtml(head, values) : ""}
+      ${firstOfStep ? tourGroupsHtml(step.groups) : ""}
       ${firstOfStep && !claimed ? lead("main") : ""}
       ${t && t.hint ? `<p class="tour-coach-hint"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span>${
         tourText(t.hint, values)}</span></p>` : ""}
@@ -409,6 +423,12 @@ async function tourRunAction(t) {
       return;
     case "route-view":
       await tourGo("improvements");
+      // The whole network by day, its routes listed: whatever the reader
+      // left here (a route open, the night buses, Proposals) put by.
+      if (state.serviceMode !== "day") setServiceMode("day");
+      if (state.improvementsTab !== "about") setImprovementsTab("about");
+      if (state.routeFocus) clearRouteFocus();
+      if (dom.routeFiltersDisc) dom.routeFiltersDisc.open = true;
       return;
     case "route": {
       // One route, as the reader would choose it from the pickers.
@@ -427,6 +447,8 @@ async function tourRunAction(t) {
       return;
     case "better-buses":
       await tourGo("network");
+      // The asks, where the joined-up plan leads, not the reader's ideas.
+      if (state.networkTab !== "objectives" && typeof setNetworkTab === "function") setNetworkTab("objectives");
       return;
     case "a11y":
       // A dialog over whatever is open, like the evidence.
@@ -520,20 +542,44 @@ async function tourGoTo(stepIndex, tryIndex) {
   const view = t ? TOUR_VIEW_OF[t.action] : (state.viewMode === "tour" ? "live" : state.viewMode);
   if (view === state.viewMode) pushUrlState({ major: true });
   track(`tour-stop-${step.id}-${tryIndex == null ? 0 : tryIndex + 1}`);
+  // A stop with nothing to open keeps the view before it as it was: the same
+  // sheet height, the same thing ringed and held in sight (the joined-up plan
+  // under the last two cards, asked for 3 November 2026).
+  tour.carry = t ? null : tourCarriedTry(d, stepIndex);
+  document.body.dataset.tourStop = (t || tour.carry || {}).action || "";
   if (t) await tourRunAction(t);
-  // A stop with nothing to open shows over the view the reader is on, or
-  // over the live map when they start from the tour's own page.
+  // Otherwise it shows over the view the reader is on, or over the live map
+  // when they start from the tour's own page.
   else if (state.viewMode === "tour") { await tourGo("live"); closePanel(); }
   if (seq !== tour.seq || !state.tourDemo) return;
-  if (t && typeof isSheetLayout === "function" && isSheetLayout()) setSheetDetent(TOUR_DETENTS[t.action] || "half");
+  const shown = t || tour.carry;
+  if (shown && typeof isSheetLayout === "function" && isSheetLayout()) setSheetDetent(TOUR_DETENTS[shown.action] || "half");
   await tourSyncCoach();
   // The stop's page is made above; bring it up to date with what opened.
   pushUrlState();
   // The next stop's files, fetched while this one is read, so Next does not
   // wait on them (the Bus Performance stops lagged, 3 November 2026).
+  // Two stops ahead: the ticket check waited on a route lookup, two fare
+  // files and the journey itself (3 November 2026).
   const stops = tourStops(d);
-  tourPrefetch(stops[tourStopIndex(stops, { step: stepIndex, tryIndex }) + 1], d);
+  const at = tourStopIndex(stops, { step: stepIndex, tryIndex });
+  tourPrefetch(stops[at + 1], d);
+  tourPrefetch(stops[at + 2], d);
   if (t) await tourFrameMap(t.action, seq);
+}
+
+/** For a stop with no view of its own: the stop before it on the walk, if
+ *  that one opened the view still showing. */
+function tourCarriedTry(d, stepIndex) {
+  const stops = tourStops(d);
+  const at = tourStopIndex(stops, { step: stepIndex, tryIndex: null });
+  for (let i = at - 1; i >= 0; i--) {
+    const x = stops[i];
+    if (x.tryIndex == null) continue;
+    const t = (d.steps[x.step].try || [])[x.tryIndex];
+    return t && TOUR_VIEW_OF[t.action] === state.viewMode ? t : null;
+  }
+  return null;
 }
 
 /** The delay map document for a tour stop's route, or null. */
@@ -557,9 +603,14 @@ function tourPrefetch(stop, d) {
   } else if (t.action === "delay-map" && t.service) {
     quiet(tourDelayDoc(t));
   } else if (t.action === "tickets") {
-    quiet(loadJourneyPresets());
+    quiet(loadTicketZones());
+    quiet(loadFareTables());
+    quiet(loadJourneyPresets().then(presets => {
+      const p = presets.find(x => x.id === t.preset);
+      return p && fetchJourney(p.from, p.to);
+    }));
   } else if (t.action === "route" && t.operator && t.service) {
-    quiet(apiFetch(`/api/route?operator=${encodeURIComponent(t.operator)}&service=${encodeURIComponent(t.service)}`));
+    quiet(fetchRouteDetail(t.operator, t.service));
   }
 }
 
@@ -570,11 +621,24 @@ function tourPrefetch(stop, d) {
  *  the card room: fitBoundsAboveSheet and its kin count it (app.js). */
 async function tourFrameMap(action, seq) {
   if (!state.map || typeof isSheetLayout !== "function" || !isSheetLayout()) return;
-  if (action !== "route-view" && action !== "live-map") return;
+  if (action !== "route-view" && action !== "live-map" && action !== "delay-map") return;
   // The sheet takes 180ms to reach its new height.
   await new Promise(r => setTimeout(r, 220));
   if (seq !== tour.seq || !state.tourDemo) return;
-  fitBoundsAboveSheet(L.latLngBounds(TOUR_COAST), { padding: [16, 8] });
+  if (action !== "delay-map") {
+    fitBoundsAboveSheet(L.latLngBounds(TOUR_COAST), { padding: [16, 8] });
+    return;
+  }
+  // The delay map fits its route as it draws, which is before the sheet has
+  // come down and the card has its height: the route ran under the card. Fit
+  // it again, whole, into the strip between them, once it has drawn.
+  for (let i = 0; i < 20 && !(jtDelay.lines && jtDelay.lines.size); i++) {
+    await new Promise(r => setTimeout(r, 150));
+    if (seq !== tour.seq || !state.tourDemo) return;
+  }
+  const bounds = L.latLngBounds([]);
+  for (const line of (jtDelay.lines || new Map()).values()) bounds.extend(line.getBounds());
+  if (bounds.isValid()) fitBoundsAboveSheet(bounds, { padding: [16, 12], maxZoom: 14 });
 }
 
 /** Next (+1) or Back (-1). Past the last stop, the tour ends where it is. */
@@ -661,6 +725,7 @@ function tourHideCoach(card) {
   card.hidden = true;
   card.dataset.stop = "";
   delete document.body.dataset.tourCoach;
+  delete document.body.dataset.tourStop;
   document.body.style.removeProperty?.("--tour-coach-h");
   const ring = document.getElementById("tour-ring");
   if (ring) ring.hidden = true;
@@ -710,10 +775,17 @@ function tourBindCoach(card) {
   card.addEventListener("toggle", () => tourPlace(), true);
 }
 
-function tourTarget() {
+/** What the stop is showing: its own view, or for a stop with none, the
+ *  view it was carried over from (tourGoTo). */
+function tourActiveTry() {
   const demo = state.tourDemo;
   const step = demo && tour.data && tour.data.steps[demo.step];
-  const t = step && demo.tryIndex != null ? step.try[demo.tryIndex] : null;
+  if (!step) return null;
+  return demo.tryIndex != null ? step.try[demo.tryIndex] : tour.carry;
+}
+
+function tourTarget() {
+  const t = tourActiveTry();
   const sel = t && TOUR_TARGETS[t.action];
   const el = sel ? document.querySelector(sel) : null;
   if (!el || el.hidden || !el.getClientRects().length) return null;
@@ -751,8 +823,7 @@ function tourPlace() {
   const key = card.dataset.stop;
   // A stop's own subject (TOUR_FRONT) goes to the top of the panel, and again
   // if the view draws it afresh; anything else only when it is out of sight.
-  const demo = state.tourDemo;
-  const t = demo && demo.tryIndex != null && tour.data ? tour.data.steps[demo.step].try[demo.tryIndex] : null;
+  const t = tourActiveTry();
   const front = Boolean(t) && TOUR_FRONT.includes(t.action);
   if (target && front) {
     // Held at the top while the view settles: what is drawn above it late
@@ -761,7 +832,7 @@ function tourPlace() {
     const box = target.closest(".panel-tab-content");
     if (box && Date.now() < tour.frontUntil) {
       const r = target.getBoundingClientRect(), b = box.getBoundingClientRect();
-      const chart = target.querySelector("svg");
+      const chart = t.action === "journey-times" ? target.querySelector("svg") : null;
       const c = chart ? chart.getBoundingClientRect() : r;
       // Its top at the panel's top; or, where the panel cannot hold all of
       // it (a phone's sheet under the card), the chart itself in full, or

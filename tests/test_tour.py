@@ -67,6 +67,16 @@ def test_every_step_has_what_the_panel_and_the_slides_read():
                 assert head.get("measure"), f'{s["id"]}: a comparison must say what was measured'
             for key in ("claim", "measure"):
                 assert key not in head or (isinstance(head[key], str) and head[key]), f'{s["id"]}: empty {key}'
+        if "groups" in s:
+            # A few short rows, each a label and what is under it (the
+            # operators by mode on the first step): never an empty row.
+            groups = s["groups"]
+            assert isinstance(groups, list) and 0 < len(groups) <= 4, f'{s["id"]}: groups'
+            for g in groups:
+                assert isinstance(g.get("label"), str) and g["label"], f'{s["id"]}: a group needs a label'
+                items = g.get("items")
+                assert isinstance(items, list) and items and all(isinstance(i, str) and i for i in items), \
+                    f'{s["id"]}: group {g.get("label")} lists nothing'
 
 
 def test_every_show_me_points_at_something_real():

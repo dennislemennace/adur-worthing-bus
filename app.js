@@ -12556,6 +12556,23 @@ async function fillRoutePicker() {
     `<option value="${escapeAttr(g.operator)}">${escapeHtml(g.name)}</option>`).join("");
 }
 
+/** Set the operator and route pickers to a route, without asking for it again. */
+async function showRouteInPicker(operator, service) {
+  const opSel  = document.getElementById("route-pick-operator");
+  const svcSel = document.getElementById("route-pick-service");
+  if (!opSel || !svcSel) return;
+  await fillRoutePicker();
+  const g = (state.routePickerGroups || []).find(x => x.operator === operator);
+  if (!g || !g.services.includes(service)) return;
+  if (opSel.value !== operator) {
+    opSel.value = operator;
+    svcSel.innerHTML = `<option value="">Choose a route</option>`
+      + g.services.map(s => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join("");
+  }
+  svcSel.disabled = false;
+  svcSel.value = service;
+}
+
 function initRoutePicker() {
   const opSel  = document.getElementById("route-pick-operator");
   const svcSel = document.getElementById("route-pick-service");
@@ -12584,11 +12601,15 @@ async function focusRoute(operator, service) {
   host.innerHTML = `<p class="route-detail-note">Loading the ${escapeHtml(service)}…</p>`;
   let detail;
   try {
-    detail = await apiFetch(`/api/route?operator=${encodeURIComponent(operator)}&service=${encodeURIComponent(service)}`);
+    detail = await fetchRouteDetail(operator, service);
   } catch {
     if (mine()) host.innerHTML = `<p class="route-detail-note">That route could not be loaded. Try again in a moment.</p>`;
     return;
   }
+  if (!mine() || state.viewMode !== "improvements") return;
+  // A route opened from elsewhere (the tour, a link) shows in the pickers as
+  // if it had been chosen there.
+  await showRouteInPicker(operator, service);
   if (!mine() || state.viewMode !== "improvements") return;
   state.routeFocus = { operator, service, detail, dir: 0, expanded: false };
   // The route has the tab now: the list of every route folds away.
@@ -14743,6 +14764,29 @@ async function runJourneyPreset(preset) {
   if (result) scrollPanelTo(result, 72);
 }
 
+/** An answer the API gives the same way all session, asked for once: the
+ *  route and the journey lookups, which the tour also fetches a stop ahead
+ *  so its card does not wait on them. Kept ten minutes; a failure is not kept. */
+const API_MEMO_MS = 10 * 60 * 1000;
+const apiMemo = new Map();
+function apiFetchMemo(path) {
+  const hit = apiMemo.get(path);
+  if (hit && Date.now() - hit.at < API_MEMO_MS) return hit.promise;
+  const promise = apiFetch(path).catch(err => { apiMemo.delete(path); throw err; });
+  apiMemo.set(path, { at: Date.now(), promise });
+  return promise;
+}
+
+function fetchJourney(fromAtco, toAtco) {
+  return apiFetchMemo(`/api/journey?from=${encodeURIComponent(fromAtco)}`
+    + `&to=${encodeURIComponent(toAtco)}`
+    + `&at=${encodeURIComponent(JOURNEY_TIME_ANCHOR)}`);
+}
+
+function fetchRouteDetail(operator, service) {
+  return apiFetchMemo(`/api/route?operator=${encodeURIComponent(operator)}&service=${encodeURIComponent(service)}`);
+}
+
 async function checkJourney() {
   const fromAtco = atcoFromPickerValue(dom.jcFrom && dom.jcFrom.value);
   const toAtco   = atcoFromPickerValue(dom.jcTo && dom.jcTo.value);
@@ -14770,10 +14814,7 @@ async function checkJourney() {
 
   let journey;
   try {
-    journey = await apiFetch(
-      `/api/journey?from=${encodeURIComponent(fromAtco)}`
-      + `&to=${encodeURIComponent(toAtco)}`
-      + `&at=${encodeURIComponent(JOURNEY_TIME_ANCHOR)}`);
+    journey = await fetchJourney(fromAtco, toAtco);
   } catch (err) {
     if (!mine()) return;
     setJourneyStatus("Couldn't look up that journey. Please try again.", true);
