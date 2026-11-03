@@ -375,16 +375,26 @@ def run_day(day, tt, siri_dir, rt_dir, observations, diversions_doc=None, box=No
                 calls_in_box.append((trip_id, atco, secs))
     recorded_from = minutes[0] * 60 if minutes else 0
     recorded_to = minutes[-1] * 60 if minutes else 0
+    from api import live_eta
     return {"method_version": METHOD_VERSION, "days": [day.isoformat()],
             "method": METHOD, "caveats": CAVEATS,
+            "late_shares": {late_share_key(live_eta.ROAD_LATE_SHARE): [day.isoformat()]},
             "inputs": {"siri_minutes": len(siri), "gtfs_rt_minutes": len(rt)},
             **scorer.report(calls_in_box, recorded_from, recorded_to, origin)}
+
+
+def late_share_key(share):
+    """How much of a late bus's lateness the board passed on, as a key:
+    the window says which days were scored at which (live_eta.ROAD_LATE_SHARE,
+    four fifths from 3 November 2026, all of it before)."""
+    return f"{float(share):.1f}"
 
 
 def merge(docs):
     """Counts summed over days; the site divides."""
     out = {"method_version": METHOD_VERSION, "days": [], "inputs": Counter(),
            "method": METHOD, "caveats": CAVEATS}
+    shares = defaultdict(set)
     sections = {"accuracy": defaultdict(Counter), "coverage": defaultdict(Counter),
                 "journeys": defaultdict(Counter), "cleardown": defaultdict(Counter),
                 "versus": defaultdict(Counter)}
@@ -392,11 +402,15 @@ def merge(docs):
         if doc.get("method_version") != METHOD_VERSION:
             raise ValueError(f"method {doc.get('method_version')} is not {METHOD_VERSION}")
         out["days"] += doc["days"]
+        # Days scored before the share was recorded passed on all of it.
+        for share, days in (doc.get("late_shares") or {"1.0": doc["days"]}).items():
+            shares[share].update(days)
         out["inputs"].update(doc.get("inputs") or {})
         for name, groups in sections.items():
             for key, counts in (doc.get(name) or {}).items():
                 groups[key].update(counts)
     out["days"] = sorted(set(out["days"]))
+    out["late_shares"] = {k: sorted(v) for k, v in sorted(shares.items())}
     out["inputs"] = dict(out["inputs"])
     for name, groups in sections.items():
         out[name] = {k: dict(c) for k, c in sorted(groups.items())}

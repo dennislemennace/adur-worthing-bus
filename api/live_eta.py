@@ -81,11 +81,12 @@ def next_call(tt, calls: list, vehicle: dict) -> Optional[int]:
 
 
 # How much of a late bus's lateness an estimate passes on. A bus shown later
-# than it comes is a bus missed; one shown sooner is a short wait. All of it, for
-# now: on the replayed days 80% cut "came before the time shown" from 5.4% to
-# 3.4% but took estimates within RTIG's window from 77.3% to 72.0%
-# (docs/reliability/next-journey-2026-11-03.md), the maintainer's call to make.
-ROAD_LATE_SHARE = 1.0
+# than it comes is a bus missed; one shown sooner is a short wait. Four fifths,
+# chosen by the maintainer on 3 November 2026: on the replayed days 80% cut
+# "came before the time shown" from 5.4% to 3.4% of estimates, and took those
+# within RTIG's window from 77.3% to 72.0%
+# (docs/reliability/next-journey-2026-11-03.md). Early is never scaled.
+ROAD_LATE_SHARE = 0.8
 ROAD_CAUTION_SECS = 0
 
 
@@ -108,7 +109,8 @@ def projected_lateness(lateness: int, timing_points: list, start: int, count: in
 
 def project_trip(tt, trip_id: str, vehicle: dict, now: datetime,
                  diversions_doc: Optional[dict] = None,
-                 recovery_doc: Optional[dict] = None) -> list:
+                 recovery_doc: Optional[dict] = None,
+                 share: float = ROAD_LATE_SHARE) -> list:
     """The stops still ahead of `vehicle` on `trip_id`, with estimates where honest.
 
     Each row: `stop_id, stop_name, seq, scheduled, expected, lateness_secs,
@@ -117,7 +119,8 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime,
     `not_served` for a stop the diversion skips. The first row is the last stop
     the bus has passed, when there is one, so a reader can see where it is.
     `expected` and `lateness_secs` are None unless the feed named the journey
-    and it carries a lateness.
+    and it carries a lateness. `share` of any lateness is passed on
+    (ROAD_LATE_SHARE); 1.0 gives the bus's own arrival, unscaled.
     """
     calls = [(secs, atco) for secs, atco in (tt.trip_stops_for(trip_id) or [])
              if secs is not None]
@@ -150,6 +153,10 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime,
             (tt.routes.get(route_id) or {}).get("short_name", ""), calls, tps, anchor, start,
             int(lateness), recovery.service_day(origin)))
 
+    # Scaled once, here, so a diversion allowance is weighed against what the
+    # board will show rather than the lateness it was scaled from.
+    projected = [max(0, round(p * share) - ROAD_CAUTION_SECS) if p is not None and p > 0 else p
+                 for p in projected]
     allowance = _allowances(tt, trip_id, calls, start, origin, lateness, projected,
                             diversions_doc, now)
     closed = allowance.pop("not_served", set())
@@ -159,8 +166,6 @@ def project_trip(tt, trip_id: str, vehicle: dict, now: datetime,
         secs, atco = calls[j]
         if j in closed:
             late = None
-        if late is not None and late > 0:
-            late = max(0, round(late * ROAD_LATE_SHARE) - ROAD_CAUTION_SECS)
         extra = allowance.get(j, 0) if late is not None else 0
         late = late + extra if late is not None else None
         scheduled = datetime.fromtimestamp(origin + secs, LONDON)
@@ -280,7 +285,8 @@ def from_previous_journey(tt, vehicle: dict, now: datetime, day,
         nxt = tt.next_in_block(trip_id, day)
     if not nxt:
         return None
-    rows = project_trip(tt, trip_id, vehicle, now, diversions_doc, recovery_doc)
+    # The bus's own arrival, unscaled: PREVIOUS_JOURNEY_SHARE was measured on it.
+    rows = project_trip(tt, trip_id, vehicle, now, diversions_doc, recovery_doc, share=1.0)
     last = rows[-1] if rows else None
     if not last or not last["is_terminus"] or last["passed"] or not last["expected"]:
         return None

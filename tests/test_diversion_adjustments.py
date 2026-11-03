@@ -155,21 +155,23 @@ def late_min(r):
 
 def test_a_bus_short_of_the_diversion_is_expected_later_beyond_it():
     now = at(14, 2)                                # a Friday
-    got = rows_for(declared(60, lat=50.831), now)
+    # 75 s late, shown as a minute (four fifths, live_eta.ROAD_LATE_SHARE).
+    got = rows_for(declared(75, lat=50.831), now)
     assert late_min(got["STOP2"]) == 1, "nothing before the entry point"
     assert got["STOP3"]["not_served"] and got["STOP3"]["expected"] is None
     assert late_min(got["STOP4"]) == 6 and got["STOP4"]["allowance_secs"] == 300
     assert got["STOP4"]["allowance_reason"] == "Road closed"
     assert late_min(got["STOP7"]) == 3
-    without = rows_for(declared(60, lat=50.831), now, doc=None)
+    without = rows_for(declared(75, lat=50.831), now, doc=None)
     assert late_min(without["STOP4"]) == 1 and "allowance_secs" not in without["STOP4"]
 
 
 def test_a_bus_on_the_diversion_counts_its_own_lateness_or_the_allowance_whichever_is_more():
+    # Weighed against what the board shows of the lateness (four fifths).
     got = rows_for(declared(240, lat=50.833), at(14, 8))     # past the entry, short of STOP4
-    assert late_min(got["STOP4"]) == 5, "4 min late already; the allowance says 5"
-    got = rows_for(declared(420, lat=50.833), at(14, 8))
-    assert late_min(got["STOP4"]) == 7 and "allowance_secs" not in got["STOP4"]
+    assert late_min(got["STOP4"]) == 5, "3.2 min shown already; the allowance says 5"
+    got = rows_for(declared(450, lat=50.833), at(14, 8))
+    assert late_min(got["STOP4"]) == 6 and "allowance_secs" not in got["STOP4"], "6 min shown is more"
 
 
 def test_a_bus_past_the_diversion_carries_only_its_own_lateness():

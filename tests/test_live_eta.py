@@ -54,12 +54,41 @@ def expected_minutes_late(rows):
             for r in rows]
 
 
-def test_a_late_bus_is_expected_as_late_at_every_stop_ahead():
+def shown(late):
+    """What the board passes on of a bus's lateness (live_eta.ROAD_LATE_SHARE)."""
+    return round(late * live_eta.ROAD_LATE_SHARE)
+
+
+def test_a_late_bus_keeps_its_lateness_at_every_stop_ahead():
     tt = FakeTimetable()
-    rows = live_eta.project_trip(tt, "VJ_1400", declared(240), at(14, 8))
+    rows = live_eta.project_trip(tt, "VJ_1400", declared(300), at(14, 8))
     ahead = [r for r in rows if not r["passed"]]
     assert ahead[0]["stop_id"] == "STOP2"
-    assert set(expected_minutes_late(ahead)) == {4}, "a late bus was made to catch up"
+    assert {r["lateness_secs"] for r in ahead} == {shown(300)}, "a late bus was made to catch up"
+
+
+def test_four_fifths_of_a_late_bus_is_passed_on_so_the_reader_errs_early():
+    # Asked for 3 November 2026: a bus shown later than it comes is a bus
+    # missed. On the replayed days passing on 80% of the lateness cut "came
+    # before the time shown" from 5.4% to 3.4% of estimates
+    # (docs/reliability/next-journey-2026-11-03.md).
+    rows = live_eta.project_trip(FakeTimetable(), "VJ_1400", declared(600), at(14, 8))
+    ahead = [r for r in rows if not r["passed"]]
+    assert {r["lateness_secs"] for r in ahead} == {480}
+    early = live_eta.project_trip(FakeTimetable(), "VJ_1400", declared(-120), at(14, 2))
+    assert {r["lateness_secs"] for r in early if not r["passed"]} == {-120}, \
+        "an early bus is not made earlier: it may wait at a timing point"
+
+
+def test_the_next_journey_starts_from_the_whole_of_the_lateness_not_four_fifths():
+    # PREVIOUS_JOURNEY_SHARE (a half) was measured against the bus's own
+    # arrival at its last stop; scaling that arrival too would pass on 40%.
+    class Blocked(FakeTimetable):
+        def next_in_block(self, trip_id, day):
+            return {"trip_id": "VJ_NEXT", "depart_secs": START + 7 * 120}
+
+    nxt = live_eta.from_previous_journey(Blocked(), declared(600), at(14, 8), at(14, 8).date())
+    assert nxt == {"trip_id": "VJ_NEXT", "lateness_secs": 300}
 
 
 def test_an_early_bus_waits_at_its_next_timing_point():
@@ -142,7 +171,7 @@ def test_estimate_at_answers_only_for_a_stop_still_ahead():
     bus = declared(180)
     now = at(14, 5)
     ahead = live_eta.estimate_at(tt, "VJ_1400", bus, "STOP5", at(14, 10), now)
-    assert ahead and round(ahead["lateness_secs"] / 60) == 3
+    assert ahead and ahead["lateness_secs"] == shown(180)
     behind = live_eta.estimate_at(tt, "VJ_1400", bus, "STOP1", at(14, 2), now)
     assert behind is None, "an estimate was given for a stop the bus has left"
 
@@ -171,8 +200,8 @@ def test_the_board_takes_an_estimate_from_the_bus_the_feed_names(monkeypatch):
                                          FakeTimetable(), "STOP5", at(14, 5))
     dep = out["departures"][0]
     assert dep["live_source"] == "feed"
-    assert dep["delay_seconds"] == 180 and dep["status"] == "Late"
-    assert datetime.fromisoformat(dep["expected_departure"]) == at(14, 13)
+    assert dep["delay_seconds"] == shown(180) and dep["status"] == "Late"
+    assert (datetime.fromisoformat(dep["expected_departure"]) - at(14, 10)).total_seconds() == shown(180)
     assert out["live"] is True
 
 
@@ -305,7 +334,7 @@ def test_the_board_trusts_a_journey_named_by_its_start(monkeypatch):
     out = main._apply_own_feed_estimates(_board([_row(at(14, 10))]),
                                          FakeTimetable(), "STOP5", at(14, 5))
     dep = out["departures"][0]
-    assert dep["delay_seconds"] == 180 and dep.get("vehicle_ref") == "BUS-1"
+    assert dep["delay_seconds"] == shown(180) and dep.get("vehicle_ref") == "BUS-1"
 
 
 def test_the_bus_tab_shows_a_journey_named_by_its_start(monkeypatch):

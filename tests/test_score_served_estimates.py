@@ -93,6 +93,16 @@ def test_days_add_up_and_methods_do_not_mix():
         ss.merge([one, {**two, "method_version": 0}])
 
 
+def test_the_window_says_how_much_lateness_each_day_passed_on():
+    # From 3 November 2026 the board passes on four fifths of a late bus's
+    # lateness; the 30-day figure mixes the two until the old days age out.
+    old = {"method_version": ss.METHOD_VERSION, "days": ["2026-11-01"], "inputs": {},
+           "accuracy": {}, "coverage": {}, "journeys": {}, "cleardown": {}}
+    new = {**old, "days": ["2026-11-03"], "late_shares": {"0.8": ["2026-11-03"]}}
+    assert ss.merge([old, new])["late_shares"] == {"0.8": ["2026-11-03"], "1.0": ["2026-11-01"]}
+    assert ss.late_share_key(0.8) == "0.8" and ss.late_share_key(1) == "1.0"
+
+
 def test_minute_files_are_keyed_by_the_epoch_minute(tmp_path):
     (tmp_path / "0800-1792828800.xml").write_text("x")
     (tmp_path / "notes.xml").write_text("x")

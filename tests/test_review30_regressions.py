@@ -47,7 +47,7 @@ def test_lateness_is_elapsed_time_through_repeated_hour(day, start, hour, fold):
                                 datetime(2026,10,day,hour,55,tzinfo=LONDON,fold=fold))
     row = next(r for r in rows if r['stop_id'] == 'STOP2')
     actual = datetime.fromisoformat(row['expected']).timestamp() - datetime.fromisoformat(row['scheduled']).timestamp()
-    assert actual == 1200
+    assert actual == row['lateness_secs'] == round(1200 * live_eta.ROAD_LATE_SHARE)
 
 
 @pytest.mark.parametrize('xml', [PER_PAIR.replace('2026-09-04', '2999-01-01'),

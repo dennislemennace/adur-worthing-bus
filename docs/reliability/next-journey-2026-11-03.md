@@ -87,17 +87,25 @@ before the time shown on 1.5% of these estimates, under the 2.2% the
 block-based estimates had before this change, and still within the window more
 often than the timetable.
 
-**Buses already on the road** were not changed. The same idea there costs much
-more accuracy (29 October to 1 November, all operators):
+**Buses already on the road** now pass on four fifths of their lateness
+(`ROAD_LATE_SHARE`, `api/live_eta.py`), chosen by the maintainer on 3 November
+2026 after seeing what it costs (29 October to 1 November, all operators):
 
 | Lateness passed on | Acceptable | Came before shown | Came after shown |
 |---|---|---|---|
-| All of it (now) | 77.3% | 5.4% | 17.3% |
-| 80% | 72.0% | 3.4% | 24.5% |
+| All of it (before 3 November) | 77.3% | 5.4% | 17.3% |
+| 80% (from 3 November) | 72.0% | 3.4% | 24.5% |
 | All, less 1 minute | 70.9% | 3.7% | 25.4% |
 | All, less 2 minutes | 66.3% | 3.0% | 30.6% |
 
-That is the maintainer's decision (`ROAD_LATE_SHARE`, `ROAD_CAUTION_SECS`).
+The share is applied once, before a diversion allowance is weighed against it,
+so a bus on a diversion still shows its shown lateness or the allowance,
+whichever is more; the 80% row was re-run with that in place and did not move.
+The next journey's estimate starts from the bus's whole arrival time, not four
+fifths of it, because its own half was measured that way. The nightly figure on
+the live data health page scores each new day as the board then showed it, so
+its 30-day window moves over to the new share by 3 December 2026; each day
+records which share it was scored at (`late_shares`).
 
 ## Caveats
 
