@@ -649,6 +649,7 @@ async function init() {
 
   initMap();
   initLocateControl();
+  initStopAccessControl();
   bindUIEvents();
   bindA11yControls();
   bindKeyboardFooter();
@@ -1136,6 +1137,9 @@ function renderStopMarker(stop) {
     if (maybeOpenTapChooser(e)) return;
     openDepartures(stop.atco_code, stop.name);
   });
+  // Leaflet draws a marker's element afresh each time it returns to the map,
+  // so the Stop access layer's colour goes back on with it.
+  marker.on("add", () => applyStopAccessClass(stop.atco_code, marker));
 
   state.stopMarkers[stop.atco_code] = marker;
   state.stopData[stop.atco_code]    = {
@@ -7555,7 +7559,7 @@ function loadOperatorAccess() {
     state._operatorAccessPromise = fetch("data/operator_access.json")
       .then(res => (res.ok ? res.json() : null))
       .catch(() => null)
-      .then(doc => (state.operatorAccess = (doc && doc.operators) || {}));
+      .then(doc => (state.operatorAccess = { ...((doc && doc.operators) || {}), _buses: (doc && doc.buses) || null }));
   }
   return state._operatorAccessPromise;
 }
@@ -7639,6 +7643,172 @@ function stepFreeTagHtml(atcoCode) {
   const [text, cls] = wc === "yes" ? ["Step-free", "yes"] : wc === "limited" ? ["Partly step-free", "part"]
     : wc === "no" ? ["Not step-free", "no"] : ["Step-free not recorded", "unknown"];
   return `<span class="access-chip access-chip--${cls} stop-search-access">${escapeHtml(text)}</span>`;
+}
+
+// ── The Stop access layer ────────────────────────────────────
+// Every stop dot coloured by whether it is step-free, so a wheelchair user
+// can see where to board and a mapper where nothing is recorded yet (asked
+// for 6 November 2026). A button under the map's zoom turns it on; it is
+// remembered on this device. Clustered dots, when zoomed out, say nothing
+// about access, and the legend says to zoom in.
+const STOP_ACCESS_LAYER_KEY = "stop-access-layer";
+const STOP_ACCESS_CLASSES = ["stop-access-yes", "stop-access-part", "stop-access-no", "stop-access-unknown"];
+
+function stopAccessState(atcoCode) {
+  const wc = ((state.stopOsm || {})[atcoCode] || {}).wheelchair;
+  return wc === "yes" ? "yes" : wc === "limited" ? "part" : wc === "no" ? "no" : "unknown";
+}
+
+function applyStopAccessClass(atcoCode, marker) {
+  const el = marker && marker.getElement && marker.getElement();
+  if (!el) return;
+  el.classList.remove(...STOP_ACCESS_CLASSES);
+  if (state.stopAccessLayer && state.stopOsm) el.classList.add(`stop-access-${stopAccessState(atcoCode)}`);
+}
+
+function applyStopAccessClasses() {
+  for (const [atco, marker] of Object.entries(state.stopMarkers || {})) applyStopAccessClass(atco, marker);
+  renderStopAccessLegend();
+}
+
+/** How many of the site's stops record step-free access, and how. */
+function stopAccessCounts() {
+  const counts = { yes: 0, part: 0, no: 0, unknown: 0, total: 0 };
+  for (const atco of Object.keys(state.stopData || {})) {
+    counts[stopAccessState(atco)]++;
+    counts.total++;
+  }
+  return counts;
+}
+
+function renderStopAccessLegend() {
+  const host = state.stopAccessLegend && state.stopAccessLegend.getContainer();
+  if (!host) return;
+  host.hidden = !state.stopAccessLayer || !["live", "improvements"].includes(state.viewMode);
+  if (host.hidden || !state.stopOsm) return;
+  const c = stopAccessCounts();
+  const row = (cls, label, n) => `<li><span class="stop-access-swatch stop-access-${cls}" aria-hidden="true"></span>${
+    escapeHtml(label)} <span class="stop-access-n">${n}</span></li>`;
+  host.innerHTML = `<p class="stop-access-legend-title">Step-free access</p>
+    <ul>${row("yes", "Step-free", c.yes)}${row("part", "Partly", c.part)}${row("no", "Not step-free", c.no)}${
+      row("unknown", "Not recorded", c.unknown)}</ul>
+    <p class="stop-access-legend-note">${c.unknown} of ${c.total} stops say nothing yet.
+      <a href="${escapeAttr(OPENSTOP_URL)}" target="_blank" rel="noopener">Add them with OpenStop</a>.
+      ${state.map && state.map.getZoom() < STOP_ZOOM_INDIVIDUAL ? "Zoom in to see each stop." : ""}</p>`;
+}
+
+function setStopAccessLayer(on) {
+  state.stopAccessLayer = on;
+  try { if (on) localStorage.setItem(STOP_ACCESS_LAYER_KEY, "1"); else localStorage.removeItem(STOP_ACCESS_LAYER_KEY); }
+  catch { /* a convenience */ }
+  const btn = state.stopAccessButton;
+  if (btn) {
+    btn.setAttribute("aria-pressed", String(on));
+    const label = on ? "Hide stop access" : "Show stop access";
+    btn.setAttribute("aria-label", label);
+    btn.title = label;
+    btn.classList.toggle("is-on", on);
+  }
+  if (on && !state.stopOsm) loadStopOsm().then(applyStopAccessClasses).catch(() => {});
+  applyStopAccessClasses();
+}
+
+/** The layer's button sits under the location button, and shows only in the
+ *  views that draw stops. */
+function initStopAccessControl() {
+  if (!state.map) return;
+  const Control = L.Control.extend({
+    options: { position: "topleft" },
+    onAdd() {
+      const bar = L.DomUtil.create("div", "leaflet-bar stop-access-control");
+      const btn = L.DomUtil.create("a", "stop-access-btn", bar);
+      btn.href = "#";
+      btn.setAttribute("role", "button");
+      btn.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-universal-access"/></svg>`;
+      L.DomEvent.disableClickPropagation(bar);
+      L.DomEvent.on(btn, "click", (e) => {
+        L.DomEvent.preventDefault(e);
+        setStopAccessLayer(!state.stopAccessLayer);
+        track(`a11y-stop-access-layer-${state.stopAccessLayer ? "on" : "off"}`);
+      });
+      state.stopAccessButton = btn;
+      return bar;
+    },
+  });
+  state.stopAccessControl = new Control().addTo(state.map);
+  const legend = L.control({ position: "bottomleft" });
+  legend.onAdd = () => {
+    const div = L.DomUtil.create("div", "stop-access-legend");
+    div.hidden = true;
+    L.DomEvent.disableClickPropagation(div);
+    return div;
+  };
+  state.stopAccessLegend = legend.addTo(state.map);
+  state.map.on("zoomend", () => { if (state.stopAccessLayer) renderStopAccessLegend(); });
+  let saved = false;
+  try { saved = localStorage.getItem(STOP_ACCESS_LAYER_KEY) === "1"; } catch { /* a convenience */ }
+  setStopAccessLayer(saved);
+  syncStopAccessControl();
+}
+
+function syncStopAccessControl() {
+  const shown = ["live", "improvements"].includes(state.viewMode);
+  const box = state.stopAccessControl && state.stopAccessControl.getContainer();
+  if (box) box.hidden = !shown;
+  renderStopAccessLegend();
+}
+
+/** A step-free tag for each end of a journey, for a reader who needs it. */
+function journeyAccessHtml(fromAtco, toAtco) {
+  if (!(state.a11y && state.a11y.stepFree) || !state.stopOsm) return "";
+  const name = (a) => escapeHtml(prettifyName(((state.stopData || {})[a] || {}).name || a));
+  return `<p class="journey-access">Getting on at ${name(fromAtco)} ${stepFreeTagHtml(fromAtco)}
+    · getting off at ${name(toAtco)} ${stepFreeTagHtml(toAtco)}</p>`;
+}
+
+/** What the law requires of a local bus: wheelchair access, and every stop
+ *  announced, heard and shown. The law's requirement, cited and dated, not a
+ *  check of this bus. Folded, so it does not push the stops down. */
+function localBusAccessHtml() {
+  const b = state.operatorAccess && state.operatorAccess._buses;
+  if (!b) return "";
+  const checked = osmDateText(b.checked_on);
+  return `<details class="bus-more bus-law">
+    <summary>Wheelchair access and announcements: what the law requires</summary>
+    <p class="bus-more-note">${escapeHtml(b.wheelchair)}
+      <a href="${escapeAttr(safeUrl(b.wheelchair_source_url))}" target="_blank" rel="noopener">The Department for Transport's guidance</a>.</p>
+    <p class="bus-more-note">${escapeHtml(b.announcements)}
+      <a href="${escapeAttr(safeUrl(b.announcements_source_url))}" target="_blank" rel="noopener">The guidance on announcements</a>.</p>
+    <p class="stop-access-source">The law's requirement, not a check of this bus${checked ? `; checked ${escapeHtml(checked)}` : ""}.</p>
+  </details>`;
+}
+
+// ── A station's step-free access ─────────────────────────────
+// National Rail's step-free category for each station in the box, in its
+// words (data/station_access.json), at the top of the station's board.
+function loadStationAccess() {
+  if (!state._stationAccessPromise) {
+    state._stationAccessPromise = fetch("data/station_access.json")
+      .then(res => (res.ok ? res.json() : null)).catch(() => null)
+      .then(doc => (state.stationAccess = doc || { stations: {}, categories: {} }));
+  }
+  return state._stationAccessPromise;
+}
+
+function stationAccessHtml(crs) {
+  const doc = state.stationAccess;
+  const st = doc && doc.stations && doc.stations[crs];
+  if (!st) return "";
+  const cat = st.category;
+  const cls = cat === "A" ? "yes" : cat === "C" ? "no" : "part";
+  const checked = osmDateText(st.checked_on);
+  return `<div class="station-access">
+    <span class="access-chip access-chip--${cls}">${escapeHtml(cat === "A" ? "Step-free" : cat === "C" ? "Not step-free" : "Partly step-free")}
+      (category ${escapeHtml(cat)})</span>
+    <p>${escapeHtml((doc.categories || {})[cat] || "")} ${escapeHtml(st.platforms || "")}
+      <a href="${escapeAttr(safeUrl(st.source_url))}" target="_blank" rel="noopener">National Rail's page</a>${
+        checked ? `, checked ${escapeHtml(checked)}` : ""}.</p>
+  </div>`;
 }
 
 /** Fill the open stop's "At this stop": the facts under its name, and the
@@ -9021,6 +9191,10 @@ function buildDepartureRow(dep) {
       <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span>${
         // A coach's exact stop, under the place it is going (data/place_names.json).
         dep.destination_stop ? `<span class="destination-stop">${escapeHtml(dep.destination_stop)}</span>` : ""}${
+        // A coach, for a reader who needs step-free access: its operator asks
+        // for notice, given in its own words under the stop's access.
+        state.a11y && state.a11y.stepFree && COACH_NOCS.includes(dep.operator)
+          ? `<span class="row-access">Wheelchair: book ahead, see At this stop</span>` : ""}${
         notServed
           ? ""
           : allowMin
@@ -9761,10 +9935,9 @@ function updateBusTabLive() {
   patchHtml(document.getElementById("bus-registration"),
     buildRegistrationHtml(v.operator_ref, v.service_ref || ""));
   // A coach: its operator's own terms for travelling with a wheelchair.
-  if (COACH_NOCS.includes(v.operator_ref)) {
-    if (!state.operatorAccess) loadOperatorAccess();
-    patchHtml(document.getElementById("bus-access"), coachAccessHtml(v.operator_ref));
-  } else patchHtml(document.getElementById("bus-access"), "");
+  if (!state.operatorAccess) loadOperatorAccess();
+  patchHtml(document.getElementById("bus-access"), COACH_NOCS.includes(v.operator_ref)
+    ? coachAccessHtml(v.operator_ref) : railBus ? "" : localBusAccessHtml());
 }
 
 /** How late the bus is and where, in the status chip's words: "+3 mins" as
@@ -11836,6 +12009,7 @@ async function applyViewMode() {
   // content too — unrecoverably in Ticket view, which had no control to undo
   // it. Desktop has no sheet, so it always opens expanded.
   setSheetDetent(isSheetLayout() ? defaultDetentForViewport() : "half");
+  syncStopAccessControl();
 
   // Journey-time stop highlights belong to one view. Cleared here rather than
   // in each of the six other branches, because the rule this repo learned the
@@ -14557,10 +14731,12 @@ function planLegHtml(leg) {
     ? `<button type="button" class="plan-stop" data-atco="${escapeAttr(leg.from_stop_id)}"
          data-name="${escapeAttr(from)}">${escapeHtml(from)}</button>`
     : escapeHtml(from);
+  // For a reader who needs step-free access, each bus stop on the way.
+  const access = (id) => (!rail && state.a11y && state.a11y.stepFree && state.stopData[id] ? ` ${stepFreeTagHtml(id)}` : "");
   return `<li class="plan-leg">
       <span class="service-badge ${text}" style="background:${colour}">${escapeHtml(route)}</span>
-      <span>${escapeHtml(planClock(leg.departure_time))} from ${board}
-        to ${escapeHtml(prettifyName(leg.to_name || ""))}, ${escapeHtml(planClock(leg.arrival_time))}
+      <span>${escapeHtml(planClock(leg.departure_time))} from ${board}${access(leg.from_stop_id)}
+        to ${escapeHtml(prettifyName(leg.to_name || ""))}${access(leg.to_stop_id)}, ${escapeHtml(planClock(leg.arrival_time))}
         <span class="plan-meta">${rail && leg.agency ? `${escapeHtml(leg.agency)} · ` : ""}${mins} min${
           leg.num_stops ? ` · ${leg.num_stops} stop${leg.num_stops === 1 ? "" : "s"}` : ""}</span></span>
     </li>`;
@@ -15328,6 +15504,10 @@ async function checkJourney() {
   if (!mine()) return;
   setJourneyStatus("");
   renderJourneyResult(journey, fromAtco, toAtco);
+  if (dom.jcResult && state.a11y && state.a11y.stepFree) {
+    if (!state.stopOsm) await loadStopOsm().catch(() => {});
+    if (mine()) dom.jcResult.insertAdjacentHTML("afterbegin", journeyAccessHtml(fromAtco, toAtco));
+  }
   // That a journey was checked, never which stops: those are what someone typed.
   track("journey-check");
 }
@@ -20354,6 +20534,7 @@ async function openRailBoard(crs, name) {
 function renderRailBoard() {
   const host = dom.railBoardHost;
   if (!host || !state.selectedRailStation) return;
+  if (!state.stationAccess) loadStationAccess().then(() => { if (state.selectedRailStation) renderRailBoard(); });
   const board   = state.railBoard;
   const loading = state.railBoardLoading;
   const services = (board && board.services) || [];
@@ -20373,6 +20554,7 @@ function renderRailBoard() {
         <span class="rail-board-eyebrow">Live trains</span>
         <span class="rail-board-station">${escapeHtml(state.selectedRailStation.name)} (${escapeHtml(state.selectedRailStation.crs)})</span>
       </div>
+      ${stationAccessHtml(state.selectedRailStation.crs)}
       <table class="departures-table rail-board-table">
         <thead>
           <tr>

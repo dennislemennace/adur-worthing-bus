@@ -44,6 +44,9 @@
   /* "You are here": the blue a map dot means everywhere, kept off every
      operator's line colour. */
   --color-you:            #1a73e8;
+  /* The Stop access layer: partly step-free, between the on-time green and
+     the grey of not step-free. */
+  --access-part:          #a15c00;
   /* Route view's Areas: buses per stop, fewest to most, in one hue so the
      order reads by lightness for every eye (ColorBrewer Blues). */
   --area-0: #deebf7;
@@ -196,6 +199,7 @@ html.dark-mode {
   --color-on-accent:      #090e1a;
   --color-link:           #4a8fd0;   /* --color-primary is 3.4:1 here */
   --color-you:            #5b9cf5;
+  --access-part:          #e0a040;
   --area-0: #1d2c44;
   --area-1: #23507e;
   --area-2: #2f73b4;
@@ -4052,6 +4056,42 @@ html.dark-mode .header-title { color: var(--color-on-fill); }
 .map-loading p {
   margin: 0;
 }
+
+/* ---- The Stop access layer: each dot by whether it is step-free. A shape
+   as well as a colour for the two that matter most: a not-recorded stop is a
+   hollow dashed ring, so it reads without colour. ---- */
+.stop-marker-icon.stop-access-yes { background: var(--color-on-time) !important; }
+.stop-marker-icon.stop-access-part { background: var(--access-part) !important; }
+.stop-marker-icon.stop-access-no { background: #5f6670 !important; }
+.stop-marker-icon.stop-access-unknown {
+  background: transparent !important; border: 2px dashed var(--color-text) !important; box-shadow: none !important;
+}
+.stop-access-btn { display: flex !important; align-items: center; justify-content: center; }
+.stop-access-btn .icon { width: 20px; height: 20px; }
+.stop-access-btn.is-on { color: var(--color-on-time) !important; }
+.stop-access-legend {
+  max-width: 220px; padding: 8px 10px; border-radius: var(--radius-md);
+  background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border);
+  font-size: var(--font-size-xs); line-height: 1.35; box-shadow: var(--shadow-sm, 0 1px 4px rgba(0,0,0,.2));
+}
+.stop-access-legend[hidden] { display: none !important; }
+.stop-access-legend p { margin: 0 0 4px; }
+.stop-access-legend ul { display: grid; gap: 2px; margin: 0 0 4px; padding: 0; list-style: none; }
+.stop-access-legend li { display: flex; align-items: center; gap: 6px; }
+.stop-access-legend a { color: var(--color-link); }
+.stop-access-legend-title { font-weight: 700; }
+.stop-access-n { margin-left: auto; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.stop-access-swatch { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; flex: none; }
+.stop-access-swatch.stop-access-yes { background: var(--color-on-time); }
+.stop-access-swatch.stop-access-part { background: var(--access-part); }
+.stop-access-swatch.stop-access-no { background: #5f6670; }
+.stop-access-swatch.stop-access-unknown { background: transparent; border: 2px dashed var(--color-text); }
+.row-access { display: block; font-size: var(--font-size-xs); color: var(--color-text); }
+.journey-access { margin: 0 0 var(--space-sm); font-size: var(--font-size-sm); color: var(--color-text); }
+.journey-access .access-chip, .plan-leg .access-chip { margin-left: 2px; }
+.station-access { display: grid; gap: 4px; margin: var(--space-xs) 0; font-size: var(--font-size-xs); color: var(--color-text); }
+.station-access p { margin: 0; }
+.station-access a { color: var(--color-link); }
 
 /* ---- Stop markers: ochre dot with ring, branded ---- */
 .stop-marker-icon {

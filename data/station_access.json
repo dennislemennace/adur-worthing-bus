@@ -1,0 +1,104 @@
+{
+  "_comment": "Step-free access at the 15 stations in data/rail_stations.json, from each station's National Rail page: its step-free category and whether the platforms are level with or above the main entrance, in National Rail's words. Shown at the top of a station's board (app.js). Checked by hand, 6 November 2026, at the maintainer's request; a lift out of order or other temporary notice is not kept here, since the station page carries it.",
+  "checked_on": "2026-11-06",
+  "source": "National Rail Enquiries station pages",
+  "categories": {
+    "A": "There is step-free access to all platforms.",
+    "B1": "There is step-free access to all platforms, which may be by long or steep ramps or along streets.",
+    "B2": "There is some step-free access to all platforms.",
+    "B3": "There is some step-free access to platforms, but this may be in one direction only.",
+    "C": "There is no step-free access to platforms."
+  },
+  "stations": {
+    "DUR": {
+      "category": "B2",
+      "platforms": "The platforms are above the level of the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/durrington-on-sea/",
+      "checked_on": "2026-11-06"
+    },
+    "WWO": {
+      "category": "B1",
+      "platforms": "The platforms are level with the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/west-worthing/",
+      "checked_on": "2026-11-06"
+    },
+    "WRH": {
+      "category": "A",
+      "platforms": "The platforms are level with the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/worthing/",
+      "checked_on": "2026-11-06"
+    },
+    "EWR": {
+      "category": "B1",
+      "platforms": "The platforms are level with the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/east-worthing/",
+      "checked_on": "2026-11-06"
+    },
+    "LAC": {
+      "category": "B1",
+      "platforms": "The platforms are level with the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/lancing/",
+      "checked_on": "2026-11-06"
+    },
+    "SSE": {
+      "category": "B1",
+      "platforms": "The platforms are level with the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/shoreham-by-sea/",
+      "checked_on": "2026-11-06"
+    },
+    "SWK": {
+      "category": "B2",
+      "platforms": "The platforms are above the level of the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/southwick/",
+      "checked_on": "2026-11-06"
+    },
+    "FSG": {
+      "category": "B2",
+      "platforms": "The platforms are level with the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/fishersgate/",
+      "checked_on": "2026-11-06"
+    },
+    "PLD": {
+      "category": "B2",
+      "platforms": "The platforms are level with the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/portslade/",
+      "checked_on": "2026-11-06"
+    },
+    "AGT": {
+      "category": "C",
+      "platforms": "The platforms are above the level of the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/aldrington/",
+      "checked_on": "2026-11-06"
+    },
+    "HOV": {
+      "category": "A",
+      "platforms": "The platforms are level with the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/hove/",
+      "checked_on": "2026-11-06"
+    },
+    "PRP": {
+      "category": "C",
+      "platforms": "The platforms are above the level of the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/preston-park/",
+      "checked_on": "2026-11-06"
+    },
+    "BTN": {
+      "category": "A",
+      "platforms": "The platforms are level with the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/brighton/",
+      "checked_on": "2026-11-06"
+    },
+    "LRB": {
+      "category": "B2",
+      "platforms": "The platforms are level with the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/london-road-brighton/",
+      "checked_on": "2026-11-06"
+    },
+    "MCB": {
+      "category": "B3",
+      "platforms": "The platforms are above the level of the main entrance.",
+      "source_url": "https://www.nationalrail.co.uk/stations/moulsecoomb/",
+      "checked_on": "2026-11-06"
+    }
+  }
+}

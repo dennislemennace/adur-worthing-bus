@@ -1495,3 +1495,25 @@ def test_coach_wheelchair_terms_are_in_the_operators_own_words_with_a_date():
         for key in ("source_url", "contact_url"):
             assert str(op.get(key, "")).startswith("https://"), (noc, key)
         assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", op["checked_on"]), noc
+
+
+def test_station_step_free_access_is_national_rails_category_for_every_station():
+    """data/station_access.json: each station's step-free category from its
+    National Rail page, shown on the station's board."""
+    doc = _load("station_access.json")
+    crs = {s["crs"] for s in _load("rail_stations.json")["stations"]}
+    assert set(doc["stations"]) == crs, "a station on the map has no step-free category, or one not on the map has"
+    assert set(doc["categories"]) == {"A", "B1", "B2", "B3", "C"}
+    for code, st in doc["stations"].items():
+        assert st["category"] in doc["categories"], code
+        assert st["source_url"].startswith("https://www.nationalrail.co.uk/stations/"), code
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", st["checked_on"]), code
+        assert _nonempty_str(st.get("platforms")), code
+
+
+def test_what_the_law_requires_of_a_local_bus_is_cited_and_dated():
+    b = _load("operator_access.json")["buses"]
+    for key in ("wheelchair", "announcements"):
+        assert _nonempty_str(b.get(key)) and "\u2014" not in b[key], key
+        assert str(b.get(f"{key}_source_url", "")).startswith("https://www.gov.uk/"), key
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", b["checked_on"])

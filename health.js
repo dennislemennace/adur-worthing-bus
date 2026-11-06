@@ -192,7 +192,7 @@ function routeTableHtml(rows) {
 }
 
 /** The whole page, from the two files; either may be missing. */
-function healthHtml(ident, served, sources = {}) {
+function healthHtml(ident, served, sources = {}, access = "") {
   const parts = [];
   const days = served && served.days && served.days.length
     ? `${hDate(served.days[0])} to ${hDate(served.days[served.days.length - 1])} (${served.days.length} days)` : "";
@@ -218,6 +218,7 @@ function healthHtml(ident, served, sources = {}) {
     if (versus) parts.push(`<h2>TransportAPI's predictions and ours</h2>${versus}`);
   }
   parts.push(`<h2>Every route</h2>${routeTableHtml(routeRows(ident, served))}`);
+  if (access) parts.push(access);
   const caveats = [...((served && served.caveats) || []), ...((ident && ident.caveats) || [])];
   parts.push(`<h2>How these are made</h2>
     ${served ? `<p>${hEsc(served.method)}</p>` : ""}
@@ -229,6 +230,35 @@ function healthHtml(ident, served, sources = {}) {
       ${sources.ident ? ` · <a href="${hEsc(sources.ident)}">the matching counts</a>` : ""}
       · <a href="${HEALTH_REPO}/scripts/score_served_estimates.py">the method, in code</a></p>`);
   return parts.join("\n");
+}
+
+/** How much of each stop's access OpenStreetMap records, out of the stops on
+ *  the site: what the stop panel and the Stop access layer can say, and how
+ *  much is still unrecorded (6 November 2026). */
+function accessCoverageHtml(osm, stops) {
+  if (!osm || !stops) return "";
+  const rows = (osm.stops) || {};
+  const atcos = (stops.stops || []).map(s => s.atco_code);
+  const total = atcos.length;
+  const has = (key, pred = v => Boolean(v)) => atcos.filter(a => rows[a] && pred(rows[a][key])).length;
+  const lines = [
+    ["Step-free access", has("wheelchair")],
+    ["Kerb", has("kerb")],
+    ["Shelter", has("shelter")],
+    ["Seating", has("bench")],
+    ["Tactile paving", has("tactile_paving")],
+    ["Lighting", has("lit")],
+  ];
+  const stepFree = has("wheelchair", v => v === "yes");
+  return `<h2>Stop accessibility data</h2>
+    <p>How many of the ${hNum(total)} stops on this site have each fact recorded in OpenStreetMap, which is where the
+      stop panel's access row and the map's Stop access layer come from. ${hNum(stepFree)} are recorded as step-free.
+      Anyone can add the rest with <a href="https://openstop.app/">OpenStop</a>; they show here within a week.</p>
+    <div class="table-wrap"><table><thead><tr><th scope="col">Recorded</th><th scope="col">Stops</th><th scope="col">Share</th></tr></thead>
+      <tbody>${lines.map(([label, n]) => `<tr><th scope="row">${hEsc(label)}</th><td>${hNum(n)}</td><td>${hPct(n, total)}</td></tr>`).join("")}</tbody>
+    </table></div>
+    <p class="source">OpenStreetMap as of ${hEsc(hDate(osm.osm_base || osm.generated_on))}, © OpenStreetMap contributors,
+      ODbL · <a href="data/stop_osm.json">the file</a></p>`;
 }
 
 async function healthFetchArtifact(index, name) {
@@ -253,8 +283,14 @@ async function healthInit() {
       sources.served = HEALTH_SEED;
     } catch { /* not scored yet */ }
   }
-  host.innerHTML = ident || served ? healthHtml(ident, served, sources)
-    : `<p>The figures could not be loaded just now. Try again in a minute.</p>`;
+  let access = "";
+  try {
+    const [osm, stops] = await Promise.all([fetch("data/stop_osm.json"), fetch("data/stops.json")]
+      .map(p => p.then(r => (r.ok ? r.json() : null))));
+    access = accessCoverageHtml(osm, stops);
+  } catch { /* the rest of the page stands without it */ }
+  host.innerHTML = ident || served ? healthHtml(ident, served, sources, access)
+    : `<p>The figures could not be loaded just now. Try again in a minute.</p>${access}`;
 }
 
 if (typeof document !== "undefined" && document.getElementById("health")) healthInit();

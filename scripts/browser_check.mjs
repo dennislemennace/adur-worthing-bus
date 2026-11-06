@@ -1934,6 +1934,58 @@ async function checkDepartureJourneys(page, where) {
 }
 
 /**
+ * The Stop access layer: the button under the zoom colours every stop dot by
+ * whether it is step-free, with a legend; it shows only where stops are drawn.
+ * A station's board gives its National Rail step-free category.
+ */
+async function checkStopAccessLayer(page, where, { contrast = false } = {}) {
+  await page.evaluate("setViewMode('live')");
+  await sleep(500);
+  await page.evaluate("state.map.setView([50.8327, -0.2747], 16, { animate: false })");
+  await sleep(800);
+  await page.evaluate(`document.querySelector(".stop-access-btn").click()`);
+  await waitFor(page, "document.querySelectorAll('.stop-marker-icon.stop-access-unknown, .stop-marker-icon.stop-access-yes').length > 0", 15000).catch(() => {});
+  await sleep(400);
+  const on = JSON.parse(await page.evaluate(`JSON.stringify((() => {
+    const b = document.querySelector(".stop-access-btn"), r = b.getBoundingClientRect(), lg = document.querySelector(".stop-access-legend");
+    return { pressed: b.getAttribute("aria-pressed"), w: Math.round(r.width), h: Math.round(r.height),
+      dots: document.querySelectorAll(".stop-marker-icon[class*='stop-access-']").length,
+      plain: [...document.querySelectorAll(".stop-marker-icon")].filter(d => !/stop-access-/.test(d.className)).length,
+      legend: !!lg && !lg.hidden && lg.getBoundingClientRect().height > 0, text: lg ? lg.textContent.replace(/\s+/g, " ").slice(0, 80) : "" };
+  })())`));
+  check(`the Stop access layer colours every stop and shows its legend — ${where}`,
+    on.pressed === "true" && on.w >= 44 && on.h >= 44 && on.dots > 0 && on.plain === 0 && on.legend
+      && /Not recorded/.test(on.text), JSON.stringify(on));
+  if (contrast) await checkContrastBothThemes(page, `the Stop access layer — ${where}`);
+  await page.evaluate("setViewMode('tickets')");
+  await sleep(600);
+  const away = JSON.parse(await page.evaluate(`JSON.stringify({ btn: !document.querySelector(".stop-access-control").hidden,
+    legend: !document.querySelector(".stop-access-legend").hidden })`));
+  check(`the layer's button and legend go where no stops are drawn — ${where}`, !away.btn && !away.legend, JSON.stringify(away));
+  await page.evaluate("setViewMode('live')");
+  await sleep(500);
+  await page.evaluate(`document.querySelector(".stop-access-btn").click()`);
+  await sleep(300);
+  const off = await page.evaluate(`document.querySelectorAll(".stop-marker-icon[class*='stop-access-']").length`);
+  check(`turning the layer off puts the dots back — ${where}`, off === 0, String(off));
+  const station = JSON.parse(await page.evaluate(`(async () => {
+    await loadStationAccess();
+    state.selectedRailStation = { crs: "BTN", name: "Brighton" };
+    state.railBoardLoading = false;
+    state.railBoard = { crs: "BTN", name: "Brighton", services: [] };
+    revealPanelForSelection();
+    setActiveTab("stop");
+    showPanelState("rail");
+    renderRailBoard();
+    const box = document.querySelector(".station-access");
+    return JSON.stringify({ shown: !!box && box.getBoundingClientRect().height > 0, text: box ? box.textContent.replace(/\s+/g, " ").trim() : "" });
+  })()`));
+  check(`a station's board gives its step-free category — ${where}`,
+    station.shown && /category A/.test(station.text) && /National Rail/.test(station.text), JSON.stringify(station));
+  await page.evaluate("closePanel()");
+}
+
+/**
  * Route view's Areas: opening it puts the route lines away and shades every
  * ward; a ward chosen from the list opens its card; the day changes the
  * shades; closing it, or leaving Route view, takes the areas down again.
@@ -5318,6 +5370,7 @@ await checkHomeLink(page, VIEWPORTS[0].name);
 await checkMyLocation(page, VIEWPORTS[0].name);
 await checkStopAccessUpFront(page, VIEWPORTS[0].name, { contrast: true });
 await checkAreas(page, VIEWPORTS[0].name, { contrast: true });
+await checkStopAccessLayer(page, VIEWPORTS[0].name, { contrast: true });
 await checkDepartureJourneys(page, VIEWPORTS[0].name);
 await checkTicketZonesPicker(page, VIEWPORTS[0].name);
 await checkMapTaps(page, VIEWPORTS[0].name);
@@ -5386,6 +5439,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkHomeLink(p, vp.name);
   await checkStopAccessUpFront(p, vp.name);
   await checkAreas(p, vp.name, { contrast: vp.name === "desktop" });
+  await checkStopAccessLayer(p, vp.name);
   await checkDepartureJourneys(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
   await checkBoardNext(p, vp.name);

@@ -1,5 +1,5 @@
 {
-  "_comment": "What each coach operator says about travelling with a wheelchair: in its own terms, from its own pages, each with the page and the date it was checked. Shown under a stop's access details where coaches call, and in the Bus tab for a coach (app.js). Local buses are not here: nothing is said about them that a source on this file does not say. Checked 6 November 2026 at the maintainer's request (accessibility information front and centre).",
+  "_comment": "What each coach operator says about travelling with a wheelchair: in its own terms, from its own pages, each with the page and the date it was checked. Shown under a stop's access details where coaches call, and in the Bus tab for a coach (app.js). Checked 6 November 2026 at the maintainer's request (accessibility information front and centre). buses: what the law requires of every full-size local bus, cited to the Department for Transport's guidance on each set of regulations; shown in the Bus tab for a local bus, as the law's requirement, not a check of that bus.",
   "checked_on": "2026-11-06",
   "operators": {
     "NATX": {
@@ -18,5 +18,12 @@
       "contact_url": "https://www.flixbus.co.uk/service/luggage",
       "checked_on": "2026-11-06"
     }
+  },
+  "buses": {
+    "wheelchair": "The law has required every full-size local bus to be wheelchair accessible since 1 January 2017 (single-deck buses since 1 January 2016), under the Public Service Vehicles Accessibility Regulations 2000.",
+    "wheelchair_source_url": "https://www.gov.uk/government/publications/accessible-buses-and-coaches/bus-and-coach-accessibility-and-the-public-service-vehicle-accessibility-regulations-2000",
+    "announcements": "Every upcoming stop must be announced, heard and shown, on local buses in stages under the Public Service Vehicles (Accessible Information) Regulations 2023: from 1 October 2024 for buses first used from October 2019, 1 October 2025 for those first used from October 2014, and 1 October 2026 for older ones. Partly compliant buses have until 1 October 2031.",
+    "announcements_source_url": "https://www.gov.uk/government/publications/providing-accessible-information-onboard-local-bus-and-coach-services/providing-accessible-information-onboard-local-bus-and-coach-services",
+    "checked_on": "2026-11-06"
   }
 }
