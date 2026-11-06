@@ -648,6 +648,7 @@ async function init() {
   state.a11y = readA11ySettings();
 
   initMap();
+  initLocateControl();
   bindUIEvents();
   bindA11yControls();
   bindKeyboardFooter();
@@ -8883,6 +8884,8 @@ function buildDepartureRow(dep) {
                   aria-label="Show this ${escapeAttr(service)} bus and its stops"
           ><span class="service-badge ${badgeTextCls}" style="background:${badgeColour}">${escapeHtml(service)}</span></button></td>
       <td><span class="destination-text" title="${escapeAttr(destination)}">${escapeHtml(destination)}</span>${
+        // A coach's exact stop, under the place it is going (data/place_names.json).
+        dep.destination_stop ? `<span class="destination-stop">${escapeHtml(dep.destination_stop)}</span>` : ""}${
         notServed
           ? ""
           : allowMin
@@ -14325,6 +14328,9 @@ function bindNearMe() {
         state.map.setView([latitude, longitude], Math.max(state.map.getZoom(), 16),
                           { animate: !motionReduced() });
       }
+      // The reader has just said where they are: show it on the map too.
+      setLocating(true);
+      showMyLocation(pos);
       list.querySelector("button.stop-search-result")?.focus();
     }, (err) => {
       btn.disabled = false;
@@ -14333,6 +14339,121 @@ function bindNearMe() {
         : "We couldn't find your location just now. Try again, or search by name.");
     }, { enableHighAccuracy: true, timeout: 12_000, maximumAge: 60_000 });
   });
+}
+
+// ── Your location on the map ─────────────────────────────────
+// A dot where the device says it is, with a circle for how sure it is. Shown
+// only when the reader asks (the button under the zoom, or Stops near me),
+// watched only while the page is in front, and never sent anywhere: it stays
+// in the browser, like Stops near me (privacy.html). Asked for 6 November 2026.
+const LOCATE_KEY = "show-my-location";
+const locate = { on: false, watch: null, dot: null, ring: null, btn: null, centreNext: false };
+
+function readLocatePref() {
+  try { return localStorage.getItem(LOCATE_KEY) === "1"; } catch { return false; }
+}
+
+function writeLocatePref(on) {
+  try { if (on) localStorage.setItem(LOCATE_KEY, "1"); else localStorage.removeItem(LOCATE_KEY); }
+  catch { /* the preference is a convenience */ }
+}
+
+function initLocateControl() {
+  if (!state.map || !("geolocation" in navigator)) return;
+  const Control = L.Control.extend({
+    options: { position: "topleft" },
+    onAdd() {
+      const bar = L.DomUtil.create("div", "leaflet-bar locate-control");
+      const btn = L.DomUtil.create("a", "locate-btn", bar);
+      btn.href = "#";
+      btn.setAttribute("role", "button");
+      btn.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-locate"/></svg>`;
+      L.DomEvent.disableClickPropagation(bar);
+      L.DomEvent.on(btn, "click", (e) => {
+        L.DomEvent.preventDefault(e);
+        setLocating(!locate.on, { centre: true });
+      });
+      locate.btn = btn;
+      syncLocateButton();
+      return bar;
+    },
+  });
+  new Control().addTo(state.map);
+  document.addEventListener("visibilitychange", () => {
+    if (!locate.on) return;
+    if (document.hidden) stopLocating(); else startLocating();
+  });
+  // Back on for a reader who left it on, but only where the browser already
+  // allows it: never a permission prompt nobody asked for.
+  if (readLocatePref() && navigator.permissions?.query) {
+    navigator.permissions.query({ name: "geolocation" })
+      .then(p => { if (p.state === "granted") setLocating(true); })
+      .catch(() => {});
+  }
+}
+
+function syncLocateButton() {
+  const btn = locate.btn;
+  if (!btn) return;
+  const label = locate.on ? "Hide my location" : "Show my location";
+  btn.setAttribute("aria-pressed", String(locate.on));
+  btn.setAttribute("aria-label", label);
+  btn.title = label;
+  btn.classList.toggle("is-on", locate.on);
+}
+
+function setLocating(on, { centre = false } = {}) {
+  if (!("geolocation" in navigator)) return;
+  locate.on = on;
+  locate.centreNext = on && centre;
+  writeLocatePref(on);
+  syncLocateButton();
+  if (on) {
+    startLocating();
+    return;
+  }
+  stopLocating();
+  for (const layer of [locate.dot, locate.ring]) if (layer && state.map) state.map.removeLayer(layer);
+  locate.dot = locate.ring = null;
+}
+
+function startLocating() {
+  if (locate.watch != null) return;
+  locate.watch = navigator.geolocation.watchPosition(showMyLocation, (err) => {
+    // Refused: the button says so by switching off, rather than a dot that
+    // never comes.
+    if (err && err.code === 1) setLocating(false);
+  }, { enableHighAccuracy: true, maximumAge: 15_000, timeout: 30_000 });
+}
+
+function stopLocating() {
+  if (locate.watch != null) navigator.geolocation.clearWatch(locate.watch);
+  locate.watch = null;
+}
+
+function showMyLocation(pos) {
+  if (!state.map || !locate.on || !pos || !pos.coords) return;
+  const { latitude, longitude, accuracy } = pos.coords;
+  const at = [latitude, longitude];
+  if (!state.map.getPane("myLocationPane")) {
+    // Over the routes and zones, under the buses and stops, which stay
+    // tappable through it.
+    state.map.createPane("myLocationPane").style.zIndex = 450;
+  }
+  const radius = Math.max(5, Math.min(Number(accuracy) || 0, 2000));
+  if (!locate.dot) {
+    locate.ring = L.circle(at, { radius, pane: "myLocationPane", className: "my-location-ring",
+                                 interactive: false, weight: 1 }).addTo(state.map);
+    locate.dot = L.circleMarker(at, { radius: 7, pane: "myLocationPane", className: "my-location-dot",
+                                      interactive: false, weight: 3 }).addTo(state.map);
+  } else {
+    locate.dot.setLatLng(at);
+    locate.ring.setLatLng(at).setRadius(radius);
+  }
+  if (locate.centreNext) {
+    locate.centreNext = false;
+    centreAboveSheet(at, Math.max(state.map.getZoom(), 16));
+  }
 }
 
 function renderStopSearchResults(listEl, matches, query) {

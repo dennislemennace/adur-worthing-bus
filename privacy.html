@@ -54,7 +54,7 @@
     and what you can ask for. It is written to be read, and it describes what the
     code actually does.
   </p>
-  <p class="updated">Last updated 27 October 2026.</p>
+  <p class="updated">Last updated 6 November 2026.</p>
 
   <h2>Who is responsible</h2>
   <p>
@@ -76,6 +76,10 @@
       email app. This site never sees it.</li>
     <li>"Stops near me" asks your browser for your location once, finds the
       nearest stops on your device, and never sends your location anywhere.</li>
+    <li>"Show my location", the button under the map's zoom, puts a dot where your
+      device says you are. Your position stays in your browser and is never sent
+      anywhere. It is watched only while the page is open in front of you, and stops
+      when you turn it off. Your browser remembers only that you left it on.</li>
   </ul>
 
   <h2>What is collected, and why</h2>
@@ -199,6 +203,7 @@
         <tr><td><code>analytics-opt-out</code></td><td>That you have switched visit counting off</td></tr>
         <tr><td><code>jt-view</code></td><td>Whether you last used the simple or detailed journey times view</td></tr>
         <tr><td><code>favourite-stop</code></td><td>The stop you starred, so it opens first when you visit</td></tr>
+        <tr><td><code>show-my-location</code></td><td>That you left "Show my location" on, so the dot comes back when your browser already allows it. Never your position.</td></tr>
       </tbody>
     </table>
   </div>

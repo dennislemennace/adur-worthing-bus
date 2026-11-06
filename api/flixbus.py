@@ -27,7 +27,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from api import gtfs_rt, trip_match
+from api import gtfs_rt, place_names, trip_match
 
 FEED_BASE = ("https://global.api.flixbus.com/gis/v1/gtfs-rt/flavour/generic/"
              "region/eu/agency/bus_train")
@@ -103,7 +103,8 @@ def parse_vehicles(data: bytes, tt, now: datetime, box, stale_secs: int) -> list
             # journey newer than this week's timetable.
             "service_ref": (route or {}).get("short_name") or trip.split("-", 1)[0],
             "operator_ref": NOC,
-            "destination": (held or {}).get("headsign", ""),
+            # As a passenger says it: "Swansea", not its bus station's bays.
+            "destination": place_names.coach_destination((held or {}).get("headsign", ""), NOC)[0],
             "origin_ref": "",
             "origin_aimed_departure": "",
             "destination_ref": "",

@@ -22,6 +22,8 @@ import urllib.request
 from pathlib import Path
 from typing import Iterator, Optional
 
+from api import place_names
+
 log = logging.getLogger("bus_api.timetable")
 
 
@@ -518,9 +520,13 @@ class Timetable:
         for row in con.execute(f"SELECT {columns} FROM stops"):
             sid, stop_id, name, lat, lon = row[:5]
             rest = dict(zip(extra, row[5:]))
-            stops[stop_id] = {"name": name, "lat": lat, "lon": lon, "_sid": sid,
-                              "locality": rest.get("locality", ""),
+            stops[stop_id] = {"name": place_names.stop_name(stop_id, name), "lat": lat, "lon": lon,
+                              "_sid": sid, "locality": rest.get("locality", ""),
                               "locality_parent": rest.get("locality_parent", "")}
+            # A renamed stop keeps its published name: coach headsigns are
+            # written with it, and are matched against it (_destination_of).
+            if stops[stop_id]["name"] != name:
+                stops[stop_id]["published_name"] = name
             sid_to_stop[sid] = stop_id
 
         routes: dict = {}
@@ -1010,6 +1016,10 @@ class Timetable:
         for entry in stops:
             by_name.setdefault(entry["name"], []).append(entry)
         ambiguous = {e["atco_code"] for g in by_name.values() if len(g) > 1 for e in g}
+        # A name given on purpose (data/place_names.json) is shared on purpose:
+        # the two coach poles behind Brighton station are one place to a
+        # passenger, and need no "towards" to tell them apart.
+        ambiguous -= {sid for sid, st in self.stops.items() if st.get("published_name")}
         directions = self.stop_directions([e["atco_code"] for e in stops])
         for entry in stops:
             d = directions.get(entry["atco_code"])

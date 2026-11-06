@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PATHS = (
     'scripts/process_snapshots.py', 'api/trip_match.py', 'api/gtfs_rt.py',
-    'api/timetable_db.py', 'scripts/observation_contract.py',
+    'api/timetable_db.py', 'api/place_names.py', 'scripts/observation_contract.py',
     'scripts/reliability_stats.py', 'scripts/recorded_inputs.py',
     'scripts/build_journey_times.py', 'scripts/journey_times_codec.py',
     'scripts/query_reliability.py', 'scripts/build_delay_hotspots.py',
@@ -15,7 +15,7 @@ PATHS = (
     'scripts/score_served_estimates.py', 'scripts/collect_served_window.py',
     'scripts/rtig_windows.py', 'api/live_eta.py', 'api/diversions.py', 'api/main.py',
     'scripts/build_running_recovery.py', 'api/recovery.py', 'api/prediction_log.py',
-    'data/analysis_exclusions.json', 'data/stops.json',
+    'data/analysis_exclusions.json', 'data/stops.json', 'data/place_names.json',
     '.github/workflows/process-snapshots.yml', 'requirements.txt', 'requirements-dev.txt',
 )
 

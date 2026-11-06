@@ -1,0 +1,50 @@
+{
+  "_comment": "Names the site shows in place of the published ones (api/place_names.py). stops: a stop's name on boards, the map and search, by ATCO code; the published name is kept beside it, because coach headsigns are matched against it. coach_destinations: a coach's destination as a passenger says it (place) with the exact stop underneath (stop), keyed by the name as published: FlixBus's headsign whole, National Express's far end after ' - '. A plain place name (Brighton, Worthing, Gatwick Airport, Bristol) needs no entry. tests/test_place_names.py checks every coach destination in the timetable is either here or already plain; the weekly build warns when a new one appears. Added 6 November 2026 at the maintainer's request.",
+  "checked_on": "2026-11-06",
+  "stops": {
+    "900059056": {
+      "name": "Brighton Station (Stroudley Road car park)",
+      "published": "Brighton Rail Station Stroudley Road opposite",
+      "operator": "National Express",
+      "why": "The coach stop is in the Stroudley Road car park behind the station; the station leads so a visitor finds it. Named by the maintainer, 6 November 2026."
+    },
+    "9000F22A3795": {
+      "name": "Brighton Station (Stroudley Road car park)",
+      "published": "Brighton Railway Station - Stroudley Road",
+      "operator": "FlixBus",
+      "why": "The same stop as National Express's, by FlixBus's name for it. Named by the maintainer, 6 November 2026."
+    }
+  },
+  "coach_destinations": {
+    "Birmingham - Jennens Road": { "place": "Birmingham", "stop": "Jennens Road" },
+    "Brighton Railway Station - Stroudley Road": { "place": "Brighton", "stop": "Station (Stroudley Road car park)" },
+    "Brighton Rail Station Stroudley Road opposite": { "place": "Brighton", "stop": "Station (Stroudley Road car park)" },
+    "Cambridge Parkside - Stop 18": { "place": "Cambridge", "stop": "Parkside, stop 18" },
+    "Cardiff - North Road": { "place": "Cardiff", "stop": "North Road" },
+    "Derby Bus Station": { "place": "Derby", "stop": "Bus Station" },
+    "Gatwick Airport South Terminal": { "place": "Gatwick Airport", "stop": "South Terminal" },
+    "Leeds - Eastgate Victoria (F)": { "place": "Leeds", "stop": "Eastgate, Victoria, stop F" },
+    "Leeds Cultural Stop C": { "place": "Leeds", "stop": "Cultural, stop C" },
+    "Leicester St Margaret's Bus Station": { "place": "Leicester", "stop": "St Margaret's Bus Station" },
+    "Liverpool (One Bus Station)": { "place": "Liverpool", "stop": "Liverpool ONE Bus Station" },
+    "Manchester (Shudehill Interchange)": { "place": "Manchester", "stop": "Shudehill Interchange" },
+    "Milton Keynes (Central Station Y4)": { "place": "Milton Keynes", "stop": "Central Station, stop Y4" },
+    "Newport Train Station": { "place": "Newport", "stop": "Train station" },
+    "Northampton Town Centre (Victoria Street)": { "place": "Northampton", "stop": "Town centre, Victoria Street" },
+    "Nottingham (Greyfriar Gate Stop C11-12)": { "place": "Nottingham", "stop": "Greyfriar Gate, stops C11 and C12" },
+    "Nottingham Broad Marsh Bus Station (Bay 1)": { "place": "Nottingham", "stop": "Broad Marsh Bus Station, bay 1" },
+    "Swansea City Bus Station (Bay B and C)": { "place": "Swansea", "stop": "City Bus Station, bays B and C" },
+    "Belgravia, Victoria": { "place": "London Victoria", "stop": "Victoria Coach Station" },
+    "Victoria, London": { "place": "London Victoria", "stop": "Victoria Coach Station" },
+    "South Lancing, Lancing": { "place": "Lancing", "stop": "South Lancing" },
+    "Glastonbury Festival Coach Park": { "place": "Glastonbury Festival", "stop": "Coach park" },
+    "Tokyngton, London": { "place": "Wembley", "stop": "Tokyngton" },
+    "Digbeth, Birmingham": { "place": "Birmingham", "stop": "Digbeth" },
+    "Luton Airport, Luton": { "place": "Luton Airport", "stop": "" },
+    "Luton Town Centre, Luton": { "place": "Luton", "stop": "Town centre" },
+    "Northampton (Grange Park)": { "place": "Northampton", "stop": "Grange Park" },
+    "Heathrow Airport, London": { "place": "Heathrow Airport", "stop": "" },
+    "Crymlyn Burrows": { "place": "Swansea", "stop": "Crymlyn Burrows" },
+    "Pontcanna, Cardiff": { "place": "Cardiff", "stop": "Pontcanna" }
+  }
+}

@@ -161,9 +161,11 @@ def test_the_board_shows_each_coach_once_in_uk_time(tt_db, monkeypatch):
                 if d["operator"] == "FLIX"]
 
     winter = board(datetime(2026, 11, 3, 6, 30, tzinfo=UK_TZ))
-    assert [(d["aimed_departure"], d["destination"]) for d in winter] == [
-        ("2026-11-03T07:00:00+00:00", "London Victoria Coach Station"),
-        ("2026-11-03T07:05:00+00:00", "Brighton Railway Station - Stroudley Road"),
+    # FlixBus's name for its Brighton stop reads as the place, with the stop
+    # beneath it (data/place_names.json, 6 November 2026).
+    assert [(d["aimed_departure"], d["destination"], d["destination_stop"]) for d in winter] == [
+        ("2026-11-03T07:00:00+00:00", "London Victoria Coach Station", ""),
+        ("2026-11-03T07:05:00+00:00", "Brighton", "Station (Stroudley Road car park)"),
     ]
     summer = board(datetime(2027, 3, 29, 6, 30, tzinfo=UK_TZ))
     # The summer coach and the second half of the split one leave together.

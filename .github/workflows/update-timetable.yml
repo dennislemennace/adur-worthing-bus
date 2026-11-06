@@ -224,6 +224,17 @@ jobs:
             printf 'objective-drift\twarn\tA figure quoted in data/objectives.json no longer matches data/boundary_evidence.json after the %s rebuild; see the log of this run.\n' "$(date -u +%Y-%m-%d)" >> "$NOTICES"
           fi
 
+      # A new coach destination, written as a stop rather than a place, shows
+      # as published until data/place_names.json names it.
+      - name: Check every coach destination has a passenger name
+        run: |
+          if python -m pytest -q tests/test_place_names.py::test_every_coach_destination_in_the_timetable_has_a_name; then
+            printf 'coach-names\tclear\n' >> "$NOTICES"
+          else
+            echo "::warning::A coach destination in the new timetable has no name in data/place_names.json"
+            printf 'coach-names\twarn\tA coach destination in the %s timetable has no name in data/place_names.json; see the log of this run.\n' "$(date -u +%Y-%m-%d)" >> "$NOTICES"
+          fi
+
       # Dated releases are evidence inputs. Do not prune a timetable that an
       # immutable observation build may reference. Each reliability archive
       # also retains its exact input timetable and full hash.

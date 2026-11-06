@@ -1933,6 +1933,51 @@ async function checkDepartureJourneys(page, where) {
   check(`a departure with no journey opens no bus — ${where}`, r.afterUnknown === "FIX-B", JSON.stringify(r));
 }
 
+/**
+ * Your location: the button under the zoom puts a dot where the device says
+ * you are, and takes it away again. The browser's geolocation is replaced by
+ * a fixed answer (Shoreham High Street), so the check never asks for a real
+ * position and never depends on one.
+ */
+async function checkMyLocation(page, where) {
+  await page.evaluate("setViewMode('live')");
+  await sleep(400);
+  await page.evaluate(`(() => {
+    const here = { coords: { latitude: 50.8327, longitude: -0.2747, accuracy: 25 } };
+    const fake = { watchPosition(ok) { setTimeout(() => ok(here), 30); return 41; }, clearWatch() {},
+                   getCurrentPosition(ok) { setTimeout(() => ok(here), 30); } };
+    Object.defineProperty(navigator, "geolocation", { value: fake, configurable: true });
+  })()`);
+  const before = JSON.parse(await page.evaluate(`JSON.stringify((() => {
+    const b = document.querySelector(".locate-btn"); const r = b && b.getBoundingClientRect();
+    return { btn: !!b, pressed: b && b.getAttribute("aria-pressed"), label: b && b.getAttribute("aria-label"),
+             w: r && Math.round(r.width), h: r && Math.round(r.height) };
+  })())`));
+  check(`"Show my location" is under the zoom, a 44px toggle — ${where}`,
+    before.btn && before.pressed === "false" && before.label === "Show my location" && before.w >= 44 && before.h >= 44,
+    JSON.stringify(before));
+  await page.evaluate(`document.querySelector(".locate-btn").click()`);
+  await sleep(900);
+  const on = JSON.parse(await page.evaluate(`JSON.stringify((() => {
+    const dot = document.querySelector(".my-location-dot"), b = document.querySelector(".locate-btn");
+    const at = state.map.latLngToContainerPoint([50.8327, -0.2747]);
+    const box = dot && dot.getBoundingClientRect(), map = state.map.getContainer().getBoundingClientRect();
+    return { dot: !!dot, ring: !!document.querySelector(".my-location-ring"), pressed: b.getAttribute("aria-pressed"),
+             off: box ? Math.round(Math.hypot(box.left + box.width / 2 - map.left - at.x, box.top + box.height / 2 - map.top - at.y)) : null,
+             fill: dot && getComputedStyle(dot).fill };
+  })())`));
+  check(`the dot sits where the device says you are — ${where}`,
+    on.dot && on.ring && on.pressed === "true" && on.off != null && on.off <= 3 && on.fill && on.fill !== "none",
+    JSON.stringify(on));
+  await page.evaluate(`document.querySelector(".locate-btn").click()`);
+  await sleep(300);
+  const off = JSON.parse(await page.evaluate(`JSON.stringify({ dot: !!document.querySelector(".my-location-dot"),
+    pressed: document.querySelector(".locate-btn").getAttribute("aria-pressed"),
+    kept: (() => { try { return localStorage.getItem("show-my-location"); } catch { return "?"; } })() })`));
+  check(`turning it off takes the dot away and forgets it — ${where}`,
+    !off.dot && off.pressed === "false" && off.kept == null, JSON.stringify(off));
+}
+
 /** The name and mark in the header take you home, to Live Bus Tracking, in
  *  place: no reload, so a preview flag or API override survives. */
 async function checkHomeLink(page, where) {
@@ -5180,6 +5225,7 @@ await checkPresetsDraw(page, VIEWPORTS[0].name);
 await checkConference(page, VIEWPORTS[0].name);
 await checkTour(page, VIEWPORTS[0].name, { full: true });
 await checkHomeLink(page, VIEWPORTS[0].name);
+await checkMyLocation(page, VIEWPORTS[0].name);
 await checkDepartureJourneys(page, VIEWPORTS[0].name);
 await checkTicketZonesPicker(page, VIEWPORTS[0].name);
 await checkMapTaps(page, VIEWPORTS[0].name);

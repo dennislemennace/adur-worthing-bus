@@ -680,9 +680,14 @@ def test_a_direction_code_is_never_shown_as_a_destination():
     # The parser's rule, asserted directly: no DestinationName means no
     # destination, not a direction code wearing one's clothes.
     source = (Path(main.__file__)).read_text()
-    assert '"destination":   jtext("DestinationName"),' in source, \
+    # A coach's is said as a place (data/place_names.json, 6 November 2026);
+    # the field is still DestinationName and nothing else.
+    import re
+    from api import place_names
+    assert re.search(r'"destination":\s+(place_names\.coach_destination\()?jtext\("DestinationName"\)', source), \
         "the destination field has a fallback again"
     assert 'jtext("DestinationName") or jtext("DirectionRef")' not in source
+    assert place_names.coach_destination("", "BHBC") == ("", ""), "no destination became one"
 
 
 # ── Coverage: "not running" is not "not described" ───────────

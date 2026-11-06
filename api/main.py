@@ -48,7 +48,7 @@ from api import corridor_gaps
 from api import disruptions as sx
 from api import local_disruptions
 from api import journey_planner as planner
-from api import flixbus, gtfs_rt, live_eta, prediction_log, trip_match
+from api import flixbus, gtfs_rt, live_eta, place_names, prediction_log, trip_match
 from api.timetable_db import (NIGHT_ENDS_SECS, Timetable,
                               path_has_time_gap, service_runs_on)
 
@@ -1444,7 +1444,10 @@ def _parse_siri_vm(xml_text: str, now: Optional[datetime] = None) -> list:
             # values in this feed include the literal string "Destination".
             # Brighton & Hove publish that on their non-timetabled workings,
             # so the map showed buses "going to Destination".
-            "destination":   jtext("DestinationName"),
+            # A coach's as a passenger says it (data/place_names.json); a
+            # bus's is left as published, having no entry.
+            "destination":   place_names.coach_destination(jtext("DestinationName"),
+                                                           jtext("OperatorRef"))[0],
             "origin_ref":    jtext("OriginRef"),
             # With the line and first stop, the operator's own name for the
             # journey, used where GTFS-RT gives no id we hold.
@@ -1955,14 +1958,14 @@ async def get_stop_span(
     # a free-tier container that has just gone back to sleep.
     last_home = await off_loop(tt.last_bus_from_hub, resolved)
     last_worthing = await off_loop(tt.last_bus_from_hub, resolved, None, "worthing")
-    stop_name = (tt.stops.get(resolved) or {}).get("name", "")
+    stop_name = _published_name(tt, resolved)
     services = await off_loop(tt.stop_services, resolved)
     for svc in services:
         # The far end, as the board names it: a coach's "Belgravia, Victoria -
         # Worthing" read at Shoreham means Worthing.
         towards = []
         for headsign in svc.get("towards") or []:
-            name = _destination_of(headsign, stop_name)
+            name = _destination_of(headsign, stop_name, operator=svc.get("operator", ""))
             if name and name not in towards:
                 towards.append(name)
         svc["towards"] = towards
@@ -2017,7 +2020,7 @@ def _next_departures(tt: Timetable, stop_id: str, now: datetime,
     do: a 24:30 on yesterday's calendar is half past midnight tonight.
     """
     raw = tt.stop_times_for(stop_id)
-    stop_name = (tt.stops.get(stop_id) or {}).get("name", stop_id)
+    stop_name = _published_name(tt, stop_id, stop_id)
     today = now.date()
     out, seen, runs = [], set(), {}
     filled_on = None
@@ -2047,7 +2050,7 @@ def _next_departures(tt: Timetable, stop_id: str, now: datetime,
                 continue
             seen.add(key)
             out.append({"service": short_name, "operator": noc,
-                        "destination": _destination_of(headsign, stop_name),
+                        "destination": _destination_of(headsign, stop_name, operator=noc),
                         "aimed_departure": dep_dt.isoformat(), "trip_id": trip_id})
         # One more service day after the list fills: its small-hours times
         # can come before the last of the day that filled it.
@@ -4185,7 +4188,7 @@ def _service_day_start(day: date) -> datetime:
 
 
 def _destination_of(headsign: str, stop_name: str,
-                    origin_name: str = "") -> str:
+                    origin_name: str = "", operator: str = "") -> str:
     """The far end of the journey, not the end it started from.
 
     Local operators write a headsign as a destination — "Portslade Academy",
@@ -4207,13 +4210,34 @@ def _destination_of(headsign: str, stop_name: str,
     their own, so splitting on the separator would turn
     "… - Brighton Railway Station - Stroudley Road" into "Stroudley Road".
     """
+    return _destination_parts(headsign, stop_name, origin_name, operator)[0]
+
+
+def _destination_parts(headsign: str, stop_name: str, origin_name: str = "",
+                       operator: str = "") -> tuple:
+    """`(place, stop)`: the far end as `_destination_of` finds it, said as a
+    passenger would (data/place_names.json), with the exact stop where the
+    published name gives one. "Swansea City Bus Station (Bay B and C)" is
+    Swansea, at the City Bus Station, bays B and C.
+
+    `stop_name` and `origin_name` are the *published* names, which is what a
+    headsign is written with, not a stop's display name (`_published_name`).
+    """
     if not headsign:
-        return "Unknown"
+        return "Unknown", ""
+    far = headsign
     for near in (stop_name, origin_name):
         prefix = f"{near} - "
         if near and headsign.startswith(prefix):
-            return headsign[len(prefix):].strip() or headsign
-    return headsign
+            far = headsign[len(prefix):].strip() or headsign
+            break
+    return place_names.coach_destination(far, operator)
+
+
+def _published_name(tt: Timetable, stop_id: str, default: str = "") -> str:
+    """A stop's name as its operator publishes it, before any renaming."""
+    stop = tt.stops.get(stop_id) or {}
+    return stop.get("published_name") or stop.get("name", default)
 
 
 def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
@@ -4232,6 +4256,7 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
             break
 
     stop_name = tt.stops.get(matched, {}).get("name", stop_id)
+    published = _published_name(tt, matched, stop_id)
 
     if not raw_times:
         return {
@@ -4310,12 +4335,13 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
             if " - " in headsign:
                 calls = tt.trip_stops_for(trip_id)
                 if calls:
-                    origin_name = tt.stops.get(calls[0][1], {}).get("name", "")
+                    origin_name = _published_name(tt, calls[0][1])
+            place, place_stop = _destination_parts(headsign, published, origin_name, operator)
             departures.append({
                 "service":            route.get("short_name", "?"),
                 "operator":           operator,
-                "destination":        _destination_of(headsign, stop_name,
-                                                      origin_name),
+                "destination":        place,
+                "destination_stop":   place_stop,
                 "aimed_departure":    dep_dt.isoformat(),
                 "expected_departure": None,   # Phase 2: filled from GTFS-RT
                 "status":             "Scheduled",

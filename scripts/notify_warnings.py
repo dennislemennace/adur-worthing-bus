@@ -54,6 +54,7 @@ TITLES = {
     "timetable-expiry": "The timetable runs out for {arg}",
     "objective-drift": "A figure quoted in the objectives no longer matches the evidence",
     "served-scores": "The stop board's estimates could not be scored for a day",
+    "coach-names": "A coach destination has no passenger name yet",
 }
 
 ADVICE = {
@@ -93,6 +94,11 @@ ADVICE = {
         "was not scored and the published window leaves it out (it names the days it covers). The rest "
         "of the night published as normal. Re-run it by hand from the day's evidence archive: see "
         "docs/RUNBOOK.md, \"What the board showed\"."),
+    "coach-names": (
+        "The new timetable has a coach destination written as a stop rather than a place (a district "
+        "before its town, a bay, a bus station's full title), and boards show it as published. Add it to "
+        "`coach_destinations` in data/place_names.json with the place and the stop; the log of this run "
+        "lists it, and `pytest tests/test_place_names.py` checks it."),
 }
 
 

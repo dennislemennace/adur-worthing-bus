@@ -41,6 +41,9 @@
      primary sits at 3.4-3.7:1 on the panel and footer surfaces, so links get
      a lighter draw of it there. */
   --color-link:           #1a4b82;
+  /* "You are here": the blue a map dot means everywhere, kept off every
+     operator's line colour. */
+  --color-you:            #1a73e8;
 
   /* Destructive actions. */
   --color-danger:         #c0392b;
@@ -185,6 +188,7 @@ html.dark-mode {
   --color-accent-text:    #e6a820;   /* 8.7:1 on the dark surface — no adjustment needed */
   --color-on-accent:      #090e1a;
   --color-link:           #4a8fd0;   /* --color-primary is 3.4:1 here */
+  --color-you:            #5b9cf5;
 
   /* #c0392b measures 3.4:1 against the dark surface — under AA. This is the
      same red the "late" status already uses here, at 4.9:1. */
@@ -2377,6 +2381,12 @@ html.dark-mode .btn-text {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A coach's exact stop under the place it is going: "Swansea" over "City Bus
+   Station, bays B and C". */
+.destination-stop {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--font-size-sm); color: var(--color-text-muted);
+}
 
 /* ===== DUE TIME ===== */
 .due-time {
@@ -3235,6 +3245,14 @@ html.dark-mode .stop-cluster-icon {
   border-radius: var(--radius-sm) 0 0 0;
 }
 .leaflet-control-attribution a { color: var(--color-link) !important; }
+
+/* Your location: a dot ringed in white, and a pale circle for how sure the
+   device is. The button under the zoom shows when it is on. */
+.my-location-dot { fill: var(--color-you); fill-opacity: 1; stroke: #fff; stroke-opacity: 1; }
+.my-location-ring { fill: var(--color-you); fill-opacity: .12; stroke: var(--color-you); stroke-opacity: .4; }
+.locate-btn { display: flex !important; align-items: center; justify-content: center; }
+.locate-btn .icon { width: 20px; height: 20px; }
+.locate-btn.is-on { color: var(--color-you) !important; }
 
 /* Leaflet's own controls ship at 30x30. */
 .leaflet-bar a,
