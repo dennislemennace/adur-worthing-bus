@@ -1,5 +1,5 @@
 {
-  "_comment": "The guided tour (tour.js in the app, tour.html as slides and PDF). One file drives all three, so the words are written once. In the app the tour is a walk through the site: each view a step opens is a stop, where a card names the step, gives its headline and says what to try (hint). A headline is one figure (value, label) or a comparison (figures, each with its label), and may lead with a claim it supports and say what was measured (measure); a step that opens no view is one card on its own. Numbers are never typed here where the data can say them: a {placeholder} is filled at runtime from data/boundary_evidence.json and the published journey-times index (tourFigureValues in tour-figures.js), so a weekly rebuild cannot leave the tour quoting stale figures. A typed figure names its source and the date it was checked. preview_only would keep the tour behind ?preview=1; it is public from 3 November 2026. Rewritten on 3 November 2026 at the maintainer's request to show what the platform does, step by step, with the boundary evidence as one step of ten. The menu's badge shows until event.show_until. A step's groups (label, items) list what it covers in a few short rows, on the card and the slide. Revised again on 3 November 2026 from the maintainer's walk-through: operators by mode on the first step, a quieter board, the planner's outside allowance, the route pickers filled, the joined-up plan ringed.",
+  "_comment": "The guided tour (tour.js in the app, tour.html as slides and PDF). One file drives all three, so the words are written once. In the app the tour is a walk through the site: each view a step opens is a stop, where a card names the step, gives its headline and says what to try (hint). A headline is one figure (value, label) or a comparison (figures, each with its label), and may lead with a claim it supports and say what was measured (measure); a step that opens no view is one card on its own. Numbers are never typed here where the data can say them: a {placeholder} is filled at runtime from data/boundary_evidence.json and the published journey-times index (tourFigureValues in tour-figures.js), so a weekly rebuild cannot leave the tour quoting stale figures. A typed figure names its source and the date it was checked. preview_only would keep the tour behind ?preview=1; it is public from 3 November 2026. Rewritten on 3 November 2026 at the maintainer's request to show what the platform does, step by step, with the boundary evidence as one step among them. The menu's badge shows until event.show_until. A step's groups (label, items) list what it covers in a few short rows, on the card and the slide. Revised again on 3 November 2026 from the maintainer's walk-through: operators by mode on the first step, a quieter board, the planner's outside allowance, the route pickers filled, the joined-up plan ringed. The last step, Everything on the site, lists every part of the site as quick links (links: groups of label, desc and one of view, action or href); its Finish returns to the live map (added 6 November 2026). A step marked contact carries the contact details and the QR on its slide: the call to get in touch, and the last slide, where a reader leaves with the PDF.",
   "schema_version": 1,
   "preview_only": false,
   "checked_on": "2026-11-03",
@@ -495,7 +495,134 @@
           "href": "mailto:privacy@worthingbrightonbus.co.uk"
         }
       ],
-      "sources": []
+      "sources": [],
+      "contact": true
+    },
+    {
+      "id": "everything",
+      "title": "Everything on the site",
+      "lead": "Every part of the site in one list. Choose one to go straight there, or Finish for the live map.",
+      "badge": {
+        "kind": "about",
+        "label": "Quick links"
+      },
+      "points": [],
+      "try": [
+        {
+          "action": "home",
+          "label": "Everything on the site",
+          "hint": "Choose any of these to go straight there. Finish takes you to the live map."
+        }
+      ],
+      "links": [
+        {
+          "group": "Travel",
+          "items": [
+            {
+              "label": "Live map",
+              "desc": "Every bus, coach and train, live.",
+              "view": "live"
+            },
+            {
+              "label": "Departure boards",
+              "desc": "Any stop's next buses, from every operator.",
+              "action": "stop-search"
+            },
+            {
+              "label": "Journey planner",
+              "desc": "Door to door, across operators. Experimental.",
+              "action": "planner"
+            },
+            {
+              "label": "Route view",
+              "desc": "Every route, day and night, and each one's stops.",
+              "view": "improvements"
+            },
+            {
+              "label": "Tickets and fares",
+              "desc": "The cheapest ticket for a journey, across companies.",
+              "view": "tickets"
+            },
+            {
+              "label": "Travel updates",
+              "desc": "Diversions and closures in force, and the site's analysis.",
+              "view": "updates"
+            }
+          ]
+        },
+        {
+          "group": "Performance and evidence",
+          "items": [
+            {
+              "label": "Bus Performance",
+              "desc": "Journey times and where buses lose time.",
+              "view": "journeytimes"
+            },
+            {
+              "label": "Route reports",
+              "desc": "Punctuality, waiting and time lost, route by route, printable.",
+              "href": "report.html"
+            },
+            {
+              "label": "Live data health",
+              "desc": "How often our live times were right, every night.",
+              "href": "health.html"
+            },
+            {
+              "label": "Key figures",
+              "desc": "The headline numbers, each with its method.",
+              "href": "figures.html"
+            },
+            {
+              "label": "Better buses",
+              "desc": "What would help, who decides, and a letter to your councillor.",
+              "view": "network"
+            }
+          ]
+        },
+        {
+          "group": "Tools",
+          "items": [
+            {
+              "label": "Departure timing log",
+              "desc": "Time buses leaving a stop, to check our recorded times.",
+              "href": "timing.html"
+            },
+            {
+              "label": "On-bus door timing",
+              "desc": "Ride a bus and log its doors at every stop.",
+              "href": "ride.html"
+            },
+            {
+              "label": "Accessibility settings",
+              "desc": "Dark mode, text size, motion and colours.",
+              "action": "a11y"
+            }
+          ]
+        },
+        {
+          "group": "About",
+          "items": [
+            {
+              "label": "Slides and PDF",
+              "desc": "This tour as slides, or a printable PDF.",
+              "href": "tour.html"
+            },
+            {
+              "label": "About and corrections",
+              "desc": "Where the data comes from, and how to report an error.",
+              "href": "about.html"
+            },
+            {
+              "label": "The code on GitHub",
+              "desc": "Open source, under the MIT licence.",
+              "href": "https://github.com/dennislemennace/adur-worthing-bus"
+            }
+          ]
+        }
+      ],
+      "sources": [],
+      "contact": true
     }
   ],
   "contact": {

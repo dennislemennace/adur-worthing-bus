@@ -287,9 +287,9 @@ test("a stop with no view of its own keeps the view before it ringed, if that vi
   const app = loadTour();
   const state = vm.runInContext("state", app);
   const stops = app.tourStops(TOUR, () => true);
-  // The last two cards follow Better buses.
-  const last = stops[stops.length - 1];
-  assert.equal(last.tryIndex, null);
+  // The two cards after Better buses: the last with no view of its own.
+  const last = [...stops].reverse().find(x => x.tryIndex == null);
+  assert.equal(TOUR.steps[last.step].id, "build-it-together");
   state.viewMode = "network";
   const carried = app.tourCarriedTry(TOUR, last.step);
   assert.equal(carried && carried.action, "better-buses", "the joined-up plan is not kept in sight under the last card");
@@ -323,4 +323,35 @@ test("the board and the whole network are fetched a stop ahead, so they do not w
   assert.ok(asked.some(p => p.startsWith(`/api/departures?stopId=${atco}`)), JSON.stringify(asked));
   app.tourPrefetch(at("route-view"), TOUR);
   assert.equal(lines, 1, "the route lines were not fetched ahead");
+});
+
+test("the last card lists every part of the site, and Finish lands on the live map", () => {
+  const app = loadTour();
+  const values = app.tourFigureValues(EVIDENCE, INDEX, { operators: {} });
+  const stops = app.tourStops(TOUR, () => true);
+  const last = stops[stops.length - 1];
+  const html = app.tourCoachHtml(TOUR, last, values, stops);
+  const items = TOUR.steps[last.step].links.flatMap(g => g.items);
+  for (const x of items) assert.ok(html.includes(app.escapeHtml(x.label)) && html.includes(app.escapeHtml(x.desc)), x.label);
+  assert.match(html, /href="ride\.html"/);
+  assert.match(html, /data-tour-link="\d+:0:0"/, "a view link is not a button");
+  assert.match(html, /data-tour-coach="next"[^>]*>[^<]*Finish/);
+  const evil = JSON.parse(JSON.stringify(TOUR));
+  evil.steps[last.step].links[0].items[0].label = "<img src=x onerror=alert(1)>";
+  evil.steps[last.step].links[0].items[1] = { label: "x", desc: "y", href: "javascript:alert(1)" };
+  const bad = app.tourCoachHtml(evil, last, values, stops);
+  assert.doesNotMatch(bad, /<img src=x|href="javascript:/i);
+
+  // Finish: out of the tour, on the live map, no stop open, map at its opening view.
+  const state = vm.runInContext("state", app);
+  const did = [];
+  app.setViewMode = (m) => did.push(`view:${m}`);
+  app.closePanel = () => did.push("close");
+  state.map = { setView: (c, z) => did.push(`map:${c.join(",")}@${z}`) };
+  state.tourDemo = { ...last };
+  app.tourFinish();
+  assert.equal(state.tourDemo, null, "Finish left the tour open");
+  const cfg = vm.runInContext("CONFIG", app);
+  assert.deepEqual(did.filter(x => !x.startsWith("view:tour")),
+    ["view:live", "close", `map:${cfg.MAP_CENTER.join(",")}@${cfg.MAP_ZOOM}`]);
 });

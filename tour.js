@@ -40,19 +40,19 @@ const tour = {
 
 /** What a "Show me" can do. data/tour.json is tested against this list. */
 const TOUR_ACTIONS = ["board", "live-map", "evidence", "route-view", "route", "tickets", "planner",
-                      "journey-times", "delay-map", "updates", "better-buses", "a11y", "link"];
+                      "journey-times", "delay-map", "updates", "better-buses", "home", "a11y", "link"];
 
 /** The actions that open a view, and so are stops on the walk. The others
  *  (the evidence or the accessibility settings over the page, another page in
  *  a new tab) are buttons on the card and leave the walk where it is. */
 const TOUR_VIEWS = ["board", "live-map", "route-view", "route", "tickets", "planner",
-                    "journey-times", "delay-map", "updates", "better-buses"];
+                    "journey-times", "delay-map", "updates", "better-buses", "home"];
 
 /** The site's view each of those opens. */
 const TOUR_VIEW_OF = {
   board: "live", "live-map": "live", planner: "live", "route-view": "improvements",
   route: "improvements", tickets: "tickets", "journey-times": "journeytimes",
-  "delay-map": "journeytimes", updates: "updates", "better-buses": "network",
+  "delay-map": "journeytimes", updates: "updates", "better-buses": "network", home: "live",
 };
 
 /** The control each stop's hint is about, for the ring. The live map has
@@ -88,6 +88,8 @@ const TOUR_DETENTS = {
   "live-map": "peek", "delay-map": "peek", "route-view": "peek", "board": "half",
   "tickets": "half", "planner": "half", "journey-times": "full", "route": "half",
   "updates": "half", "better-buses": "half",
+  // The quick links: the sheet down to its tabs, so the card has the room.
+  "home": "closed",
 };
 
 function loadTour() {
@@ -262,6 +264,25 @@ function tourGroupsHtml(groups) {
     (g.items || []).map(escapeHtml).join(" · ")}</dd></div>`).join("")}</dl>`;
 }
 
+/** The quick links: each part of the site, by group, with a line on what it
+ *  is for. A view or a tool is a button that ends the tour there; another page
+ *  is a link that opens in its place, the tour being over. */
+function tourLinksHtml(links, step) {
+  if (!Array.isArray(links) || !links.length) return "";
+  return `<nav class="tour-links" aria-label="Everything on the site">${links.map((g, i) => `
+    <h3 class="tour-links-group">${escapeHtml(g.group)}</h3>
+    <ul class="tour-links-list">${(g.items || []).map((x, j) => {
+      const name = escapeHtml(x.label);
+      const away = /^https:\/\//i.test(String(x.href || ""));
+      const go = x.href
+        ? `<a class="tour-link" href="${escapeAttr(safeUrl(x.href))}"${away
+            ? ` target="_blank" rel="noopener">${name}<span class="visually-hidden"> (opens in a new tab)</span>`
+            : `>${name}`}</a>`
+        : `<button type="button" class="tour-link" data-tour-link="${step}:${i}:${j}">${name}</button>`;
+      return `<li>${go}<span class="tour-link-desc">${escapeHtml(x.desc)}</span></li>`;
+    }).join("")}</ul>`).join("")}</nav>`;
+}
+
 function tourTryHtml(t, i, j, className, pressed = false) {
   const toggle = TOUR_VIEWS.includes(t.action) ? ` aria-pressed="${pressed}"` : "";
   const away = t.action === "link" && !/^mailto:/i.test(String(t.href || ""))
@@ -323,6 +344,7 @@ function tourCoachHtml(d, demo, values, stops) {
       ${badge("wide")}
       ${head && firstOfStep ? tourHeadlineHtml(head, values) : ""}
       ${firstOfStep ? tourGroupsHtml(step.groups) : ""}
+      ${tourLinksHtml(step.links, demo.step)}
       ${firstOfStep && !claimed ? lead("main") : ""}
       ${t && t.hint ? `<p class="tour-coach-hint"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span>${
         tourText(t.hint, values)}</span></p>` : ""}
@@ -444,6 +466,11 @@ async function tourRunAction(t) {
     }
     case "updates":
       await tourGo("updates");
+      return;
+    case "home":
+      // The quick links, over the live map a fresh visit opens on.
+      await tourGo("live");
+      closePanel();
       return;
     case "better-buses":
       await tourGo("network");
@@ -657,7 +684,37 @@ function tourMove(delta) {
   const at = tourStopIndex(stops, state.tourDemo);
   const next = stops[at + delta];
   if (next) { tourGoTo(next.step, next.tryIndex); return; }
-  if (delta > 0) tourEnd();
+  if (delta > 0) tourFinish();
+}
+
+/** Finish: the tour ends on the live map as a fresh visit opens it, with no
+ *  stop chosen and the map at its opening view. */
+function tourFinish() {
+  tourEnd();
+  setViewMode("live");
+  closePanel();
+  if (state.map) state.map.setView(CONFIG.MAP_CENTER, CONFIG.MAP_ZOOM, { animate: false });
+  tourAnnounce("The tour has finished. This is the live map.");
+}
+
+/** A quick link on the last card: the tour ends, and the reader is taken to
+ *  the view or tool it names. */
+async function tourFollowLink(stepIndex, group, item) {
+  const step = tour.data && tour.data.steps[stepIndex];
+  const x = step && step.links && step.links[group] && step.links[group].items[item];
+  if (!x) return;
+  track(`tour-link-${String(x.view || x.action || "").replace(/[^a-z-]/g, "")}`);
+  tourEnd();
+  if (x.view) { setViewMode(x.view); return; }
+  if (x.action === "a11y") { openA11yDialog(document.activeElement); return; }
+  if (x.action === "planner") { await tourRunAction({ action: "planner" }); return; }
+  if (x.action === "stop-search") {
+    setViewMode("live");
+    try { await state.viewApplied; } catch { /* the view reports its own errors */ }
+    closePanel();
+    if (typeof isSheetLayout === "function" && isSheetLayout()) setSheetDetent("half");
+    document.getElementById("stop-search-input")?.focus();
+  }
 }
 
 /** A button on the card: another view of the step, the evidence, or a link. */
@@ -756,6 +813,12 @@ function tourBindCoach(card) {
   if (card.dataset.bound) return;
   card.dataset.bound = "1";
   card.addEventListener("click", (e) => {
+    const link = e.target.closest("[data-tour-link]");
+    if (link) {
+      const [s, g, k] = link.dataset.tourLink.split(":").map(Number);
+      tourFollowLink(s, g, k);
+      return;
+    }
     const go = e.target.closest("[data-tour-try]");
     if (go) {
       const [s, t] = go.dataset.tourTry.split(":").map(Number);
@@ -857,6 +920,10 @@ function tourPlace() {
   }
   const sheet = typeof isSheetLayout === "function" && isSheetLayout();
   card.dataset.place = sheet ? "dock" : "float";
+  // The quick links, with the sheet down to its tabs, take the room it gave
+  // up: down to the sheet's top, wherever the footer puts it.
+  const panelBox = sheet && t && t.action === "home" ? document.getElementById("departure-panel") : null;
+  card.style.maxHeight = panelBox ? `${Math.max(240, Math.round(panelBox.getBoundingClientRect().top - top0 - 8))}px` : "";
   const cw = card.offsetWidth, ch = card.offsetHeight;
   if (sheet) {
     card.style.left = "";

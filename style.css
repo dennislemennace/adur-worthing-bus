@@ -8837,6 +8837,29 @@ button.target-dense {
 .tour-group { display: contents; }
 .tour-group dt { font-weight: 600; color: var(--color-text); }
 .tour-group dd { margin: 0; color: var(--color-text-muted); text-wrap: pretty; }
+/* The tour's last card: every part of the site, by group, each with a line
+   on what it is for. A 44px target for each, the line beside it muted. */
+.tour-links { display: grid; gap: var(--space-2xs); width: 100%; }
+.tour-links-group {
+  margin: var(--space-xs) 0 0; font-size: var(--font-size-xs); font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted);
+}
+.tour-links-group:first-child { margin-top: 0; }
+.tour-links-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.tour-links-list li {
+  display: grid; grid-template-columns: minmax(8.5rem, auto) minmax(0, 1fr); align-items: center;
+  column-gap: var(--space-sm); border-top: 1px solid var(--color-border);
+}
+.tour-links-list li:first-child { border-top: 0; }
+.tour-link {
+  display: inline-flex; align-items: center; min-height: var(--target-min); padding: 0;
+  border: 0; background: none; font: inherit; font-weight: 600; text-align: left;
+  color: var(--color-link); text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.tour-link-desc { font-size: var(--font-size-sm); line-height: 1.35; color: var(--color-text-muted); text-wrap: pretty; }
+@media (max-width: 420px) {
+  .tour-links-list li { grid-template-columns: minmax(0, 1fr); padding-bottom: var(--space-2xs); }
+}
 /* Route view's two stops keep the phone's sheet for the routes: the Day and
    Night switch above the tabs is put away while the tour is on them. */
 body[data-tour-stop="route-view"] .panel-mode[data-mode="improvements"] .service-mode-toggle,

@@ -23,7 +23,10 @@ TICKET_PRESETS = {p["id"] for p in json.loads((ROOT / "data" / "journey_presets.
 
 BADGES = {"live", "recorded", "timetable", "sourced", "experimental", "about"}
 ACTIONS = {"board", "live-map", "evidence", "route-view", "route", "tickets", "planner",
-           "journey-times", "delay-map", "updates", "better-buses", "a11y", "link"}
+           "journey-times", "delay-map", "updates", "better-buses", "home", "a11y", "link"}
+# Where a quick link on the last card can take the reader (tour.js tourFollowLink).
+LINK_VIEWS = {"live", "improvements", "tickets", "updates", "journeytimes", "network"}
+LINK_ACTIONS = {"stop-search", "planner", "a11y"}
 SERVICES = {svc for s in json.loads((ROOT / "data" / "stops.json").read_text())["stops"]
             for svc in s.get("services") or []}
 ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -152,3 +155,30 @@ def test_a_number_from_outside_the_pipeline_names_its_source():
         if re.search(r"\d\s?%|£\s?\d", typed):
             assert any(src["url"].startswith("https://") for src in s["sources"]), (
                 f'{s["id"]} quotes a figure that is not filled from the evidence, with no outside source')
+
+
+def test_the_last_card_links_to_every_part_of_the_site():
+    last = DOC["steps"][-1]
+    assert [t["action"] for t in last["try"]] == ["home"], "the quick links are not the last stop"
+    links = last.get("links") or []
+    assert links, "the last card has no quick links"
+    seen = set()
+    for g in links:
+        assert g["group"] and g["items"], g
+        for x in g["items"]:
+            where = f'{g["group"]}: {x.get("label")}'
+            assert x["label"] and x["desc"], where
+            kinds = [k for k in ("view", "action", "href") if k in x]
+            assert len(kinds) == 1, f"{where}: exactly one of view, action or href"
+            if "view" in x:
+                assert x["view"] in LINK_VIEWS, where
+            if "action" in x:
+                assert x["action"] in LINK_ACTIONS, where
+            if "href" in x:
+                assert x["href"].startswith("https://") or (ROOT / re.split(r"[?#]", x["href"])[0]).exists(), where
+            seen.add(x.get("view") or x.get("action") or x.get("href"))
+    # Every section in the menu and every page a visitor can use, the tools too.
+    for must in LINK_VIEWS | {"stop-search", "report.html", "health.html", "figures.html",
+                              "timing.html", "ride.html", "about.html"}:
+        assert must in seen, f"the quick links leave out {must}"
+    assert last.get("contact"), "the last slide must carry the way to get in touch"

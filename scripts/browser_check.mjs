@@ -2032,7 +2032,7 @@ async function checkConference(page, where) {
 const TOUR_EXPECT = {
   board: "live", "live-map": "live", "route-view": "improvements", route: "improvements",
   tickets: "tickets", planner: "live", "journey-times": "journeytimes", "delay-map": "journeytimes",
-  updates: "updates", "better-buses": "network",
+  updates: "updates", "better-buses": "network", home: "live",
 };
 
 /** Where the tour is and where its card sits. */
@@ -2175,7 +2175,8 @@ async function checkTour(page, where, { full = false } = {}) {
         })(),
         // The route report is offered wherever the index has one for the route.
         report: !!(state._tourIndex && routeReportHref(${JSON.stringify(stop.service || "700")}, "SCSO", state._tourIndex)),
-        routeCard: !!document.querySelector("#route-detail-report .report-cta") });
+        routeCard: !!document.querySelector("#route-detail-report .report-cta"),
+        quickLinks: document.querySelectorAll("#tour-coach .tour-links .tour-link").length });
     })()`));
     const fitted = (f) => !f || (f.top >= f.card - 2 && f.bottom <= f.sheet + 2 && f.left >= -2 && f.right <= f.w + 2);
     const extra = stop.action === "board" ? got.stop === stop.atco
@@ -2187,6 +2188,7 @@ async function checkTour(page, where, { full = false } = {}) {
         && (!s.sheet || !s.card || got.chart.top >= s.card.bottom))
       : stop.action === "delay-map" ? got.section === "delays" && fitted(got.delayFit)
       : stop.action === "route-view" ? got.lines > 0 && !got.modeSwitch
+      : stop.action === "home" ? got.quickLinks >= 15
       : stop.action === "route" ? got.focus === stop.service && (!got.report || got.routeCard) && !got.modeSwitch
         && got.picked[0] === stop.operator && got.picked[1] === stop.service
       : true;
@@ -2290,6 +2292,20 @@ async function checkTour(page, where, { full = false } = {}) {
     check(`the last stop finishes the tour — ${where}`, !!s.card && label === "Finish", JSON.stringify({ label, s }));
     await page.evaluate(`document.querySelector('#tour-coach [data-tour-coach="next"]').click()`);
     await out("Finish");
+    const home = JSON.parse(await page.evaluate(`JSON.stringify({ view: state.viewMode,
+      stop: !!state.selectedStop, bus: !!state.selectedVehicle })`));
+    check(`Finish lands on the live map, with nothing open — ${where}`,
+      home.view === "live" && !home.stop && !home.bus, JSON.stringify(home));
+    // A quick link ends the tour in the view it names.
+    await page.evaluate(`tourGoTo(${last.step}, ${last.tryIndex == null ? "null" : last.tryIndex})`);
+    await tourStopReady(page, last);
+    await page.evaluate(`[...document.querySelectorAll("#tour-coach .tour-link")]
+      .find(b => b.textContent.trim() === "Route view").click()`);
+    await sleep(1200);
+    const went = JSON.parse(await page.evaluate(`JSON.stringify({ view: state.viewMode, demo: state.tourDemo,
+      card: !document.getElementById("tour-coach").hidden })`));
+    check(`a quick link ends the tour in the view it names — ${where}`,
+      went.view === "improvements" && !went.demo && !went.card, JSON.stringify(went));
   }
   await page.evaluate("setViewMode('live')");
   await sleep(300);

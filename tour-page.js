@@ -57,7 +57,6 @@ function tourOpeningSlide(d, values) {
 }
 
 function tourStepSlide(step, i, total, values, contact) {
-  const last = i === total - 1;
   const kind = /^[a-z]+$/.test(step.badge && step.badge.kind) ? step.badge.kind : "about";
   return `<section class="slide" data-slide="${tourEsc(step.id)}" aria-label="Step ${i + 1} of ${total}">
     <div class="slide-body">
@@ -69,9 +68,13 @@ function tourStepSlide(step, i, total, values, contact) {
         `<div><dt>${tourEsc(g.label)}</dt><dd>${(g.items || []).map(tourEsc).join(" · ")}</dd></div>`).join("")}</dl>` : ""}
       ${(step.points || []).length ? `<ul class="slide-points">${step.points.map(p =>
         `<li>${tourSlideText(p, values)}</li>`).join("")}</ul>` : ""}
+      ${(step.links || []).length ? `<div class="slide-links">${step.links.map(g => `<section>
+        <h3>${tourEsc(g.group)}</h3><ul>${(g.items || []).map(x => `<li><strong>${x.href
+          ? `<a href="${tourEsc(tourSafeHref(x.href))}">${tourEsc(x.label)}</a>` : tourEsc(x.label)}</strong>
+          ${tourEsc(x.desc)}</li>`).join("")}</ul></section>`).join("")}</div>` : ""}
       ${tourSlideSources(step.sources)}
     </div>
-    ${last && contact ? `<aside class="slide-side">
+    ${step.contact && contact ? `<aside class="slide-side">
       <p class="slide-contact"><strong>${tourEsc(contact.name)}</strong><br>
         <a href="mailto:${tourEsc(contact.email)}">${tourEsc(contact.email)}</a><br>
         <a href="${tourEsc(tourSafeHref(contact.site))}">worthingbrightonbus.co.uk</a><br>
