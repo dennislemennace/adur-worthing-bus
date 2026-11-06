@@ -1934,6 +1934,44 @@ async function checkDepartureJourneys(page, where) {
 }
 
 /**
+ * Access up front: a stop opens with whether it is step-free, its kerb and
+ * shelter as a row of facts under its name, above the departures and on
+ * screen without scrolling. The details open beneath, and open by
+ * themselves for a reader who has said they need step-free access.
+ */
+async function checkStopAccessUpFront(page, where, { contrast = false } = {}) {
+  await page.evaluate("setViewMode('live')");
+  await sleep(400);
+  await page.evaluate(`(() => { openDepartures("4400AD0204", "High Street"); return ""; })()`);
+  await waitFor(page, `!document.getElementById("stop-access").hidden`, 20000).catch(() => {});
+  await sleep(600);
+  const r = JSON.parse(await page.evaluate(`JSON.stringify((() => {
+    const el = document.getElementById("stop-access");
+    const sum = el && el.querySelector(".stop-access-summary");
+    const box = document.getElementById("tab-content-stop").getBoundingClientRect();
+    const rect = (x) => { if (!x) return null; const b = x.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom) }; };
+    const dep = document.getElementById("departures-container");
+    return { shown: !!el && !el.hidden, open: !!el && el.open, sum: rect(sum),
+      chips: el ? [...el.querySelectorAll(".access-chip")].map(c => c.textContent.trim()) : [],
+      dep: dep && !dep.classList.contains("hidden") ? rect(dep) : null,
+      box: { top: Math.round(box.top), bottom: Math.round(Math.min(box.bottom, innerHeight)) },
+      h: Math.round(sum ? sum.getBoundingClientRect().height : 0) };
+  })())`));
+  const onScreen = r.sum && r.sum.top >= r.box.top - 1 && r.sum.bottom <= r.box.bottom + 1;
+  check(`a stop opens with its access under its name, above the departures — ${where}`,
+    r.shown && !r.open && r.chips.some(c => /^Step-free|Not step-free|Partly step-free/.test(c)) && onScreen
+      && r.h >= 44 && (!r.dep || r.sum.bottom <= r.dep.top + 1), JSON.stringify(r));
+  await page.evaluate("updateA11y({ stepFree: true })");
+  await page.evaluate(`(() => { openDepartures("4400WO0254", "Marine Parade"); return ""; })()`);
+  await sleep(1200);
+  const opened = await page.evaluate(`document.getElementById("stop-access").open`);
+  await page.evaluate("updateA11y({ stepFree: false })");
+  check(`"I need step-free access" opens each stop's access details first — ${where}`, opened === true,
+    String(opened));
+  if (contrast) await checkContrastBothThemes(page, `a stop's access, up front — ${where}`);
+}
+
+/**
  * Your location: the button under the zoom puts a dot where the device says
  * you are, and takes it away again. The browser's geolocation is replaced by
  * a fixed answer (Shoreham High Street), so the check never asks for a real
@@ -5226,6 +5264,7 @@ await checkConference(page, VIEWPORTS[0].name);
 await checkTour(page, VIEWPORTS[0].name, { full: true });
 await checkHomeLink(page, VIEWPORTS[0].name);
 await checkMyLocation(page, VIEWPORTS[0].name);
+await checkStopAccessUpFront(page, VIEWPORTS[0].name, { contrast: true });
 await checkDepartureJourneys(page, VIEWPORTS[0].name);
 await checkTicketZonesPicker(page, VIEWPORTS[0].name);
 await checkMapTaps(page, VIEWPORTS[0].name);
@@ -5292,6 +5331,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkConference(p, vp.name);
   await checkTour(p, vp.name, { full: vp.name === "desktop" });
   await checkHomeLink(p, vp.name);
+  await checkStopAccessUpFront(p, vp.name);
   await checkDepartureJourneys(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
   await checkBoardNext(p, vp.name);

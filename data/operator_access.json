@@ -1,0 +1,22 @@
+{
+  "_comment": "What each coach operator says about travelling with a wheelchair: in its own terms, from its own pages, each with the page and the date it was checked. Shown under a stop's access details where coaches call, and in the Bus tab for a coach (app.js). Local buses are not here: nothing is said about them that a source on this file does not say. Checked 6 November 2026 at the maintainer's request (accessibility information front and centre).",
+  "checked_on": "2026-11-06",
+  "operators": {
+    "NATX": {
+      "name": "National Express",
+      "summary": "Every coach has a wheelchair lift at the front door. Booking is advised but not essential; if you will move from your wheelchair to a coach seat, book at least 36 hours ahead.",
+      "contact": "Assisted Travel Team: 03717 81 81 81, 8am to 6pm, every day",
+      "source_url": "https://www.nationalexpress.com/en/help/accessibility",
+      "contact_url": "https://www.nationalexpress.com/en/help/contact/assisted-travel",
+      "checked_on": "2026-11-06"
+    },
+    "FLIX": {
+      "name": "FlixBus",
+      "summary": "Wheelchairs and walking aids travel free. FlixBus recommends its contact form at least 36 hours before departure to be sure of space; you may still travel without it, but the space may be taken.",
+      "contact": "",
+      "source_url": "https://www.flixbus.co.uk/service/luggage",
+      "contact_url": "https://www.flixbus.co.uk/service/luggage",
+      "checked_on": "2026-11-06"
+    }
+  }
+}

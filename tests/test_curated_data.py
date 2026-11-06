@@ -1314,23 +1314,27 @@ def test_stop_details_cover_the_stop_list_and_cite_naptan():
     stops = json.loads((DATA_DIR / "stops.json").read_text())["stops"]
     assert details["source_url"].startswith("https://naptan.api.dft.gov.uk/")
     date.fromisoformat(details["checked_on"])
-    assert details["fields"] == ["indicator", "street", "landmark", "bearing"]
+    assert details["fields"] == ["indicator", "street", "landmark", "bearing", "kind"]
     atcos = {s["atco_code"] for s in stops}
     assert len(set(details["stops"]) & atcos) >= 0.9 * len(atcos), \
         "most stops would open with no letter, street or landmark"
     for atco, row in details["stops"].items():
-        assert isinstance(row, list) and len(row) == 4 and all(isinstance(v, str) for v in row), atco
+        # A fifth entry only for a stop that is not an ordinary marked pole.
+        assert isinstance(row, list) and len(row) in (4, 5) and all(isinstance(v, str) for v in row), atco
         assert row[3] in {"", "N", "NE", "E", "SE", "S", "SW", "W", "NW"}, (atco, row[3])
+        assert len(row) == 4 or row[4] in {"unmarked", "hail_and_ride", "flexible"}, (atco, row)
 
 
 def test_stop_details_builder_reads_naptan_csv():
     import sys as _sys
     _sys.path.insert(0, str(ROOT / "scripts"))
     import build_stop_details as bsd
-    csv_text = ("ATCOCode,Indicator,Street,Landmark,Bearing\n"
-                "4400AD0204,Stop D,High Street,Boots,E\n")
+    csv_text = ("ATCOCode,Indicator,Street,Landmark,Bearing,BusStopType\n"
+                "4400AD0204,Stop D,High Street,Boots,E,MKD\n"
+                "4400WO0999,o/s,Lane,Farm,N,HAR\n")
     parsed = bsd.parse_naptan(csv_text)
-    assert parsed == {"4400AD0204": ["Stop D", "High Street", "Boots", "E"]}
+    assert parsed == {"4400AD0204": ["Stop D", "High Street", "Boots", "E"],
+                      "4400WO0999": ["o/s", "Lane", "Farm", "N", "hail_and_ride"]}
     out = bsd.build([{"atco_code": "4400AD0204"}, {"atco_code": "MISSING"}], parsed)
     assert out["count"] == 1 and "MISSING" not in out["stops"]
 
@@ -1367,6 +1371,13 @@ def test_stop_osm_carries_its_licence_and_only_known_values():
         assert isinstance(facts.get("id"), int), atco
         for key, value in facts.items():
             if key in ("id", "check_date"):
+                continue
+            # Where a fact came from, and a kerb's measured height.
+            if key in ("kerb_nearby", "way"):
+                assert value is True, (atco, key, value)
+                continue
+            if key == "kerb_height_cm":
+                assert isinstance(value, int) and 0 <= value <= 60, (atco, key, value)
                 continue
             assert value in build_stop_osm.KEEP.get(key, ()), (atco, key, value)
 
@@ -1469,3 +1480,18 @@ def test_the_foi_article_quotes_the_figures_as_worked_out():
     assert below == ["Crawley"], f"the article says only Crawley got less per resident, not {below}"
     assert f["cross_boundary_serving_adur"] == ["N700"], (
         "the article says the N700 is the only route into Brighton & Hove serving Adur")
+
+
+def test_coach_wheelchair_terms_are_in_the_operators_own_words_with_a_date():
+    """data/operator_access.json: what National Express and FlixBus say about
+    travelling with a wheelchair, shown at their stops and in the Bus tab. A
+    passenger plans a journey on it, so each says where it came from and when."""
+    doc = _load("operator_access.json")
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", doc["checked_on"])
+    assert set(doc["operators"]) <= {"NATX", "FLIX"}, "only coach operators' terms are kept here"
+    for noc, op in doc["operators"].items():
+        assert _nonempty_str(op.get("name")) and _nonempty_str(op.get("summary")), noc
+        assert "\u2014" not in op["summary"] + op.get("contact", ""), noc
+        for key in ("source_url", "contact_url"):
+            assert str(op.get(key, "")).startswith("https://"), (noc, key)
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", op["checked_on"]), noc

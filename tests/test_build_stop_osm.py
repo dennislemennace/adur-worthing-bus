@@ -63,3 +63,33 @@ def test_a_response_missing_most_of_the_area_is_refused(tmp_path, monkeypatch):
     saved.write_text(json.dumps(overpass(*[{"naptan:AtcoCode": f"S{i}"} for i in range(8)])))
     assert bso.main() == 0
     assert json.loads(out.read_text())["count"] == 8
+
+
+def test_a_stop_mapped_twice_keeps_what_each_object_says():
+    # The pole says it is lit; the platform way carries the shelter and seat.
+    got = bso.parse_overpass({"elements": [
+        {"type": "node", "id": 1, "lat": 50.8, "lon": -0.3, "tags": {"naptan:AtcoCode": "D", "lit": "yes"}},
+        {"type": "way", "id": 2, "center": {"lat": 50.8, "lon": -0.3},
+         "tags": {"naptan:AtcoCode": "D", "shelter": "yes", "bench": "yes", "covered": "yes"}}]})
+    assert got["D"] == {"id": 2, "way": True, "lit": "yes", "shelter": "yes", "bench": "yes", "covered": "yes"}
+
+
+def _stop_and_kerbs(*kerbs):
+    stop = {"type": "node", "id": 1, "lat": 50.8, "lon": -0.3, "tags": {"naptan:AtcoCode": "E"}}
+    return {"elements": [stop] + [{"type": "node", "id": 10 + i, "lat": 50.8 + dy, "lon": -0.3,
+                                   "tags": {"barrier": "kerb", **tags}} for i, (dy, tags) in enumerate(kerbs)]}
+
+
+def test_a_kerb_mapped_beside_the_stop_is_its_kerb():
+    # 0.00007 degrees of latitude is about 8 m; 0.0003 about 33 m.
+    got = bso.parse_overpass(_stop_and_kerbs((0.00007, {"kerb": "raised", "kerb:height": "0.16"}),
+                                             (0.0003, {"kerb": "lowered"})))
+    assert got["E"] == {"id": 1, "kerb": "raised", "kerb_nearby": True, "kerb_height_cm": 16}
+    # Two kerbs beside it that disagree say nothing.
+    got = bso.parse_overpass(_stop_and_kerbs((0.00007, {"kerb": "raised"}), (-0.00007, {"kerb": "lowered"})))
+    assert "kerb" not in got["E"]
+
+
+def test_kerb_heights_are_read_in_their_own_units():
+    assert [bso.kerb_height_cm(v) for v in ("0.16", "0.16 m", "16 cm", "160 mm", "12cm")] == [16, 16, 16, 16, 12]
+    assert [bso.kerb_height_cm(v) for v in ("high", "", None, "2", "75 cm")] == [None] * 5

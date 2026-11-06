@@ -2155,8 +2155,10 @@ body.panel-collapsed .btn-collapse-panel .icon {
   margin-top: 3px;
 }
 
-/* "At this stop": shelter, seating, kerb and access, from OpenStreetMap. Below
-   the board, since what is coming next is the first question. */
+/* "At this stop": step-free access, the kerb, shelter and seat, as a row of
+   short facts under the stop's name, with the details opening beneath them
+   (6 November 2026; it had been at the foot of the board). Route view's stop
+   shows the details as a section of its own. */
 .stop-access {
   margin: var(--space-md) 0 0;
   padding-top: var(--space-sm);
@@ -2165,6 +2167,44 @@ body.panel-collapsed .btn-collapse-panel .icon {
   color: var(--color-text-muted);
   line-height: 1.4;
 }
+details.stop-access {
+  margin: 0 var(--space-md) var(--space-xs);
+  padding: 0;
+  border-top: 0;
+}
+.stop-access-summary {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
+  min-height: var(--target-min); padding: 4px 0; cursor: pointer; list-style: none;
+}
+.stop-access-summary::-webkit-details-marker { display: none; }
+.stop-access-summary::after {
+  content: ""; width: 8px; height: 8px; margin-left: 2px;
+  border-right: 2px solid var(--color-text-muted); border-bottom: 2px solid var(--color-text-muted);
+  transform: rotate(45deg) translateY(-2px);
+}
+details.stop-access[open] > .stop-access-summary::after { transform: rotate(-135deg) translateY(-1px); }
+.stop-access-label {
+  font-size: var(--font-size-xs); font-weight: 700; color: var(--color-text); margin-right: 2px;
+}
+.access-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  border: 1px solid var(--color-border); border-radius: 999px;
+  font-size: var(--font-size-xs); line-height: 1.35; color: var(--color-text); background: var(--color-surface);
+}
+.access-chip .icon { width: 12px; height: 12px; flex: none; }
+.access-chip--yes .icon { color: var(--color-on-time); }
+.access-chip--no { color: var(--color-text-muted); }
+.access-chip--no .icon { color: var(--color-text-muted); }
+.access-chip--warn { border-color: var(--color-late); }
+.access-chip--warn .icon { color: var(--color-late); }
+.access-chip--unknown { border-style: dashed; color: var(--color-text-muted); }
+.access-chip--unknown .icon { color: var(--color-text-muted); }
+.stop-access-body { padding: 2px 0 var(--space-xs); }
+.stop-access-note { margin: 0 0 6px; color: var(--color-text); }
+.coach-access { margin: 0 0 6px; color: var(--color-text); }
+.coach-access p { margin: 0 0 4px; }
+.coach-access-head { font-weight: 600; }
+#bus-access .coach-access { margin: var(--space-sm) 0; font-size: var(--font-size-sm); }
 .stop-access-title {
   margin: 0 0 4px;
   font-size: var(--font-size-sm);

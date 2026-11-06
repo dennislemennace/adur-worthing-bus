@@ -7490,12 +7490,13 @@ function osmDateText(iso) {
 
 /** The "At this stop" block: what OpenStreetMap records here, what it does not
  *  yet, and where to add it. Empty until the file has loaded. */
-function stopAccessHtml(atcoCode) {
+function stopAccessHtml(atcoCode, { title: withTitle = true } = {}) {
   if (!state.stopOsm) return "";
   const row = state.stopOsm[atcoCode];
-  const title = `<h3 class="stop-access-title">At this stop</h3>`;
+  const title = withTitle ? `<h3 class="stop-access-title">At this stop</h3>` : "";
+  const notes = stopAccessNotesHtml(atcoCode, row);
   if (!row) {
-    return `${title}<p class="stop-access-gap">This stop is not in OpenStreetMap yet, so we
+    return `${title}${notes}<p class="stop-access-gap">This stop is not in OpenStreetMap yet, so we
       cannot say whether it has a shelter or step-free access.</p>`;
   }
   const facts = [];
@@ -7521,8 +7522,9 @@ function stopAccessHtml(atcoCode) {
   const meta = state.stopOsmMeta || {};
   const checked = osmDateText(row.check_date);
   const asOf = osmDateText(meta.osm_base || meta.generated_on);
-  const node = Number.isFinite(Number(row.id)) ? `https://www.openstreetmap.org/node/${Number(row.id)}` : "";
-  return `${title}
+  const node = Number.isFinite(Number(row.id))
+    ? `https://www.openstreetmap.org/${row.way ? "way" : "node"}/${Number(row.id)}` : "";
+  return `${title}${notes}
     ${facts.length ? `<ul class="stop-access-facts">${facts.map(f => `<li>${escapeHtml(f)}</li>`).join("")}</ul>`
       : `<p class="stop-access-gap">Nothing is recorded about this stop's shelter, seating or access yet.</p>`}
     ${gap}
@@ -7532,26 +7534,147 @@ function stopAccessHtml(atcoCode) {
       target="_blank" rel="noopener">ODbL</a>.</p>`;
 }
 
-/** Fill the open stop's "At this stop" block, loading the file the first time. */
+// ── Access, up front ─────────────────────────────────────────
+// What decides whether someone can use a stop at all sits under its name, as
+// a row of short facts, rather than at the foot of the board (asked for 6
+// November 2026). The details open beneath them, and open by themselves for
+// a reader who has said they need step-free access.
+
+// NaPTAN's kinds of stop that are not an ordinary marked pole (stop_details.json).
+const STOP_KIND_WORDS = { unmarked: "No marked pole", hail_and_ride: "Hail and ride", flexible: "Flexible zone" };
+const STOP_KIND_NOTES = {
+  unmarked: "The national stop register, NaPTAN, records this stop as unmarked: there may be no pole or flag to wait by.",
+  hail_and_ride: "This is a hail and ride section: buses stop anywhere safe along the road, so wave the bus down.",
+  flexible: "This is a flexible zone rather than a fixed stop: check with the operator where to wait.",
+};
+const COACH_NOCS = ["NATX", "FLIX"];
+
+function loadOperatorAccess() {
+  if (!state._operatorAccessPromise) {
+    state._operatorAccessPromise = fetch("data/operator_access.json")
+      .then(res => (res.ok ? res.json() : null))
+      .catch(() => null)
+      .then(doc => (state.operatorAccess = (doc && doc.operators) || {}));
+  }
+  return state._operatorAccessPromise;
+}
+
+/** The kerb in words, with its height where one is mapped. */
+function kerbWords(row) {
+  const words = STOP_OSM_FACTS.kerb[row.kerb] || "";
+  return words && Number.isFinite(row.kerb_height_cm) ? `${words}, ${row.kerb_height_cm} cm` : words;
+}
+
+/** The short facts under a stop's name, most decisive first: what kind of
+ *  stop, step-free access, the kerb, then what makes the wait easier. Only
+ *  what is recorded, except step-free access, which says it is not recorded
+ *  rather than leaving a wheelchair user to guess. */
+function stopAccessChips(row, kind) {
+  const chips = [];
+  if (STOP_KIND_WORDS[kind]) chips.push({ text: STOP_KIND_WORDS[kind], state: "warn" });
+  const wc = row && row.wheelchair;
+  chips.push(wc === "yes" ? { text: "Step-free", state: "yes" }
+    : wc === "limited" ? { text: "Partly step-free", state: "part" }
+    : wc === "no" ? { text: "Not step-free", state: "no" }
+    : { text: "Step-free: not recorded", state: "unknown" });
+  if (!row) return chips;
+  if (row.kerb) chips.push({ text: kerbWords(row), state: row.kerb === "raised" ? "yes" : "info" });
+  if (row.shelter) chips.push({ text: row.shelter === "yes" ? "Shelter" : "No shelter", state: row.shelter === "yes" ? "yes" : "no" });
+  else if (row.covered === "yes") chips.push({ text: "Covered", state: "yes" });
+  if (row.bench) chips.push({ text: row.bench === "yes" ? "Seat" : "No seat", state: row.bench === "yes" ? "yes" : "no" });
+  if (row.tactile_paving) {
+    chips.push({ text: STOP_OSM_FACTS.tactile_paving[row.tactile_paving],
+                 state: row.tactile_paving === "yes" ? "yes" : row.tactile_paving === "no" ? "no" : "part" });
+  }
+  if (row.departures_board === "realtime" || row.passenger_information_display === "yes") {
+    chips.push({ text: "Live screen", state: "yes" });
+  }
+  if (row.lit) chips.push({ text: row.lit === "yes" ? "Lit at night" : "Not lit", state: row.lit === "yes" ? "yes" : "no" });
+  return chips;
+}
+
+const ACCESS_CHIP_ICON = { yes: "i-check", no: "i-x", warn: "i-alert", unknown: "i-info" };
+
+function accessChipsHtml(chips) {
+  return chips.map((c, i) => `${i ? `<span class="visually-hidden">, </span>` : ""}<span class="access-chip access-chip--${
+    c.state}">${ACCESS_CHIP_ICON[c.state] ? `<svg class="icon" aria-hidden="true"><use href="#${ACCESS_CHIP_ICON[c.state]}"/></svg>` : ""}${
+    escapeHtml(c.text)}</span>`).join("");
+}
+
+/** What the facts alone do not say: an unusual kind of stop, a kerb taken
+ *  from one mapped beside the stop, and each coach operator's own terms for
+ *  travelling with a wheelchair where coaches call here. */
+function stopAccessNotesHtml(atcoCode, row) {
+  const notes = [];
+  const kind = (stopDetail(atcoCode) || {}).kind;
+  if (STOP_KIND_NOTES[kind]) notes.push(`<p class="stop-access-note">${escapeHtml(STOP_KIND_NOTES[kind])}</p>`);
+  if (row && row.kerb_nearby) {
+    notes.push(`<p class="stop-access-note">The kerb is the one mapped beside this stop in OpenStreetMap.</p>`);
+  }
+  const coaches = (state.stopCoaches && state.stopCoaches.atco === atcoCode && state.stopCoaches.nocs) || [];
+  for (const noc of coaches) notes.push(coachAccessHtml(noc));
+  return notes.join("");
+}
+
+/** One coach operator's terms for travelling with a wheelchair, in its words,
+ *  with where they come from. Empty until the file has loaded. */
+function coachAccessHtml(noc) {
+  const op = state.operatorAccess && state.operatorAccess[noc];
+  if (!op) return "";
+  const checked = osmDateText(op.checked_on);
+  return `<div class="coach-access">
+    <p class="coach-access-head">Travelling with a wheelchair: ${escapeHtml(op.name)}</p>
+    <p>${escapeHtml(op.summary)}${op.contact ? ` ${escapeHtml(op.contact)}.` : ""}</p>
+    <p class="stop-access-source">From <a href="${escapeAttr(safeUrl(op.source_url))}" target="_blank"
+      rel="noopener">${escapeHtml(op.name)}'s own page</a>${checked ? `, checked ${escapeHtml(checked)}` : ""}.</p>
+  </div>`;
+}
+
+/** For a reader who needs step-free access, each stop in a search says
+ *  whether it is: step-free, not, or not recorded. */
+function stepFreeTagHtml(atcoCode) {
+  if (!state.stopOsm) return "";
+  const wc = (state.stopOsm[atcoCode] || {}).wheelchair;
+  const [text, cls] = wc === "yes" ? ["Step-free", "yes"] : wc === "limited" ? ["Partly step-free", "part"]
+    : wc === "no" ? ["Not step-free", "no"] : ["Step-free not recorded", "unknown"];
+  return `<span class="access-chip access-chip--${cls} stop-search-access">${escapeHtml(text)}</span>`;
+}
+
+/** Fill the open stop's "At this stop": the facts under its name, and the
+ *  details beneath them. Loads the files it needs the first time. */
 function renderStopAccess(atcoCode) {
   const el = document.getElementById("stop-access");
   if (!el) return;
-  const html = stopAccessHtml(atcoCode);
-  el.innerHTML = html;
-  el.hidden = !html;
-  if (!state.stopOsm) {
-    loadStopOsm().then(() => {
-      if (state.selectedStop?.atcoCode === atcoCode) renderStopAccess(atcoCode);
-    }).catch(() => {});
+  const body = stopAccessHtml(atcoCode, { title: false });
+  if (!body) {
+    el.innerHTML = "";
+    el.hidden = true;
+  } else {
+    const row = state.stopOsm[atcoCode] || null;
+    const kind = (stopDetail(atcoCode) || {}).kind || "";
+    el.innerHTML = `<summary class="stop-access-summary"><span class="stop-access-label">At this stop</span>${
+      accessChipsHtml(stopAccessChips(row, kind))}</summary><div class="stop-access-body">${body}</div>`;
+    el.hidden = false;
+    // A new stop opens as the reader prefers; the same stop drawn again
+    // (a file arriving) keeps whatever they did with it.
+    if (el.dataset.atco !== atcoCode) {
+      el.dataset.atco = atcoCode;
+      el.open = !!(state.a11y && state.a11y.stepFree);
+    }
   }
+  const again = () => { if (state.selectedStop?.atcoCode === atcoCode) renderStopAccess(atcoCode); };
+  if (!state.stopOsm) loadStopOsm().then(again).catch(() => {});
+  if (!state.operatorAccess) loadOperatorAccess().then(again);
+  if (!state.stopDetails) loadStopDetails().then(again).catch(() => {});
 }
 
-/** `{indicator, street, landmark, bearing}` for a stop, or null. */
+/** `{indicator, street, landmark, bearing, kind}` for a stop, or null. `kind`
+ *  is there only for a stop that is not an ordinary marked pole. */
 function stopDetail(atcoCode) {
   const row = (state.stopDetails || {})[atcoCode];
   if (!Array.isArray(row)) return null;
-  const [indicator = "", street = "", landmark = "", bearing = ""] = row;
-  return { indicator, street, landmark, bearing };
+  const [indicator = "", street = "", landmark = "", bearing = "", kind = ""] = row;
+  return { indicator, street, landmark, bearing, kind };
 }
 
 /** "Stop D", "Stand 3": the letter on the flag, where there is one. */
@@ -8075,6 +8198,13 @@ async function openRouteStop(atcoCode, stopName) {
 
 function renderStopSpan(data) {
   if (!dom.stopSpan) return;
+  // Which coach operators call here, from the whole day's services rather
+  // than the board's next two hours, for their wheelchair terms.
+  if (data && data.atco) {
+    const nocs = [...new Set((data.services || []).map(s => s.operator).filter(o => COACH_NOCS.includes(o)))];
+    state.stopCoaches = { atco: data.atco, nocs };
+    if (nocs.length && state.selectedStop?.atcoCode === data.atco) renderStopAccess(data.atco);
+  }
   const span = (data && data.span) || {};
   const runs = groupSpanDays(span);
   const lastHome = lastBusesHomeHtml(data);
@@ -9541,6 +9671,8 @@ function busTabShellHtml(v) {
 
     <div id="bus-next-journey"></div>
 
+    <div id="bus-access"></div>
+
     <details class="bus-more" id="bus-more-tickets">
       <summary>Fares and tickets</summary>
       <div id="bus-tickets"></div>
@@ -9623,6 +9755,11 @@ function updateBusTabLive() {
   document.getElementById("bus-more-tickets")?.toggleAttribute?.("hidden", !tickets);
   patchHtml(document.getElementById("bus-registration"),
     buildRegistrationHtml(v.operator_ref, v.service_ref || ""));
+  // A coach: its operator's own terms for travelling with a wheelchair.
+  if (COACH_NOCS.includes(v.operator_ref)) {
+    if (!state.operatorAccess) loadOperatorAccess();
+    patchHtml(document.getElementById("bus-access"), coachAccessHtml(v.operator_ref));
+  } else patchHtml(document.getElementById("bus-access"), "");
 }
 
 /** How late the bus is and where, in the status chip's words: "+3 mins" as
@@ -10172,6 +10309,7 @@ function normaliseA11y(raw) {
     textScale: A11Y_TEXT_SCALES.includes(scale) ? scale : 1,
     reduceMotion: r.reduceMotion === true,
     cvd: r.cvd === true,
+    stepFree: r.stepFree === true,
   };
 }
 
@@ -10225,6 +10363,7 @@ function updateA11y(patch) {
   }
   if ("reduceMotion" in patch) track(`a11y-reduce-motion-${next.reduceMotion ? "on" : "off"}`);
   if ("cvd" in patch) track(`a11y-colour-blind-${next.cvd ? "on" : "off"}`);
+  if ("stepFree" in patch) track(`a11y-step-free-${next.stepFree ? "on" : "off"}`);
 }
 
 function applyA11ySettings(s) {
@@ -10236,6 +10375,13 @@ function applyA11ySettings(s) {
   root.classList.toggle("a11y-cvd", s.cvd);
   applyMapMotion();
   if (previous.cvd !== s.cvd) recolourCouncilBoundaries();
+  // Search results say whether each stop is step-free, from the same file.
+  if (s.stepFree && !state.stopOsm && typeof loadStopOsm === "function") loadStopOsm().catch(() => {});
+  if (!!previous.stepFree !== s.stepFree) {
+    // The open stop's details follow the setting at once.
+    const access = typeof document !== "undefined" && document.getElementById("stop-access");
+    if (access && !access.hidden) access.open = s.stepFree;
+  }
   if (previous.textScale !== s.textScale) {
     // Bigger text changes how many route chips fit in a row, and how tall the
     // header is, so both are measured again.
@@ -10254,6 +10400,8 @@ function syncA11yControls() {
   const cvd = d.querySelector("#a11y-cvd");
   if (motion) motion.checked = s.reduceMotion;
   if (cvd) cvd.checked = s.cvd;
+  const stepFree = d.querySelector("#a11y-stepfree");
+  if (stepFree) stepFree.checked = s.stepFree;
 }
 
 function openA11yDialog(returnFocusTo) {
@@ -10316,6 +10464,8 @@ function bindA11yControls() {
   if (motion) motion.addEventListener("change", () => update({ reduceMotion: motion.checked }));
   const cvd = d.querySelector("#a11y-cvd");
   if (cvd) cvd.addEventListener("change", () => update({ cvd: cvd.checked }));
+  const stepFree = d.querySelector("#a11y-stepfree");
+  if (stepFree) stepFree.addEventListener("change", () => update({ stepFree: stepFree.checked }));
   const reset = d.querySelector("#a11y-reset");
   if (reset) reset.addEventListener("click", () => {
     const defaults = normaliseA11y({});
@@ -10776,6 +10926,8 @@ function clearStopSelection() {
     dom.stopSpan.innerHTML = "";
   }
   dom.panelStopId.textContent   = "";
+  const access = document.getElementById("stop-access");
+  if (access) { access.hidden = true; access.innerHTML = ""; delete access.dataset.atco; }
   syncFavouriteStopButton();
 }
 
@@ -14473,7 +14625,8 @@ function renderStopSearchResults(listEl, matches, query) {
               data-rail-name="${escapeAttr(m.railName || "")}"
               data-label="${escapeAttr(m.label)}">
         <span class="stop-search-result-name">${escapeHtml(m.name || m.label)}</span>
-        <span class="stop-search-result-mode">${escapeHtml(m.mode || "")}</span>
+        <span class="stop-search-result-mode">${escapeHtml(m.mode || "")}</span>${
+          state.a11y && state.a11y.stepFree && m.atco ? stepFreeTagHtml(m.atco) : ""}
       </button>
     </li>`).join("");
 }

@@ -300,7 +300,8 @@ About page and both footers carry.
 ## OpenStreetMap Overpass — stop accessibility
 
 - `scripts/build_stop_osm.py`, weekly in update-timetable.yml, asks Overpass
-  once for the bus stops in the box (about 750 KB) and writes
+  once for the bus stops in the box, their platform ways, and the kerbs mapped
+  within 12 m of them (one request, from 6 November 2026), and writes
   `data/stop_osm.json` (about 90 KB, ODbL). No key. It tries overpass-api.de,
   then one mirror, twice each, and if both fail the workflow keeps last week's
   file. The site loads the file when a stop is opened; there are no live

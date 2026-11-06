@@ -8,7 +8,10 @@ register, carries what the flag and the street say:
 
 * the indicator: "Stop D", "opp", "adj", "o/s", "W-bound";
 * the street, and a landmark the indicator refers to ("opp The Cuthbert");
-* the bearing buses travel in when they call (N, NE, ...).
+* the bearing buses travel in when they call (N, NE, ...);
+* what kind of stop it is, where it is not an ordinary marked one: unmarked
+  (custom), hail and ride, or a flexible zone. Someone who cannot walk far
+  along a road waving down a bus needs to know that before they set out.
 
 Kept apart from stops.json on purpose: that file is built from the timetable
 database in the weekly workflow, and this one only needs NaPTAN and the stop
@@ -37,7 +40,12 @@ ROOT = Path(__file__).resolve().parent.parent
 NAPTAN_URL = ("https://naptan.api.dft.gov.uk/v1/access-nodes"
               "?dataFormat=csv&atcoAreaCodes=149,440")
 
-FIELDS = ["indicator", "street", "landmark", "bearing"]
+FIELDS = ["indicator", "street", "landmark", "bearing", "kind"]
+
+# NaPTAN's BusStopType, for the stops that are not an ordinary marked pole
+# (MKD). Written only for those, as a fifth entry, so the other 1,700 rows
+# carry nothing extra.
+STOP_KINDS = {"CUS": "unmarked", "HAR": "hail_and_ride", "FLX": "flexible"}
 
 # Below this, NaPTAN answered with something other than our stops, and
 # publishing it would quietly blank the detail for most of the map.
@@ -45,7 +53,7 @@ MIN_COVERAGE = 0.9
 
 
 def parse_naptan(csv_text: str) -> dict:
-    """`{ATCO code: [indicator, street, landmark, bearing]}` from NaPTAN CSV."""
+    """`{ATCO code: [indicator, street, landmark, bearing(, kind)]}` from NaPTAN CSV."""
     out = {}
     for row in csv.DictReader(io.StringIO(csv_text)):
         atco = (row.get("ATCOCode") or "").strip()
@@ -53,6 +61,9 @@ def parse_naptan(csv_text: str) -> dict:
             continue
         out[atco] = [(row.get(k) or "").strip()
                      for k in ("Indicator", "Street", "Landmark", "Bearing")]
+        kind = STOP_KINDS.get((row.get("BusStopType") or "").strip().upper())
+        if kind:
+            out[atco].append(kind)
     return out
 
 

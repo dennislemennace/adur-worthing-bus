@@ -278,6 +278,38 @@ test("a stop says what OpenStreetMap records, credits it, and asks for what is m
   assert.equal(app.stopAccessHtml("FULL"), "", "nothing before the file has loaded");
 });
 
+test("a stop's access is said up front: step-free first, never left out, then the rest", () => {
+  const chips = (row, kind = "") => JSON.parse(JSON.stringify(app.stopAccessChips(row, kind).map(c => `${c.state}:${c.text}`)));
+  // Nothing recorded still says so about step-free access.
+  assert.deepEqual(chips(null), ["unknown:Step-free: not recorded"]);
+  assert.deepEqual(chips({ id: 1, wheelchair: "yes", kerb: "raised", kerb_height_cm: 16, shelter: "yes",
+                           bench: "no", tactile_paving: "partial", departures_board: "realtime", lit: "yes" }),
+    ["yes:Step-free", "yes:Raised kerb, 16 cm", "yes:Shelter", "no:No seat", "part:Some tactile paving",
+     "yes:Live screen", "yes:Lit at night"]);
+  // An unusual kind of stop comes first of all.
+  assert.deepEqual(chips({ id: 2, wheelchair: "no" }, "hail_and_ride"), ["warn:Hail and ride", "no:Not step-free"]);
+  // In the summary each fact is separated for a screen reader, and escaped.
+  const html = app.accessChipsHtml([{ text: "<b>x</b>", state: "yes" }, { text: "Seat", state: "yes" }]);
+  assert.doesNotMatch(html, /<b>x/);
+  assert.match(html, /visually-hidden">, </);
+
+  // The notes: the kind of stop, a kerb taken from beside it, the coach terms.
+  state.stopOsmMeta = {};
+  state.stopOsm = { K: { id: 9, kerb: "raised", kerb_nearby: true }, W: { id: 5, way: true, shelter: "yes" } };
+  state.stopDetails = { K: ["", "Lane", "", "N", "hail_and_ride"] };
+  state.operatorAccess = { NATX: { name: "National Express", summary: "Lift at the front.", contact: "",
+                                   source_url: "https://www.nationalexpress.com/en/help/accessibility",
+                                   checked_on: "2026-11-06" } };
+  state.stopCoaches = { atco: "K", nocs: ["NATX"] };
+  const k = app.stopAccessHtml("K");
+  assert.match(k, /hail and ride section/);
+  assert.match(k, /kerb is the one mapped beside this stop/);
+  assert.match(k, /Travelling with a wheelchair: National Express/);
+  assert.match(k, /checked 6 Nov 2026/);
+  assert.match(app.stopAccessHtml("W"), /openstreetmap\.org\/way\/5/, "a platform way was linked as a node");
+  state.stopOsm = null; state.stopDetails = null; state.operatorAccess = null; state.stopCoaches = null;
+});
+
 test("the cashless expresses say so, and only they do", () => {
   const data = JSON.parse(readFileSync(join(ROOT, "data/ticket_zones.json"), "utf8"));
   state.ticketZones = data.zones;

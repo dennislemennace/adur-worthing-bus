@@ -412,6 +412,18 @@
           </fieldset>
 
           <fieldset class="a11y-group">
+            <legend>Getting on the bus</legend>
+            <label class="a11y-choice a11y-choice--toggle">
+              <input type="checkbox" id="a11y-stepfree">
+              <span>I need step-free access
+                <small>Opens each stop's access details first, so you see whether it is
+                step-free, its kerb and its shelter before the times. Where step-free
+                access is not recorded, it says so.</small>
+              </span>
+            </label>
+          </fieldset>
+
+          <fieldset class="a11y-group">
             <legend>Colour</legend>
             <label class="a11y-choice a11y-choice--toggle">
               <input type="checkbox" id="a11y-cvd">
@@ -503,6 +515,12 @@
           </button>
           <span class="visually-hidden" id="favourite-stop-hint">Opens this stop first whenever you visit on this device.</span>
         </div>
+        <!-- At this stop: whether it is step-free, the kerb, shelter and seat, as
+             a row of facts under the name, with the details beneath them. Up
+             front, not at the foot of the board (6 November 2026). Filled by
+             app.js renderStopAccess from data/stop_osm.json (ODbL),
+             data/stop_details.json (NaPTAN) and data/operator_access.json. -->
+        <details class="stop-access" id="stop-access" hidden></details>
 
 
         <!-- Loading state for departures -->
@@ -736,10 +754,6 @@
                 for where the data comes from, see <a href="about.html#live-times">how live times work</a>.</li>
             </ul>
           </details>
-          <!-- What OpenStreetMap records about the stop: shelter, seating,
-               kerb, tactile paving, wheelchair access. Filled by app.js
-               renderStopAccess from data/stop_osm.json (ODbL). -->
-          <section class="stop-access" id="stop-access" aria-label="At this stop" hidden></section>
           <p class="departures-footer"><span id="departures-stop-id"></span>
             · Timetable and bus locations: Bus Open Data Service. Live times:
             TransportAPI and the buses' own location reports.</p>

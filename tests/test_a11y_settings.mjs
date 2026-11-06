@@ -23,8 +23,8 @@ const norm = (raw) => plain(vm.runInContext(`normaliseA11y(${JSON.stringify(raw)
 const INDEX = readFileSync(join(ROOT, "index.html"), "utf8");
 
 test("nothing stored means every setting at its default", () => {
-  assert.deepEqual(norm({}), { textScale: 1, reduceMotion: false, cvd: false });
-  assert.deepEqual(norm(null), { textScale: 1, reduceMotion: false, cvd: false });
+  assert.deepEqual(norm({}), { textScale: 1, reduceMotion: false, cvd: false, stepFree: false });
+  assert.deepEqual(norm(null), { textScale: 1, reduceMotion: false, cvd: false, stepFree: false });
 });
 
 test("a text size that is not one of the offered steps is ignored", () => {
@@ -114,4 +114,10 @@ test("both footers link to the accessibility settings, and both links work", () 
   const src = readFileSync(join(ROOT, "app.js"), "utf8");
   assert.match(src, /querySelectorAll\("\[data-open-a11y\]"\)/,
     "the links are not all wired to open the dialog");
+});
+
+test("I need step-free access is a setting of its own, on only for a real true", () => {
+  assert.equal(norm({ stepFree: true }).stepFree, true);
+  assert.equal(norm({ stepFree: "yes" }).stepFree, false);
+  assert.match(INDEX, /id="a11y-stepfree"/, "the setting is not in the dialog");
 });
