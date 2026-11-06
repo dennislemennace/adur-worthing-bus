@@ -46,7 +46,10 @@ relied on. The idle limit is 15 minutes, so the cadence stays at 10.
 The static stop list (`data/stops.json`, see below) is what makes the overnight
 window cheap: the map draws without the API, so someone checking a night bus
 after 23:30 still gets the map and its stops while the container wakes. Route
-lines and timetables are API calls too, and arrive with it.
+lines are a static file too (`data/route_lines.json`, from 6 November 2026);
+timetables are API calls, and arrive with it. The API opens the timetable as it
+wakes (on Render only), and its hourly check for a newer one runs in the
+background rather than on the request that happens to come next.
 - 512 MB RAM, ~0.1 vCPU (shared).
 - **No persistent disk.** Anything written to disk is lost on redeploy. The
   GTFS SQLite (`data/timetable.sqlite`) is fetched from a GitHub Release on
@@ -91,6 +94,15 @@ lines and timetables are API calls too, and arrive with it.
   every stop carries its `services` and `locality`, adding 3.4 KB gzipped
   (0.5 KB for the services on 189 unique-name stops, 2.9 KB for localities),
   so the journey-time view can offer every stop and find one by its town.
+- Pages serves `data/route_lines.json` (~440 KB, ~70 KB gzipped, 6 November
+  2026), Route view's lines, rebuilt weekly by `scripts/build_route_lines.py`.
+  Fetched when Route view opens or is prefetched while the page is idle. It
+  replaced `/api/route-lines` (2.7 MB, 514 KB gzipped) as the source, because
+  the API took 14 seconds to build the lines and 3 to 4 seconds to send them
+  from its cache, and the build held up departure boards on the same CPU. The
+  endpoint stays as the fallback. Keep the file under 250 KB gzipped: the
+  lines are thinned to 4 m, and a change that thickens them should be a
+  deliberate one.
 
 ## BODS — Bus Open Data Service (SIRI-VM vehicles)
 

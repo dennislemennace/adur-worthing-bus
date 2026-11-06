@@ -308,3 +308,19 @@ test("the route and journey lookups are asked for once, and a failure is not kep
   assert.equal(calls, 2, "the second ask went to the API again, or the failure was kept");
   assert.strictEqual(a, b);
 });
+
+test("the board and the whole network are fetched a stop ahead, so they do not wait on the server", () => {
+  const app = loadTour();
+  const asked = [];
+  app.apiFetch = async (path) => { asked.push(path); return {}; };
+  let lines = 0;
+  app.loadRouteLines = async () => { lines++; };
+  const stops = app.tourStops(TOUR, () => true);
+  const at = (action) => stops.find(x => x.tryIndex != null && TOUR.steps[x.step].try[x.tryIndex].action === action);
+  const board = at("board");
+  app.tourPrefetch(board, TOUR);
+  const atco = TOUR.steps[board.step].try[board.tryIndex].atco;
+  assert.ok(asked.some(p => p.startsWith(`/api/departures?stopId=${atco}`)), JSON.stringify(asked));
+  app.tourPrefetch(at("route-view"), TOUR);
+  assert.equal(lines, 1, "the route lines were not fetched ahead");
+});

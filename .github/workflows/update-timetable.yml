@@ -69,6 +69,7 @@ jobs:
           python -m py_compile scripts/json_to_sqlite.py
           python -m py_compile scripts/build_evidence.py
           python -m py_compile scripts/build_stops_json.py
+          python -m py_compile scripts/build_route_lines.py
           python -m py_compile scripts/build_stop_details.py
           python -m py_compile scripts/build_stop_osm.py
           python -m py_compile scripts/build_fares.py
@@ -94,6 +95,12 @@ jobs:
       # from, so they cannot disagree about what a stop list is.
       - name: Build the static stop list
         run: python -u scripts/build_stops_json.py
+
+      # Route view's lines, as a static file on Pages for the same reason: the
+      # API took 3 to 14 seconds to send them on its free instance, and
+      # building them held up the departure boards (6 November 2026).
+      - name: Build the static route lines
+        run: python -u scripts/build_route_lines.py
 
       # Stop letters, streets, landmarks and bearings from NaPTAN. Someone
       # else's API: if it is down, keep last week's file rather than fail the
@@ -197,13 +204,13 @@ jobs:
       # prevent.
       - name: Commit refreshed statistics and stop list
         run: |
-          if git diff --quiet -- data/boundary_evidence.json data/stops.json data/stop_details.json data/stop_osm.json data/fare_tables.json data/registrations.json data/fleet.json; then
+          if git diff --quiet -- data/boundary_evidence.json data/stops.json data/route_lines.json data/stop_details.json data/stop_osm.json data/fare_tables.json data/registrations.json data/fleet.json; then
             echo "Statistics and stop list unchanged — nothing to commit."
             exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/boundary_evidence.json data/stops.json data/stop_details.json data/stop_osm.json data/fare_tables.json data/registrations.json data/fleet.json
+          git add data/boundary_evidence.json data/stops.json data/route_lines.json data/stop_details.json data/stop_osm.json data/fare_tables.json data/registrations.json data/fleet.json
           git commit -m "Refresh boundary statistics and stop list from the $(date -u +%Y-%m-%d) timetable"
           git push
 

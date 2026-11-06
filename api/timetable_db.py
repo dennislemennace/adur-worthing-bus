@@ -619,6 +619,18 @@ class Timetable:
     def reload(self) -> None:
         self._open_and_preload()
 
+    def is_current(self) -> bool:
+        """Whether the file on disk is the one published, as far as can be told.
+
+        True when the sidecar cannot be reached, as `_ensure_fresh` treats it:
+        a blip at GitHub is no reason to throw away a working timetable. Only a
+        published hash that differs from ours says there is something newer.
+        """
+        if not self.db_path.exists():
+            return False
+        remote = self._remote_hash()
+        return remote is None or remote == self._local_hash()
+
     def ok(self) -> bool:
         return self._con is not None
 

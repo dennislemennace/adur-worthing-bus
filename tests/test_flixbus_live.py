@@ -284,6 +284,16 @@ def test_the_board_shows_flixbus_delays(wired):
     assert coach["live_source"] == "prediction"
 
 
+def test_the_board_says_where_its_time_went(wired):
+    # A slow board read from the browser's developer tools, not guessed at.
+    from fastapi.testclient import TestClient
+    r = TestClient(main.app).get(f"/api/departures?stopId={PRESTON}")
+    assert r.status_code == 200
+    timing = r.headers.get("server-timing", "")
+    for phase in ("timetable", "schedule", "live", "estimates"):
+        assert f"{phase};dur=" in timing, timing
+
+
 def test_a_board_without_coaches_never_asks_flixbus(wired):
     asyncio.run(main.get_departures(stopId="4400SH01", lat=None, lon=None))
     assert flixbus.TRIP_UPDATES_URL not in wired["asked"]

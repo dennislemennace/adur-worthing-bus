@@ -611,6 +611,16 @@ function tourPrefetch(stop, d) {
     }));
   } else if (t.action === "route" && t.operator && t.service) {
     quiet(fetchRouteDetail(t.operator, t.service));
+  } else if (t.action === "board" && t.atco) {
+    // The server keeps a board's timetable for 60 seconds and its live times
+    // for 90, so asking now means the stop reads them rather than waiting
+    // (it waited on a cold server, 6 November 2026). The same request the
+    // board makes, so no second live lookup is spent.
+    const pos = state.stopData && state.stopData[t.atco];
+    quiet(apiFetch(`/api/departures?stopId=${encodeURIComponent(t.atco)}${
+      pos ? `&lat=${pos.lat}&lon=${pos.lon}` : ""}`));
+  } else if (t.action === "route-view") {
+    quiet(loadRouteLines());
   }
 }
 
@@ -996,6 +1006,10 @@ async function tourRender(mine = () => true) {
   tour.rendered = true;
   tourHideMissing(host);
   tourBind(host);
+  // The first two stops, fetched while the reader looks at the opening.
+  const stops = tourStops(d);
+  tourPrefetch(stops[0], d);
+  tourPrefetch(stops[1], d);
   return true;
 }
 

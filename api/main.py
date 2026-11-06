@@ -22,6 +22,7 @@ import json
 import re
 import math
 import asyncio
+import contextvars
 import functools
 import hashlib
 import os
@@ -41,6 +42,7 @@ import httpx
 from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from api import corridor_gaps
 from api import disruptions as sx
@@ -67,7 +69,7 @@ BBOX_MIN_LON, BBOX_MAX_LON = -0.42,  -0.10
 BBOX_STR = f"{BBOX_MIN_LON},{BBOX_MIN_LAT},{BBOX_MAX_LON},{BBOX_MAX_LAT}"
 
 WEST_SUSSEX_ATCO_PREFIX = "4400"
-TIMETABLE_CACHE_TTL     = 3600   # Reload the reference dicts every hour
+TIMETABLE_CACHE_TTL     = 3600   # Check hourly, in the background, for a newer published timetable
 TIMETABLE_PATH = Path(__file__).parent.parent / "data" / "timetable.sqlite"
 
 # GTFS stop_times are in local UK time; Render runs in UTC. Using an
@@ -396,6 +398,30 @@ app.add_middleware(
     # that is minutes out, and a cross-origin page cannot see it unless told.
     expose_headers=["Date"],
 )
+
+# How long each part of a request took, sent as Server-Timing so a slow board
+# can be read from the browser's developer tools rather than guessed at. A
+# handler adds a phase with `_timed`; the list is per request.
+_server_timing: contextvars.ContextVar = contextvars.ContextVar("server_timing", default=None)
+
+
+def _timed(name: str, since: float) -> float:
+    """Record the phase `name` as ending now; returns now, the next one's start."""
+    now = time.perf_counter()
+    phases = _server_timing.get()
+    if phases is not None:
+        phases.append(f"{name};dur={(now - since) * 1000:.0f}")
+    return now
+
+
+@app.middleware("http")
+async def _send_server_timing(request, call_next):
+    phases: list = []
+    _server_timing.set(phases)
+    response = await call_next(request)
+    if phases:
+        response.headers["Server-Timing"] = ", ".join(phases)
+    return response
 
 
 def require_debug() -> None:
@@ -931,18 +957,27 @@ async def get_route_lines():
     back to straight stop-to-stop chords. Filtered to routes that
     touch the Adur & Worthing bbox.
 
-    Cached 1 hour — the timetable only refreshes weekly.
+    The site reads data/route_lines.json, built weekly with the timetable
+    (scripts/build_route_lines.py); this answers where that file is missing.
+    Built once at a time and kept as the encoded bytes for six hours: the
+    timetable changes weekly, building took 14 seconds on the free instance,
+    and encoding 2.7 MB of dictionaries again took 3 to 4 seconds a request.
     """
-    cached = cache_get("route_lines")
-    if cached:
-        return cached
     tt = await _get_timetable()
+    body = await off_loop(cache_single_flight, ROUTE_LINES_KEY,
+                          functools.partial(_route_lines_body, tt), ROUTE_LINES_TTL)
+    return Response(content=body, media_type="application/json")
+
+
+ROUTE_LINES_KEY = "route_lines"
+ROUTE_LINES_TTL = 6 * 3600
+
+
+def _route_lines_body(tt: Timetable) -> bytes:
     bbox = (BBOX_MIN_LAT, BBOX_MAX_LAT, BBOX_MIN_LON, BBOX_MAX_LON)
-    routes = await off_loop(tt.representative_polylines, bbox=bbox)
-    result = {"routes": routes, "count": len(routes)}
-    cache_set("route_lines", result, 3600)
-    log.info("Serving %d route polylines from timetable", len(routes))
-    return result
+    routes = tt.representative_polylines(bbox=bbox)
+    log.info("Built %d route polylines from timetable", len(routes))
+    return json.dumps({"routes": routes, "count": len(routes)}, separators=(",", ":")).encode()
 
 # ── Debug: raw SIRI-VM dump with no stale filter
 @debug_router.get("/vehicles-raw")
@@ -1498,22 +1533,27 @@ async def get_departures(
     if not stopId or len(stopId) > 30:
         raise HTTPException(status_code=400, detail="Invalid stopId.")
 
+    at = time.perf_counter()
     tt       = await _get_timetable()
     resolved = _resolve_stop_id(tt, stopId, lat, lon)
+    at = _timed("timetable", at)
 
     cache_key = f"dep:{resolved}"
     base = cache_get(cache_key)
     if base is None:
         base = await off_loop(_departures_for_stop, tt, resolved)
         cache_set(cache_key, base, 60)
+    at = _timed("schedule", at)
 
     result = await _apply_live_overlay(base, resolved)
     # FlixBus's own delays, asked for only where a FlixBus coach is on the board.
     if any(d.get("operator") == flixbus.NOC for d in result.get("departures") or []):
         result = _apply_flixbus_delays(result, tt, resolved, await _flixbus_updates(tt))
+    at = _timed("live", at)
     result = await off_loop(_apply_own_feed_estimates, result, tt, resolved,
                             datetime.now(UK_TZ), await _diversions_doc(), await _recovery_doc(),
                             await _turnarounds_doc())
+    at = _timed("estimates", at)
     if "live" not in result and not (NEXTBUSES_APP_ID and NEXTBUSES_APP_KEY):
         # Say so rather than letting scheduled times pass as live ones.
         result = {**result, "live": False, "live_reason": "not_configured"}
@@ -4014,20 +4054,65 @@ async def off_loop(fn, *args, **kwargs):
 
 
 _timetable_lock = threading.Lock()
+_timetable_checking = False
 
 
 def _get_timetable_sync() -> Timetable:
-    global _timetable
-    # Opening and reloading both read the file and rebuild the reference
-    # tables. Two requests arriving during a cold start used to do that twice.
+    global _timetable, _timetable_checking
+    # Opening reads the file and builds the reference tables. Two requests
+    # arriving during a cold start used to do that twice.
     with _timetable_lock:
         if _timetable is None:
             log.info("Opening timetable DB %s", TIMETABLE_PATH)
             _timetable = Timetable(TIMETABLE_PATH)
-        elif (time.time() - _timetable.loaded_at) >= TIMETABLE_CACHE_TTL:
-            log.info("Reloading timetable reference tables")
-            _timetable.reload()
+        elif (time.time() - _timetable.loaded_at) >= TIMETABLE_CACHE_TTL and not _timetable_checking:
+            # The hourly check used to run here, on whichever request came
+            # next: a network fetch of the hash, every trip re-read and every
+            # derived cache dropped, with every other request waiting on this
+            # lock. The answer is almost always "unchanged" (a new timetable
+            # arrives with a redeploy), so it is asked in the background and
+            # this request carries on with the one already open.
+            _timetable_checking = True
+            threading.Thread(target=_check_timetable, args=(_timetable,),
+                             name="timetable-check", daemon=True).start()
         return _timetable
+
+
+def _check_timetable(current: Timetable) -> None:
+    """Swap in a newer published timetable, if there is one. One run, not a loop."""
+    global _timetable, _timetable_checking
+    try:
+        if current.is_current():
+            current.loaded_at = time.time()
+            return
+        log.info("A newer timetable is published; opening it")
+        fresh = Timetable(TIMETABLE_PATH)
+        if fresh.ok():
+            with _timetable_lock:
+                _timetable = fresh
+            # Built from the old file.
+            _cache.pop(ROUTE_LINES_KEY, None)
+        else:
+            current.loaded_at = time.time()
+    except Exception:                                   # noqa: BLE001
+        log.exception("Timetable check failed; keeping the one open")
+        current.loaded_at = time.time()
+    finally:
+        with _timetable_lock:
+            _timetable_checking = False
+
+
+@app.on_event("startup")
+async def _warm_timetable() -> None:
+    """Open the timetable as the service wakes, not on the first visitor.
+
+    The keep-warm ping only asks for `/`, which never touched it, so the first
+    real request after a wake paid for the download and the reference tables.
+    Only on Render (which sets RENDER): a test client starting the app must not
+    go and fetch a 63 MB database.
+    """
+    if os.environ.get("RENDER"):
+        threading.Thread(target=_get_timetable_sync, name="timetable-warm", daemon=True).start()
 
 
 async def _get_timetable() -> Timetable:

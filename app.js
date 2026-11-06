@@ -11905,9 +11905,24 @@ function loadRouteLines() {
   return state._routeLinesPromise;
 }
 
+/** Every route's line: the week's file on the site (scripts/build_route_lines.py,
+ *  rebuilt with the timetable), or the API where the file is missing. From the
+ *  API it took 3 to 14 seconds on a free instance, and building it held up the
+ *  departure boards behind it (6 November 2026). */
+async function fetchRouteLinesData() {
+  try {
+    const res = await fetch("data/route_lines.json");
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data?.routes) && data.routes.length) return data;
+    }
+  } catch { /* the API answers instead */ }
+  return apiFetch("/api/route-lines");
+}
+
 async function loadRouteLinesImpl() {
   if (state.routeLines) return;
-  const data = await apiFetch("/api/route-lines");
+  const data = await fetchRouteLinesData();
   if (!data || !Array.isArray(data.routes)) {
     state.routeLines = [];
     return;
