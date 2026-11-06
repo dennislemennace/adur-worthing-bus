@@ -632,6 +632,10 @@
           <!-- Published disruptions for this stop and its services (BODS SIRI-SX),
                filled by app.js boardNoticesHtml. -->
           <div class="board-disruptions" id="board-disruptions" hidden></div>
+          <!-- Buses have stopped passing this stop, found in their own
+               positions and not confirmed by the operator (app.js,
+               detected-diversions.json). -->
+          <div class="board-detected" id="board-detected" hidden></div>
           <!-- Route buttons, filled by app.js renderBoardFilter where a stop
                has two or more services. -->
           <div class="board-filter" id="board-filter" role="group"
@@ -1378,6 +1382,17 @@
           <section class="travel-section" aria-labelledby="travel-disruptions-title">
             <h3 class="proposals-section-title" id="travel-disruptions-title">Diversions and disruptions</h3>
             <div id="travel-disruptions-list"></div>
+          </section>
+          <!-- Detected from the buses' own positions, published nightly by
+               scripts/build_detected_diversions.py, and never presented as
+               confirmed. Hidden when there is none. -->
+          <section class="travel-section" id="travel-detected" aria-labelledby="travel-detected-title" hidden>
+            <h3 class="proposals-section-title" id="travel-detected-title">Detected from the buses' own positions</h3>
+            <p class="proposals-section-blurb">
+              Stops the buses have stopped passing, found in their recorded positions. Not confirmed by the
+              operator: check its own service updates before you travel.
+            </p>
+            <div id="travel-detected-list"></div>
           </section>
           <section class="travel-section" aria-labelledby="travel-reports-title">
             <h3 class="proposals-section-title" id="travel-reports-title">Notes and passenger reports</h3>

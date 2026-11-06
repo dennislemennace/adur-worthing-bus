@@ -3302,6 +3302,19 @@ html.dark-mode .stop-cluster-icon {
 }
 .leaflet-control-attribution a { color: var(--color-link) !important; }
 
+/* Diversions detected in the buses' own positions: a dashed edge, since
+   nothing here is confirmed. */
+.detected-card { padding: var(--space-xs) var(--space-sm); margin: 0 0 var(--space-xs); border: 1px dashed var(--color-late);
+  border-radius: var(--radius-md); background: var(--color-surface); font-size: var(--font-size-sm); color: var(--color-text); }
+.detected-card p { margin: 0 0 4px; }
+.detected-head { font-weight: 700; }
+.detected-note { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.board-detected { margin: 0 var(--space-md) var(--space-xs); padding: 6px 10px; border: 1px dashed var(--color-late);
+  border-radius: var(--radius-md); font-size: var(--font-size-sm); color: var(--color-text); }
+.board-detected p { margin: 0; display: flex; gap: 6px; align-items: flex-start; }
+.board-detected .icon { flex: none; width: 16px; height: 16px; color: var(--color-late); margin-top: 2px; }
+.board-detected a { color: var(--color-link); }
+
 /* Discover: places worth a visit, and the ones a bus reaches directly. */
 .disc-guide { padding: var(--space-md); display: grid; gap: var(--space-sm); align-content: start; }
 .disc-intro p { margin: 0 0 var(--space-xs); }

@@ -56,6 +56,7 @@ TITLES = {
     "served-scores": "The stop board's estimates could not be scored for a day",
     "coach-names": "A coach destination has no passenger name yet",
     "timetable-cover": "No timetable could measure a day",
+    "detected-diversion": "Buses have stopped passing some stops ({arg})",
 }
 
 ADVICE = {
@@ -106,6 +107,13 @@ ADVICE = {
         "before its town, a bay, a bus station's full title), and boards show it as published. Add it to "
         "`coach_destinations` in data/place_names.json with the place and the stop; the log of this run "
         "lists it, and `pytest tests/test_place_names.py` checks it."),
+    "detected-diversion": (
+        "Found in the buses' own recorded positions, not in any notice (scripts/build_detected_diversions.py): "
+        "stops that are usually passed and have not been on the last two days. Check the operator's service "
+        "updates. If it is a diversion, `python scripts/add_disruption.py --from-detected <id>` drafts the "
+        "entry for data/disruptions.json from the published detection; finish and commit it, and the live times "
+        "allow for it. If it is not (a closed stop the operator announced, a recording gap), nothing needs doing: "
+        "the site already says it is unconfirmed."),
 }
 
 

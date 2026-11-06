@@ -439,6 +439,11 @@ jobs:
           # when no event asks for one, so an old file is always replaced.
           python scripts/build_diversion_adjustments.py --observations inputs/window \
             --out diversion-adjustments.json --today "$DAY"
+          # Stops the buses have stopped passing, found in their positions and
+          # published as detected, not confirmed. Each is a notice for the
+          # maintainer, cleared when it ends (scripts/build_detected_diversions.py).
+          python scripts/build_detected_diversions.py --observations inputs/window \
+            --out detected-diversions.json --notices "$NOTICES" --previous-index previous-index.json
           # How each operator's journeys were identified: by journey ID, by
           # start time or from position. Shown beside the journey times.
           python scripts/build_identification.py --observations inputs/window --out identification.json
@@ -483,6 +488,7 @@ jobs:
             --artifact "running-recovery.json=running-recovery.json" \
             --artifact "turnarounds.json=turnarounds.json" \
             --artifact "ward-delays.json=ward-delays.json" \
+            --artifact "detected-diversions.json=detected-diversions.json" \
             "${MAP_ARTIFACTS[@]}" \
             --sources inputs/sources.json --evidence evidence.json \
             --previous-index previous-index.json --out candidate > build-id.txt

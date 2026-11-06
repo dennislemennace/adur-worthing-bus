@@ -7816,6 +7816,54 @@ function stationAccessHtml(crs) {
   </div>`;
 }
 
+// ── Diversions detected in the buses' own positions ──────────
+// Published nightly beside the delay map (scripts/build_detected_diversions.py).
+// Never presented as confirmed: the operator's notices are the record.
+async function loadDetectedDiversions() {
+  if (state.detectedDiversions) return state.detectedDiversions;
+  const index = await loadJourneyTimesIndex();
+  const art = index && index.artifacts && index.artifacts["detected-diversions.json"];
+  if (!art) return (state.detectedDiversions = { detections: [] });
+  state.detectedDiversions = await loadJourneyTimes(art.file, art.sha256 || "");
+  return state.detectedDiversions;
+}
+
+function detectedDiversionHtml(d) {
+  const names = (d.stops || []).map(s => prettifyName(s.name));
+  const where = names.length > 1 ? `${names[0]} to ${names[names.length - 1]}` : names[0] || "";
+  const pct = (v) => `${Math.round((v || 0) * 100)}%`;
+  return `<article class="detected-card">
+    <p class="detected-head"><span class="service-badge-text">${escapeHtml(d.service)}</span>
+      ${escapeHtml(getOperatorName(d.operator) || d.operator)}${d.direction ? `, ${escapeHtml(d.direction)}` : ""}</p>
+    <p>Buses have not been passing ${escapeHtml(where)} (${escapeHtml(String(names.length))} stop${names.length === 1 ? "" : "s"})
+      since ${escapeHtml(osmDateText(d.first_seen) || d.first_seen)}: seen on ${escapeHtml(pct(d.recent_share))} of
+      ${escapeHtml(String(d.journeys))} journeys on the last two days, against ${escapeHtml(pct(d.usual_share))} usually.</p>
+    <p class="detected-note">Detected from the buses' own positions, not confirmed by the operator.</p>
+  </article>`;
+}
+
+async function renderDetectedDiversions() {
+  const section = document.getElementById("travel-detected");
+  const list = document.getElementById("travel-detected-list");
+  if (!section || !list) return;
+  let doc;
+  try { doc = await loadDetectedDiversions(); } catch { return; }
+  const found = (doc && doc.detections) || [];
+  section.hidden = !found.length;
+  list.innerHTML = found.map(detectedDiversionHtml).join("");
+}
+
+/** On a board, a light note where buses have stopped passing the stop. */
+function boardDetectedHtml(atcoCode) {
+  const found = ((state.detectedDiversions || {}).detections || [])
+    .filter(d => (d.stops || []).some(s => s.atco === atcoCode));
+  if (!found.length) return "";
+  const routes = [...new Set(found.map(d => d.service))].join(", ");
+  return `<p><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>The ${escapeHtml(routes)} ${
+    found.length > 1 || routes.includes(",") ? "have" : "has"} not been passing this stop lately, from the buses' own positions.
+    Not confirmed by the operator: <a href="#view=u" data-view-link="updates">see Travel Updates</a>.</p>`;
+}
+
 /** Fill the open stop's "At this stop": the facts under its name, and the
  *  details beneath them. Loads the files it needs the first time. */
 function renderStopAccess(atcoCode) {
@@ -8665,6 +8713,21 @@ function renderDepartures(data) {
     return isNaN(t) || (t - now) > -30_000;
   }));
 
+  const detectedHost = document.getElementById("board-detected");
+  if (detectedHost && state.selectedStop) {
+    const html = boardDetectedHtml(state.selectedStop.atcoCode);
+    detectedHost.innerHTML = html;
+    detectedHost.hidden = !html;
+    if (!state.detectedDiversions) {
+      const atco = state.selectedStop.atcoCode;
+      loadDetectedDiversions().then(() => {
+        if (state.selectedStop?.atcoCode !== atco) return;
+        const again = boardDetectedHtml(atco);
+        detectedHost.innerHTML = again;
+        detectedHost.hidden = !again;
+      }).catch(() => {});
+    }
+  }
   const noticesHost = document.getElementById("board-disruptions");
   if (noticesHost) {
     const html = boardNoticesHtml(data);
@@ -12298,6 +12361,7 @@ async function applyViewMode() {
       await loadUpdates();
       if (!mine()) return;
       renderUpdates();
+      renderDetectedDiversions();
     } catch (err) {
       console.warn("Updates fetch failed:", err);
     }

@@ -27,6 +27,11 @@ Add an entry:
       --diversion "Hove|All routes except 1X, 2 and 46|Montpelier Road;Davigdor Road;Holland Road|Palmeira Square" \\
       --description-file notice.txt --advice "Please allow extra time."
 
+Draft one from a detection (scripts/build_detected_diversions.py): prints the
+command to finish with the operator's notice, its link and its words:
+
+    python scripts/add_disruption.py --from-detected 3f2a9c1b0d4e [--detected-file detected-diversions.json]
+
 List what is recorded, or drop what has ended:
 
     python scripts/add_disruption.py --list
@@ -197,10 +202,50 @@ def find(query: str) -> None:
                   f"towards {s.get('towards') or '?':<22} {', '.join(s.get('services', []))}")
 
 
+PUBLISHED = "https://adur-worthing-submissions.dennislemennace.workers.dev/journey-times"
+
+
+def load_detections(path: str = "") -> dict:
+    """The detections, from a local file or the published build."""
+    if path:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    import urllib.request
+    with urllib.request.urlopen(f"{PUBLISHED}/index.json", timeout=60) as resp:
+        index = json.loads(resp.read().decode("utf-8"))
+    art = (index.get("artifacts") or {}).get("detected-diversions.json")
+    if not art:
+        raise SystemExit("No detected-diversions.json in the published build yet.")
+    with urllib.request.urlopen(f"{PUBLISHED}/{art['file']}", timeout=60) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def draft_from_detected(d: dict) -> str:
+    """The add_disruption command for a detection, with what the buses showed
+    filled in and what only the operator can say left for a person."""
+    stops = [s["atco"] for s in d.get("stops") or []]
+    first = (d.get("stops") or [{}])[0].get("name", "")
+    last = (d.get("stops") or [{}])[-1].get("name", "")
+    where = first if first == last else f"{first} to {last}"
+    return " \\\n  ".join([
+        "python scripts/add_disruption.py",
+        f"--id {d['operator'].lower()}-{d['service'].lower()}-detected-{d['first_seen']}",
+        f"--summary \"The {d['service']} is not serving {where}\"",
+        "--publisher \"FILL IN: who announced it\"",
+        "--source-url FILL-IN-the-notice-link",
+        f"--starts {d['first_seen']}T05:00+00:00",
+        f"--lines {d['operator']}:{d['service']}",
+        f"--not-served {','.join(stops)}",
+        "--description-file FILL-IN-the-notice-text.txt",
+        "--observed",
+    ])
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--find")
+    ap.add_argument("--from-detected", help="print the command to record a detected diversion, by its id")
+    ap.add_argument("--detected-file", default="", help="read detections from this file, not the published build")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--prune", action="store_true")
     ap.add_argument("--id")
@@ -244,6 +289,13 @@ def main() -> None:
                          "'lat,lon;lat,lon;lat,lon;...'")
     args = ap.parse_args()
 
+    if args.from_detected:
+        found = [d for d in load_detections(args.detected_file).get("detections", [])
+                 if d.get("id") == args.from_detected]
+        if not found:
+            raise SystemExit(f"No detection {args.from_detected}.")
+        print(draft_from_detected(found[0]))
+        return
     if args.find:
         find(args.find)
         return
