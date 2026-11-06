@@ -450,6 +450,7 @@ async function tourRunAction(t) {
       if (state.serviceMode !== "day") setServiceMode("day");
       if (state.improvementsTab !== "about") setImprovementsTab("about");
       if (state.routeFocus) clearRouteFocus();
+      if (typeof setAreasOpen === "function") setAreasOpen(false);
       if (dom.routeFiltersDisc) dom.routeFiltersDisc.open = true;
       return;
     case "route": {

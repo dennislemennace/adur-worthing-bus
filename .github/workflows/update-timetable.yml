@@ -70,6 +70,7 @@ jobs:
           python -m py_compile scripts/build_evidence.py
           python -m py_compile scripts/build_stops_json.py
           python -m py_compile scripts/build_route_lines.py
+          python -m py_compile scripts/build_localities.py
           python -m py_compile scripts/build_stop_details.py
           python -m py_compile scripts/build_stop_osm.py
           python -m py_compile scripts/build_fares.py
@@ -144,6 +145,14 @@ jobs:
       - name: Recompute published statistics
         run: python -u scripts/build_evidence.py
 
+      # Every ward's bus service for Route view's Areas layer, for the week the
+      # statistics above measured. The ONS boundaries are someone else's
+      # service: if they are down, keep last week's file.
+      - name: Refresh the ward figures
+        run: |
+          python -u scripts/build_localities.py \
+            || echo "::warning::Ward boundaries unavailable; keeping the previous data/localities.json"
+
       # Everything except whether the objectives' prose still quotes the new
       # figures exactly. A 0.1 drift in one quoted figure (South Portslade,
       # 121.8 to 121.7 departures per stop) blocked the 18 October timetable,
@@ -204,13 +213,13 @@ jobs:
       # prevent.
       - name: Commit refreshed statistics and stop list
         run: |
-          if git diff --quiet -- data/boundary_evidence.json data/stops.json data/route_lines.json data/stop_details.json data/stop_osm.json data/fare_tables.json data/registrations.json data/fleet.json; then
+          if git diff --quiet -- data/boundary_evidence.json data/stops.json data/route_lines.json data/localities.json data/stop_details.json data/stop_osm.json data/fare_tables.json data/registrations.json data/fleet.json; then
             echo "Statistics and stop list unchanged — nothing to commit."
             exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/boundary_evidence.json data/stops.json data/route_lines.json data/stop_details.json data/stop_osm.json data/fare_tables.json data/registrations.json data/fleet.json
+          git add data/boundary_evidence.json data/stops.json data/route_lines.json data/localities.json data/stop_details.json data/stop_osm.json data/fare_tables.json data/registrations.json data/fleet.json
           git commit -m "Refresh boundary statistics and stop list from the $(date -u +%Y-%m-%d) timetable"
           git push
 

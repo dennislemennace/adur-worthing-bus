@@ -1934,6 +1934,58 @@ async function checkDepartureJourneys(page, where) {
 }
 
 /**
+ * Route view's Areas: opening it puts the route lines away and shades every
+ * ward; a ward chosen from the list opens its card; the day changes the
+ * shades; closing it, or leaving Route view, takes the areas down again.
+ */
+async function checkAreas(page, where, { contrast = false } = {}) {
+  await page.evaluate("setViewMode('improvements')");
+  await waitFor(page, "document.querySelectorAll('.route-network-line').length > 0", 30000).catch(() => {});
+  await page.evaluate(`document.getElementById("route-areas-disclosure").open = true`);
+  await waitFor(page, "document.querySelectorAll('.area-poly').length >= 40", 20000).catch(() => {});
+  await sleep(500);
+  const on = JSON.parse(await page.evaluate(`JSON.stringify({ wards: document.querySelectorAll(".area-poly").length,
+    shaded: document.querySelectorAll(".area-poly.area-band-4").length,
+    lines: [...document.querySelectorAll(".route-network-line")].filter(l => l.getClientRects().length).length,
+    list: document.querySelectorAll("#route-areas-body [data-area]").length })`));
+  check(`Areas shade every ward and put the route lines away — ${where}`,
+    on.wards >= 40 && on.shaded >= 1 && on.lines === 0 && on.list === on.wards, JSON.stringify(on));
+  await page.evaluate(`document.querySelector("#route-areas-body .route-areas-all").open = true;
+    document.querySelector("#route-areas-body [data-area]").click()`);
+  await sleep(600);
+  const card = JSON.parse(await page.evaluate(`JSON.stringify((() => { const c = document.getElementById("route-area-card");
+    return { card: !!c, rows: c ? c.querySelectorAll("tbody tr").length : 0,
+      selected: document.querySelectorAll(".area-poly--selected").length, focus: document.activeElement && document.activeElement.id }; })())`));
+  check(`a ward chosen from the list opens its card and is outlined on the map — ${where}`,
+    card.card && card.rows === 5 && card.selected === 1 && card.focus === "route-area-name", JSON.stringify(card));
+  const before = await page.evaluate(`document.querySelectorAll(".area-poly.area-band-4").length`);
+  await page.evaluate(`document.querySelector('[data-area-day="sunday"]').click()`);
+  await sleep(300);
+  const sunday = JSON.parse(await page.evaluate(`JSON.stringify({ pressed: document.querySelector('[data-area-day="sunday"]').getAttribute("aria-pressed"),
+    top: document.querySelectorAll(".area-poly.area-band-4").length })`));
+  check(`Sunday shades the wards by Sunday's buses — ${where}`,
+    sunday.pressed === "true" && sunday.top <= before, JSON.stringify({ before, ...sunday }));
+  if (contrast) {
+    await checkLayout(page, `Route view Areas — ${where}`);
+    await checkReachable(page, `Route view Areas — ${where}`);
+    await checkContrastBothThemes(page, `Route view Areas — ${where}`);
+  }
+  await page.evaluate(`document.querySelector('[data-area-day="monday"]').click();
+    document.getElementById("route-areas-disclosure").open = false`);
+  await sleep(500);
+  const off = JSON.parse(await page.evaluate(`JSON.stringify({ wards: [...document.querySelectorAll(".area-poly")].length,
+    lines: document.querySelectorAll(".route-network-line").length })`));
+  check(`closing Areas brings the route lines back — ${where}`, off.wards === 0 && off.lines > 0, JSON.stringify(off));
+  await page.evaluate(`document.getElementById("route-areas-disclosure").open = true`);
+  await waitFor(page, "document.querySelectorAll('.area-poly').length >= 40", 10000).catch(() => {});
+  await page.evaluate("setViewMode('live')");
+  await sleep(600);
+  const left = await page.evaluate(`document.querySelectorAll(".area-poly").length`);
+  check(`leaving Route view takes the areas down — ${where}`, left === 0, String(left));
+  await page.evaluate(`document.getElementById("route-areas-disclosure").open = false`);
+}
+
+/**
  * Access up front: a stop opens with whether it is step-free, its kerb and
  * shelter as a row of facts under its name, above the departures and on
  * screen without scrolling. The details open beneath, and open by
@@ -5265,6 +5317,7 @@ await checkTour(page, VIEWPORTS[0].name, { full: true });
 await checkHomeLink(page, VIEWPORTS[0].name);
 await checkMyLocation(page, VIEWPORTS[0].name);
 await checkStopAccessUpFront(page, VIEWPORTS[0].name, { contrast: true });
+await checkAreas(page, VIEWPORTS[0].name, { contrast: true });
 await checkDepartureJourneys(page, VIEWPORTS[0].name);
 await checkTicketZonesPicker(page, VIEWPORTS[0].name);
 await checkMapTaps(page, VIEWPORTS[0].name);
@@ -5332,6 +5385,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkTour(p, vp.name, { full: vp.name === "desktop" });
   await checkHomeLink(p, vp.name);
   await checkStopAccessUpFront(p, vp.name);
+  await checkAreas(p, vp.name, { contrast: vp.name === "desktop" });
   await checkDepartureJourneys(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
   await checkBoardNext(p, vp.name);

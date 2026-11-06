@@ -468,6 +468,17 @@ flag — the schema is a map of the surface.
   that opens, updates or clears. A handful a night, against the token's 1,000
   requests an hour.
 
+## ONS Open Geography — ward boundaries, weekly
+
+- `scripts/build_localities.py`, weekly in update-timetable.yml, asks the ONS
+  ArcGIS service once for the ward boundaries of Adur, Worthing and Brighton &
+  Hove ("Wards (May 2025) UK BGC V2", about 60 KB). No key. If it does not
+  answer, the build counts the week's buses on last week's boundaries, so the
+  ward figures never fall a week behind the boundary evidence.
+- It writes `data/localities.json` (about 85 KB, 20 KB gzipped, 6 November
+  2026), which Pages serves to Route view's Areas section only when it is
+  opened. There are no live ONS calls from the site.
+
 ## postcodes.io — postcode to councillor lookup
 
 - Free, no API key, no registration, CORS-enabled. Run by Ideal Postcodes as a

@@ -654,6 +654,7 @@ async function init() {
   bindKeyboardFooter();
   bindStopSearch();
   initRoutePicker();
+  bindAreas();
   bindRovingTabs();
   ["evidence-dialog", "councillor-dialog", "a11y-dialog"]
     .forEach(id => bindDialogBackdropClose(document.getElementById(id)));
@@ -11844,6 +11845,7 @@ async function applyViewMode() {
   if (state.viewMode !== "improvements") {
     closeRouteStop();
     clearRouteFocus({ restore: false });
+    hideAreas({ restore: false });
   }
 
   if (state.viewMode !== "journeytimes") {
@@ -11896,6 +11898,8 @@ async function applyViewMode() {
       await Promise.all([loadRouteLines(), loadProposals(), loadCouncilBoundaries()]);
       if (!mine()) return;
       showRouteLines();
+      // The Areas section left open: the areas, not the lines.
+      if (document.getElementById("route-areas-disclosure")?.open) showAreas();
       fillRoutePicker();
       // The service filters start open, and chips drawn while this view was
       // hidden had no rows to measure: fit them to three rows now there are.
@@ -12554,6 +12558,8 @@ function makeEndpointTag([lat, lon], service, place, side, placement, bg, fg, st
  *  shouldn't be. Used both when entering Improvements and when flipping
  *  Day↔Night. */
 function showRouteLines() {
+  // The Areas section has the map while it is open (showAreas).
+  if (state.areasOn) { hideRouteLines(); return; }
   if (!state.visibleRoutes) return;
   if (state.routeFocus) { hideRouteLines(); return; }   // one route chosen: it alone
   const isNight = state.serviceMode === "night";
@@ -12575,6 +12581,211 @@ function hideRouteLines() {
       if (state.map.hasLayer(layer)) state.map.removeLayer(layer);
     }
   }
+}
+
+/* ============================================================
+ * ROUTE VIEW: AREAS
+ *
+ * Every ward on the coast, shaded by how many buses a stop there gets on the
+ * day chosen, each opening a card: its stops, buses per stop by day, routes,
+ * first and last bus, late and night buses, how much of its stops' access is
+ * recorded, and its councillors (asked for 6 November 2026). The figures are
+ * scheduled departures for the boundary evidence's dated week, built weekly
+ * by scripts/build_localities.py. Opening it puts the route lines away;
+ * closing it, or leaving Route view, takes the areas down.
+ * ============================================================ */
+
+// Buses per stop where each shade starts. Fixed rather than by quantile, so a
+// Sunday reads as fewer buses than a weekday and not as the same map again.
+const AREA_BANDS = [0, 15, 30, 60, 120];
+const AREA_DAYS = [["monday", "Weekday"], ["saturday", "Saturday"], ["sunday", "Sunday"]];
+
+function loadLocalities() {
+  if (!state._localitiesPromise) {
+    state._localitiesPromise = fetch("data/localities.json")
+      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+      .then(doc => (state.localities = doc))
+      .catch(err => { state._localitiesPromise = null; throw err; });
+  }
+  return state._localitiesPromise;
+}
+
+/** Which shade a figure falls in: 0 to 4, or -1 for none at all. */
+function areaBand(perStop) {
+  if (!(perStop > 0)) return -1;
+  let band = 0;
+  AREA_BANDS.forEach((from, i) => { if (perStop >= from) band = i; });
+  return band;
+}
+
+function areaBandLabel(i) {
+  const from = AREA_BANDS[i], to = AREA_BANDS[i + 1];
+  return i === 0 ? `Under ${to}` : to ? `${from} to ${to - 1}` : `${from} or more`;
+}
+
+function areaFigure(w, day = state.areaDay || "monday") {
+  return ((w.days || {})[day] || {}).departures_per_stop;
+}
+
+/** Open or close the Areas section from code (the tour, choosing a route). */
+function setAreasOpen(open) {
+  const disc = document.getElementById("route-areas-disclosure");
+  if (disc && disc.open !== open) disc.open = open;   // its toggle event does the rest
+  else if (!open) hideAreas();
+}
+
+async function showAreas() {
+  state.areasOn = true;
+  state.areaDay = state.areaDay || "monday";
+  const host = document.getElementById("route-areas-body");
+  const mine = claimRender("areas");
+  try {
+    await loadLocalities();
+  } catch {
+    if (mine() && host) host.innerHTML = `<p class="route-detail-note">The areas could not be loaded. Try again in a moment.</p>`;
+    return;
+  }
+  if (!mine() || !state.areasOn || state.viewMode !== "improvements" || !state.map) return;
+  hideRouteLines();
+  drawAreas();
+  renderAreasPanel();
+  if (!state._areasFramed) {
+    state._areasFramed = true;
+    const bounds = L.latLngBounds([]);
+    for (const layer of state.areaLayers.values()) bounds.extend(layer.getBounds());
+    if (bounds.isValid()) fitBoundsAboveSheet(bounds, { padding: [16, 16] });
+  }
+}
+
+/** Take the areas down; back to the route lines when still in Route view. */
+function hideAreas({ restore = true } = {}) {
+  const was = state.areasOn;
+  state.areasOn = false;
+  for (const layer of (state.areaLayers || new Map()).values()) {
+    if (state.map && state.map.hasLayer(layer)) state.map.removeLayer(layer);
+  }
+  if (was && restore && state.viewMode === "improvements" && !state.routeFocus) showRouteLines();
+}
+
+function drawAreas() {
+  if (!state.map.getPane("areaPane")) state.map.createPane("areaPane").style.zIndex = 380;
+  if (!state.areaLayers) state.areaLayers = new Map();
+  for (const w of state.localities.wards || []) {
+    let layer = state.areaLayers.get(w.code);
+    if (!layer) {
+      layer = L.polygon(w.rings, { pane: "areaPane", weight: 1 });
+      layer.on("click", () => selectArea(w.code, { from: "map" }));
+      layer.bindTooltip(escapeHtml(w.name), { sticky: true, direction: "top", className: "area-tooltip" });
+      state.areaLayers.set(w.code, layer);
+    }
+    const band = areaBand(areaFigure(w));
+    const el = layer.getElement && layer.getElement();
+    const cls = `area-poly area-band-${band < 0 ? "none" : band}${state.areaSelected === w.code ? " area-poly--selected" : ""}`;
+    if (el) el.setAttribute("class", `leaflet-interactive ${cls}`);
+    else layer.options.className = cls;
+    if (!state.map.hasLayer(layer)) layer.addTo(state.map);
+  }
+}
+
+function selectArea(code, { from = "list" } = {}) {
+  state.areaSelected = code;
+  drawAreas();
+  renderAreasPanel();
+  const card = document.getElementById("route-area-card");
+  if (card) {
+    if (typeof scrollPanelTo === "function") scrollPanelTo(card, 8);
+    if (from === "list") card.querySelector("h3")?.focus({ preventScroll: true });
+  }
+  track("view-area-card");
+}
+
+function renderAreasPanel() {
+  const host = document.getElementById("route-areas-body");
+  const doc = state.localities;
+  if (!host || !doc) return;
+  const day = state.areaDay || "monday";
+  const dayName = (AREA_DAYS.find(d => d[0] === day) || AREA_DAYS[0])[1].toLowerCase();
+  const week = doc.measured_week && doc.measured_week.monday;
+  const weekText = week ? new Date(`${week}T12:00:00Z`).toLocaleDateString("en-GB",
+    { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" }) : "";
+  const wards = [...(doc.wards || [])].sort((a, b) => (areaFigure(a) ?? -1) - (areaFigure(b) ?? -1));
+  const chosen = (doc.wards || []).find(w => w.code === state.areaSelected);
+  host.innerHTML = `
+    <p class="route-areas-intro">Every ward on the coast, shaded by how many buses a stop there gets on a
+      ${escapeHtml(dayName)}${weekText ? ` in the week of ${escapeHtml(weekText)}` : ""}, from the published
+      timetable. Tap an area on the map, or choose one below.</p>
+    <div class="route-areas-days" role="group" aria-label="Day">${AREA_DAYS.map(([key, label]) =>
+      `<button type="button" class="route-area-day target-dense" data-area-day="${key}" aria-pressed="${key === day}">${
+        escapeHtml(label)}</button>`).join("")}</div>
+    <ul class="route-areas-legend" aria-label="Buses per stop">${AREA_BANDS.map((_, i) =>
+      `<li><span class="area-swatch area-band-${i}" aria-hidden="true"></span>${escapeHtml(areaBandLabel(i))}</li>`).join("")}
+      <li class="route-areas-legend-unit">buses per stop</li></ul>
+    ${chosen ? areaCardHtml(chosen, doc) : ""}
+    <details class="route-areas-all">
+      <summary>Every ward, fewest buses first (${wards.length})</summary>
+      <ol class="route-areas-list">${wards.map(w => `<li><button type="button" class="jt-link" data-area="${
+        escapeAttr(w.code)}">${escapeHtml(w.name)}</button> <span class="route-areas-figure">${
+        areaFigure(w) == null ? "no buses" : `${escapeHtml(String(areaFigure(w)))} a stop`}, ${escapeHtml(w.district)}</span></li>`).join("")}</ol>
+    </details>
+    <p class="stop-access-source">Ward boundaries: ${escapeHtml(doc.source.dataset)}, ${escapeHtml(doc.source.attribution)}
+      ${escapeHtml(doc.source.licence)}.</p>`;
+  host.querySelectorAll("[data-area-day]").forEach(b => b.addEventListener("click", () => {
+    state.areaDay = b.dataset.areaDay;
+    drawAreas();
+    renderAreasPanel();
+    host.querySelector(`[data-area-day="${state.areaDay}"]`)?.focus();
+  }));
+  host.querySelectorAll("[data-area]").forEach(b => b.addEventListener("click", () => selectArea(b.dataset.area)));
+}
+
+/** One ward's card: its figures by day, its stops' access, its councillors. */
+function areaCardHtml(w, doc) {
+  const d = w.days || {};
+  const row = (label, value) => `<tr><th scope="row">${escapeHtml(label)}</th>${value}</tr>`;
+  const cells = (fn) => AREA_DAYS.map(([key]) => `<td>${escapeHtml(fn(d[key] || {}))}</td>`).join("");
+  const hours = (x) => (x.first && x.last ? `${x.first} to ${x.last}` : "None");
+  const a = w.access || {};
+  const members = (w.councillors && w.councillors.members) || [];
+  return `<section class="route-area-card" id="route-area-card" aria-labelledby="route-area-name">
+    <h3 id="route-area-name" tabindex="-1">${escapeHtml(w.name)}</h3>
+    <p class="route-area-where">${escapeHtml(w.district)} · ${escapeHtml(String(w.stops))} stops with buses</p>
+    ${w.inside ? "" : `<p class="route-area-caveat">Part of this ward is outside the area this site covers, so a
+      route that never reaches the coast is not counted here.</p>`}
+    <table class="route-area-table">
+      <thead><tr><td></td>${AREA_DAYS.map(([, label]) => `<th scope="col">${escapeHtml(label)}</th>`).join("")}</tr></thead>
+      <tbody>
+        ${row("Buses per stop", cells(x => (x.departures_per_stop == null ? "None" : String(x.departures_per_stop))))}
+        ${row("Routes", cells(x => String(x.routes || 0)))}
+        ${row("First and last", cells(hours))}
+        ${row("After 11pm", cells(x => String(x.departures_after_2300 || 0)))}
+        ${row("Through the night", cells(x => String(x.night || 0)))}
+      </tbody>
+    </table>
+    <p class="route-area-note">"Through the night" counts buses between half past midnight and half past
+      four. A day runs from 04:00 to 04:00.</p>
+    <p class="route-area-access">OpenStreetMap records a shelter at ${escapeHtml(String(a.shelter_yes || 0))} of
+      ${escapeHtml(String(w.stops))} stops here, and step-free access at ${escapeHtml(String(a.step_free_recorded || 0))}${
+      a.step_free_recorded ? ` (${escapeHtml(String(a.step_free_yes || 0))} step-free)` : ""}. Much is not recorded yet:
+      <a href="${escapeAttr(OPENSTOP_URL)}" target="_blank" rel="noopener">add it with OpenStop</a>.</p>
+    ${members.length ? `<p class="route-area-councillors"><strong>Councillors</strong>${
+      w.councillors.council ? ` (${escapeHtml(w.councillors.council)})` : ""}:
+      ${members.map(m => `${m.url ? `<a href="${escapeAttr(safeUrl(m.url))}" target="_blank" rel="noopener">${
+        escapeHtml(m.name)}</a>` : escapeHtml(m.name)}${m.party ? ` (${escapeHtml(m.party)})` : ""}`).join(", ")}.</p>` : ""}
+    <p class="stop-access-source">Scheduled departures, not buses that ran. ${(doc.caveats || []).slice(1, 2).map(escapeHtml).join(" ")}</p>
+  </section>`;
+}
+
+function bindAreas() {
+  const disc = document.getElementById("route-areas-disclosure");
+  if (!disc) return;
+  disc.addEventListener("toggle", () => {
+    if (disc.open) {
+      // One thing on the map at a time: a route chosen gives way to the areas.
+      if (state.routeFocus) clearRouteFocus({ restore: false });
+      track("view-areas");
+      showAreas();
+    } else hideAreas();
+  });
 }
 
 /* ============================================================
@@ -12781,6 +12992,7 @@ async function focusRoute(operator, service) {
   // if it had been chosen there.
   await showRouteInPicker(operator, service);
   if (!mine() || state.viewMode !== "improvements") return;
+  if (state.areasOn) setAreasOpen(false);
   state.routeFocus = { operator, service, detail, dir: 0, expanded: false };
   // The route has the tab now: the list of every route folds away.
   if (dom.routeFiltersDisc) dom.routeFiltersDisc.open = false;

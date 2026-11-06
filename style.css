@@ -44,6 +44,13 @@
   /* "You are here": the blue a map dot means everywhere, kept off every
      operator's line colour. */
   --color-you:            #1a73e8;
+  /* Route view's Areas: buses per stop, fewest to most, in one hue so the
+     order reads by lightness for every eye (ColorBrewer Blues). */
+  --area-0: #deebf7;
+  --area-1: #9ecae1;
+  --area-2: #6baed6;
+  --area-3: #3182bd;
+  --area-4: #08519c;
 
   /* Destructive actions. */
   --color-danger:         #c0392b;
@@ -189,6 +196,11 @@ html.dark-mode {
   --color-on-accent:      #090e1a;
   --color-link:           #4a8fd0;   /* --color-primary is 3.4:1 here */
   --color-you:            #5b9cf5;
+  --area-0: #1d2c44;
+  --area-1: #23507e;
+  --area-2: #2f73b4;
+  --area-3: #5a9bd8;
+  --area-4: #a6cdf2;
 
   /* #c0392b measures 3.4:1 against the dark surface — under AA. This is the
      same red the "late" status already uses here, at 4.9:1. */
@@ -4870,6 +4882,51 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 .route-pick-field select:disabled { opacity: 0.6; }
 .route-detail { margin-top: var(--space-md); color: var(--color-text); }
 .route-detail-note { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+
+/* Areas: each ward shaded by buses per stop, the one chosen outlined. */
+.area-poly { stroke: var(--color-surface); stroke-width: 1; stroke-opacity: .9; fill-opacity: .62; }
+.area-band-0 { fill: var(--area-0); }
+.area-band-1 { fill: var(--area-1); }
+.area-band-2 { fill: var(--area-2); }
+.area-band-3 { fill: var(--area-3); }
+.area-band-4 { fill: var(--area-4); }
+.area-band-none { fill: transparent; stroke: var(--color-text-muted); stroke-dasharray: 4 4; }
+.area-poly--selected { stroke: var(--color-text); stroke-width: 3; stroke-opacity: 1; }
+.route-areas-body { padding: 0 var(--space-md) var(--space-md); display: grid; gap: var(--space-sm); }
+.route-areas-intro { margin: 0; font-size: var(--font-size-sm); color: var(--color-text); }
+.route-areas-days { display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
+.route-area-day {
+  min-height: 32px; padding: 4px 12px; border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font: inherit;
+}
+.route-area-day[aria-pressed="true"] { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.route-areas-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; padding: 0; list-style: none;
+  font-size: var(--font-size-xs); color: var(--color-text); align-items: center; }
+.route-areas-legend li { display: inline-flex; align-items: center; gap: 4px; }
+.route-areas-legend-unit { color: var(--color-text-muted); }
+.area-swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--color-border); }
+.area-swatch.area-band-0 { background: var(--area-0); }
+.area-swatch.area-band-1 { background: var(--area-1); }
+.area-swatch.area-band-2 { background: var(--area-2); }
+.area-swatch.area-band-3 { background: var(--area-3); }
+.area-swatch.area-band-4 { background: var(--area-4); }
+.route-area-card { display: grid; gap: 6px; padding: var(--space-sm); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); background: var(--color-surface); font-size: var(--font-size-sm); }
+.route-area-card h3 { margin: 0; font-size: var(--font-size-md); }
+.route-area-card p { margin: 0; }
+.route-area-where, .route-area-note { color: var(--color-text-muted); }
+.route-area-caveat { color: var(--color-text); }
+.route-area-card a, .route-areas-body a { color: var(--color-link); }
+.route-area-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.route-area-table th, .route-area-table td { padding: 3px 4px; text-align: right; border-bottom: 1px solid var(--color-border); }
+.route-area-table th[scope="row"] { text-align: left; font-weight: 600; }
+.route-area-table thead th { font-size: var(--font-size-xs); color: var(--color-text-muted); font-weight: 600; }
+.route-areas-all summary { min-height: var(--target-min); display: flex; align-items: center; cursor: pointer;
+  font-weight: 600; color: var(--color-text); }
+.route-areas-list { margin: 0; padding-left: 1.4em; font-size: var(--font-size-sm); }
+.route-areas-list li { min-height: var(--target-min); display: list-item; }
+.route-areas-list .jt-link { min-height: var(--target-min); }
+.route-areas-figure { color: var(--color-text-muted); }
 .route-detail-head { display: flex; align-items: flex-start; gap: var(--space-sm); }
 .route-detail-title { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-sm); }
 .route-detail-op { font-size: var(--font-size-xs); color: var(--color-text-muted); }

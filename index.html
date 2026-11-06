@@ -940,6 +940,23 @@
             </details>
           </section>
 
+          <!-- Areas: every ward on the coast, shaded by how many buses a stop
+               there gets, each opening a card of its figures and councillors
+               (asked for 6 November 2026). Drawn by app.js from
+               data/localities.json; opening it puts the route lines away. -->
+          <section class="route-areas" id="route-areas">
+            <details class="filter-disclosure route-areas-disclosure" id="route-areas-disclosure">
+              <summary class="filter-disclosure-summary">
+                <svg class="icon" aria-hidden="true"><use href="#i-gauge"/></svg>
+                <span>Areas: buses by ward</span>
+                <svg class="icon filter-disclosure-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+              </summary>
+              <div class="route-areas-body" id="route-areas-body">
+                <p class="route-detail-note">Loading the areas…</p>
+              </div>
+            </details>
+          </section>
+
           <div class="improvements-intro">
             <p>
               Every bus route in the area, from the operators' published

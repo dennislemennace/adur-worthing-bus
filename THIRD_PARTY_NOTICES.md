@@ -108,8 +108,9 @@ sector information licensed under the Open Government Licence v3.0.
 
 ## Boundaries and postcodes: Open Government Licence v3.0
 
-Council and electoral boundaries (`data/council_boundaries.json`) from the ONS
-Open Geography Portal, and postcode lookups through postcodes.io
+Council and electoral boundaries (`data/council_boundaries.json`, and the ward
+boundaries in `data/localities.json`, from "Wards (May 2025) UK BGC V2") from
+the ONS Open Geography Portal, and postcode lookups through postcodes.io
 (https://postcodes.io/), which uses the ONS Postcode Directory. Source: Office
 for National Statistics licensed under the Open Government Licence v3.0.
 Contains OS data © Crown copyright and database right 2026. Contains Royal Mail
