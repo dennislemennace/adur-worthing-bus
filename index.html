@@ -35,6 +35,9 @@
        mark is a raster illustration with no vector source, and the hand-drawn SVG
        that used to sit here was a different drawing wearing the same name.
        favicon.ico stays last, for browsers that take nothing else. -->
+  <!-- Installable: added to a phone's home screen it opens full screen. No
+       service worker, so nothing is ever served stale. -->
+  <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
   <link rel="icon" href="favicon.ico" sizes="any" />
@@ -507,13 +510,13 @@
             <h2 class="panel-stop-name" id="panel-stop-name">Select a stop</h2>
             <p class="panel-stop-id" id="panel-stop-id"></p>
           </div>
-          <!-- One favourite per device, opened on arrival (app.js toggleFavouriteStop). -->
+          <!-- Save this stop: up to eight per device, shown on the home sheet (app.js toggleFavouriteStop). -->
           <button type="button" class="btn-favourite-stop" id="favourite-stop-btn"
                   aria-pressed="false" aria-describedby="favourite-stop-hint" hidden>
             <svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>
-            <span class="visually-hidden">Favourite stop</span>
+            <span class="visually-hidden">Save stop</span>
           </button>
-          <span class="visually-hidden" id="favourite-stop-hint">Opens this stop first whenever you visit on this device.</span>
+          <span class="visually-hidden" id="favourite-stop-hint">Saves this stop: it shows first, with its next buses, whenever you visit on this device.</span>
         </div>
         <!-- At this stop: whether it is step-free, the kerb, shelter and seat, as
              a row of facts under the name, with the details beneath them. Up
@@ -575,6 +578,10 @@
             <ul class="stop-search-results" id="stop-search-results"
                 aria-label="Matching stops and stations"></ul>
           </form>
+          <!-- Your saved and recent stops, with their next buses from the
+               timetable, and the last bus home: the stops someone checks
+               every day, one tap away (app.js renderHomeSheet). -->
+          <section class="home-sheet" id="home-sheet" aria-label="Your stops" hidden></section>
 
           <!-- Journey planner, tagged Experimental: door-to-door plans from
                the Buses & Trains API via /api/plan. Filled by app.js

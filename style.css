@@ -3302,6 +3302,28 @@ html.dark-mode .stop-cluster-icon {
 }
 .leaflet-control-attribution a { color: var(--color-link) !important; }
 
+/* The home sheet: saved stops with their next buses, recent stops, and the
+   last bus home, under the search before any stop is open. */
+.home-sheet { display: grid; gap: var(--space-xs); margin: var(--space-sm) 0 0; }
+.home-title { margin: var(--space-xs) 0 0; font-size: var(--font-size-xs); font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--color-text-muted); }
+.home-stops, .home-recent { display: grid; gap: var(--space-2xs); margin: 0; padding: 0; list-style: none; }
+.home-recent { display: flex; flex-wrap: wrap; }
+.home-stop {
+  display: grid; gap: 2px; width: 100%; min-height: var(--target-min); padding: 8px 12px; text-align: left;
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);
+  color: var(--color-text); font: inherit; cursor: pointer;
+}
+.home-stop-name { font-weight: 600; }
+.home-next { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: var(--font-size-sm); color: var(--color-text); }
+.home-next--loading { color: var(--color-text-muted); }
+.home-next-basis { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.home-recent-btn {
+  min-height: 32px; padding: 4px 12px; border-radius: var(--radius-pill); border: 1px solid var(--color-border);
+  background: var(--color-surface); color: var(--color-text); font: inherit; cursor: pointer;
+}
+.home-hint { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+
 /* Your location: a dot ringed in white, and a pale circle for how sure the
    device is. The button under the zoom shows when it is on. */
 .my-location-dot { fill: var(--color-you); fill-opacity: 1; stroke: #fff; stroke-opacity: 1; }

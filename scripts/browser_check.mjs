@@ -1934,6 +1934,42 @@ async function checkDepartureJourneys(page, where) {
 }
 
 /**
+ * The home sheet: with nothing open, saved stops show under the search with
+ * their next buses from the timetable, and a tap opens the board. The site is
+ * installable: its manifest and icons are served and valid.
+ */
+async function checkHomeSheet(page, where) {
+  await page.evaluate(`(() => { localStorage.setItem("saved-stops", JSON.stringify([
+    { atco: "4400AD0204", name: "High Street, Shoreham" }, { atco: "4400WO0254", name: "Marine Parade" }]));
+    setViewMode("live"); closePanel(); return 1; })()`);
+  await waitFor(page, `document.querySelectorAll("#home-sheet .home-stop").length === 2
+    && !document.querySelector("#home-sheet .home-next--loading")`, 20000).catch(() => {});
+  const r = JSON.parse(await page.evaluate(`JSON.stringify((() => {
+    const host = document.getElementById("home-sheet"), first = host.querySelector(".home-stop");
+    const b = first && first.getBoundingClientRect();
+    return { shown: !host.hidden && host.getBoundingClientRect().height > 0, stops: host.querySelectorAll(".home-stop").length,
+      next: (host.querySelector(".home-next") || {}).textContent || "", h: b ? Math.round(b.height) : 0 };
+  })())`));
+  check(`the home sheet shows saved stops with their next buses — ${where}`,
+    r.shown && r.stops === 2 && /timetable|No more buses/.test(r.next) && r.h >= 44, JSON.stringify(r));
+  await page.evaluate(`document.querySelector("#home-sheet .home-stop").click()`);
+  await sleep(1200);
+  const opened = await page.evaluate("state.selectedStop && state.selectedStop.atcoCode");
+  check(`a saved stop opens its board in one tap — ${where}`, opened === "4400AD0204", String(opened));
+  const m = JSON.parse(await page.evaluate(`(async () => {
+    const link = document.querySelector('link[rel="manifest"]');
+    if (!link) return JSON.stringify({ link: false });
+    const res = await fetch(link.href, { cache: "no-store" }); const doc = await res.json();
+    const icons = await Promise.all((doc.icons || []).map(i => fetch(new URL(i.src, link.href), { cache: "no-store" }).then(x => x.ok)));
+    return JSON.stringify({ link: true, ok: res.ok, name: doc.name, display: doc.display, icons: icons.length,
+      allIcons: icons.every(Boolean), maskable: (doc.icons || []).some(i => i.purpose === "maskable") });
+  })()`));
+  check(`the site is installable: a valid manifest with its icons — ${where}`,
+    m.link && m.ok && m.display === "standalone" && m.icons >= 3 && m.allIcons && m.maskable, JSON.stringify(m));
+  await page.evaluate(`(() => { localStorage.removeItem("saved-stops"); localStorage.removeItem("recent-stops"); closePanel(); return 1; })()`);
+}
+
+/**
  * The Stop access layer: the button under the zoom colours every stop dot by
  * whether it is step-free, with a legend; it shows only where stops are drawn.
  * A station's board gives its National Rail step-free category.
@@ -5383,6 +5419,7 @@ await checkMyLocation(page, VIEWPORTS[0].name);
 await checkStopAccessUpFront(page, VIEWPORTS[0].name, { contrast: true });
 await checkAreas(page, VIEWPORTS[0].name, { contrast: true });
 await checkStopAccessLayer(page, VIEWPORTS[0].name, { contrast: true });
+await checkHomeSheet(page, VIEWPORTS[0].name);
 await checkDepartureJourneys(page, VIEWPORTS[0].name);
 await checkTicketZonesPicker(page, VIEWPORTS[0].name);
 await checkMapTaps(page, VIEWPORTS[0].name);
@@ -5452,6 +5489,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkStopAccessUpFront(p, vp.name);
   await checkAreas(p, vp.name, { contrast: vp.name === "desktop" });
   await checkStopAccessLayer(p, vp.name);
+  await checkHomeSheet(p, vp.name);
   await checkDepartureJourneys(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
   await checkBoardNext(p, vp.name);

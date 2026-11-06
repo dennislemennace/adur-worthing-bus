@@ -116,16 +116,14 @@ test("stop, then a bus from its board, is two pages Back walks through", async (
   assert.equal(read(app.ctx, "state.selectedStop"), null, "with nothing open");
 });
 
-test("a favourite stop opens as a page over the map, so Back shows the map first", async () => {
+test("a saved stop does not open by itself: arrival is the map and the home sheet, one page", async () => {
+  // Until 6 November 2026 one favourite opened on arrival, as a page over the
+  // map. Saved stops are listed on the home sheet instead.
   const app = loadApp();
   app.ctx.localStorage.getItem = (k) =>
-    k === "favourite-stop" ? JSON.stringify({ atco: "1490A", name: "Shoreham High Street" }) : null;
+    k === "saved-stops" ? JSON.stringify([{ atco: "1490A", name: "Shoreham High Street" }]) : null;
   await tolerate(() => app.ctx.applyStartupAddress({}));
-  assert.deepEqual(app.history.pages, ["", "#stop=1490A"],
-    "the plain map is the first page and the favourite stop the second");
-
-  await back(app);
-  assert.equal(app.location.hash, "", "Back from the favourite lands on the map, not off the site");
+  assert.deepEqual(app.history.pages, [""], "arrival made a page of its own");
   assert.equal(read(app.ctx, "state.selectedStop"), null);
 });
 

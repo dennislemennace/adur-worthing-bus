@@ -650,6 +650,7 @@ async function init() {
   initMap();
   initLocateControl();
   initStopAccessControl();
+  bindHomeSheet();
   bindUIEvents();
   bindA11yControls();
   bindKeyboardFooter();
@@ -689,6 +690,8 @@ async function init() {
   dom.mapLoading.classList.add("hidden");
 
   if (wantsLive) await applyStartupAddress(urlState);
+  // Nothing asked for: the home sheet, under the search.
+  if (!state.selectedStop) renderHomeSheet();
 
   // Start live bus position loop
   startVehicleRefresh();
@@ -7911,41 +7914,63 @@ function stopHeadingLine(atcoCode) {
 // finding it on the map first. Storage can be blocked or cleared at any
 // moment (a private window, site data wiped), so every read and write is
 // guarded, and without it the site opens on the map as it always has.
-const FAVOURITE_STOP_KEY = "favourite-stop";
+// ── Saved stops, recent stops and the home sheet ─────────────
+// Up to eight saved stops per device and the last five opened, shown on
+// arrival with their next buses, so the stops someone checks every day are
+// one tap away (asked for 6 November 2026). This replaced one favourite that
+// opened by itself: the home sheet shows every saved stop at once instead.
+// Storage can be blocked or cleared at any moment (a private window, site
+// data wiped), so every read and write is guarded, and without it the site
+// opens on the map and the search as it always has.
+const FAVOURITE_STOP_KEY = "favourite-stop";   // the one favourite, before saved stops
+const SAVED_STOPS_KEY = "saved-stops";
+const RECENT_STOPS_KEY = "recent-stops";
+const SAVED_STOPS_MAX = 8;
+const RECENT_STOPS_MAX = 5;
 
-function readFavouriteStop() {
+function readStopList(key) {
   try {
-    const fav = JSON.parse(localStorage.getItem(FAVOURITE_STOP_KEY) || "null");
-    return fav && typeof fav.atco === "string" && fav.atco ? fav : null;
-  } catch { return null; }
+    const list = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(list)
+      ? list.filter(s => s && typeof s.atco === "string" && s.atco)
+          .map(s => ({ atco: s.atco, name: String(s.name || s.atco) })) : [];
+  } catch { return []; }
 }
 
-function writeFavouriteStop(fav) {
+function writeStopList(key, list) {
   try {
-    if (fav) localStorage.setItem(FAVOURITE_STOP_KEY, JSON.stringify(fav));
-    else localStorage.removeItem(FAVOURITE_STOP_KEY);
+    if (list.length) localStorage.setItem(key, JSON.stringify(list));
+    else localStorage.removeItem(key);
     return true;
   } catch { return false; }
 }
 
-/** The stop to open on arrival: the favourite, only when the address asks
- *  for nothing else. A shared link always wins over a saved preference. */
-function startupFavouriteStop(urlState, stopData) {
-  if (Object.keys(urlState || {}).length) return null;
-  const fav = readFavouriteStop();
-  return fav && stopData && stopData[fav.atco] ? fav.atco : null;
+/** The saved stops, newest first. The old single favourite joins them once. */
+function readSavedStops() {
+  const saved = readStopList(SAVED_STOPS_KEY);
+  try {
+    const old = JSON.parse(localStorage.getItem(FAVOURITE_STOP_KEY) || "null");
+    if (old && typeof old.atco === "string" && old.atco) {
+      if (!saved.some(s => s.atco === old.atco)) saved.unshift({ atco: old.atco, name: String(old.name || old.atco) });
+      if (writeStopList(SAVED_STOPS_KEY, saved.slice(0, SAVED_STOPS_MAX))) localStorage.removeItem(FAVOURITE_STOP_KEY);
+    }
+  } catch { /* nothing to move */ }
+  return saved.slice(0, SAVED_STOPS_MAX);
 }
 
-/** What the Live map opens on arrival: the address, or else the device's
- *  favourite stop. The favourite is a page over the plain map, made before
- *  the stop opens (opening it rewrites the current page), so Back shows the
- *  map before it leaves the site. */
+function readRecentStops() { return readStopList(RECENT_STOPS_KEY).slice(0, RECENT_STOPS_MAX); }
+
+/** A stop opened goes to the front of the recent list. */
+function rememberRecentStop(atco, name) {
+  if (!atco) return;
+  const list = [{ atco, name: String(name || atco) }, ...readRecentStops().filter(s => s.atco !== atco)];
+  writeStopList(RECENT_STOPS_KEY, list.slice(0, RECENT_STOPS_MAX));
+}
+
+/** What the Live map opens on arrival: the address. A saved stop no longer
+ *  opens by itself; the home sheet shows them all instead. */
 async function applyStartupAddress(urlState) {
-  const favourite = startupFavouriteStop(urlState, state.stopData);
-  if (!favourite) return applyUrlState(urlState);
-  try { history.pushState(null, "", "#stop=" + encodeURIComponent(favourite)); }
-  catch { /* sandboxed contexts can block history APIs */ }
-  await applyUrlState({ stop: favourite });
+  return applyUrlState(urlState);
 }
 
 function syncFavouriteStopButton() {
@@ -7953,25 +7978,108 @@ function syncFavouriteStopButton() {
   if (!btn) return;
   const atco = state.selectedStop && state.selectedStop.atcoCode;
   btn.hidden = !atco;
-  const on = !!atco && readFavouriteStop()?.atco === atco;
+  const on = !!atco && readSavedStops().some(s => s.atco === atco);
   btn.setAttribute("aria-pressed", String(on));
-  btn.title = on ? "Your favourite stop. Press again to stop opening it first."
-                 : "Open this stop first whenever you visit on this device";
+  btn.title = on ? "A saved stop. Press again to remove it."
+                 : "Save this stop: it shows first, with its next buses, whenever you visit on this device";
 }
 
+/** The star: save the open stop, or remove it. */
 function toggleFavouriteStop() {
   const stop = state.selectedStop;
   if (!stop) return;
-  const on = readFavouriteStop()?.atco === stop.atcoCode;
-  if (!writeFavouriteStop(on ? null : { atco: stop.atcoCode, name: stop.stopName })) {
-    showToast("This browser isn't letting the site save anything, so the favourite can't be kept.");
+  const saved = readSavedStops();
+  const on = saved.some(s => s.atco === stop.atcoCode);
+  if (!on && saved.length >= SAVED_STOPS_MAX) {
+    showToast(`You have ${SAVED_STOPS_MAX} saved stops. Remove one before saving another.`);
+    return;
+  }
+  const next = on ? saved.filter(s => s.atco !== stop.atcoCode)
+    : [{ atco: stop.atcoCode, name: stop.stopName }, ...saved];
+  if (!writeStopList(SAVED_STOPS_KEY, next)) {
+    showToast("This browser isn't letting the site save anything, so the stop can't be kept.");
     syncFavouriteStopButton();
     return;
   }
   syncFavouriteStopButton();
-  showToast(on ? "Removed. The site will open on the map."
-               : `Saved. ${stop.stopName} will open first when you visit on this device.`);
+  showToast(on ? "Removed from your saved stops."
+               : `Saved. ${stop.stopName} shows first, with its next buses, when you visit on this device.`);
   track(on ? "favourite-stop-cleared" : "favourite-stop-saved");
+}
+
+/** The next timetabled departures from a stop: local timetable only, no live
+ *  lookup, so a home sheet of eight stops costs nothing (/api/next-departures). */
+async function homeNextDepartures(atco) {
+  const pos = (state.stopData || {})[atco];
+  const data = await apiFetchMemo(`/api/next-departures?stopId=${encodeURIComponent(atco)}${
+    pos ? `&lat=${pos.lat}&lon=${pos.lon}` : ""}`);
+  return ((data && data.departures) || []).slice(0, 2);
+}
+
+/** The home sheet, under the stop search before any stop is open: saved
+ *  stops with their next two buses, recent stops, and the last bus home
+ *  from the first saved stop. */
+function homeSheetHtml(saved, recent, nexts = {}) {
+  const clock = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-GB",
+    { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }); };
+  const nextLine = (atco) => {
+    const n = nexts[atco];
+    if (n === undefined) return `<span class="home-next home-next--loading">Finding the next buses…</span>`;
+    if (!n || !n.length) return `<span class="home-next">No more buses timetabled today</span>`;
+    return `<span class="home-next">${n.map(d => `<span class="home-dep"><strong>${escapeHtml(d.service)}</strong> ${
+      escapeHtml(clock(d.aimed_departure))} to ${escapeHtml(prettifyName(d.destination || ""))}</span>`).join("")}
+      <span class="home-next-basis">timetable</span></span>`;
+  };
+  const card = (s) => `<li><button type="button" class="home-stop" data-home-stop="${escapeAttr(s.atco)}"
+      data-name="${escapeAttr(s.name)}"><span class="home-stop-name">${escapeHtml(s.name)}</span>${nextLine(s.atco)}</button></li>`;
+  const fresh = recent.filter(r => !saved.some(s => s.atco === r.atco));
+  if (!saved.length && !fresh.length) {
+    return `<p class="home-hint">Open a stop and press the star to save it: it shows here, with its next buses,
+      whenever you visit on this device.</p>`;
+  }
+  return `${saved.length ? `<h3 class="home-title">Your stops</h3><ul class="home-stops">${saved.map(card).join("")}</ul>` : ""}
+    ${fresh.length ? `<h3 class="home-title">Recent</h3><ul class="home-recent">${fresh.map(s =>
+      `<li><button type="button" class="home-recent-btn target-dense" data-home-stop="${escapeAttr(s.atco)}"
+        data-name="${escapeAttr(s.name)}">${escapeHtml(s.name)}</button></li>`).join("")}</ul>` : ""}
+    <div class="home-lastbus" id="home-lastbus"></div>`;
+}
+
+async function renderHomeSheet() {
+  const host = document.getElementById("home-sheet");
+  if (!host) return;
+  const saved = readSavedStops().filter(s => !state.stopData || !Object.keys(state.stopData).length || state.stopData[s.atco]);
+  const recent = readRecentStops();
+  const nexts = {};
+  host.innerHTML = homeSheetHtml(saved, recent, nexts);
+  host.hidden = false;
+  const seq = (state._homeSeq = (state._homeSeq || 0) + 1);
+  await Promise.all(saved.map(async (s) => {
+    try { nexts[s.atco] = await homeNextDepartures(s.atco); } catch { nexts[s.atco] = null; }
+  }));
+  if (seq !== state._homeSeq) return;
+  host.innerHTML = homeSheetHtml(saved, recent, nexts);
+  // The last bus home, from the first saved stop: the timetable's answer to
+  // "can I still get back tonight?" (/api/stop-span).
+  if (saved.length) {
+    try {
+      const pos = (state.stopData || {})[saved[0].atco];
+      const span = await apiFetchMemo(`/api/stop-span?stopId=${encodeURIComponent(saved[0].atco)}${
+        pos ? `&lat=${pos.lat}&lon=${pos.lon}` : ""}`);
+      const box = document.getElementById("home-lastbus");
+      if (seq === state._homeSeq && box) box.innerHTML = lastBusesHomeHtml(span);
+    } catch { /* the stops stand without it */ }
+  }
+}
+
+function bindHomeSheet() {
+  const host = document.getElementById("home-sheet");
+  if (!host) return;
+  host.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-home-stop]");
+    if (!b) return;
+    track("view-home-stop");
+    openDepartures(b.dataset.homeStop, b.dataset.name);
+  });
 }
 
 window.openDepartures = async function(atcoCode, stopName) {
@@ -8032,6 +8140,7 @@ window.openDepartures = async function(atcoCode, stopName) {
   const idEl = document.getElementById("departures-stop-id");
   if (idEl) idEl.textContent = `Stop ID ${atcoCode}`;
   renderStopAccess(atcoCode);
+  if (changedStop) rememberRecentStop(atcoCode, stopName);
   if (changedStop) {
     // A different stop starts at its name and its access, not wherever the
     // last stop's board was scrolled to.
@@ -11098,6 +11207,7 @@ function clearStopSelection() {
   state.selectedStop = null;
   stopDepartureTicker();
   showPanelState("prompt");
+  renderHomeSheet();
   dom.panelStopName.textContent = "Select a stop";
   if (dom.stopSpan) {
     dom.stopSpan.classList.add("hidden");

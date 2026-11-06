@@ -1,6 +1,7 @@
 /**
- * A favourite stop: one per device, opened on arrival unless the address
- * asks for something else.
+ * Saved stops (up to eight per device) and recent stops, shown on arrival in
+ * the home sheet with their next buses. They replaced one favourite that
+ * opened by itself (6 November 2026); that favourite moves across once.
  *
  * Storage is a real Map here, and one variant throws on every call, because
  * a private window or blocked site data is a normal way to visit and the
@@ -19,7 +20,7 @@ import vm from "node:vm";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const KEY = "favourite-stop";
 
-function loadApp({ blocked = false, saved = null } = {}) {
+function loadApp({ blocked = false, saved = null, extra = {} } = {}) {
   const noop = () => {};
   const stubEl = new Proxy({}, {
     get(_t, prop) {
@@ -34,6 +35,7 @@ function loadApp({ blocked = false, saved = null } = {}) {
     set() { return true; },
   });
   const store = new Map(saved ? [[KEY, JSON.stringify(saved)]] : []);
+  for (const [k, v] of Object.entries(extra)) store.set(k, JSON.stringify(v));
   const boom = () => { throw new Error("SecurityError: storage is blocked"); };
   const localStorage = blocked
     ? { getItem: boom, setItem: boom, removeItem: boom }
@@ -66,80 +68,69 @@ function loadApp({ blocked = false, saved = null } = {}) {
   return { ctx, store, button, toasts };
 }
 
-const STOPS = { "1490A": { name: "Shoreham High Street" }, "1490B": { name: "Ham Road" } };
 const select = (ctx, atco, name) =>
   vm.runInContext(`state.selectedStop = { atcoCode: ${JSON.stringify(atco)}, stopName: ${JSON.stringify(name)} };`, ctx);
+const plain = (v) => JSON.parse(JSON.stringify(v));
 
-test("nothing saved: the site opens on the map as it always has", () => {
+test("nothing saved: nothing opens by itself, and the home sheet says how to save a stop", () => {
   const { ctx } = loadApp();
-  assert.equal(ctx.startupFavouriteStop({}, STOPS), null);
+  assert.deepEqual(plain(ctx.readSavedStops()), []);
+  assert.equal(typeof ctx.startupFavouriteStop, "undefined", "a saved stop still opens by itself");
+  assert.match(ctx.homeSheetHtml([], []), /press the star to save it/);
 });
 
-test("a saved favourite opens when the address asks for nothing", () => {
-  const { ctx } = loadApp({ saved: { atco: "1490A", name: "Shoreham High Street" } });
-  assert.equal(ctx.startupFavouriteStop({}, STOPS), "1490A");
+test("the one favourite from before moves into the saved stops, once", () => {
+  const app = loadApp({ saved: { atco: "1490A", name: "Shoreham High Street" } });
+  assert.deepEqual(plain(app.ctx.readSavedStops()), [{ atco: "1490A", name: "Shoreham High Street" }]);
+  assert.equal(app.store.has(KEY), false, "the old key was left behind");
+  assert.deepEqual(JSON.parse(app.store.get("saved-stops")), [{ atco: "1490A", name: "Shoreham High Street" }]);
 });
 
-test("a link always wins over the favourite", () => {
-  const { ctx } = loadApp({ saved: { atco: "1490A", name: "Shoreham High Street" } });
-  assert.equal(ctx.startupFavouriteStop({ stop: "1490B" }, STOPS), null, "a shared stop");
-  assert.equal(ctx.startupFavouriteStop({ view: "u" }, STOPS), null, "another section");
-  assert.equal(ctx.startupFavouriteStop({ bus: "V1" }, STOPS), null, "a shared bus");
-});
-
-test("a favourite stop that no longer exists is ignored, not opened", () => {
-  const { ctx } = loadApp({ saved: { atco: "1490Z", name: "Gone" } });
-  assert.equal(ctx.startupFavouriteStop({}, STOPS), null);
-});
-
-test("the star saves the open stop, and pressing it again clears it", () => {
-  const app = loadApp();
+test("the star saves the open stop beside the others, and pressing it again removes it", () => {
+  const app = loadApp({ extra: { "saved-stops": [{ atco: "1490B", name: "Ham Road" }] } });
   select(app.ctx, "1490A", "Shoreham High Street");
   app.ctx.toggleFavouriteStop();
-  assert.deepEqual(JSON.parse(app.store.get(KEY)), { atco: "1490A", name: "Shoreham High Street" });
+  assert.deepEqual(JSON.parse(app.store.get("saved-stops")).map(s => s.atco), ["1490A", "1490B"]);
   assert.equal(app.button.attrs["aria-pressed"], "true");
   app.ctx.toggleFavouriteStop();
-  assert.equal(app.store.has(KEY), false);
+  assert.deepEqual(JSON.parse(app.store.get("saved-stops")).map(s => s.atco), ["1490B"]);
   assert.equal(app.button.attrs["aria-pressed"], "false");
 });
 
-test("starring another stop replaces the favourite: one per device", () => {
-  const app = loadApp({ saved: { atco: "1490A", name: "Shoreham High Street" } });
-  select(app.ctx, "1490B", "Ham Road");
-  app.ctx.syncFavouriteStopButton();
-  assert.equal(app.button.attrs["aria-pressed"], "false", "the star is for the open stop only");
-  app.ctx.toggleFavouriteStop();
-  assert.equal(JSON.parse(app.store.get(KEY)).atco, "1490B");
-});
-
-test("the star is hidden when no stop is open", () => {
-  const app = loadApp();
-  vm.runInContext(`state.selectedStop = null;`, app.ctx);
-  app.ctx.syncFavouriteStopButton();
-  assert.equal(app.button.hidden, true);
+test("no more than eight saved stops, and the reader is told", () => {
+  const eight = Array.from({ length: 8 }, (_, i) => ({ atco: `S${i}`, name: `Stop ${i}` }));
+  const app = loadApp({ extra: { "saved-stops": eight } });
   select(app.ctx, "1490A", "Shoreham High Street");
-  app.ctx.syncFavouriteStopButton();
-  assert.equal(app.button.hidden, false);
+  app.ctx.toggleFavouriteStop();
+  assert.equal(JSON.parse(app.store.get("saved-stops")).length, 8);
+  assert.match(app.toasts.at(-1), /8 saved stops/);
 });
 
-test("blocked storage: nothing throws, nothing opens, and the reader is told", () => {
+test("recent stops: newest first, no repeats, five at most", () => {
+  const app = loadApp();
+  for (const a of ["A", "B", "C", "A", "D", "E", "F"]) app.ctx.rememberRecentStop(a, `Stop ${a}`);
+  assert.deepEqual(plain(app.ctx.readRecentStops()).map(s => s.atco), ["F", "E", "D", "A", "C"]);
+});
+
+test("the home sheet gives each saved stop its next buses, escaped, and leaves saved stops out of Recent", () => {
+  const { ctx } = loadApp();
+  const html = ctx.homeSheetHtml(
+    [{ atco: "1490A", name: "High <b>Street</b>" }],
+    [{ atco: "1490A", name: "High Street" }, { atco: "1490B", name: "Ham Road" }],
+    { "1490A": [{ service: "700", destination: "brighton", aimed_departure: "2026-11-06T12:05:00+00:00" }] });
+  assert.doesNotMatch(html, /<b>Street/);
+  assert.match(html, /<strong>700<\/strong> 12:05 to Brighton/);
+  assert.match(html, /timetable/);
+  assert.equal((html.match(/data-home-stop="1490A"/g) || []).length, 1, "a saved stop is listed again under Recent");
+  assert.match(html, /data-home-stop="1490B"/);
+});
+
+test("blocked storage: nothing throws, nothing is claimed, and the reader is told", () => {
   const app = loadApp({ blocked: true });
-  assert.equal(app.ctx.startupFavouriteStop({}, STOPS), null);
+  assert.deepEqual(plain(app.ctx.readSavedStops()), []);
   select(app.ctx, "1490A", "Shoreham High Street");
   assert.doesNotThrow(() => app.ctx.toggleFavouriteStop());
+  assert.doesNotThrow(() => app.ctx.rememberRecentStop("1490A", "x"));
   assert.equal(app.button.attrs["aria-pressed"], "false", "the star must not claim a save that failed");
-  assert.ok(app.toasts.some(t => /save/i.test(t)), "a save that failed says so");
-});
-
-test("the button is a real toggle with a name and a 44px target", () => {
-  const html = readFileSync(join(ROOT, "index.html"), "utf8");
-  const btn = html.match(/<button[^>]*id="favourite-stop-btn"[^>]*>[\s\S]*?<\/button>/);
-  assert.ok(btn, "index.html needs #favourite-stop-btn in the stop header");
-  assert.match(btn[0], /type="button"/);
-  assert.match(btn[0], /aria-pressed="false"/);
-  assert.match(btn[0], /aria-label="[^"]+"|class="visually-hidden"[^>]*>[^<]+</, "an icon alone has no name");
-  const css = readFileSync(join(ROOT, "style.css"), "utf8");
-  const rule = css.match(/\.btn-favourite-stop\s*\{[^}]*\}/);
-  assert.ok(rule, "style.css needs a .btn-favourite-stop rule");
-  assert.match(rule[0], /min-(width|height):\s*var\(--target-min\)/);
+  assert.match(app.toasts.at(-1), /can't be kept/);
 });

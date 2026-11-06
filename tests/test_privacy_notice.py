@@ -184,6 +184,10 @@ def test_the_storage_table_lists_exactly_the_keys_the_code_uses():
     for m in re.finditer(r'localStorage\.(?:getItem|setItem|removeItem)\(\s*([A-Z0-9_]+|"[^"]+")', APP):
         token = m.group(1)
         used.add(token.strip('"') if token.startswith('"') else consts[token])
+    # Saved and recent stops go through one pair of helpers (readStopList,
+    # writeStopList), so the key is what is handed to them.
+    for m in re.finditer(r'(?:readStopList|writeStopList)\(\s*([A-Z0-9_]+_KEY)', APP):
+        used.add(consts[m.group(1)])
     used.add(consts["ANALYTICS_OPT_OUT_KEY"])
     listed = set(re.findall(r"<tr><td><code>([^<]+)</code></td>", PRIVACY))
     assert used == listed, (
