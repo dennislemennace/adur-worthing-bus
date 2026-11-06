@@ -4967,6 +4967,12 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 .route-areas-list li { min-height: var(--target-min); display: list-item; }
 .route-areas-list .jt-link { min-height: var(--target-min); }
 .route-areas-figure { color: var(--color-text-muted); }
+.route-area-census, .route-area-delays { margin: 0; color: var(--color-text); }
+.route-area-delays-title { margin: 0 0 2px; font-weight: 600; }
+.route-area-delays ul { margin: 0 0 4px; padding-left: 1.2em; }
+.route-area-compare-pick { display: grid; gap: 4px; font-weight: 600; color: var(--color-text); }
+.route-area-compare-pick select { min-height: var(--target-min); font: inherit; font-weight: 400; }
+.route-area-compare th[scope="col"] { text-align: right; }
 .route-detail-head { display: flex; align-items: flex-start; gap: var(--space-sm); }
 .route-detail-title { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-sm); }
 .route-detail-op { font-size: var(--font-size-xs); color: var(--color-text-muted); }

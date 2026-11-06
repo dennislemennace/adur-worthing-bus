@@ -12823,6 +12823,11 @@ async function showAreas() {
     if (mine() && host) host.innerHTML = `<p class="route-detail-note">The areas could not be loaded. Try again in a moment.</p>`;
     return;
   }
+  // Who lives there and the time lost on the road: extras on the card, drawn
+  // again when they arrive, never waited for.
+  const again = () => { if (state.areasOn && mine()) renderAreasPanel(); };
+  if (!state.wardCensus) loadWardCensus().then(again).catch(() => {});
+  if (!state.wardDelays) loadWardDelays().then(again).catch(() => {});
   if (!mine() || !state.areasOn || state.viewMode !== "improvements" || !state.map) return;
   hideRouteLines();
   drawAreas();
@@ -12914,9 +12919,146 @@ function renderAreasPanel() {
     host.querySelector(`[data-area-day="${state.areaDay}"]`)?.focus();
   }));
   host.querySelectorAll("[data-area]").forEach(b => b.addEventListener("click", () => selectArea(b.dataset.area)));
+  host.querySelector("[data-area-compare]")?.addEventListener("change", (e) => {
+    state.areaCompare = e.target.value || null;
+    renderAreasPanel();
+    host.querySelector("[data-area-compare]")?.focus();
+    if (state.areaCompare) track("view-area-compare");
+  });
+  host.querySelector("[data-area-write]")?.addEventListener("click", async (e) => {
+    const code = e.currentTarget.dataset.areaWrite;
+    const w = (state.localities.wards || []).find(x => x.code === code);
+    let reps;
+    try { reps = await loadRepresentatives(); } catch { showToast("Could not load the councillors' addresses. Try again."); return; }
+    const emails = (((reps.areas || {})[code] || {}).members || []).map(m => m.email).filter(Boolean);
+    const href = w && wardLetterHref(w, emails);
+    if (!href) { showToast("This ward's councillors have no published email address."); return; }
+    track("councillor-ward-letter");
+    location.href = href;
+  });
 }
 
 /** One ward's card: its figures by day, its stops' access, its councillors. */
+function loadWardCensus() {
+  if (!state._wardCensusPromise) {
+    state._wardCensusPromise = fetch("data/ward_census.json")
+      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+      .then(doc => (state.wardCensus = doc))
+      .catch(err => { state._wardCensusPromise = null; throw err; });
+  }
+  return state._wardCensusPromise;
+}
+
+/** Time lost on the road by ward: a nightly artifact beside the delay map
+ *  (scripts/build_ward_delays.py), through the journey-times index. */
+async function loadWardDelays() {
+  if (state.wardDelays) return state.wardDelays;
+  const index = await loadJourneyTimesIndex();
+  const art = index && index.artifacts && index.artifacts["ward-delays.json"];
+  if (!art) return null;
+  state.wardDelays = await loadJourneyTimes(art.file, art.sha256 || "");
+  return state.wardDelays;
+}
+
+function pctText(part, whole) {
+  return whole ? `${Math.round(part * 100 / whole)}%` : "";
+}
+
+/** The ward's people, from Census 2021, beside its buses. */
+function areaCensusHtml(code) {
+  const doc = state.wardCensus;
+  const c = doc && doc.wards && doc.wards[code];
+  if (!c) return "";
+  return `<p class="route-area-census">${escapeHtml(c.households_no_car.toLocaleString("en-GB"))} of
+    ${escapeHtml(c.households.toLocaleString("en-GB"))} households here have no car or van
+    (${escapeHtml(pctText(c.households_no_car, c.households))}), and ${escapeHtml(c.residents_65_plus.toLocaleString("en-GB"))}
+    of ${escapeHtml(c.residents.toLocaleString("en-GB"))} residents are 65 or over
+    (${escapeHtml(pctText(c.residents_65_plus, c.residents))}). <span class="route-area-note">Census 2021,
+    by output area, best fit to the 2025 wards.</span></p>`;
+}
+
+/** Time lost on the road here, on weekdays, where the delay map has enough
+ *  journeys to say; "too few" otherwise, never a figure. */
+function areaDelaysHtml(code) {
+  const doc = state.wardDelays;
+  const w = doc && doc.wards && doc.wards[code];
+  if (!w) return "";
+  const mins = (secs) => `${(Math.round(secs / 6) / 10).toLocaleString("en-GB")} min`;
+  const slot = (key, label) => {
+    const x = w[key] || {};
+    if (!x.stretches) return `<li>${escapeHtml(label)}: too few journeys on its roads yet to say.</li>`;
+    const worst = x.worst || {};
+    return `<li>${escapeHtml(label)}: buses lose a typical ${escapeHtml(mins(x.median_lost_secs))} on its
+      ${escapeHtml(String(x.stretches))} measured stretch${x.stretches === 1 ? "" : "es"}; most on the
+      ${escapeHtml(worst.service || "")} from ${escapeHtml(worst.from || "")} to ${escapeHtml(worst.to || "")}
+      (${escapeHtml(mins(worst.lost_secs || 0))}).</li>`;
+  };
+  const win = doc.window || {};
+  return `<div class="route-area-delays"><p class="route-area-delays-title">Time lost on the road, weekdays</p>
+    <ul>${slot("weekday:10-16", "10:00 to 16:00")}${slot("weekday:16-18", "16:00 to 18:00")}</ul>
+    <p class="route-area-note">Recorded from the buses' own positions${win.days ? `, ${escapeHtml(String(win.days))} days to
+      ${escapeHtml(win.to || "")}` : ""}, against the timetable.</p></div>`;
+}
+
+/** The councillors' addresses, from data/representatives.json. */
+function loadRepresentatives() {
+  if (!state._representativesPromise) {
+    state._representativesPromise = fetch("data/representatives.json")
+      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+      .catch(err => { state._representativesPromise = null; throw err; });
+  }
+  return state._representativesPromise;
+}
+
+/** A letter to a ward's councillors, quoting the ward's figures with their
+ *  week, for the reader to edit in their own email app. The site sends
+ *  nothing. */
+function wardLetterHref(w, emails, doc = state.localities, census = state.wardCensus) {
+  if (!emails.length) return "";
+  const m = (w.days || {}).monday || {};
+  const all = ((doc && doc.wards) || []).map(x => ((x.days || {}).monday || {}).departures_per_stop).filter(v => v > 0).sort((a, b) => a - b);
+  const middle = all.length ? all[Math.floor(all.length / 2)] : null;
+  const week = doc && doc.measured_week && doc.measured_week.monday;
+  const c = census && census.wards && census.wards[w.code];
+  const lines = [
+    "Dear councillors,",
+    "",
+    `I am writing about the buses in ${w.name}.`,
+    m.departures_per_stop != null
+      ? `On a weekday${week ? ` in the week of ${week}` : ""}, a bus stop in ${w.name} has ${m.departures_per_stop} buses on average${
+          middle != null ? `, where the middle ward on the coast has ${middle}` : ""}, from the published timetable.` : "",
+    c ? `${c.households_no_car} of ${c.households} households here have no car or van (Census 2021).` : "",
+    "",
+    "I would like you to press for better bus services here, planned with our neighbours as one joined-up network along the coast.",
+    "",
+    "The figures are on worthingbrightonbus.co.uk, in Route view under Areas.",
+    "",
+    "Yours sincerely,",
+  ].filter((l, i, arr) => l !== "" || arr[i - 1] !== "");
+  return `mailto:${emails.map(encodeURIComponent).join(",")}?subject=${encodeURIComponent(`Buses in ${w.name}`)}&body=${
+    encodeURIComponent(lines.join("\n"))}`;
+}
+
+/** Two wards side by side: the comparison the boundary evidence makes for
+ *  Lancing and South Portslade, for any pair. */
+function areaCompareHtml(a, b) {
+  const per = (w, day) => { const v = ((w.days || {})[day] || {}).departures_per_stop; return v == null ? "None" : String(v); };
+  const c = (w) => state.wardCensus && state.wardCensus.wards && state.wardCensus.wards[w.code];
+  const noCar = (w) => { const x = c(w); return x ? pctText(x.households_no_car, x.households) : "–"; };
+  const last = (w) => (((w.days || {}).monday || {}).last) || "None";
+  const row = (label, fn) => `<tr><th scope="row">${escapeHtml(label)}</th><td>${escapeHtml(fn(a))}</td><td>${escapeHtml(fn(b))}</td></tr>`;
+  return `<table class="route-area-table route-area-compare">
+    <thead><tr><td></td><th scope="col">${escapeHtml(a.name)}</th><th scope="col">${escapeHtml(b.name)}</th></tr></thead>
+    <tbody>
+      ${row("Buses per stop, weekday", w => per(w, "monday"))}
+      ${row("Saturday", w => per(w, "saturday"))}
+      ${row("Sunday", w => per(w, "sunday"))}
+      ${row("Routes, weekday", w => String(((w.days || {}).monday || {}).routes || 0))}
+      ${row("Last bus, weekday", last)}
+      ${row("Households with no car", noCar)}
+    </tbody></table>`;
+}
+
 function areaCardHtml(w, doc) {
   const d = w.days || {};
   const row = (label, value) => `<tr><th scope="row">${escapeHtml(label)}</th>${value}</tr>`;
@@ -12941,6 +13083,16 @@ function areaCardHtml(w, doc) {
     </table>
     <p class="route-area-note">"Through the night" counts buses between half past midnight and half past
       four. A day runs from 04:00 to 04:00.</p>
+    ${areaCensusHtml(w.code)}
+    ${areaDelaysHtml(w.code)}
+    <label class="route-area-compare-pick">Compare with
+      <select data-area-compare>
+        <option value="">Choose a ward</option>
+        ${(doc.wards || []).filter(x => x.code !== w.code).map(x => `<option value="${escapeAttr(x.code)}"${
+          x.code === state.areaCompare ? " selected" : ""}>${escapeHtml(x.name)} (${escapeHtml(x.district)})</option>`).join("")}
+      </select></label>
+    ${(() => { const other = (doc.wards || []).find(x => x.code === state.areaCompare && x.code !== w.code);
+      return other ? areaCompareHtml(w, other) : ""; })()}
     <p class="route-area-access">OpenStreetMap records a shelter at ${escapeHtml(String(a.shelter_yes || 0))} of
       ${escapeHtml(String(w.stops))} stops here, and step-free access at ${escapeHtml(String(a.step_free_recorded || 0))}${
       a.step_free_recorded ? ` (${escapeHtml(String(a.step_free_yes || 0))} step-free)` : ""}. Much is not recorded yet:
@@ -12948,7 +13100,11 @@ function areaCardHtml(w, doc) {
     ${members.length ? `<p class="route-area-councillors"><strong>Councillors</strong>${
       w.councillors.council ? ` (${escapeHtml(w.councillors.council)})` : ""}:
       ${members.map(m => `${m.url ? `<a href="${escapeAttr(safeUrl(m.url))}" target="_blank" rel="noopener">${
-        escapeHtml(m.name)}</a>` : escapeHtml(m.name)}${m.party ? ` (${escapeHtml(m.party)})` : ""}`).join(", ")}.</p>` : ""}
+        escapeHtml(m.name)}</a>` : escapeHtml(m.name)}${m.party ? ` (${escapeHtml(m.party)})` : ""}`).join(", ")}.</p>
+    <button type="button" class="objective-contact-btn" data-area-write="${escapeAttr(w.code)}">
+      <svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg><span>Write to them about the buses here</span></button>
+    <p class="objective-contact-note">Drafts a letter quoting these figures in your own email app, for you to
+      edit before sending.</p>` : ""}
     <p class="stop-access-source">Scheduled departures, not buses that ran. ${(doc.caveats || []).slice(1, 2).map(escapeHtml).join(" ")}</p>
   </section>`;
 }

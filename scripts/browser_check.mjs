@@ -2010,6 +2010,18 @@ async function checkAreas(page, where, { contrast = false } = {}) {
       selected: document.querySelectorAll(".area-poly--selected").length, focus: document.activeElement && document.activeElement.id }; })())`));
   check(`a ward chosen from the list opens its card and is outlined on the map — ${where}`,
     card.card && card.rows === 5 && card.selected === 1 && card.focus === "route-area-name", JSON.stringify(card));
+  await waitFor(page, "!!state.wardCensus", 10000).catch(() => {});
+  await page.evaluate(`(() => { const sel = document.querySelector("[data-area-compare]");
+    sel.value = sel.options[1].value; sel.dispatchEvent(new Event("change", { bubbles: true })); })()`);
+  await sleep(500);
+  const cmp = JSON.parse(await page.evaluate(`JSON.stringify({ table: !!document.querySelector(".route-area-compare"),
+    cols: document.querySelectorAll(".route-area-compare thead th").length,
+    census: !!document.querySelector(".route-area-census"),
+    write: !!document.querySelector("[data-area-write]") })`));
+  check(`a ward compares with another, and says who lives there — ${where}`,
+    cmp.table && cmp.cols === 2 && cmp.census && cmp.write, JSON.stringify(cmp));
+  await page.evaluate(`(() => { const sel = document.querySelector("[data-area-compare]");
+    sel.value = ""; sel.dispatchEvent(new Event("change", { bubbles: true })); })()`);
   const before = await page.evaluate(`document.querySelectorAll(".area-poly.area-band-4").length`);
   await page.evaluate(`document.querySelector('[data-area-day="sunday"]').click()`);
   await sleep(300);

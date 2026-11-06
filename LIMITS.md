@@ -479,6 +479,14 @@ flag — the schema is a map of the surface.
   2026), which Pages serves to Route view's Areas section only when it is
   opened. There are no live ONS calls from the site.
 
+## Nomis and the ONS lookup — Census 2021 by ward, once
+
+- `scripts/build_ward_census.py`, run by hand once (Census figures do not
+  change; again only if the wards do), asks Nomis for two Census 2021 tables
+  by output area (TS045 and TS007A, paged at Nomis's 25,000-row limit) and the
+  ONS for its output-area-to-2025-ward lookup (paged at 1,000). No keys. It
+  writes `data/ward_census.json` (about 7 KB). No live calls from the site.
+
 ## postcodes.io — postcode to councillor lookup
 
 - Free, no API key, no registration, CORS-enabled. Run by Ideal Postcodes as a

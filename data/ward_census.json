@@ -1,0 +1,326 @@
+{
+ "_comment": "Census 2021 by May 2025 ward, for Route view's Areas card: households with no car or van, and residents aged 65 and over. Output areas summed by the ONS best-fit lookup. Built once by scripts/build_ward_census.py.",
+ "generated_on": "2026-11-06",
+ "census_day": "2021-03-21",
+ "sources": [
+  {
+   "name": "Census 2021, TS045 Car or van availability (Nomis NM_2063_1)",
+   "url": "https://www.nomisweb.co.uk/datasets/c2021ts045"
+  },
+  {
+   "name": "Census 2021, TS007A Age by five-year age bands (Nomis NM_2020_1)",
+   "url": "https://www.nomisweb.co.uk/datasets/c2021ts007a"
+  },
+  {
+   "name": "ONS, Output Area (2021) to Ward (May 2025) best-fit lookup",
+   "url": "https://geoportal.statistics.gov.uk/"
+  }
+ ],
+ "licence": "Open Government Licence v3.0",
+ "attribution": "Office for National Statistics, Census 2021. Source: ONS licensed under the Open Government Licence v3.0.",
+ "caveats": [
+  "Each output area is counted wholly in one ward (best fit), so a ward's figures can differ slightly from any published for it directly."
+ ],
+ "wards": {
+  "E05007562": {
+   "households": 1661,
+   "households_no_car": 166,
+   "residents": 4031,
+   "residents_65_plus": 1031
+  },
+  "E05007563": {
+   "households": 2061,
+   "households_no_car": 467,
+   "residents": 4445,
+   "residents_65_plus": 1261
+  },
+  "E05007564": {
+   "households": 1898,
+   "households_no_car": 266,
+   "residents": 4481,
+   "residents_65_plus": 1081
+  },
+  "E05007565": {
+   "households": 1883,
+   "households_no_car": 444,
+   "residents": 4836,
+   "residents_65_plus": 821
+  },
+  "E05007566": {
+   "households": 1786,
+   "households_no_car": 268,
+   "residents": 4466,
+   "residents_65_plus": 983
+  },
+  "E05007567": {
+   "households": 1726,
+   "households_no_car": 188,
+   "residents": 4516,
+   "residents_65_plus": 1039
+  },
+  "E05007568": {
+   "households": 2074,
+   "households_no_car": 250,
+   "residents": 4669,
+   "residents_65_plus": 1014
+  },
+  "E05007569": {
+   "households": 1823,
+   "households_no_car": 361,
+   "residents": 4467,
+   "residents_65_plus": 933
+  },
+  "E05007570": {
+   "households": 1872,
+   "households_no_car": 343,
+   "residents": 4401,
+   "residents_65_plus": 1122
+  },
+  "E05007571": {
+   "households": 2302,
+   "households_no_car": 590,
+   "residents": 5240,
+   "residents_65_plus": 1145
+  },
+  "E05007572": {
+   "households": 1818,
+   "households_no_car": 335,
+   "residents": 4113,
+   "residents_65_plus": 1221
+  },
+  "E05007573": {
+   "households": 1801,
+   "households_no_car": 414,
+   "residents": 4269,
+   "residents_65_plus": 859
+  },
+  "E05007574": {
+   "households": 2009,
+   "households_no_car": 379,
+   "residents": 4610,
+   "residents_65_plus": 1017
+  },
+  "E05007575": {
+   "households": 2953,
+   "households_no_car": 634,
+   "residents": 5981,
+   "residents_65_plus": 1735
+  },
+  "E05007694": {
+   "households": 3788,
+   "households_no_car": 697,
+   "residents": 9306,
+   "residents_65_plus": 1424
+  },
+  "E05007695": {
+   "households": 3990,
+   "households_no_car": 718,
+   "residents": 9435,
+   "residents_65_plus": 1856
+  },
+  "E05007696": {
+   "households": 5458,
+   "households_no_car": 2284,
+   "residents": 10572,
+   "residents_65_plus": 1976
+  },
+  "E05007697": {
+   "households": 2634,
+   "households_no_car": 467,
+   "residents": 5841,
+   "residents_65_plus": 1568
+  },
+  "E05007698": {
+   "households": 3969,
+   "households_no_car": 854,
+   "residents": 9393,
+   "residents_65_plus": 1472
+  },
+  "E05007699": {
+   "households": 3837,
+   "households_no_car": 609,
+   "residents": 8410,
+   "residents_65_plus": 2963
+  },
+  "E05007700": {
+   "households": 4520,
+   "households_no_car": 1613,
+   "residents": 8732,
+   "residents_65_plus": 2380
+  },
+  "E05007701": {
+   "households": 3888,
+   "households_no_car": 733,
+   "residents": 8252,
+   "residents_65_plus": 2330
+  },
+  "E05007702": {
+   "households": 2794,
+   "households_no_car": 336,
+   "residents": 7495,
+   "residents_65_plus": 776
+  },
+  "E05007703": {
+   "households": 3309,
+   "households_no_car": 320,
+   "residents": 7980,
+   "residents_65_plus": 2369
+  },
+  "E05007704": {
+   "households": 3887,
+   "households_no_car": 508,
+   "residents": 9068,
+   "residents_65_plus": 2666
+  },
+  "E05007705": {
+   "households": 3776,
+   "households_no_car": 1013,
+   "residents": 8419,
+   "residents_65_plus": 1609
+  },
+  "E05007706": {
+   "households": 3658,
+   "households_no_car": 648,
+   "residents": 8468,
+   "residents_65_plus": 1579
+  },
+  "E05015398": {
+   "households": 5809,
+   "households_no_car": 3133,
+   "residents": 10088,
+   "residents_65_plus": 954
+  },
+  "E05015399": {
+   "households": 5976,
+   "households_no_car": 2883,
+   "residents": 10715,
+   "residents_65_plus": 1343
+  },
+  "E05015400": {
+   "households": 2082,
+   "households_no_car": 659,
+   "residents": 10103,
+   "residents_65_plus": 750
+  },
+  "E05015401": {
+   "households": 7090,
+   "households_no_car": 2955,
+   "residents": 14291,
+   "residents_65_plus": 2165
+  },
+  "E05015402": {
+   "households": 5993,
+   "households_no_car": 1456,
+   "residents": 15210,
+   "residents_65_plus": 2642
+  },
+  "E05015403": {
+   "households": 6569,
+   "households_no_car": 2788,
+   "residents": 16009,
+   "residents_65_plus": 1174
+  },
+  "E05015404": {
+   "households": 5976,
+   "households_no_car": 1621,
+   "residents": 15435,
+   "residents_65_plus": 1948
+  },
+  "E05015405": {
+   "households": 6514,
+   "households_no_car": 3674,
+   "residents": 11534,
+   "residents_65_plus": 1597
+  },
+  "E05015406": {
+   "households": 5492,
+   "households_no_car": 2134,
+   "residents": 15009,
+   "residents_65_plus": 1476
+  },
+  "E05015407": {
+   "households": 4127,
+   "households_no_car": 791,
+   "residents": 10121,
+   "residents_65_plus": 1637
+  },
+  "E05015408": {
+   "households": 6241,
+   "households_no_car": 1182,
+   "residents": 15391,
+   "residents_65_plus": 3059
+  },
+  "E05015409": {
+   "households": 7057,
+   "households_no_car": 2493,
+   "residents": 15577,
+   "residents_65_plus": 1833
+  },
+  "E05015410": {
+   "households": 4724,
+   "households_no_car": 2403,
+   "residents": 10318,
+   "residents_65_plus": 1349
+  },
+  "E05015411": {
+   "households": 5541,
+   "households_no_car": 3610,
+   "residents": 9933,
+   "residents_65_plus": 976
+  },
+  "E05015412": {
+   "households": 4642,
+   "households_no_car": 890,
+   "residents": 10161,
+   "residents_65_plus": 2938
+  },
+  "E05015413": {
+   "households": 3811,
+   "households_no_car": 1707,
+   "residents": 8770,
+   "residents_65_plus": 678
+  },
+  "E05015414": {
+   "households": 4063,
+   "households_no_car": 1087,
+   "residents": 9902,
+   "residents_65_plus": 1513
+  },
+  "E05015415": {
+   "households": 5571,
+   "households_no_car": 3622,
+   "residents": 10593,
+   "residents_65_plus": 835
+  },
+  "E05015416": {
+   "households": 4472,
+   "households_no_car": 1500,
+   "residents": 9916,
+   "residents_65_plus": 1440
+  },
+  "E05015417": {
+   "households": 6109,
+   "households_no_car": 680,
+   "residents": 15875,
+   "residents_65_plus": 3098
+  },
+  "E05015418": {
+   "households": 5287,
+   "households_no_car": 2244,
+   "residents": 12206,
+   "residents_65_plus": 1808
+  },
+  "E05015419": {
+   "households": 4327,
+   "households_no_car": 1176,
+   "residents": 10199,
+   "residents_65_plus": 1696
+  },
+  "E05015420": {
+   "households": 3914,
+   "households_no_car": 778,
+   "residents": 9765,
+   "residents_65_plus": 2112
+  }
+ }
+}

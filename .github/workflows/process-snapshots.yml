@@ -458,6 +458,10 @@ jobs:
           python scripts/build_route_reports.py --observations inputs/window \
             --identification identification.json --headways-dir headways \
             --map-dir hotspot-map --out-dir route-reports
+          # Time lost on the road in each ward, for Route view's Areas card,
+          # from the delay map above and the wards in data/localities.json.
+          python scripts/build_ward_delays.py --map-dir hotspot-map --localities data/localities.json \
+            --out ward-delays.json
           # One artifact per service map and waiting file, validated with the rest of the candidate.
           MAP_ARTIFACTS=()
           shopt -s nullglob    # an empty folder adds nothing, not a literal '*.json'
@@ -478,6 +482,7 @@ jobs:
             --artifact "identification.json=identification.json" \
             --artifact "running-recovery.json=running-recovery.json" \
             --artifact "turnarounds.json=turnarounds.json" \
+            --artifact "ward-delays.json=ward-delays.json" \
             "${MAP_ARTIFACTS[@]}" \
             --sources inputs/sources.json --evidence evidence.json \
             --previous-index previous-index.json --out candidate > build-id.txt

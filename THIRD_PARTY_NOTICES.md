@@ -116,6 +116,13 @@ for National Statistics licensed under the Open Government Licence v3.0.
 Contains OS data © Crown copyright and database right 2026. Contains Royal Mail
 data © Royal Mail copyright and database right 2026.
 
+## Census 2021: Open Government Licence v3.0
+
+Households without a car or van and residents aged 65 and over by ward
+(`data/ward_census.json`), from Census 2021 tables TS045 and TS007A through
+Nomis, summed to wards with the ONS output area to ward lookup. Source: Office
+for National Statistics licensed under the Open Government Licence v3.0.
+
 ## TransportAPI
 
 Live departure predictions, fetched by the API at request time and not
