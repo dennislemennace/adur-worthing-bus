@@ -479,6 +479,15 @@ flag — the schema is a map of the surface.
   2026), which Pages serves to Route view's Areas section only when it is
   opened. There are no live ONS calls from the site.
 
+## Nominatim — where each Discover place is, by hand
+
+- `scripts/locate_destinations.py`, run by hand when a place is added to
+  `data/destinations.json`, asks OpenStreetMap's Nominatim once a place, a
+  second apart, with a real User-Agent (its usage policy). About twenty
+  requests a run. No live calls from the site.
+- `/api/direct-from` (Discover) reads only the local timetable: no upstream
+  call, cached five minutes per set of stops.
+
 ## Nomis and the ONS lookup — Census 2021 by ward, once
 
 - `scripts/build_ward_census.py`, run by hand once (Census figures do not

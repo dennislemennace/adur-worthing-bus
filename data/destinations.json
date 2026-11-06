@@ -1,0 +1,476 @@
+{
+ "_comment": "Places worth visiting, for the Discover view (discover.js): each with its own page (source_url, checked by hand on checked_on), a line in our words, and where it is with its nearest stops, filled from OpenStreetMap by scripts/locate_destinations.py. Curated, not every tourism tag in OpenStreetMap. Added 6 November 2026 at the maintainer's request. Location and wheelchair facts from OpenStreetMap are ODbL.",
+ "checked_on": "2026-11-06",
+ "places": [
+  {
+   "id": "brighton-palace-pier",
+   "name": "Brighton Palace Pier",
+   "category": "Seafront",
+   "line": "The pier: rides, arcades and the view back along the seafront.",
+   "source_url": "https://www.brightonpier.co.uk/",
+   "checked_on": "2026-11-06",
+   "query": "Brighton Palace Pier, Brighton",
+   "lat": 50.81803,
+   "lon": -0.13664,
+   "osm": "way/96659794",
+   "wheelchair": "yes",
+   "stops": [
+    {
+     "atco": "149000007824",
+     "name": "Palace Pier",
+     "metres": 179
+    },
+    {
+     "atco": "149000006824",
+     "name": "Palace Pier",
+     "metres": 185
+    },
+    {
+     "atco": "149000006820",
+     "name": "Sea Life Centre",
+     "metres": 220
+    }
+   ]
+  },
+  {
+   "id": "brighton-i360",
+   "name": "Brighton i360",
+   "category": "Viewpoint",
+   "line": "A glass viewing pod that rises high over the seafront by the West Pier.",
+   "source_url": "https://www.brightoni360.co.uk/",
+   "checked_on": "2026-11-06",
+   "query": "Brighton i360, Brighton",
+   "lat": 50.82135,
+   "lon": -0.15092,
+   "osm": "relation/9045189",
+   "stops": [
+    {
+     "atco": "149000007080",
+     "name": "West Pier",
+     "metres": 54
+    },
+    {
+     "atco": "149000007079",
+     "name": "Brighton Centre",
+     "metres": 330
+    },
+    {
+     "atco": "149000006531",
+     "name": "Waitrose",
+     "metres": 383
+    }
+   ]
+  },
+  {
+   "id": "royal-pavilion",
+   "name": "Royal Pavilion & Garden",
+   "category": "History",
+   "line": "The Prince Regent's seaside palace, and its garden.",
+   "source_url": "https://brightonmuseums.org.uk/visit/royal-pavilion-garden/",
+   "checked_on": "2026-11-06",
+   "query": "Royal Pavilion, Brighton",
+   "lat": 50.82239,
+   "lon": -0.13765,
+   "osm": "way/338139685",
+   "wheelchair": "limited",
+   "stops": [
+    {
+     "atco": "149000006812",
+     "name": "North Street",
+     "metres": 90
+    },
+    {
+     "atco": "149000007816",
+     "name": "Royal Pavilion",
+     "metres": 102
+    },
+    {
+     "atco": "149000006811",
+     "name": "North Street",
+     "metres": 102
+    }
+   ]
+  },
+  {
+   "id": "brighton-museum",
+   "name": "Brighton Museum & Art Gallery",
+   "category": "Museum",
+   "line": "Art, design and the city's story, in the Royal Pavilion's garden.",
+   "source_url": "https://brightonmuseums.org.uk/brighton-museum-art-gallery/",
+   "checked_on": "2026-11-06",
+   "query": "Brighton Museum",
+   "lat": 50.82344,
+   "lon": -0.13795,
+   "osm": "way/104520966",
+   "wheelchair": "yes",
+   "stops": [
+    {
+     "atco": "149000007921",
+     "name": "Royal Pavilion",
+     "metres": 85
+    },
+    {
+     "atco": "149000006811",
+     "name": "North Street",
+     "metres": 158
+    },
+    {
+     "atco": "149000006812",
+     "name": "North Street",
+     "metres": 164
+    }
+   ]
+  },
+  {
+   "id": "booth-museum",
+   "name": "Booth Museum of Natural History",
+   "category": "Museum",
+   "line": "Victorian cases of birds and natural history, off Dyke Road.",
+   "source_url": "https://brightonmuseums.org.uk/booth-museum-of-natural-history/",
+   "checked_on": "2026-11-06",
+   "query": "Booth Museum of Natural History, Brighton",
+   "lat": 50.83709,
+   "lon": -0.15305,
+   "osm": "node/559471342",
+   "stops": [
+    {
+     "atco": "149000006185",
+     "name": "Booth Museum",
+     "metres": 16
+    },
+    {
+     "atco": "149000007185",
+     "name": "Booth Museum",
+     "metres": 112
+    },
+    {
+     "atco": "1490100891",
+     "name": "Port Hall Road",
+     "metres": 116
+    }
+   ]
+  },
+  {
+   "id": "preston-manor",
+   "name": "Preston Manor & Gardens",
+   "category": "History",
+   "line": "An Edwardian manor house and walled garden beside Preston Park.",
+   "source_url": "https://brightonmuseums.org.uk/preston-manor-gardens/",
+   "checked_on": "2026-11-06",
+   "query": "Preston Manor, Brighton",
+   "lat": 50.84249,
+   "lon": -0.15012,
+   "osm": "way/160607850",
+   "wheelchair": "limited",
+   "stops": [
+    {
+     "atco": "149000006039",
+     "name": "Preston Drove",
+     "metres": 94
+    },
+    {
+     "atco": "149000006040",
+     "name": "Preston Manor",
+     "metres": 123
+    },
+    {
+     "atco": "149000007038",
+     "name": "Rookery Close",
+     "metres": 154
+    }
+   ]
+  },
+  {
+   "id": "hove-museum",
+   "name": "Hove Museum of Creativity",
+   "category": "Museum",
+   "line": "Toys, film and craft, on New Church Road.",
+   "source_url": "https://brightonmuseums.org.uk/hove-museum-of-creativity/",
+   "checked_on": "2026-11-06",
+   "query": "Hove Museum",
+   "lat": 50.82968,
+   "lon": -0.18119,
+   "osm": "way/237087421",
+   "stops": [
+    {
+     "atco": "149000006573",
+     "name": "Westbourne Villas North",
+     "metres": 134
+    },
+    {
+     "atco": "149000007959",
+     "name": "Hove Street",
+     "metres": 155
+    },
+    {
+     "atco": "149000007961",
+     "name": "Hove Street",
+     "metres": 183
+    }
+   ]
+  },
+  {
+   "id": "brighton-marina",
+   "name": "Brighton Marina",
+   "category": "Seafront",
+   "line": "Shops, restaurants and the harbour at the east end of the seafront.",
+   "source_url": "https://www.brightonmarina.co.uk/",
+   "checked_on": "2026-11-06",
+   "query": "Brighton Marina, Brighton",
+   "lat": 50.81043,
+   "lon": -0.09892,
+   "osm": "way/33527103",
+   "stops": [
+    {
+     "atco": "149000007882",
+     "name": "The Waterfront",
+     "metres": 298
+    },
+    {
+     "atco": "149000006756",
+     "name": "Marina",
+     "metres": 416
+    },
+    {
+     "atco": "149000006972",
+     "name": "Marina Cinema",
+     "metres": 513
+    }
+   ]
+  },
+  {
+   "id": "sea-life-brighton",
+   "name": "SEA LIFE Brighton",
+   "category": "Family",
+   "line": "An aquarium in the Victorian arches beside the pier.",
+   "source_url": "https://www.visitsealife.com/brighton/",
+   "checked_on": "2026-11-06",
+   "query": "Sea Life Brighton, Marine Parade, Brighton",
+   "lat": 50.8196,
+   "lon": -0.13597,
+   "osm": "node/90634730",
+   "wheelchair": "limited",
+   "stops": [
+    {
+     "atco": "149000007821",
+     "name": "Sea Life Centre",
+     "metres": 55
+    },
+    {
+     "atco": "149000006820",
+     "name": "Sea Life Centre",
+     "metres": 60
+    },
+    {
+     "atco": "149000007835",
+     "name": "Old Steine",
+     "metres": 114
+    }
+   ]
+  },
+  {
+   "id": "volks-railway",
+   "name": "Volk's Electric Railway",
+   "category": "Seafront",
+   "line": "The Victorian electric railway along the beach towards Black Rock.",
+   "source_url": "https://volkselectricrailway.co.uk/",
+   "checked_on": "2026-11-06",
+   "query": "Volks Electric Railway",
+   "lat": 50.81731,
+   "lon": -0.12459,
+   "osm": "way/10320473",
+   "stops": [
+    {
+     "atco": "149000006005",
+     "name": "Burlington Street",
+     "metres": 61
+    },
+    {
+     "atco": "149000007005",
+     "name": "Burlington Street",
+     "metres": 88
+    },
+    {
+     "atco": "149000007004",
+     "name": "Bedford Street South",
+     "metres": 159
+    }
+   ]
+  },
+  {
+   "id": "shoreham-fort",
+   "name": "Shoreham Fort",
+   "category": "History",
+   "line": "A Victorian fort at the mouth of the River Adur.",
+   "source_url": "https://www.shorehamfort.co.uk/",
+   "checked_on": "2026-11-06",
+   "query": "Shoreham Fort, Shoreham-by-Sea",
+   "lat": 50.82752,
+   "lon": -0.26087,
+   "osm": "node/8174234765",
+   "stops": [
+    {
+     "atco": "4400AD0159",
+     "name": "Feversham Close",
+     "metres": 52
+    },
+    {
+     "atco": "4400AD0160",
+     "name": "Shingle Road",
+     "metres": 226
+    },
+    {
+     "atco": "4400AD0155",
+     "name": "Winterton Way",
+     "metres": 240
+    }
+   ]
+  },
+  {
+   "id": "ropetackle",
+   "name": "Ropetackle Arts Centre",
+   "category": "Arts",
+   "line": "Music, comedy and film by the river in Shoreham.",
+   "source_url": "https://ropetacklecentre.co.uk/",
+   "checked_on": "2026-11-06",
+   "query": "Ropetackle Arts Centre, Shoreham-by-Sea",
+   "lat": 50.83257,
+   "lon": -0.27905,
+   "osm": "way/286882235",
+   "stops": [
+    {
+     "atco": "4400AD0179",
+     "name": "Ropetackle",
+     "metres": 49
+    },
+    {
+     "atco": "4400AD0180",
+     "name": "Ropetackle",
+     "metres": 52
+    },
+    {
+     "atco": "4400AD0203",
+     "name": "High Street",
+     "metres": 91
+    }
+   ]
+  },
+  {
+   "id": "brighton-city-airport",
+   "name": "Brighton City Airport",
+   "category": "History",
+   "line": "A working 1930s Art Deco airport terminal by the Adur.",
+   "source_url": "https://flybrighton.com/",
+   "checked_on": "2026-11-06",
+   "query": "Shoreham Airport",
+   "lat": 50.83348,
+   "lon": -0.2907,
+   "osm": "node/13802012158",
+   "stops": [
+    {
+     "atco": "4400AD0356",
+     "name": "Adur Recreation Ground",
+     "metres": 597
+    },
+    {
+     "atco": "4400AD0165",
+     "name": "The Longshore",
+     "metres": 645
+    },
+    {
+     "atco": "4400AD0184",
+     "name": "North End",
+     "metres": 646
+    }
+   ]
+  },
+  {
+   "id": "lancing-college-chapel",
+   "name": "Lancing College Chapel",
+   "category": "History",
+   "line": "A great Gothic chapel on the hill above the Adur.",
+   "source_url": "https://www.lancingcollege.co.uk/",
+   "checked_on": "2026-11-06",
+   "query": "Lancing College Chapel, Lancing",
+   "lat": 50.84667,
+   "lon": -0.30239,
+   "osm": "way/168362405",
+   "stops": [
+    {
+     "atco": "4400AD0005",
+     "name": "Coombes Road",
+     "metres": 703
+    },
+    {
+     "atco": "4400AD0007",
+     "name": "Coombes Road",
+     "metres": 736
+    },
+    {
+     "atco": "4400AD0004",
+     "name": "Hoe Court",
+     "metres": 943
+    }
+   ]
+  },
+  {
+   "id": "worthing-museum",
+   "name": "Worthing Museum & Art Gallery",
+   "category": "Museum",
+   "line": "Costume, toys and local history, on Chapel Road.",
+   "source_url": "https://wtm.uk/museum/",
+   "checked_on": "2026-11-06",
+   "query": "Worthing Museum",
+   "lat": 50.8142,
+   "lon": -0.37171,
+   "osm": "way/90975001",
+   "stops": [
+    {
+     "atco": "4400WO0273",
+     "name": "Library",
+     "metres": 26
+    },
+    {
+     "atco": "4400WO0272",
+     "name": "Library",
+     "metres": 44
+    },
+    {
+     "atco": "4400WO0246",
+     "name": "Town Hall",
+     "metres": 48
+    }
+   ]
+  },
+  {
+   "id": "cissbury-ring",
+   "name": "Cissbury Ring",
+   "category": "Countryside",
+   "line": "An Iron Age hill fort on the Downs above Findon Valley.",
+   "source_url": "https://www.nationaltrust.org.uk/visit/sussex/cissbury-ring",
+   "checked_on": "2026-11-06",
+   "query": "Cissbury Ring, Findon",
+   "lat": 50.86061,
+   "lon": -0.38267,
+   "osm": "way/104716092",
+   "wheelchair": "no",
+   "stops": [
+    {
+     "atco": "4400WO0440",
+     "name": "May Tree Avenue",
+     "metres": 1420
+    },
+    {
+     "atco": "4400WO0478",
+     "name": "May Tree Avenue",
+     "metres": 1436
+    },
+    {
+     "atco": "4400WO0467",
+     "name": "Downside Avenue",
+     "metres": 1447
+    }
+   ]
+  }
+ ]
+}

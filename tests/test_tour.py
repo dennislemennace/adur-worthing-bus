@@ -25,7 +25,7 @@ BADGES = {"live", "recorded", "timetable", "sourced", "experimental", "about"}
 ACTIONS = {"board", "live-map", "evidence", "route-view", "route", "tickets", "planner",
            "journey-times", "delay-map", "updates", "better-buses", "home", "a11y", "link"}
 # Where a quick link on the last card can take the reader (tour.js tourFollowLink).
-LINK_VIEWS = {"live", "improvements", "tickets", "updates", "journeytimes", "network"}
+LINK_VIEWS = {"live", "improvements", "tickets", "updates", "journeytimes", "network", "discover"}
 LINK_ACTIONS = {"stop-search", "planner", "a11y"}
 SERVICES = {svc for s in json.loads((ROOT / "data" / "stops.json").read_text())["stops"]
             for svc in s.get("services") or []}

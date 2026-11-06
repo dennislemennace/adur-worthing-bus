@@ -1934,6 +1934,37 @@ async function checkDepartureJourneys(page, where) {
 }
 
 /**
+ * Discover: the places, and from a stop the ones a bus reaches without
+ * changing (the local API's /api/direct-from). Its places leave the map with
+ * the view.
+ */
+async function checkDiscover(page, where, { contrast = false } = {}) {
+  await page.evaluate("setViewMode('discover')");
+  await waitFor(page, "document.querySelectorAll('#tab-content-discover .disc-place').length >= 12", 15000).catch(() => {});
+  await page.evaluate(`discoverFromStops(["4400AD0204", "4400AD0203"], "High Street, Shoreham")`);
+  await waitFor(page, "!!document.querySelector('#tab-content-discover .disc-title')", 20000).catch(() => {});
+  await sleep(400);
+  const r = JSON.parse(await page.evaluate(`JSON.stringify({ hash: location.hash,
+    places: document.querySelectorAll("#tab-content-discover .disc-all .disc-place").length,
+    reached: document.querySelectorAll("#tab-content-discover .disc-results .disc-place").length,
+    how: (document.querySelector("#tab-content-discover .disc-how") || {}).textContent || "",
+    markers: document.querySelectorAll(".disc-marker").length,
+    on: document.querySelectorAll(".disc-marker:not(.disc-marker--off)").length })`));
+  check(`Discover lists the places a bus reaches directly, with the bus and the walk — ${where}`,
+    /view=d/.test(r.hash) && r.places >= 12 && r.reached >= 1 && /min walk/.test(r.how) && r.markers >= 12 && r.on === r.reached,
+    JSON.stringify(r));
+  if (contrast) {
+    await checkLayout(page, `Discover — ${where}`);
+    await checkReachable(page, `Discover — ${where}`);
+    await checkContrastBothThemes(page, `Discover — ${where}`);
+  }
+  await page.evaluate("setViewMode('live')");
+  await sleep(500);
+  const left = await page.evaluate(`document.querySelectorAll(".disc-marker").length`);
+  check(`leaving Discover takes its places off the map — ${where}`, left === 0, String(left));
+}
+
+/**
  * The home sheet: with nothing open, saved stops show under the search with
  * their next buses from the timetable, and a tap opens the board. The site is
  * installable: its manifest and icons are served and valid.
@@ -5420,6 +5451,7 @@ await checkStopAccessUpFront(page, VIEWPORTS[0].name, { contrast: true });
 await checkAreas(page, VIEWPORTS[0].name, { contrast: true });
 await checkStopAccessLayer(page, VIEWPORTS[0].name, { contrast: true });
 await checkHomeSheet(page, VIEWPORTS[0].name);
+await checkDiscover(page, VIEWPORTS[0].name, { contrast: true });
 await checkDepartureJourneys(page, VIEWPORTS[0].name);
 await checkTicketZonesPicker(page, VIEWPORTS[0].name);
 await checkMapTaps(page, VIEWPORTS[0].name);
@@ -5490,6 +5522,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkAreas(p, vp.name, { contrast: vp.name === "desktop" });
   await checkStopAccessLayer(p, vp.name);
   await checkHomeSheet(p, vp.name);
+  await checkDiscover(p, vp.name, { contrast: vp.name === "desktop" });
   await checkDepartureJourneys(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
   await checkBoardNext(p, vp.name);

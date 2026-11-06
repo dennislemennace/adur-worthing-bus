@@ -435,6 +435,7 @@ function buildUrlHash() {
   else if (state.viewMode === "network") parts.push("view=n");
   else if (state.viewMode === "updates") parts.push("view=u");
   else if (state.viewMode === "conference") parts.push("view=c");
+  else if (state.viewMode === "discover")   parts.push("view=d");
   else if (state.viewMode === "tour")       parts.push("view=tour");
   else if (state.viewMode === "journeytimes") parts.push("view=j");
   // A view open inside the tour names the step it was opened from, so a
@@ -494,6 +495,7 @@ async function applyUrlState(parsed) {
                : parsed.view === "n" ? "network"
                : parsed.view === "u" ? "updates"
                : parsed.view === "c" ? "conference"
+               : parsed.view === "d" ? "discover"
                : parsed.view === "tour" ? "tour"
                : parsed.view === "j" ? "journeytimes"
                : "live";
@@ -1903,7 +1905,7 @@ const analytics = { enabled: false, queue: [], once: new Set() };
 const VIEW_EVENT_NAMES = {
   live: "live", improvements: "route", tickets: "tickets",
   network: "better-buses", updates: "news", journeytimes: "journey-times",
-  conference: "conference", tour: "tour",
+  conference: "conference", tour: "tour", discover: "discover",
 };
 
 // Set by the switch on privacy.html. The analytics exemption in PECR, as
@@ -7755,7 +7757,7 @@ function initStopAccessControl() {
 }
 
 function syncStopAccessControl() {
-  const shown = ["live", "improvements"].includes(state.viewMode);
+  const shown = ["live", "improvements", "discover"].includes(state.viewMode);
   const box = state.stopAccessControl && state.stopAccessControl.getContainer();
   if (box) box.hidden = !shown;
   renderStopAccessLegend();
@@ -8105,6 +8107,12 @@ window.openDepartures = async function(atcoCode, stopName) {
   if (state.viewMode === "improvements") {
     state.map.closePopup();
     openRouteStop(atcoCode, stopName);
+    return;
+  }
+  // In Discover, a stop is where to start: the places a bus reaches from it.
+  if (state.viewMode === "discover") {
+    state.map.closePopup();
+    if (typeof discoverFromStops === "function") discoverFromStops([atcoCode], prettifyName(stopName));
     return;
   }
   // Stops are inert in the other network views (Ticket view).
@@ -11982,7 +11990,7 @@ function setNetworkTab(tab) {
  */
 function setViewMode(mode, { chosen = false } = {}) {
   if (!["live", "improvements", "tickets", "network", "updates",
-        "journeytimes", "conference", "tour"].includes(mode)) return;
+        "journeytimes", "conference", "tour", "discover"].includes(mode)) return;
   // `chosen`: the reader picked this section (the menu, the header, the
   // address), which is the way out of the tour. A view reached from inside the
   // tour any other way stays inside it (tour.js).
@@ -12128,6 +12136,8 @@ async function applyViewMode() {
   // Route-view map and nothing to explain them.
   // The conference guide's markers belong to its view alone.
   if (state.viewMode !== "conference" && typeof conferenceHide === "function") conferenceHide();
+  // Discover's places belong to its view alone.
+  if (state.viewMode !== "discover" && typeof discoverHide === "function") discoverHide();
   if (state.viewMode !== "tour" && typeof tourHide === "function") tourHide();
   // Route view's chosen stop and chosen route belong to Route view.
   if (state.viewMode !== "improvements") {
@@ -12251,6 +12261,16 @@ async function applyViewMode() {
     hideCouncilBoundaries();
     clearJourneyLayers();
     if (typeof conferenceShow === "function") await conferenceShow(mine);
+  } else if (state.viewMode === "discover") {
+    // Discover (discover.js): its places on the map, and the stops, which a
+    // tap turns into "direct from here".
+    if (state.editor) closeEditor({ skipSave: false });
+    hideRouteLines();
+    hideAllProposalLayers();
+    hideTicketZones();
+    hideCouncilBoundaries();
+    clearJourneyLayers();
+    if (typeof discoverShow === "function") await discoverShow(mine);
   } else if (state.viewMode === "tour") {
     // The guided tour (tour.js): the panel tells the story; the map keeps the
     // council boundary in view, since the first step is about that line.

@@ -3302,6 +3302,24 @@ html.dark-mode .stop-cluster-icon {
 }
 .leaflet-control-attribution a { color: var(--color-link) !important; }
 
+/* Discover: places worth a visit, and the ones a bus reaches directly. */
+.disc-guide { padding: var(--space-md); display: grid; gap: var(--space-sm); align-content: start; }
+.disc-intro p { margin: 0 0 var(--space-xs); }
+.disc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs) var(--space-sm); }
+.disc-or, .disc-note, .disc-status { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.disc-title { margin: 0; font-size: var(--font-size-md); }
+.disc-list { display: grid; gap: var(--space-xs); margin: 0; padding: 0; list-style: none; }
+.disc-place { padding: var(--space-xs) var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface); }
+.disc-place p { margin: 0 0 2px; font-size: var(--font-size-sm); color: var(--color-text); }
+.disc-place-name { font-weight: 700; font-size: var(--font-size-base) !important; }
+.disc-cat { font-weight: 400; font-size: var(--font-size-xs); color: var(--color-text-muted); margin-left: 4px; }
+.disc-meta { color: var(--color-text-muted) !important; font-size: var(--font-size-xs) !important; }
+.disc-place a, .disc-guide a { color: var(--color-link); }
+.disc-all summary { min-height: var(--target-min); display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.disc-marker { fill: var(--color-accent); fill-opacity: .95; stroke: #fff; stroke-width: 2; }
+.disc-marker--off { fill: var(--color-text-muted); fill-opacity: .45; }
+
 /* The home sheet: saved stops with their next buses, recent stops, and the
    last bus home, under the search before any stop is open. */
 .home-sheet { display: grid; gap: var(--space-xs); margin: var(--space-sm) 0 0; }

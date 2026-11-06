@@ -269,6 +269,7 @@
             <li role="option" data-mode="live" aria-selected="true" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-bus"/></svg><span>Live Bus Tracking</span></li>
             <li role="option" data-mode="improvements" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-route"/></svg><span>Route view</span></li>
             <li role="option" data-mode="tickets" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-ticket"/></svg><span>Tickets &amp; fares</span></li>
+            <li role="option" data-mode="discover" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-pin"/></svg><span>Discover</span></li>
             <li role="option" data-mode="network" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-lightbulb"/></svg><span>Better buses</span></li>
             <li role="option" data-mode="journeytimes" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-gauge"/></svg><span>Bus Performance</span></li>
             <li role="option" data-mode="updates" aria-selected="false" tabindex="-1"><svg class="icon section-nav-icon" aria-hidden="true"><use href="#i-newspaper"/></svg><span>News &amp; notes</span></li>
@@ -1298,6 +1299,26 @@
         </div>
       </div><!-- /panel-mode[data-mode="conference"] -->
 
+      <!-- === DISCOVER ===
+           Places worth visiting, and the ones a bus reaches without changing
+           from where you are (discover.js, data/destinations.json,
+           /api/direct-from). -->
+      <div class="panel-mode" data-mode="discover">
+        <div class="panel-tabs-bar">
+          <div class="panel-tabs">
+            <span class="panel-tab panel-tab-static active">
+              <span class="panel-tab-label">Discover</span>
+            </span>
+          </div>
+          <button class="btn-collapse-panel" type="button" aria-label="Hide panel" aria-pressed="false">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </button>
+        </div>
+        <div class="panel-tab-content disc-guide" id="tab-content-discover" role="tabpanel" aria-label="Discover">
+          <p class="proposals-empty">Loading the places…</p>
+        </div>
+      </div><!-- /panel-mode[data-mode="discover"] -->
+
       <!-- === GUIDED TOUR ===
            The way into the tour, for anyone meeting the project for the first
            time: the opening, a start button and the steps by name, drawn from
@@ -1672,6 +1693,7 @@
   <!-- Main application script -->
   <script src="app.js"></script>
   <script src="conference.js"></script>
+  <script src="discover.js"></script>
   <script src="tour-figures.js"></script>
   <script src="tour.js"></script>
 

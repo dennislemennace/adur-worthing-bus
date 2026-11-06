@@ -2099,6 +2099,48 @@ async def get_next_departures(
     return result
 
 
+# ── /api/direct-from ──────────────────────────────────────────
+DIRECT_FROM_TTL = 300
+DIRECT_FROM_MAX_STOPS = 6
+
+
+@app.get("/api/direct-from")
+async def get_direct_from(stops: str = Query(..., description="Up to six stop ids, comma-separated")):
+    """Every stop a bus reaches without changing from these stops, for the
+    rest of today: the soonest journey, the ride, and how many journeys. For
+    the Discover view (discover.js), which crosses it with its places.
+
+    Timetable only: a local SQLite read with no upstream call, cached for five
+    minutes per set of stops.
+    """
+    ids = [s.strip() for s in stops.split(",") if s.strip()]
+    if not ids or len(ids) > DIRECT_FROM_MAX_STOPS or any(len(s) > 30 or not re.fullmatch(r"[A-Za-z0-9]+", s) for s in ids):
+        raise HTTPException(status_code=400, detail="Give one to six stop ids.")
+    tt = await _get_timetable()
+    known = [s for s in ids if s in tt.stops]
+    if not known:
+        raise HTTPException(status_code=404, detail="None of those stops is in the timetable.")
+    now = datetime.now(UK_TZ)
+    key = f"direct:{','.join(sorted(known))}:{now:%Y%m%d%H}{now.minute // 5}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+    secs = now.hour * 3600 + now.minute * 60 + now.second
+    reach = await off_loop(tt.direct_from, known, now.date(), secs)
+    day_start = _service_day_start(now.date())
+    result = {
+        "from": known,
+        "as_of": now.isoformat(timespec="seconds"),
+        "reach": {atco: {"next": (day_start + timedelta(seconds=e["next_secs"])).astimezone(UK_TZ).isoformat(),
+                         "ride_mins": max(1, round(e["ride_secs"] / 60)), "from": e["from"],
+                         "service": e["service"], "operator": e["operator"],
+                         "routes": e["routes"], "trips": e["trips"]}
+                  for atco, e in reach.items()},
+    }
+    cache_set(key, result, DIRECT_FROM_TTL)
+    return result
+
+
 # ── /api/corridor-gaps ────────────────────────────────────────
 @app.get("/api/corridor-gaps")
 async def get_corridor_gaps():

@@ -835,6 +835,53 @@ class Timetable:
                     self.noc_for_route((self.trips.get(trip_id) or {}).get("route_id", ""))) == family)
         return cache[key]
 
+    def direct_from(self, stop_ids, day, after_secs: int, until_secs: int = 28 * 3600) -> dict:
+        """Every stop a bus reaches without changing from any of `stop_ids`.
+
+        For the Discover view's "Direct from here" (asked for 6 November
+        2026): the journeys leaving those stops on `day` between `after_secs`
+        and `until_secs` (service-day seconds, so 25:30 is half past one), and
+        for each later stop on the same journey, the soonest one there, how
+        long the ride takes, and how many journeys reach it in that time.
+
+        Returns `{stop_id: {next_secs, ride_secs, from, service, operator,
+        routes, trips}}`, `next_secs` being when the journey leaves `from`.
+        """
+        start = set(stop_ids)
+        runs: dict = {}
+        out: dict = {}
+        for from_id in stop_ids:
+            for dep, trip_id in self.stop_times_for(from_id):
+                if dep < after_secs or dep >= until_secs:
+                    continue
+                trip = self.trips.get(trip_id) or {}
+                service_id = trip.get("service_id", "")
+                if service_id not in runs:
+                    runs[service_id] = self.runs_on(service_id, day)
+                if not runs[service_id]:
+                    continue
+                calls = self.trip_stops_for(trip_id)
+                at = next((i for i, (secs, atco) in enumerate(calls) if atco == from_id and secs == dep), None)
+                if at is None:
+                    continue
+                route_id = trip.get("route_id", "")
+                short = (self.routes.get(route_id) or {}).get("short_name", "")
+                noc = self.noc_for_route(route_id)
+                for arr, atco in calls[at + 1:]:
+                    if atco in start:
+                        continue
+                    ride = arr - dep
+                    e = out.get(atco)
+                    if e is None or dep < e["next_secs"] or (dep == e["next_secs"] and ride < e["ride_secs"]):
+                        keep = e or {"routes": set(), "trips": 0}
+                        e = out[atco] = {**keep, "next_secs": dep, "ride_secs": ride, "from": from_id,
+                                         "service": short, "operator": noc}
+                    e["routes"].add(short)
+                    e["trips"] += 1
+        for e in out.values():
+            e["routes"] = sorted(r for r in e["routes"] if r)
+        return out
+
     def trip_stops_for(self, trip_id: str) -> list:
         """Return [(dep_secs, stop_id), ...] in trip sequence order."""
         if self._con is None:

@@ -87,6 +87,10 @@ be sourced.
 
 **Journey planner (experimental).** Door to door, across operators.
 
+**Discover.** Places worth a visit along the coast, and the ones a bus reaches
+without changing from where you are, with the bus to take, when it leaves and
+the walk at the far end (timetable only, from `/api/direct-from`).
+
 **Travel updates and analysis.** Diversions in the operators' own words, one
 card for each set of works, beside passenger reports and the project's own
 analysis, such as Freedom of Information replies and fare changes.

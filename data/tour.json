@@ -544,6 +544,11 @@
               "view": "tickets"
             },
             {
+              "label": "Discover",
+              "desc": "Places worth a visit, and the buses that reach them directly.",
+              "view": "discover"
+            },
+            {
               "label": "Travel updates",
               "desc": "Diversions and closures in force, and the site's analysis.",
               "view": "updates"
