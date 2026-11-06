@@ -74,7 +74,9 @@ const TOUR_TARGETS = {
 
 /** Stops whose target is the point of the stop: it goes to the top of the
  *  panel, front and centre, rather than only into view. */
-const TOUR_FRONT = ["journey-times", "delay-map", "route", "better-buses"];
+// The board too: the stop's access row arrives after the board and pushed it
+// out of a small phone's sheet (320 px, 6 November 2026).
+const TOUR_FRONT = ["journey-times", "delay-map", "route", "better-buses", "board"];
 
 // Lancing to Brighton: the council line at Portslade and the coast either
 // side of it. On a phone the map stops show this between the card and the

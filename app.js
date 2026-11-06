@@ -7863,6 +7863,10 @@ window.openDepartures = async function(atcoCode, stopName) {
   if (idEl) idEl.textContent = `Stop ID ${atcoCode}`;
   renderStopAccess(atcoCode);
   if (changedStop) {
+    // A different stop starts at its name and its access, not wherever the
+    // last stop's board was scrolled to.
+    const tab = document.getElementById("tab-content-stop");
+    if (tab) tab.scrollTop = 0;
     state.boardFilter = null;
     hideBoardNext();
     state.boardNearby = null;
