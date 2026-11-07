@@ -7873,6 +7873,15 @@ html.dark-mode .gap-fab { color: #0f1726; border-color: #0f1726; }
     overflow-y: auto;
   }
 }
+/* At the end of the panel's content on a phone (app.js placeSiteFooter): it
+   scrolls with what is above it, and sits at the foot of a short panel. */
+.site-footer.site-footer--in-panel {
+  margin-top: auto;
+  max-height: none;
+  overflow: visible;
+  z-index: auto;
+  padding: var(--space-sm) var(--space-md) calc(var(--space-sm) + env(safe-area-inset-bottom, 0px));
+}
 
 /* The header is deliberately NOT forced to a single ellipsised line. Doing
    that fixed the 200% case and broke every ordinary one: the title dropped to

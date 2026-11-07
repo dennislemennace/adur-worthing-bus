@@ -659,6 +659,7 @@ async function init() {
   bindUIEvents();
   bindA11yControls();
   bindKeyboardFooter();
+  bindSiteFooterPlace();
   bindStopSearch();
   initRoutePicker();
   bindAreas();
@@ -11085,6 +11086,46 @@ function opensKeyboard(el) {
   if (el.tagName === "TEXTAREA") return true;
   if (el.tagName !== "INPUT") return false;
   return KEYBOARD_INPUT_TYPES.has(String(el.getAttribute("type") || "").toLowerCase());
+}
+
+/* On a phone the credits sit at the end of the panel's content, not pinned
+ * under the sheet (asked for 7 November 2026): pinned, they took about 70 px
+ * of every screen in every view. The same element, so its links and their
+ * bindings stay, moved into whichever panel tab is showing, and back under
+ * the page on a wider screen. Watched, because a tab switch, a new view or a
+ * panel redrawing its contents can each leave it behind or take it away. */
+function placeSiteFooter() {
+  const footer = state._siteFooter;
+  if (!footer) return;
+  const home = state._siteFooterHome;
+  if (!isSheetLayout()) {
+    if (footer.parentElement !== home.parent) home.parent.insertBefore(footer, home.next);
+    footer.classList.remove("site-footer--in-panel");
+    return;
+  }
+  const host = [...document.querySelectorAll("#departure-panel .panel-tab-content")]
+    .find(el => typeof el.getClientRects === "function" && el.getClientRects().length);
+  if (!host) return;
+  if (host.lastElementChild !== footer) host.appendChild(footer);
+  footer.classList.add("site-footer--in-panel");
+}
+
+function bindSiteFooterPlace() {
+  const footer = document.querySelector(".site-footer");
+  const panel = document.getElementById("departure-panel");
+  if (!footer || !panel || typeof MutationObserver === "undefined") return;
+  state._siteFooter = footer;
+  state._siteFooterHome = { parent: footer.parentElement, next: footer.nextSibling };
+  let queued = false;
+  const later = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; placeSiteFooter(); });
+  };
+  new MutationObserver(later).observe(panel, { subtree: true, childList: true, attributes: true,
+                                               attributeFilter: ["class", "hidden"] });
+  window.addEventListener("resize", later);
+  later();
 }
 
 function bindKeyboardFooter() {
