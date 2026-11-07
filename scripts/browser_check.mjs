@@ -2008,7 +2008,7 @@ async function checkHomeSheet(page, where) {
 async function checkStopAccessLayer(page, where, { contrast = false } = {}) {
   await page.evaluate("setViewMode('live')");
   await sleep(500);
-  await page.evaluate("state.map.setView([50.8327, -0.2747], 16, { animate: false })");
+  await page.evaluate("state.map.setView([50.8327, -0.2747], 16, { animate: false }); 1");
   await sleep(800);
   await page.evaluate(`document.querySelector(".stop-access-btn").click()`);
   await waitFor(page, "document.querySelectorAll('.stop-marker-icon.stop-access-unknown, .stop-marker-icon.stop-access-yes').length > 0", 15000).catch(() => {});
