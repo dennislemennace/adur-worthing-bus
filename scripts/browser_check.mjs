@@ -1949,9 +1949,15 @@ async function checkDiscover(page, where, { contrast = false } = {}) {
     reached: document.querySelectorAll("#tab-content-discover .disc-results .disc-place").length,
     how: (document.querySelector("#tab-content-discover .disc-how") || {}).textContent || "",
     markers: document.querySelectorAll(".disc-marker").length,
+    // Shown, not only built: the view's panel was once hidden by the
+    // stylesheet's list of views while every count passed.
+    panel: document.getElementById("tab-content-discover").getBoundingClientRect().height > 0,
+    tappable: (() => { const s = document.querySelector(".leaflet-marker-icon.stop-marker-icon");
+      return !s || getComputedStyle(s).pointerEvents !== "none"; })(),
     on: document.querySelectorAll(".disc-marker:not(.disc-marker--off)").length })`));
   check(`Discover lists the places a bus reaches directly, with the bus and the walk — ${where}`,
-    /view=d/.test(r.hash) && r.places >= 12 && r.reached >= 1 && /min walk/.test(r.how) && r.markers >= 12 && r.on === r.reached,
+    /view=d/.test(r.hash) && r.places >= 12 && r.reached >= 1 && /min walk/.test(r.how) && r.markers >= 12 && r.on === r.reached
+      && r.panel && r.tappable,
     JSON.stringify(r));
   if (contrast) {
     await checkLayout(page, `Discover — ${where}`);

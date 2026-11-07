@@ -4757,11 +4757,13 @@ body[data-view="network"]      .panel-mode[data-mode="network"],
 body[data-view="updates"]      .panel-mode[data-mode="updates"],
 body[data-view="journeytimes"] .panel-mode[data-mode="journeytimes"],
 body[data-view="conference"]   .panel-mode[data-mode="conference"],
+body[data-view="discover"]     .panel-mode[data-mode="discover"],
 body[data-view="tour"]         .panel-mode[data-mode="tour"] { display: flex; }
 
 /* In the non-live network views stops stay visible but inert (no clicks, no
    popup). Vehicle markers are removed from the map entirely by JS. */
-body:not([data-view="live"]) .leaflet-marker-icon.stop-marker-icon {
+/* Discover is the exception: a stop tapped there is where to start from. */
+body:not([data-view="live"]):not([data-view="discover"]) .leaflet-marker-icon.stop-marker-icon {
   pointer-events: none !important;
   opacity: 0.55;
 }
