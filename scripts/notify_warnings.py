@@ -55,9 +55,16 @@ TITLES = {
     "objective-drift": "A figure quoted in the objectives no longer matches the evidence",
     "served-scores": "The stop board's estimates could not be scored for a day",
     "coach-names": "A coach destination has no passenger name yet",
+    "timetable-cover": "No timetable could measure a day",
 }
 
 ADVICE = {
+    "timetable-cover": (
+        "No timetable build describes every local route on the day, so the night stopped rather than publish "
+        "a day of false zeroes. The run log's \"Fetch a timetable that covers the day\" step names the routes "
+        "(`scripts/timetable_covers.py`, `Timetable.uncovered_cohorts`). If the operator's BODS data really "
+        "has run out, rebuild the timetable (`update-timetable.yml`); then run Process Snapshots by hand for "
+        "the day. The recorder keeps an unpublished day, so nothing is lost meanwhile."),
     "declared-journeys": (
         "The operator's live feed names journeys our timetable does not hold. Most are still identified "
         "by line, first stop and start time (method 7), so the figures stand, but check the operator's BODS "

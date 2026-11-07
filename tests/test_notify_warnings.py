@@ -141,3 +141,19 @@ def test_a_day_with_nothing_recorded_says_where_to_look():
     assert nw.title_for("recording-stopped", "x") == "The recorder saved nothing for a day"
     advice = nw.ADVICE["recording-stopped"]
     assert "wrangler tail" in advice and "BODS_API_KEY" in advice and "403" in advice
+
+
+def test_a_day_no_timetable_can_measure_opens_an_issue():
+    # 3 to 7 November 2026: every nightly failed at "Fetch a timetable that
+    # covers the day" (a seasonal route had ended) and no issue said so: the
+    # step stopped the run without writing a notice, so the last step had
+    # nothing to send. It writes one before it stops, and clears it when a
+    # timetable is found.
+    workflow = yaml.safe_load((ROOT / ".github/workflows/process-snapshots.yml").read_text())
+    step = next(s for s in workflow["jobs"]["process"]["steps"] if s.get("name") == "Fetch a timetable that covers the day")
+    run = step["run"]
+    # One warning for each place the step gives up, and a clear when it does not.
+    assert run.count("timetable-cover\\twarn") == 2, run
+    assert "timetable-cover\\tclear" in run
+    assert nw.title_for("timetable-cover", "x") == "No timetable could measure a day"
+    assert "timetable_covers.py" in nw.ADVICE["timetable-cover"]

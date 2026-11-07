@@ -147,10 +147,12 @@ jobs:
             if ! python scripts/timetable_covers.py \
                  --timetable data/timetable.sqlite --day "$DAY"; then
               echo "::error::$REQUESTED_TAG does not cover $DAY — not measuring against it"
+              printf 'timetable-cover\twarn\t%s was not published: %s does not cover it\n' "$DAY" "$REQUESTED_TAG" >> "$NOTICES"
               exit 1
             fi
             echo "::notice::measuring $DAY against $REQUESTED_TAG, as asked"
             echo "TIMETABLE_TAG=$REQUESTED_TAG" >> "$GITHUB_ENV"
+            printf 'timetable-cover\tclear\n' >> "$NOTICES"
             exit 0
           fi
 
@@ -158,6 +160,7 @@ jobs:
           if python scripts/timetable_covers.py \
                --timetable data/timetable.sqlite --day "$DAY"; then
             echo "TIMETABLE_TAG=timetable-latest" >> "$GITHUB_ENV"
+            printf 'timetable-cover\tclear\n' >> "$NOTICES"
             exit 0
           fi
 
@@ -173,11 +176,15 @@ jobs:
                  --timetable data/timetable.sqlite --day "$DAY"; then
               echo "::notice::measuring $DAY against $TAG"
               echo "TIMETABLE_TAG=$TAG" >> "$GITHUB_ENV"
+              printf 'timetable-cover\tclear\n' >> "$NOTICES"
               exit 0
             fi
           done
 
           echo "::error::no archived timetable covers $DAY — not publishing an empty day"
+          # A warning in this log reaches nobody (3 to 7 November 2026 failed
+          # here five nights running, unseen): the last step makes it an issue.
+          printf 'timetable-cover\twarn\t%s was not published: no timetable build covers it\n' "$DAY" >> "$NOTICES"
           exit 1
 
       # R2 keeps a published day's recordings for seven days. After that, a
