@@ -49,6 +49,7 @@ from api import disruptions as sx
 from api import local_disruptions
 from api import journey_planner as planner
 from api import flixbus, gtfs_rt, live_eta, place_names, prediction_log, trip_match
+from api import rail_replacement as rrb
 from api.timetable_db import (NIGHT_ENDS_SECS, Timetable,
                               path_has_time_gap, service_runs_on)
 
@@ -1276,8 +1277,13 @@ async def get_vehicle(vehicleRef: str = Query(...)):
     # told us it was the 14:22 could be shown the 14:32's stops and times,
     # under a Journey row that still said the 14:22.
     declared = vehicle.get("trip_source") in trip_match.DECLARED_SOURCES and vehicle.get("trip_id")
+    # A rail replacement bus names no journey and runs none in the bus
+    # timetable: its journey is a train's, matched by where it is (below).
+    rail_bus = rrb.is_rail_replacement(vehicle)
     if declared:
         trip_id = vehicle["trip_id"]
+    elif rail_bus:
+        trip_id = None
     else:
         # Position and time, so a mid-route bus doesn't take a fresher trip's
         # later times; the bulk start-time match if that can't lock on.
@@ -1287,6 +1293,11 @@ async def get_vehicle(vehicleRef: str = Query(...)):
                               datetime.now(UK_TZ), await _diversions_doc(),
                               await _recovery_doc()) if trip_id else []
     source   = "trip"
+    rail_match = await _rail_replacement_for(vehicle) if rail_bus else None
+    if rail_match:
+        upcoming = rail_match["upcoming_stops"]
+        source   = "rail_replacement"
+        headsign = f"Rail replacement to {rail_match['destination']}"
     if not upcoming:
         upcoming = _upcoming_stops_from_calls(vehicle, tt)
         source   = "siri_onward_calls" if upcoming else "none"
@@ -1324,7 +1335,8 @@ async def get_vehicle(vehicleRef: str = Query(...)):
             # the bus named it or it was inferred.
             "trip_id":       trip_id or None,
             "journey_start": vehicle.get("journey_start") if declared else None,
-            "lateness_secs": vehicle.get("lateness_secs") if declared else None,
+            "lateness_secs": (vehicle.get("lateness_secs") if declared
+                              else rail_match["lateness_secs"] if rail_match else None),
             "on_diversion":  bool(vehicle.get("on_diversion")),
             # False where the ref names a journey, not a bus (FlixBus sends no
             # vehicle id), so the page does not call it a fleet number.
@@ -1332,6 +1344,10 @@ async def get_vehicle(vehicleRef: str = Query(...)):
         },
         "upcoming_stops": upcoming,
         "source":         source,
+        # The replacement journey a "Rail" bus was matched to: which train it
+        # stands in for, and how sure (metres off that journey's line).
+        "rail_replacement": ({k: v for k, v in rail_match.items() if k != "upcoming_stops"}
+                             if rail_match else None),
         "trail":          _trail_for(vehicleRef, trip_id if declared else None),
         # What this bus does next, where the operator publishes its working.
         # Only for a journey the bus names: an inferred one is a guess, and
@@ -1344,6 +1360,59 @@ async def get_vehicle(vehicleRef: str = Query(...)):
                 d, vehicle.get("operator_ref") or "", vehicle.get("service_ref") or "",
                 (lambda: [a for _s, a in tt.trip_stops_for(trip_id)]) if trip_id else None)],
     }
+
+
+# A replacement journey's calls are fixed for the day, so they are kept for
+# ten minutes; the match itself for as long as the boards it reads (RTT_CACHE_TTL).
+RAIL_PLAN_TTL = 600
+
+
+async def _rail_replacement_for(vehicle: dict):
+    """The replacement journey a "Rail" bus is running (api/rail_replacement.py),
+    from the replacement buses on the two nearest stations' boards. None when
+    nothing matches or Realtime Trains cannot be reached: the page then says it
+    cannot tell which journey the bus is on."""
+    ref = vehicle.get("vehicle_ref") or ""
+    key = f"rail:rrb:{ref}:{vehicle.get('recorded_at')}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached or None
+    lat, lon = vehicle.get("latitude"), vehicle.get("longitude")
+    if lat is None or lon is None or not RAIL_STATIONS:
+        return None
+    near = sorted(RAIL_STATIONS, key=lambda s: math.hypot(s["lat"] - lat, (s["lon"] - lon) * 0.63))[:2]
+    at = None
+    try:
+        at = datetime.fromisoformat(str(vehicle.get("recorded_at")).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        pass
+    now = at.astimezone(UK_TZ) if at else datetime.now(UK_TZ)
+    boards = []
+    for st in near:
+        try:
+            boards.append(await get_rail_departures(crs=st["crs"]))
+        except HTTPException:
+            continue
+    services = []
+    for uid, date in rrb.candidates(boards, now):
+        plan_key = f"rail:plan:{uid}:{date}"
+        plan = cache_get(plan_key)
+        if plan is None:
+            try:
+                plan = await get_rail_service(uid=uid, date=date)
+            except HTTPException:
+                continue
+            cache_set(plan_key, plan, RAIL_PLAN_TTL)
+        services.append(plan)
+    # Where it was a little while ago, for which way it is going: the latest
+    # point far enough back to say, not the oldest, which may be from before
+    # it turned round at the end of its last journey.
+    trail = _trail_for(ref, None)
+    previous = next(((p[0], p[1]) for p in reversed(trail)
+                     if math.hypot(p[0] - lat, (p[1] - lon) * 0.63) * 111_000 > 150), None)
+    found = rrb.match(vehicle, services, {s["crs"]: s for s in RAIL_STATIONS}, now, previous)
+    cache_set(key, found or {}, RTT_CACHE_TTL)
+    return found
 
 
 async def _fetch_siri_vm() -> list:

@@ -10217,7 +10217,9 @@ function updateBusTabLive() {
   // A screen reader still hears the service first, since the badge it would
   // otherwise pair the heading with is not read until after it.
   const railBus = isRailReplacementVehicle(v);
-  const dest = railBus ? "Rail replacement bus"
+  const railMatch = railBus ? state.busDetails?.rail_replacement || null : null;
+  const dest = railMatch ? `Rail replacement to ${prettifyName(railMatch.destination)}`
+    : railBus ? "Rail replacement bus"
     : prettifyName(v.destination || det.trip_headsign || v.trip_headsign);
   const svc  = `Service ${v.service_ref || "?"}`;
   const heading = dest
@@ -10226,19 +10228,23 @@ function updateBusTabLive() {
   if (dom.panelBusName.innerHTML !== heading) dom.panelBusName.innerHTML = heading;
 
   // The status sits under the heading, as on a board row.
-  const status = busStatusLineHtml(v, det);
+  // A matched replacement bus is as late as its match says, by its position.
+  const status = busStatusLineHtml(railMatch ? { ...v, lateness_secs: railMatch.lateness_secs } : v, det);
   if (dom.panelBusId.innerHTML !== status) dom.panelBusId.innerHTML = status;
 
   tickBusInfoUpdated();
   const services = v.service_ref ? [{ service: v.service_ref, operator: v.operator_ref || "" }] : null;
   patchHtml(document.getElementById("bus-disruptions"),
     compactDisruptionsHtml(state.busDetails?.disruptions || [], services));
-  // A rail replacement bus names no journey, so it has no stops or times
-  // here, and bus tickets are not what it takes.
-  patchHtml(document.getElementById("bus-upcoming"), railBus
+  // A rail replacement bus names no journey: its stations and times come
+  // from the replacement journey it was matched to by where it is
+  // (api/rail_replacement.py), or, with no match, there are none to give.
+  // Bus tickets are not what it takes either way.
+  patchHtml(document.getElementById("bus-upcoming"), railBus && !railMatch && !state.busDetailsLoading
     ? `<p class="bus-rail-note">This bus gives its route as "Rail", so it is almost certainly
-        replacing trains. Its feed does not say which journey, so there are no stops or times
-        for it here: a station's board lists the replacement buses due, and where they leave from.</p>`
+        replacing trains. It does not say which journey it is running, and none of the replacement
+        journeys due near here fits where it is just now, so there are no stations or times for it
+        here: a station's board lists the replacement buses due, and where they leave from.</p>`
     : buildUpcomingStopsHtml());
   patchHtml(document.getElementById("bus-next-journey"),
     buildNextJourneyHtml(state.busDetails && state.busDetails.next_journey));
@@ -10365,7 +10371,9 @@ function bindUpcomingStops() {
       return;
     }
     const stop = e.target.closest("button.upcoming-stop-open");
-    if (stop && stop.dataset.atco) {
+    if (stop && stop.dataset.crs) {
+      openRailBoard(stop.dataset.crs, stop.dataset.name || stop.dataset.crs);
+    } else if (stop && stop.dataset.atco) {
       openDepartures(stop.dataset.atco, stop.dataset.name || stop.dataset.atco);
     }
   });
@@ -10560,8 +10568,9 @@ function buildUpcomingStopsHtml() {
   }
 
   const vehicle   = det.vehicle || {};
+  const railMatch = det.source === "rail_replacement" && det.rail_replacement;
   const estimated = stops.some(s => (s.expected ?? s.expected_departure) && !s.passed)
-    && det.source === "trip";
+    && (det.source === "trip" || !!railMatch);
   const fromCalls = det.source === "siri_onward_calls";
   const ref       = state.selectedVehicleRef;
   const expanded  = !!state.upcomingExpanded[ref];
@@ -10613,7 +10622,7 @@ function buildUpcomingStopsHtml() {
       <li class="${cls}">
         <span class="upcoming-stop-marker" aria-hidden="true"></span>
         <button type="button" class="upcoming-stop-open"
-                data-atco="${escapeAttr(s.stop_id || "")}" data-name="${escapeAttr(name)}"
+                data-atco="${escapeAttr(s.stop_id || "")}"${s.crs ? ` data-crs="${escapeAttr(s.crs)}"` : ""} data-name="${escapeAttr(name)}"
                 data-focus-key="stop-${escapeAttr(String(s.seq ?? s.stop_id))}"
                 aria-label="${escapeAttr(s.not_served
                   ? `${name}, not calling, the bus is on a diversion. Show this stop's board for where to catch it instead`
@@ -10665,7 +10674,16 @@ function buildUpcomingStopsHtml() {
   const tail = !expanded && hiddenCount > 0 && terminus ? row(terminus) : "";
 
   let note = "";
-  if (estimated) {
+  if (railMatch) {
+    // Matched by where it is (api/rail_replacement.py): said plainly, since
+    // the bus itself never says which journey it is.
+    const leaves = railMatch.departs ? new Date(railMatch.departs) : null;
+    note = `<span class="live-dot" aria-hidden="true"></span> Replacing ${escapeHtml(railMatch.operator || "the train company")}'s
+      ${leaves && !isNaN(leaves) ? `${escapeHtml(formatTimeOfDay(leaves))} ` : ""}${escapeHtml(railMatch.origin)} to
+      ${escapeHtml(railMatch.destination)} train. The bus does not say which journey it is running: this is the one
+      whose timetable, from Realtime Trains, puts it where the bus is now, going this way. Times ahead are the
+      timetable's plus how late it is now; a replacement bus running early waits for its time.`;
+  } else if (estimated) {
     // A diversion allowance (api/diversions.py): said once, as the largest
     // the list holds, since every time after the diversion includes one.
     const allowed = ahead.filter(s => s.allowance_secs > 0);

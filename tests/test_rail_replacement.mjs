@@ -59,3 +59,32 @@ test("a live bus whose route is Rail is a rail replacement bus", () => {
   assert.equal(run(`isRailReplacementVehicle({ service_ref: "700" })`), false);
   assert.equal(run(`isRailReplacementVehicle(null)`), false);
 });
+
+test("a replacement bus matched to its journey lists its stations, opening their boards, and says how it was matched", () => {
+  const st = vm.runInContext("state", app);
+  const iso = (hm) => `2026-11-07T${hm}:00+00:00`;
+  st.selectedVehicleRef = "6989";
+  st.busDetailsLoading = false;
+  st.upcomingExpanded = {};
+  st.busDetails = {
+    vehicle: { vehicle_ref: "6989", recorded_at: iso("19:04") },
+    source: "rail_replacement",
+    rail_replacement: { uid: "X19791", operator: "Southern", origin: "Worthing", destination: "<b>Brighton</b>",
+                        departs: iso("18:38"), lateness_secs: -160 },
+    upcoming_stops: [
+      { seq: 0, stop_id: "", crs: "SWK", stop_name: "Southwick", scheduled: iso("19:08"), expected: null, passed: true },
+      { seq: 1, stop_id: "", crs: "FSG", stop_name: "Fishersgate", scheduled: iso("19:11"), expected: iso("19:11"),
+        lateness_secs: -160, passed: false, is_next: true },
+      { seq: 2, stop_id: "", crs: "BTN", stop_name: "Brighton", scheduled: iso("19:35"), expected: iso("19:35"),
+        lateness_secs: -160, passed: false, is_terminus: true },
+    ],
+  };
+  const html = app.buildUpcomingStopsHtml();
+  assert.match(html, /data-crs="FSG"/, "a station row cannot open its board");
+  assert.match(html, /Fishersgate/);
+  assert.match(html, /Passed Southwick/);
+  assert.match(html, /Replacing Southern's\s+18:38 Worthing to\s+&lt;b&gt;Brighton&lt;\/b&gt; train/);
+  assert.match(html, /does not say which journey/);
+  assert.match(html, /estimated times/);
+  st.busDetails = null; st.selectedVehicleRef = null;
+});
