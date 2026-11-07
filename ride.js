@@ -191,6 +191,21 @@ function rideWaiting(e) {
     : rideEvent(e) === "unscheduled" && !e.departed_at;
 }
 
+/** The wheelchair ramp at this ride's newest stop: out as it is lowered, in
+ *  as it is raised, so how long it was out is timed, not only that it was
+ *  used (asked for 6 November 2026; scripts/build_ramp_log.py counts them).
+ *  Returns the new list, or null when there is no stop to put it on, or the
+ *  ramp is put in before it was put out. */
+function rideRamp(entries, kind, ride, now = new Date()) {
+  const list = entries.map(e => ({ ...e }));
+  const row = list.find(e => e.ride_id === ride.ride_id);
+  if (!row || rideEvent(row) !== "stop") return null;
+  if (kind === "ramp-out") row.ramp_out_at = now.toISOString();
+  else if (kind === "ramp-in" && row.ramp_out_at) row.ramp_in_at = now.toISOString();
+  else return null;
+  return list;
+}
+
 /** Record a tap. `kind` is "open" or "closed" (the doors), "skipped" (the
  *  bus passed `stop` without stopping), "unscheduled" (it stopped where
  *  there is no stop) or "moving" (it moved on from that). Doors closing
@@ -247,7 +262,7 @@ function rideTap(entries, kind, { ride, stop, position, offsetMs = 0, now = new 
 const RIDE_COLUMNS = ["id", "day", "atco", "stop_name", "towards", "route", "vehicle",
   "arrived_at", "departed_at", "clock_offset_ms", "note",
   "ride_id", "seq", "lat", "lon", "accuracy_m", "departed_basis",
-  "event", "passed_at", "fix_offset_s"];
+  "event", "passed_at", "fix_offset_s", "ramp_out_at", "ramp_in_at"];
 const RIDE_BASIS = { stop: "doors closed", unscheduled: "moving again", skipped: "" };
 
 /** The London date of an instant, YYYY-MM-DD. */
@@ -655,6 +670,21 @@ function rideInit() {
     if (rideShouldRemind(entries, exported, touched)) showReminder(button);
   };
   for (const b of document.querySelectorAll(".tap")) b.addEventListener("click", () => record(b.dataset.kind, b));
+  const ramp = (kind) => {
+    if (!ride) return;
+    const next = rideRamp(entries, kind, ride);
+    if (!next) {
+      say(kind === "ramp-in" ? "Tap Ramp out first, as the ramp is lowered." : "Tap Doors open at the stop first, then the ramp.");
+      return;
+    }
+    entries = next;
+    persist();
+    renderLog();
+    say(`${kind === "ramp-out" ? "Ramp out" : "Ramp in"} at ${rideClock(new Date().toISOString())}.`);
+    if (navigator.vibrate) navigator.vibrate(40);
+  };
+  $("ramp-out").addEventListener("click", () => ramp("ramp-out"));
+  $("ramp-in").addEventListener("click", () => ramp("ramp-in"));
   $("skip").addEventListener("click", () => record("skipped", $("skip")));
   $("unscheduled").addEventListener("click", () => {
     const rows = mine();

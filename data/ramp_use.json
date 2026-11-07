@@ -1,0 +1,20 @@
+{
+ "_comment": "Wheelchair ramp deployments logged by hand on ride.html, by stop, built by scripts/build_ramp_log.py. Where riders saw the ramp used, not how often it is used.",
+ "generated_on": "2026-11-07",
+ "floor": {
+  "deployments": 10,
+  "days": 5
+ },
+ "totals": {
+  "deployments": 0,
+  "stops": 0,
+  "rides": 0,
+  "from": null,
+  "to": null
+ },
+ "caveats": [
+  "Logged by hand by riders on the buses they rode, so it shows where they saw the ramp used, not how often it is used at each stop.",
+  "A stop is shown only with 10 or more deployments over 5 or more days."
+ ],
+ "stops": {}
+}

@@ -145,7 +145,8 @@ test("a stop skipped and an unscheduled stop are their own rows, never door time
   assert.equal(log[1].departed_at, "2026-11-01T19:32:40.000Z", "moving again ends it");
   const lines = fn("rideCsv")(log).trim().split("\n");
   const head = lines[0].split(",");
-  assert.deepEqual(head.slice(-3), ["event", "passed_at", "fix_offset_s"], "new columns go at the end");
+  assert.deepEqual(head.slice(-5), ["event", "passed_at", "fix_offset_s", "ramp_out_at", "ramp_in_at"],
+    "new columns go at the end");
   const at = (line, col) => line.split(",")[head.indexOf(col)];
   assert.deepEqual([at(lines[2], "event"), at(lines[2], "departed_basis"), at(lines[2], "day")],
     ["skipped", "", "2026-11-01"]);
@@ -188,4 +189,18 @@ test("the ride page has notes with suggestions, the two new buttons and a real d
   assert.match(html, /id="where"/);
   assert.match(readFileSync(join(ROOT, "ride.js"), "utf8"), /list="ride-notes"/);
   assert.doesNotMatch(html, /—/, "no em dashes in the copy");
+});
+
+test("the ramp is timed at the newest stop: out, then in, and never in before out", () => {
+  const tap = fn("rideTap"), ramp = fn("rideRamp");
+  assert.equal(ramp([], "ramp-out", RIDE), null, "a ramp with no stop to put it on");
+  let log = tap([], "open", { ride: RIDE, stop: HIGH_ST, position: AT, now: new Date("2026-11-06T10:00:00Z") });
+  assert.equal(ramp(log, "ramp-in", RIDE), null, "the ramp came in before it went out");
+  log = ramp(log, "ramp-out", RIDE, new Date("2026-11-06T10:00:10Z"));
+  log = ramp(log, "ramp-in", RIDE, new Date("2026-11-06T10:01:05Z"));
+  assert.equal(log[0].ramp_out_at, "2026-11-06T10:00:10.000Z");
+  assert.equal(log[0].ramp_in_at, "2026-11-06T10:01:05.000Z");
+  const lines = fn("rideCsv")(log).trim().split("\n");
+  const head = lines[0].split(",");
+  assert.equal(lines[1].split(",")[head.indexOf("ramp_in_at")], "2026-11-06T10:01:05.000Z");
 });

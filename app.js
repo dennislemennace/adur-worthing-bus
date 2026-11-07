@@ -7621,6 +7621,15 @@ function stopAccessNotesHtml(atcoCode, row) {
   if (row && row.kerb_nearby) {
     notes.push(`<p class="stop-access-note">The kerb is the one mapped beside this stop in OpenStreetMap.</p>`);
   }
+  // The ramp, where riders have logged it often enough here (ride.html,
+  // data/ramp_use.json): hand-logged, never a count of every bus.
+  const r = state.rampUse && state.rampUse.stops && state.rampUse.stops[atcoCode];
+  if (r) {
+    notes.push(`<p class="stop-access-note">Riders logged the wheelchair ramp in use here ${escapeHtml(String(r.deployments))}
+      times on ${escapeHtml(String(r.days))} days (${escapeHtml(osmDateText(r.from))} to ${escapeHtml(osmDateText(r.to))})${
+      r.median_secs ? `, typically out for ${escapeHtml(String(r.median_secs))} seconds` : ""}. Logged by hand on the buses
+      they rode, so not every use.</p>`);
+  }
   const coaches = (state.stopCoaches && state.stopCoaches.atco === atcoCode && state.stopCoaches.nocs) || [];
   for (const noc of coaches) notes.push(coachAccessHtml(noc));
   return notes.join("");
@@ -7890,6 +7899,10 @@ function renderStopAccess(atcoCode) {
   if (!state.stopOsm) loadStopOsm().then(again).catch(() => {});
   if (!state.operatorAccess) loadOperatorAccess().then(again);
   if (!state.stopDetails) loadStopDetails().then(again).catch(() => {});
+  if (!state.rampUse && !state._rampUsePromise) {
+    state._rampUsePromise = fetch("data/ramp_use.json").then(res => (res.ok ? res.json() : null)).catch(() => null)
+      .then(doc => { state.rampUse = doc || { stops: {} }; again(); });
+  }
 }
 
 /** `{indicator, street, landmark, bearing, kind}` for a stop, or null. `kind`
