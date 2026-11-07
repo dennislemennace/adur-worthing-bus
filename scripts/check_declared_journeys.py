@@ -5,7 +5,14 @@ ids. Our timetable is rebuilt weekly, so until then the live feed names
 journeys we do not hold. On 7 October 2026 Stagecoach did this: 606 of their
 619 journeys named a journey we did not hold, against about 4% for Brighton &
 Hove on the same day — and BODS had left Stagecoach South out of its own GTFS,
-so no rebuild could have fixed it.
+so no rebuild could have fixed it. On 6 November 2026 it was the other case:
+Stagecoach republished the 700, 5 and N700, BODS's export already held the new
+ids (287 of 631 journeys), and the timetable rebuilt on 7 November fixed it.
+
+Which case it is: compare the day's live ids for the routes named with BODS's
+current South East GTFS (trips.txt, Stagecoach South is agency OP12475). Ids
+BODS holds and we do not: rebuild ours (`update-timetable.yml`). Ids BODS does
+not hold either: BODS is missing the operator, and a rebuild will not help.
 
 Since method 7 such a bus may still be declared by SIRI-VM's line, first stop
 and scheduled start (`declared_by: "start"`); otherwise it is inferred and

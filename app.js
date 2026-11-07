@@ -190,6 +190,7 @@ const state = {
   // time should show up, not be silently filtered out by a preference saved
   // before it existed.
   hiddenOperators: new Set(),
+  onlyOperators:   null,     // the operators chosen to show alone, or null for "all but hiddenOperators"
   busFilterOpen: false,
   lastVehicles:  [],    // last feed, so a filter change redraws without waiting
 
@@ -6938,7 +6939,7 @@ function setBusesVisible(on) {
 function updateBusesToggleBtn() {
   if (!dom.toggleBusesBtn) return;
   const on = state.busesVisible;
-  const hidden = state.hiddenOperators.size;
+  const hidden = busFilterOperators().filter(r => !operatorShown(r.code)).length;
   // The button opens the filter, so aria-expanded is what it owns. Whether
   // buses are on is a property of the filter's contents, said in the label.
   dom.toggleBusesBtn.setAttribute("aria-expanded", state.busFilterOpen ? "true" : "false");
@@ -6951,7 +6952,14 @@ function updateBusesToggleBtn() {
       : "Bus filter";
   dom.toggleBusesBtn.setAttribute("aria-label", label);
   dom.toggleBusesBtn.title = label;
-  if (dom.busFilterAll) dom.busFilterAll.checked = on;
+  if (dom.busFilterAll) {
+    // Ticked when every operator shows, a dash when only some do.
+    const rows = busFilterOperators();
+    const shown = on ? rows.filter(r => operatorShown(r.code)).length : 0;
+    // With no buses in the feed yet, it says whether buses will show.
+    dom.busFilterAll.checked = rows.length ? shown > 0 : on;
+    dom.busFilterAll.indeterminate = shown > 0 && shown < rows.length;
+  }
 }
 
 // ============================================================
@@ -6971,7 +6979,10 @@ function loadHiddenOperators() {
   try {
     const raw = localStorage.getItem(HIDDEN_OPERATORS_KEY);
     const list = raw ? JSON.parse(raw) : [];
+    // An array is the old shape, the operators hidden; {only: [...]} is the
+    // operators chosen to show alone (7 November 2026).
     if (Array.isArray(list)) state.hiddenOperators = new Set(list.filter(x => typeof x === "string"));
+    else if (list && Array.isArray(list.only)) state.onlyOperators = new Set(list.only.filter(x => typeof x === "string"));
   } catch (err) {
     console.warn("Could not read the bus filter:", err);
   }
@@ -6979,7 +6990,8 @@ function loadHiddenOperators() {
 
 function saveHiddenOperators() {
   try {
-    localStorage.setItem(HIDDEN_OPERATORS_KEY, JSON.stringify([...state.hiddenOperators]));
+    localStorage.setItem(HIDDEN_OPERATORS_KEY, JSON.stringify(state.onlyOperators
+      ? { only: [...state.onlyOperators] } : [...state.hiddenOperators]));
   } catch (err) {
     // Private browsing, quota, a locked-down profile — none of it is worth
     // losing the filter the user just set, which still applies this session.
@@ -6989,7 +7001,8 @@ function saveHiddenOperators() {
 
 /** Is this vehicle's operator switched on? */
 function operatorShown(operatorRef) {
-  return !state.hiddenOperators.has(operatorRef || "");
+  const code = operatorRef || "";
+  return state.onlyOperators ? state.onlyOperators.has(code) : !state.hiddenOperators.has(code);
 }
 
 function setBusFilterOpen(open) {
@@ -7002,8 +7015,11 @@ function setBusFilterOpen(open) {
 /** Flip one operator on or off and redraw from the feed already in hand. */
 function setOperatorShown(operatorRef, shown) {
   const code = operatorRef || "";
-  if (shown) state.hiddenOperators.delete(code);
-  else       state.hiddenOperators.add(code);
+  if (state.onlyOperators) {
+    if (shown) state.onlyOperators.add(code);
+    else       state.onlyOperators.delete(code);
+  } else if (shown) state.hiddenOperators.delete(code);
+  else              state.hiddenOperators.add(code);
   saveHiddenOperators();
   // Unhiding an operator while everything is off would leave the user
   // checking a box and seeing nothing happen.
@@ -7013,6 +7029,45 @@ function setOperatorShown(operatorRef, shown) {
     updateBusesToggleBtn();
     renderBusFilter();
   }
+}
+
+/**
+ * A tap on an operator's box (asked for 7 November 2026). With every
+ * operator showing, or none, it shows that one alone: somebody watching the
+ * map wants one company's buses, and unticking every other box was the way
+ * there. After that each box ticks and unticks as usual, and "Show buses"
+ * brings them all back.
+ */
+function tapOperator(operatorRef, checked) {
+  const code = operatorRef || "";
+  const rows = busFilterOperators();
+  const allShown = state.busesVisible && rows.every(r => operatorShown(r.code));
+  const noneShown = !state.busesVisible || rows.every(r => !operatorShown(r.code));
+  if (!allShown && !noneShown) {
+    setOperatorShown(code, checked);
+    return;
+  }
+  // Chosen, not everything else hidden: a company that turns up later stays
+  // off too, and the list does not fill with every company there is.
+  state.onlyOperators = new Set([code]);
+  state.hiddenOperators = new Set();
+  saveHiddenOperators();
+  if (!state.busesVisible) setBusesVisible(true);
+  else updateVehicleMarkers(state.lastVehicles);
+  updateBusesToggleBtn();
+  renderBusFilter();
+}
+
+/** "Show buses": every operator on, or every one off. */
+function setAllOperatorsShown(show) {
+  if (show) {
+    state.hiddenOperators = new Set();
+    state.onlyOperators = null;
+    saveHiddenOperators();
+  }
+  setBusesVisible(show);
+  if (show) updateVehicleMarkers(state.lastVehicles);
+  renderBusFilter();
 }
 
 /**
@@ -7028,7 +7083,7 @@ function busFilterOperators() {
     const code = v.operator_ref || "";
     counts.set(code, (counts.get(code) || 0) + 1);
   }
-  for (const code of state.hiddenOperators) {
+  for (const code of state.onlyOperators || state.hiddenOperators) {
     if (!counts.has(code)) counts.set(code, 0);
   }
   return [...counts.entries()]
@@ -7045,7 +7100,8 @@ function renderBusFilter() {
     return;
   }
   dom.busFilterList.innerHTML = rows.map(({ code, count }) => {
-    const on = operatorShown(code);
+    // With every bus off, every box is unticked: "Show buses" unticked them.
+    const on = state.busesVisible && operatorShown(code);
     const name = code ? getOperatorName(code) : "Unknown operator";
     return `
       <label class="bus-filter-row">
@@ -7058,7 +7114,7 @@ function renderBusFilter() {
   }).join("");
   dom.busFilterList.querySelectorAll("input[data-operator]").forEach(input => {
     input.addEventListener("change", () => {
-      setOperatorShown(input.dataset.operator, input.checked);
+      tapOperator(input.dataset.operator, input.checked);
     });
   });
 }
@@ -7577,40 +7633,80 @@ function kerbWords(row) {
   return words && Number.isFinite(row.kerb_height_cm) ? `${words}, ${row.kerb_height_cm} cm` : words;
 }
 
-/** The short facts under a stop's name, most decisive first: what kind of
- *  stop, step-free access, the kerb, then what makes the wait easier. Only
- *  what is recorded, except step-free access, which says it is not recorded
- *  rather than leaving a wheelchair user to guess. */
+/** The short facts under a stop's name, on one line (asked for 7 November
+ *  2026): step-free access first, always, with "?" where it is not recorded,
+ *  rather than leaving a wheelchair user to guess; then an unusual kind of
+ *  stop; then only what is recorded, each in a word or two with a tick or a
+ *  cross. Each carries its full words too (`spoken`), which a screen reader
+ *  hears and the opened details show. */
+const STOP_KIND_SHORT = { unmarked: "No pole", hail_and_ride: "Hail and ride", flexible: "Flexible" };
+
 function stopAccessChips(row, kind) {
   const chips = [];
-  if (STOP_KIND_WORDS[kind]) chips.push({ text: STOP_KIND_WORDS[kind], state: "warn" });
   const wc = row && row.wheelchair;
-  chips.push(wc === "yes" ? { text: "Step-free", state: "yes" }
-    : wc === "limited" ? { text: "Partly step-free", state: "part" }
-    : wc === "no" ? { text: "Not step-free", state: "no" }
-    : { text: "Step-free: not recorded", state: "unknown" });
+  chips.push(wc === "yes" ? { text: "Step-free", spoken: "Step-free", state: "yes" }
+    : wc === "limited" ? { text: "Partly step-free", spoken: "Partly step-free", state: "part" }
+    : wc === "no" ? { text: "Step-free", spoken: "Not step-free", state: "no" }
+    : { text: "Step-free ?", spoken: "Step-free access not recorded", state: "unknown" });
+  if (STOP_KIND_WORDS[kind]) chips.push({ text: STOP_KIND_SHORT[kind], spoken: STOP_KIND_WORDS[kind], state: "warn" });
   if (!row) return chips;
-  if (row.kerb) chips.push({ text: kerbWords(row), state: row.kerb === "raised" ? "yes" : "info" });
-  if (row.shelter) chips.push({ text: row.shelter === "yes" ? "Shelter" : "No shelter", state: row.shelter === "yes" ? "yes" : "no" });
-  else if (row.covered === "yes") chips.push({ text: "Covered", state: "yes" });
-  if (row.bench) chips.push({ text: row.bench === "yes" ? "Seat" : "No seat", state: row.bench === "yes" ? "yes" : "no" });
+  const fact = (word, yes, spoken) => ({ text: word, spoken, state: yes ? "yes" : "no" });
+  if (row.kerb) chips.push({ text: STOP_OSM_FACTS.kerb[row.kerb] || "Kerb", spoken: kerbWords(row),
+                             state: row.kerb === "raised" ? "yes" : "info" });
+  if (row.shelter) chips.push(fact("Shelter", row.shelter === "yes", row.shelter === "yes" ? "Shelter" : "No shelter"));
+  else if (row.covered === "yes") chips.push(fact("Covered", true, "Covered"));
+  if (row.bench) chips.push(fact("Seat", row.bench === "yes", row.bench === "yes" ? "Seat" : "No seat"));
   if (row.tactile_paving) {
-    chips.push({ text: STOP_OSM_FACTS.tactile_paving[row.tactile_paving],
+    chips.push({ text: "Tactile paving", spoken: STOP_OSM_FACTS.tactile_paving[row.tactile_paving],
                  state: row.tactile_paving === "yes" ? "yes" : row.tactile_paving === "no" ? "no" : "part" });
   }
   if (row.departures_board === "realtime" || row.passenger_information_display === "yes") {
-    chips.push({ text: "Live screen", state: "yes" });
+    chips.push(fact("Live screen", true, "Live departure screen"));
   }
-  if (row.lit) chips.push({ text: row.lit === "yes" ? "Lit at night" : "Not lit", state: row.lit === "yes" ? "yes" : "no" });
+  if (row.lit) chips.push(fact("Lit", row.lit === "yes", row.lit === "yes" ? "Lit at night" : "Not lit"));
   return chips;
 }
 
-const ACCESS_CHIP_ICON = { yes: "i-check", no: "i-x", warn: "i-alert", unknown: "i-info" };
+const ACCESS_CHIP_ICON = { yes: "i-check", no: "i-x", warn: "i-alert" };
 
+/** The chips, and a "+N" for those that do not fit on the line
+ *  (fitAccessChips). A chip that does not fit is hidden from sight only: a
+ *  screen reader still hears every fact. */
 function accessChipsHtml(chips) {
-  return chips.map((c, i) => `${i ? `<span class="visually-hidden">, </span>` : ""}<span class="access-chip access-chip--${
-    c.state}">${ACCESS_CHIP_ICON[c.state] ? `<svg class="icon" aria-hidden="true"><use href="#${ACCESS_CHIP_ICON[c.state]}"/></svg>` : ""}${
-    escapeHtml(c.text)}</span>`).join("");
+  return chips.map((c, i) => `<span class="access-chip access-chip--${c.state}" data-chip="${i}">${
+    ACCESS_CHIP_ICON[c.state] ? `<svg class="icon" aria-hidden="true"><use href="#${ACCESS_CHIP_ICON[c.state]}"/></svg>` : ""}<span
+    aria-hidden="true">${escapeHtml(c.text)}</span><span class="visually-hidden">${i ? ", " : ""}${
+    escapeHtml(c.spoken || c.text)}</span></span>`).join("")
+    + `<span class="access-chip access-chip--more" aria-hidden="true" hidden></span>`;
+}
+
+/** Keep the facts to one line: from the end, chips that do not fit are moved
+ *  out of sight and counted on a "+N" chip; the first, step-free access,
+ *  always stays. The opened details list them all. */
+function fitAccessChips(summary) {
+  if (!summary) return;
+  const chips = [...summary.querySelectorAll(".access-chip[data-chip]")];
+  const more = summary.querySelector(".access-chip--more");
+  chips.forEach(c => c.classList.remove("access-chip--overflow"));
+  if (more) { more.hidden = true; more.textContent = ""; }
+  if (typeof summary.getClientRects !== "function" || !summary.getClientRects().length) return;
+  let hidden = 0;
+  for (let i = chips.length - 1; i >= 1 && summary.scrollWidth > summary.clientWidth + 1; i--) {
+    chips[i].classList.add("access-chip--overflow");
+    hidden += 1;
+    if (more) { more.hidden = false; more.textContent = `+${hidden}`; }
+  }
+}
+
+function fitStopAccessChips() {
+  fitAccessChips(document.querySelector("#stop-access .stop-access-summary"));
+}
+
+// The line's width changes with the window, and the text's with the fonts.
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  let fitTimer = null;
+  window.addEventListener("resize", () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitStopAccessChips, 150); });
+  document.fonts?.ready?.then?.(fitStopAccessChips);
 }
 
 /** What the facts alone do not say: an unusual kind of stop, a kerb taken
@@ -7740,7 +7836,7 @@ function initStopAccessControl() {
       const btn = L.DomUtil.create("a", "stop-access-btn", bar);
       btn.href = "#";
       btn.setAttribute("role", "button");
-      btn.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-universal-access"/></svg>`;
+      btn.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-wheelchair"/></svg>`;
       L.DomEvent.disableClickPropagation(bar);
       L.DomEvent.on(btn, "click", (e) => {
         L.DomEvent.preventDefault(e);
@@ -7887,8 +7983,9 @@ function renderStopAccess(atcoCode) {
   } else {
     const row = state.stopOsm[atcoCode] || null;
     const kind = (stopDetail(atcoCode) || {}).kind || "";
-    el.innerHTML = `<summary class="stop-access-summary"><span class="stop-access-label">At this stop</span>${
+    el.innerHTML = `<summary class="stop-access-summary"><span class="visually-hidden">At this stop: </span>${
       accessChipsHtml(stopAccessChips(row, kind))}</summary><div class="stop-access-body">${body}</div>`;
+    requestAnimationFrame(fitStopAccessChips);
     el.hidden = false;
     // A new stop opens as the reader prefers; the same stop drawn again
     // (a file arriving) keeps whatever they did with it.
@@ -8076,56 +8173,100 @@ function toggleFavouriteStop() {
  *  lookup, so a home sheet of eight stops costs nothing (/api/next-departures). */
 async function homeNextDepartures(atco) {
   const pos = (state.stopData || {})[atco];
-  const data = await apiFetchMemo(`/api/next-departures?stopId=${encodeURIComponent(atco)}${
+  // predictions=0: our own estimates only, so eight saved stops do not spend
+  // eight of the day's TransportAPI calls (LIMITS.md).
+  const data = await apiFetch(`/api/departures?stopId=${encodeURIComponent(atco)}&predictions=0${
     pos ? `&lat=${pos.lat}&lon=${pos.lon}` : ""}`);
-  return ((data && data.departures) || []).slice(0, 2);
+  return ((data && data.departures) || []).filter(d => !d.not_served).slice(0, 3);
 }
 
-/** The home sheet, under the stop search before any stop is open: saved
- *  stops with their next two buses, recent stops, and the last bus home
- *  from the first saved stop. */
-function homeSheetHtml(saved, recent, nexts = {}) {
-  const clock = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-GB",
-    { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }); };
-  const nextLine = (atco) => {
-    const n = nexts[atco];
-    if (n === undefined) return `<span class="home-next home-next--loading">Finding the next buses…</span>`;
-    if (!n || !n.length) return `<span class="home-next">No more buses timetabled today</span>`;
-    return `<span class="home-next">${n.map(d => `<span class="home-dep"><strong>${escapeHtml(d.service)}</strong> ${
-      escapeHtml(clock(d.aimed_departure))} to ${escapeHtml(prettifyName(d.destination || ""))}</span>`).join("")}
-      <span class="home-next-basis">timetable</span></span>`;
-  };
-  const card = (s) => `<li><button type="button" class="home-stop" data-home-stop="${escapeAttr(s.atco)}"
-      data-name="${escapeAttr(s.name)}"><span class="home-stop-name">${escapeHtml(s.name)}</span>${nextLine(s.atco)}</button></li>`;
+/** One departure on a saved stop's card, as on the board: the route's tile,
+ *  where it goes with its status under it, the countdown with its clock. */
+function homeDepartureHtml(dep) {
+  const service = dep.service || "?";
+  const expected = dep.expected_departure, aimed = dep.aimed_departure;
+  const live = !!expected;
+  const at = expected || aimed;
+  const due = at ? formatDueTime(at, clockNow(), live) : "–";
+  const colour = getRouteColour(service, dep.operator || dep.operator_ref);
+  const textCls = pickTextOn(colour) === "dark" ? "service-badge--dark-text" : "service-badge--light-text";
+  const chip = live || (dep.status || "").toLowerCase() === "cancelled" ? buildStatusChip(dep, true)
+    : { label: "Timetable", cssClass: "status-scheduled" };
+  return `<span class="home-dep">
+      <span class="service-badge ${textCls}" style="background:${escapeAttr(colour)}" aria-hidden="true">${escapeHtml(service)}</span>
+      <span class="home-dep-what"><span class="home-dep-dest"><span class="visually-hidden">${escapeHtml(service)} to </span>${
+        escapeHtml(prettifyName(dep.destination) || "")}</span>
+        <span class="status-chip ${chip.cssClass}">${chip.spoken
+          ? `<span aria-hidden="true">${escapeHtml(chip.label)}</span><span class="visually-hidden">${escapeHtml(chip.spoken)}</span>`
+          : escapeHtml(chip.label)}</span></span>
+      <span class="home-dep-when"><span class="due-time${at && isWithinMinutes(at, 2) ? " due-imminent" : ""}">${escapeHtml(due)}</span>${live
+        ? `<span class="live-dot" aria-hidden="true"></span><span class="visually-hidden">, live</span>` : ""}${
+        aimed ? `<span class="due-clock-sched">Scheduled ${escapeHtml(londonClock(new Date(aimed)))}</span>` : ""}</span>
+    </span>`;
+}
+
+/** A saved stop's card: its name and its next buses, the whole card one tap
+ *  to its board. */
+function homeCardHtml(s, deps) {
+  const body = deps === undefined ? `<span class="home-card-note">Finding the next buses…</span>`
+    : !deps ? `<span class="home-card-note">The next buses could not be loaded just now.</span>`
+    : !deps.length ? `<span class="home-card-note">No buses due in the next two hours.</span>`
+    : deps.map(homeDepartureHtml).join("");
+  return `<li><button type="button" class="home-card" data-home-stop="${escapeAttr(s.atco)}" data-name="${escapeAttr(s.name)}">
+      <span class="home-card-head"><span class="home-stop-name">${escapeHtml(s.name)}</span>
+        <span class="home-card-open" aria-hidden="true">Board</span></span>
+      <span class="home-deps">${body}</span></button></li>`;
+}
+
+/** Saved stops, above the search (asked for 7 November 2026). */
+function homeSavedHtml(saved, nexts = {}) {
+  if (!saved.length) return "";
+  return `<h3 class="home-title">Your stops</h3><ul class="home-cards">${
+    saved.map(s => homeCardHtml(s, nexts[s.atco])).join("")}</ul>`;
+}
+
+/** Under the search: recent stops and the last bus home from the first saved
+ *  stop; with nothing saved or recent, how saving works. */
+function homeSheetHtml(saved, recent) {
   const fresh = recent.filter(r => !saved.some(s => s.atco === r.atco));
   if (!saved.length && !fresh.length) {
-    return `<p class="home-hint">Open a stop and press the star to save it: it shows here, with its next buses,
-      whenever you visit on this device.</p>`;
+    return `<p class="home-hint">Open a stop and press the star to save it: it shows above the search, with
+      its next buses, whenever you visit on this device.</p>`;
   }
-  return `${saved.length ? `<h3 class="home-title">Your stops</h3><ul class="home-stops">${saved.map(card).join("")}</ul>` : ""}
-    ${fresh.length ? `<h3 class="home-title">Recent</h3><ul class="home-recent">${fresh.map(s =>
+  return `${fresh.length ? `<h3 class="home-title">Recent</h3><ul class="home-recent">${fresh.map(s =>
       `<li><button type="button" class="home-recent-btn target-dense" data-home-stop="${escapeAttr(s.atco)}"
         data-name="${escapeAttr(s.name)}">${escapeHtml(s.name)}</button></li>`).join("")}</ul>` : ""}
     <div class="home-lastbus" id="home-lastbus"></div>`;
 }
 
+// While the home sheet shows, its boards keep up: a minute, as the board does.
+const HOME_REFRESH_MS = 60_000;
+
 async function renderHomeSheet() {
   const host = document.getElementById("home-sheet");
+  const top = document.getElementById("home-saved");
   if (!host) return;
   const saved = readSavedStops().filter(s => !state.stopData || !Object.keys(state.stopData).length || state.stopData[s.atco]);
   const recent = readRecentStops();
   const nexts = {};
-  host.innerHTML = homeSheetHtml(saved, recent, nexts);
+  host.innerHTML = homeSheetHtml(saved, recent);
   host.hidden = false;
+  if (top) { top.innerHTML = homeSavedHtml(saved, nexts); top.hidden = !saved.length; }
   const seq = (state._homeSeq = (state._homeSeq || 0) + 1);
+  clearTimeout(state._homeTimer);
   await Promise.all(saved.map(async (s) => {
     try { nexts[s.atco] = await homeNextDepartures(s.atco); } catch { nexts[s.atco] = null; }
   }));
   if (seq !== state._homeSeq) return;
-  host.innerHTML = homeSheetHtml(saved, recent, nexts);
-  // The last bus home, from the first saved stop: the timetable's answer to
-  // "can I still get back tonight?" (/api/stop-span).
+  if (top) top.innerHTML = homeSavedHtml(saved, nexts);
   if (saved.length) {
+    // Again in a minute, while nothing else is open and the sheet still shows.
+    state._homeTimer = setTimeout(() => {
+      if (seq === state._homeSeq && !state.selectedStop && state.viewMode === "live"
+          && !document.hidden && top && !top.hidden) renderHomeSheet();
+    }, HOME_REFRESH_MS);
+    // The last bus home, from the first saved stop: the timetable's answer to
+    // "can I still get back tonight?" (/api/stop-span).
     try {
       const pos = (state.stopData || {})[saved[0].atco];
       const span = await apiFetchMemo(`/api/stop-span?stopId=${encodeURIComponent(saved[0].atco)}${
@@ -8137,14 +8278,14 @@ async function renderHomeSheet() {
 }
 
 function bindHomeSheet() {
-  const host = document.getElementById("home-sheet");
-  if (!host) return;
-  host.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-home-stop]");
-    if (!b) return;
-    track("view-home-stop");
-    openDepartures(b.dataset.homeStop, b.dataset.name);
-  });
+  for (const id of ["home-sheet", "home-saved"]) {
+    document.getElementById(id)?.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-home-stop]");
+      if (!b) return;
+      track("view-home-stop");
+      openDepartures(b.dataset.homeStop, b.dataset.name);
+    });
+  }
 }
 
 window.openDepartures = async function(atcoCode, stopName) {
@@ -9688,6 +9829,8 @@ function setActiveTab(tab) {
     renderBusTab();
   }
   if (prev !== tab) restoreTabScroll(tab);
+  // Its facts were measured, if at all, while the tab was hidden.
+  if (stopActive) requestAnimationFrame(fitStopAccessChips);
 }
 
 /* Each tab keeps its place while the other is in front (asked for 7 November
@@ -9706,7 +9849,7 @@ function tabScrollKey(tab) {
 
 function rememberTabScroll(tab) {
   const boxes = tabScrollers(tab);
-  if (boxes.length && boxes[0].getClientRects().length) {
+  if (boxes.length && typeof boxes[0].getClientRects === "function" && boxes[0].getClientRects().length) {
     state.tabScroll[tab] = { key: tabScrollKey(tab), tops: boxes.map(b => b.scrollTop) };
   }
 }
@@ -9731,7 +9874,7 @@ function revealBoardReturn() {
   if (Date.now() > back.until || back.stop !== state.selectedStop?.atcoCode) { state.boardReturn = null; return; }
   const row = [...(dom.departuresTbody?.querySelectorAll("tr.departure-row") || [])]
     .find(r => (back.vehicle && r.dataset.vehicle === back.vehicle) || (back.trip && r.dataset.trip === back.trip));
-  if (!row || !row.getClientRects().length) return;
+  if (!row || typeof row.getClientRects !== "function" || !row.getClientRects().length) return;
   state.boardReturn = null;
   revealInPanel(row);
 }
@@ -9762,7 +9905,7 @@ function afterSheetSettles(fn) {
  */
 function revealInPanel(el, { keep = el, pad = 8 } = {}) {
   const box = panelScroller(el);
-  if (!box || !box.getClientRects().length) return;
+  if (!box || typeof box.getClientRects !== "function" || !box.getClientRects().length) return;
   const b = box.getBoundingClientRect();
   const r = el.getBoundingClientRect();
   const k = keep.getBoundingClientRect();
@@ -11578,8 +11721,8 @@ function bindUIEvents() {
   if (dom.busFilterAll) {
     dom.busFilterAll.addEventListener("change", () => {
       const willShow = dom.busFilterAll.checked;
-      setBusesVisible(willShow);
-      showToast(willShow ? "Showing buses." : "Buses hidden.");
+      setAllOperatorsShown(willShow);
+      showToast(willShow ? "Showing every operator's buses." : "Buses hidden.");
     });
   }
   if (dom.busFilter) {
@@ -12555,12 +12698,11 @@ async function applyViewMode() {
       if (!state.isRefreshing) startVehicleRefresh();
     }
     if (state.railVisible) {
-      try {
-        await loadRailStations();
-        showRailStations();
-      } catch (err) {
-        console.warn("Rail station load failed:", err);
-      }
+      // Drawn when they arrive, not awaited: on a cold API the wait held the
+      // whole view, and the tour's board with it (cloud review, 3 November).
+      loadRailStations()
+        .then(() => { if (mine() && state.viewMode === "live" && state.railVisible) showRailStations(); })
+        .catch(err => console.warn("Rail station load failed:", err));
     }
   }
   applyStopVisibility();
@@ -20933,15 +21075,19 @@ const lowerFirst = (s) => String(s || "").charAt(0).toLowerCase() + String(s || 
  *  have not read, to follow the signs. Nothing when only trains are due. */
 function railReplacementNoteHtml(crs, services, stations) {
   if (!(services || []).some(s => s && s.mode === "bus")) return "";
-  const stop = ((stations || []).find(s => s.crs === crs)?.stops || [])[0];
-  if (!stop) {
+  const stops = (stations || []).find(s => s.crs === crs)?.stops || [];
+  if (!stops.length) {
     return `<p class="rail-board-buses">Replacement buses are running. Follow the signs at the
       station to where they leave from.</p>`;
   }
-  const source = safeUrl(stop.source_url || "");
+  const source = safeUrl(stops[0].source_url || "");
+  // A stop each way at most stations (7 November 2026): each with which way
+  // its buses go, as the poster gives it.
+  const where = (stop) => `<strong>${escapeHtml(stop.name)}</strong>${stop.for && stops.length > 1
+    ? ` ${escapeHtml(lowerFirst(stop.for))}` : ""}`;
+  const extra = [lowerFirst(stops[0].access), stops[0].walk].filter(Boolean).join(", ");
   return `<p class="rail-board-buses">
-      <span>Replacement buses leave from <strong>${escapeHtml(stop.name)}</strong> (${
-        escapeHtml([lowerFirst(stop.access), stop.walk].filter(Boolean).join(", "))}).${
+      <span>Replacement buses leave from ${stops.map(where).join("; ")}${extra ? ` (${escapeHtml(extra)})` : ""}.${
         source ? ` <a href="${escapeAttr(source)}" target="_blank" rel="noopener">The operator's poster</a>.` : ""}</span>
       <button type="button" class="btn-text" data-rail-action="rrb-stop"
               data-crs="${escapeAttr(crs)}">Show on map</button>
@@ -20949,7 +21095,8 @@ function railReplacementNoteHtml(crs, services, stations) {
 }
 
 function railReplacementPopupHtml(station, stop) {
-  return `<strong>Rail replacement buses</strong><br>${escapeHtml(stop.name)}<br>${
+  return `<strong>Rail replacement buses</strong><br>${escapeHtml(stop.name)}${
+    stop.for ? `<br>${escapeHtml(stop.for)}` : ""}<br>${
     escapeHtml([stop.access, stop.walk].filter(Boolean).join(", "))}<br>
     <span class="rrb-popup-source">From the poster at ${escapeHtml(station.station)} station${
       stop.what3words ? ` · what3words ///${escapeHtml(stop.what3words)}` : ""}</span>`;

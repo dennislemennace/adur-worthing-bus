@@ -48,7 +48,7 @@ test("the board says where the buses leave from, when any are due", () => {
 });
 
 test("a station with no known stop says to follow the signs, rather than guessing", () => {
-  const note = run(`railReplacementNoteHtml("SSE", [${JSON.stringify(BUS)}], ${JSON.stringify(STOPS)})`);
+  const note = run(`railReplacementNoteHtml("ZZZ", [${JSON.stringify(BUS)}], ${JSON.stringify(STOPS)})`);
   assert.match(note, /signs/);
   assert.doesNotMatch(note, /rrb-stop/);
 });
@@ -87,4 +87,16 @@ test("a replacement bus matched to its journey lists its stations, opening their
   assert.match(html, /does not say which journey/);
   assert.match(html, /estimated times/);
   st.busDetails = null; st.selectedVehicleRef = null;
+});
+
+
+test("every station has its posters' stops, and a station with one each way says which is which", () => {
+  // From Southern's posters for all fifteen stations (7 November 2026).
+  const doc = JSON.parse(readFileSync(join(ROOT, "data", "rail_replacement_stops.json"), "utf8"));
+  assert.equal(doc.stations.length, 15);
+  const note = run(`railReplacementNoteHtml("PLD", [${JSON.stringify(BUS)}], ${JSON.stringify(doc.stations)})`);
+  assert.match(note, /Portland Road \(Stop G\)<\/strong> towards Hove and Brighton/);
+  assert.match(note, /Portland Road \(Stop H\)<\/strong> towards Shoreham-by-Sea and Worthing/);
+  const pld = doc.stations.find(s => s.crs === "PLD");
+  assert.match(run(`railReplacementPopupHtml(${JSON.stringify(pld)}, ${JSON.stringify(pld.stops[1])})`), /Towards Shoreham-by-Sea/);
 });

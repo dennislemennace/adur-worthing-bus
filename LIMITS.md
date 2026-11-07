@@ -497,6 +497,14 @@ flag — the schema is a map of the surface.
   about twenty-five requests a run. The images are saved in the repository,
   so the site itself never calls Wikimedia.
 
+## National Rail — rail replacement posters, by hand
+
+- `scripts/fetch_rail_replacement.py`, run by hand when posters change, reads
+  each of the fifteen stations' National Rail pages and the Southern poster
+  PDF each links, a second apart, with a named User-Agent: about thirty
+  requests a run. The site never calls National Rail; the stops are saved in
+  `data/rail_replacement_stops.json`.
+
 ## Nomis and the ONS lookup — Census 2021 by ward, once
 
 - `scripts/build_ward_census.py`, run by hand once (Census figures do not

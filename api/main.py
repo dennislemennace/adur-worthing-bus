@@ -1584,6 +1584,10 @@ async def get_departures(
     stopId: str = Query(...),
     lat: Optional[float] = Query(None),
     lon: Optional[float] = Query(None),
+    # 0 for a board that must not spend the TransportAPI allowance (the home
+    # sheet's saved stops, up to eight a visit): our own estimates from the
+    # buses' feeds still apply, at no cost.
+    predictions: int = Query(1, ge=0, le=1),
 ):
     """
     Scheduled departures for a stop from the pre-built timetable, with
@@ -1617,7 +1621,7 @@ async def get_departures(
         cache_set(cache_key, base, 60)
     at = _timed("schedule", at)
 
-    result = await _apply_live_overlay(base, resolved)
+    result = await _apply_live_overlay(base, resolved) if predictions else dict(base)
     # FlixBus's own delays, asked for only where a FlixBus coach is on the board.
     if any(d.get("operator") == flixbus.NOC for d in result.get("departures") or []):
         result = _apply_flixbus_delays(result, tt, resolved, await _flixbus_updates(tt))

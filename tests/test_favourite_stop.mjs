@@ -112,17 +112,28 @@ test("recent stops: newest first, no repeats, five at most", () => {
   assert.deepEqual(plain(app.ctx.readRecentStops()).map(s => s.atco), ["F", "E", "D", "A", "C"]);
 });
 
-test("the home sheet gives each saved stop its next buses, escaped, and leaves saved stops out of Recent", () => {
+test("saved stops sit above the search as small boards, escaped, and Recent leaves them out", () => {
+  // Above the search, each a small board of its next buses (7 November 2026).
   const { ctx } = loadApp();
-  const html = ctx.homeSheetHtml(
-    [{ atco: "1490A", name: "High <b>Street</b>" }],
-    [{ atco: "1490A", name: "High Street" }, { atco: "1490B", name: "Ham Road" }],
-    { "1490A": [{ service: "700", destination: "brighton", aimed_departure: "2026-11-06T12:05:00+00:00" }] });
-  assert.doesNotMatch(html, /<b>Street/);
-  assert.match(html, /<strong>700<\/strong> 12:05 to Brighton/);
-  assert.match(html, /timetable/);
-  assert.equal((html.match(/data-home-stop="1490A"/g) || []).length, 1, "a saved stop is listed again under Recent");
-  assert.match(html, /data-home-stop="1490B"/);
+  const saved = [{ atco: "1490A", name: "High <b>Street</b>" }];
+  const top = ctx.homeSavedHtml(saved, { "1490A": [
+    { service: "700", operator: "SCSO", destination: "brighton", aimed_departure: "2030-11-06T12:05:00+00:00" },
+    { service: "2", operator: "BHBC", destination: "rottingdean", aimed_departure: "2030-11-06T12:07:00+00:00",
+      expected_departure: "2030-11-06T12:09:00+00:00", status: "Late", delay_seconds: 120 }] });
+  assert.doesNotMatch(top, /<b>Street/);
+  assert.match(top, /Your stops/);
+  assert.equal((top.match(/class="home-dep"/g) || []).length, 2);
+  assert.match(top, /Brighton/);
+  assert.match(top, /Scheduled 12:05/);
+  // Live where the bus says so, Timetable where it does not.
+  assert.match(top, /class="live-dot"/);
+  assert.match(top, /Timetable/);
+  assert.equal(ctx.homeSavedHtml([], {}), "", "nothing saved, nothing above the search");
+  assert.match(ctx.homeSavedHtml(saved, {}), /Finding the next buses/);
+  const under = ctx.homeSheetHtml(saved,
+    [{ atco: "1490A", name: "High Street" }, { atco: "1490B", name: "Ham Road" }]);
+  assert.doesNotMatch(under, /data-home-stop="1490A"/, "a saved stop is listed again under Recent");
+  assert.match(under, /data-home-stop="1490B"/);
 });
 
 test("blocked storage: nothing throws, nothing is claimed, and the reader is told", () => {

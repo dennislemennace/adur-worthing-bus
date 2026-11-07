@@ -190,10 +190,10 @@ TIMETABLE_URL = os.environ.get(
 
 # Suffix appended to db_path for the locally-computed hash cache. Trusted
 # when its mtime ≥ the DB's mtime; otherwise we rehash. Saves ~200 ms of
-# SHA-256 over 63 MB on every warm cold start.
+# SHA-256 over ~120 MB on every warm cold start.
 _LOCAL_HASH_SUFFIX = ".sha256.local"
 _SIDECAR_TIMEOUT = 5  # seconds — sidecar is ~64 bytes, this is generous.
-# The database is ~63 MB. Generous, but bounded: `urlretrieve` had no timeout
+# The database is ~120 MB (118 MB on 7 November 2026). Generous, but bounded: `urlretrieve` had no timeout
 # at all, so a stalled transfer blocked the hourly refresh — and with it every
 # request sharing the event loop — for as long as the socket stayed open.
 _DOWNLOAD_TIMEOUT = 120  # seconds
@@ -244,7 +244,7 @@ _REQUIRED_TABLES = ("stops", "routes", "trips", "stop_times")
 def db_is_usable(path) -> bool:
     """Whether `path` is a timetable this service can serve from.
 
-    Deliberately strict, and deliberately cheap: an integrity check on a 63 MB
+    Deliberately strict, and deliberately cheap: an integrity check on a ~120 MB
     file at every startup would cost more than it saves, so this asks the
     questions that separate a real timetable from the things that actually go
     wrong — is it a database, does it have the tables, does it have any
@@ -367,7 +367,7 @@ class Timetable:
 
     def _local_hash(self) -> Optional[str]:
         """Return the SHA-256 of the on-disk DB. Uses an mtime-keyed cache
-        file alongside the DB to avoid rehashing 63 MB on every cold start."""
+        file alongside the DB to avoid rehashing ~120 MB on every cold start."""
         if not self.db_path.exists():
             return None
         cache = self._cached_local_hash_path()

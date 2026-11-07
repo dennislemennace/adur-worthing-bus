@@ -1,27 +1,537 @@
 {
-  "_comment": "Where rail replacement buses stop at each station, from the train operator's own poster, which National Rail links from the station's page. app.js draws each on the map and names it on the station's board when a replacement bus is due. Positions are worked out, not given: position_basis says how. Brighton first (1 November 2026); the other stations' posters are on their National Rail pages too.",
-  "stations": [
+ "_comment": "Where rail replacement buses stop at each station, from Southern's poster, which National Rail links from the station's page: built by scripts/fetch_rail_replacement.py from the stops curated in data/rail_replacement_positions.json. app.js draws each on the map and names them on the station's board when a replacement bus is due. Positions are placed by hand from the poster's map: position_basis says how.",
+ "stations": [
+  {
+   "crs": "DUR",
+   "station": "Durrington-On-Sea",
+   "stops": [
     {
-      "crs": "BTN",
-      "station": "Brighton",
-      "stops": [
-        {
-          "name": "Turning circle on Stroudley Road",
-          "access": "From platform 8",
-          "walk": "1 minute's walk from the station",
-          "what3words": "upper.herb.frog",
-          "lat": 50.832152,
-          "lon": -0.141385,
-          "position_basis": "The poster places the stop by what3words only. This is FlixBus's Brighton stop on the same turning circle (9000F22A3795 in the timetable), which matches the poster's map.",
-          "source": "Southern, Rail Replacement Bus Services: Brighton (poster 2025-01_CI_SN_RRB_BTN_DR)",
-          "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/4YWUEIKuHxPdvH1F1muvX9/23242c2897a2cbfc168df52961fcd977/2025-01_CI_SN_RRB_BTN_DR.pdf",
-          "station_page": "https://www.nationalrail.co.uk/stations/brighton/",
-          "source_sha256": "d80bb7dd46b0af9126198a59b9723825384dea58e0e290ab5d23aa15eac9a7a0",
-          "poster_date": "2025-01",
-          "display_until": "2025-07-06",
-          "checked_on": "2026-11-01"
-        }
-      ]
+     "name": "Station front",
+     "for": "All rail replacement buses",
+     "access": null,
+     "walk": "1 min walk from the station",
+     "what3words": "boil.just.launch",
+     "lat": 50.8178,
+     "lon": -0.41128,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: the south end of The Causeway, on the north side of the station.",
+     "source": "Southern, Rail Replacement Bus Services: Durrington-On-Sea (poster 2025-01_CI_SN_RRB_DUR_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/5GmXIG0VEhteFT5wjimddZ/c8123f6647f4db48ef6007b62eaae928/2025-01_CI_SN_RRB_DUR_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/durrington-on-sea/",
+     "source_sha256": "8b73624978d673d8c74518390c20264fd4cdc486ddec99dd0bc71f740807bb0e",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
     }
-  ]
+   ]
+  },
+  {
+   "crs": "WWO",
+   "station": "West Worthing",
+   "stops": [
+    {
+     "name": "Station front",
+     "for": "Towards Barnham and Littlehampton",
+     "access": null,
+     "walk": "1 min walk from the station",
+     "what3words": "refuse.payer.layers",
+     "lat": 50.81808,
+     "lon": -0.39325,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Tarring Road at the Valencia Road junction, south side.",
+     "source": "Southern, Rail Replacement Bus Services: West Worthing (poster 2025-01_CI_SN_RRB_WWO_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/575sqTHiawJJgEf68K36m5/253ba37f9c65028d8ce4575451a12dbe/2025-01_CI_SN_RRB_WWO_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/west-worthing/",
+     "source_sha256": "a98d343aeee4fcf6a7e770f3de11c0826ae3fd30969f78a67dd4d91fe5c878d6",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    },
+    {
+     "name": "Station front",
+     "for": "Towards Central Worthing and Brighton",
+     "access": null,
+     "walk": "1 min walk from the station",
+     "what3words": "helps.bossy.tries",
+     "lat": 50.81822,
+     "lon": -0.39275,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Tarring Road a little east of Valencia Road, by the station.",
+     "source": "Southern, Rail Replacement Bus Services: West Worthing (poster 2025-01_CI_SN_RRB_WWO_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/575sqTHiawJJgEf68K36m5/253ba37f9c65028d8ce4575451a12dbe/2025-01_CI_SN_RRB_WWO_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/west-worthing/",
+     "source_sha256": "a98d343aeee4fcf6a7e770f3de11c0826ae3fd30969f78a67dd4d91fe5c878d6",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "WRH",
+   "station": "Worthing",
+   "stops": [
+    {
+     "name": "Station front",
+     "for": "All rail replacement buses",
+     "access": null,
+     "walk": "1 min walk from the station",
+     "what3words": "leap.order.unique",
+     "lat": 50.8185,
+     "lon": -0.3757,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: the forecourt by the station building, north of Railway Approach.",
+     "source": "Southern, Rail Replacement Bus Services: Worthing (poster 2025-01_CI_SN_RRB_WRH_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/2pltwyjkfQYyE1gG9hExhj/99340432783b64f353bce72c4e587fd7/2025-01_CI_SN_RRB_WRH_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/worthing/",
+     "source_sha256": "6b8450a4fc59908b5bf43cff97f84c06b46bacd3c548bd90e58edd8475af382c",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "EWR",
+   "station": "East Worthing",
+   "stops": [
+    {
+     "name": "Ham Road (stop unmarked)",
+     "for": "Both directions",
+     "access": null,
+     "walk": "2 min walk from the station",
+     "what3words": "signal.label.certified",
+     "lat": 50.82052,
+     "lon": -0.35415,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Ham Road at the Chesswood Road junction, which the poster gives for buses both ways.",
+     "source": "Southern, Rail Replacement Bus Services: East Worthing (poster 2025-01_CI_SN_RRB_EWR_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/7tiYTlIvVEGCfI2n3EXj31/d270a7108ee5c900f57c9a40e6bf14d0/2025-01_CI_SN_RRB_EWR_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/east-worthing/",
+     "source_sha256": "f01d06eeed9e6f66798ab7d18e992a88d04c64a5d630781c2a9273d5180f6a1b",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "LAC",
+   "station": "Lancing",
+   "stops": [
+    {
+     "name": "South Street (stop unmarked)",
+     "for": "Towards Shoreham-by-Sea and Brighton",
+     "access": null,
+     "walk": "1 min walk from the station",
+     "what3words": "prom.taxi.shunts",
+     "lat": 50.82618,
+     "lon": -0.32282,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: South Street about 110 m south of the level crossing, west side.",
+     "source": "Southern, Rail Replacement Bus Services: Lancing (poster 2025-01_CI_SN_RRB_LAC_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/1SoKTmF71srk6aQoNwwUWv/f85c869f878cabfb82663e3167dabac9/2025-01_CI_SN_RRB_LAC_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/lancing/",
+     "source_sha256": "d14f298d221d1ad3fc03a27afa59b4b2b06ee803cd76570c33adb31499850649",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    },
+    {
+     "name": "South Street (stop unmarked)",
+     "for": "Towards Worthing",
+     "access": null,
+     "walk": "1 min walk from the station",
+     "what3words": "excuse.custom.oiled",
+     "lat": 50.8263,
+     "lon": -0.32262,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: South Street about 100 m south of the level crossing, east side.",
+     "source": "Southern, Rail Replacement Bus Services: Lancing (poster 2025-01_CI_SN_RRB_LAC_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/1SoKTmF71srk6aQoNwwUWv/f85c869f878cabfb82663e3167dabac9/2025-01_CI_SN_RRB_LAC_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/lancing/",
+     "source_sha256": "d14f298d221d1ad3fc03a27afa59b4b2b06ee803cd76570c33adb31499850649",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "SSE",
+   "station": "Shoreham-By-Sea",
+   "stops": [
+    {
+     "name": "Brunswick Road (stop unmarked)",
+     "for": "Towards Hove and Brighton, when the level crossing is open to road traffic",
+     "access": null,
+     "walk": "1 min walk from the station",
+     "what3words": "readings.isolating.journey",
+     "lat": 50.83497,
+     "lon": -0.27202,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Brunswick Road north of the level crossing, near Gordon Road, east side.",
+     "source": "Southern, Rail Replacement Bus Services: Shoreham-By-Sea (poster 2025-01_CI_SN_RRB_SSE_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/4baXNwjnY178NoMUkigWhL/36eb403c273df59e507c7b427a7bb19b/2025-01_CI_SN_RRB_SSE_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/shoreham-by-sea/",
+     "source_sha256": "c6915b8cd04803aa47ccb87f8d335668c0d032bd2e8bf1283b1ceec3b1e7fa6a",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    },
+    {
+     "name": "Brunswick Road (stop unmarked)",
+     "for": "Towards Worthing and Littlehampton, when the level crossing is open to road traffic",
+     "access": null,
+     "walk": "1 min walk from the station",
+     "what3words": "issues.opposites.tallest",
+     "lat": 50.83482,
+     "lon": -0.27227,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Brunswick Road north of the level crossing, west side.",
+     "source": "Southern, Rail Replacement Bus Services: Shoreham-By-Sea (poster 2025-01_CI_SN_RRB_SSE_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/4baXNwjnY178NoMUkigWhL/36eb403c273df59e507c7b427a7bb19b/2025-01_CI_SN_RRB_SSE_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/shoreham-by-sea/",
+     "source_sha256": "c6915b8cd04803aa47ccb87f8d335668c0d032bd2e8bf1283b1ceec3b1e7fa6a",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    },
+    {
+     "name": "Ham Road (stop unmarked)",
+     "for": "All rail replacement buses when the level crossing is closed to road traffic",
+     "access": null,
+     "walk": "1 min walk from the station",
+     "what3words": "jiffy.decking.bulbs",
+     "lat": 50.83402,
+     "lon": -0.27222,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Ham Road just east of Brunswick Road, south of the railway.",
+     "source": "Southern, Rail Replacement Bus Services: Shoreham-By-Sea (poster 2025-01_CI_SN_RRB_SSE_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/4baXNwjnY178NoMUkigWhL/36eb403c273df59e507c7b427a7bb19b/2025-01_CI_SN_RRB_SSE_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/shoreham-by-sea/",
+     "source_sha256": "c6915b8cd04803aa47ccb87f8d335668c0d032bd2e8bf1283b1ceec3b1e7fa6a",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "SWK",
+   "station": "Southwick",
+   "stops": [
+    {
+     "name": "Station Road",
+     "for": "All rail replacement buses",
+     "access": null,
+     "walk": "1 min walk from the station",
+     "what3words": "bags.damp.loves",
+     "lat": 50.8329,
+     "lon": -0.2357,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Station Road beside the east end of the station.",
+     "source": "Southern, Rail Replacement Bus Services: Southwick (poster 2025-01_CI_SN_RRB_SWK_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/3OB1RZZAEDL83vOFw1Py6e/ea4bbf1e348f35e74919e280c1020627/2025-01_CI_SN_RRB_SWK_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/southwick/",
+     "source_sha256": "c0a11113efb6d484cefbb7fe0052bea95ae80d4be3ea6a760a6fe8ef7e5a7743",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "FSG",
+   "station": "Fishersgate",
+   "stops": [
+    {
+     "name": "Gladstone Road (stop unmarked)",
+     "for": "Towards Shoreham-by-Sea and Worthing",
+     "access": null,
+     "walk": "5 min walk from the station",
+     "what3words": "remind.risk.fired",
+     "lat": 50.83396,
+     "lon": -0.21781,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Gladstone Road about 35 m east of Gardner Road.",
+     "source": "Southern, Rail Replacement Bus Services: Fishersgate (poster 2025-01_CI_SN_RRB_FSG_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/2H3xYWYB8wMozm8CTqrZyR/f392a614a9e2626c84684094bff6f38b/2025-01_CI_SN_RRB_FSG_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/fishersgate/",
+     "source_sha256": "536ea82bf112fcfa2cf99e582461a4d5edbf64745a88fc03a27d15a6a66358ee",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    },
+    {
+     "name": "Gladstone Road (stop unmarked)",
+     "for": "Towards Hove and Brighton",
+     "access": null,
+     "walk": "5 min walk from the station",
+     "what3words": "lobby.suffice.ships",
+     "lat": 50.83393,
+     "lon": -0.21803,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Gladstone Road about 20 m east of Gardner Road.",
+     "source": "Southern, Rail Replacement Bus Services: Fishersgate (poster 2025-01_CI_SN_RRB_FSG_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/2H3xYWYB8wMozm8CTqrZyR/f392a614a9e2626c84684094bff6f38b/2025-01_CI_SN_RRB_FSG_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/fishersgate/",
+     "source_sha256": "536ea82bf112fcfa2cf99e582461a4d5edbf64745a88fc03a27d15a6a66358ee",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "PLD",
+   "station": "Portslade",
+   "stops": [
+    {
+     "name": "Portland Road (Stop G)",
+     "for": "Towards Hove and Brighton",
+     "access": null,
+     "walk": "2 min walk from the station",
+     "what3words": "task.format.locals",
+     "lat": 50.835482,
+     "lon": -0.205188,
+     "position_basis": "The bus stop the poster names: Portslade Railway Station, stop G on Portland Road (149000006450 in NaPTAN).",
+     "source": "Southern, Rail Replacement Bus Services: Portslade (poster 2025-01_CI_SN_RRB_PLD_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/Wu0asyPPjnnoFhBqGIseE/f8941f986f7a7a69d0ba39d943e605fb/2025-01_CI_SN_RRB_PLD_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/portslade/",
+     "source_sha256": "a434f618d0998fb825ac57a35d958b7d306880d085a39497474908de3e912141",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    },
+    {
+     "name": "Portland Road (Stop H)",
+     "for": "Towards Shoreham-by-Sea and Worthing",
+     "access": null,
+     "walk": "2 min walk from the station",
+     "what3words": "ports.like.bits",
+     "lat": 50.835323,
+     "lon": -0.204782,
+     "position_basis": "The bus stop the poster names: Portslade Railway Station, stop H on Portland Road (149000007450 in NaPTAN).",
+     "source": "Southern, Rail Replacement Bus Services: Portslade (poster 2025-01_CI_SN_RRB_PLD_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/Wu0asyPPjnnoFhBqGIseE/f8941f986f7a7a69d0ba39d943e605fb/2025-01_CI_SN_RRB_PLD_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/portslade/",
+     "source_sha256": "a434f618d0998fb825ac57a35d958b7d306880d085a39497474908de3e912141",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "AGT",
+   "station": "Aldrington",
+   "stops": [
+    {
+     "name": "Portland Road (stop unmarked)",
+     "for": "Towards Hove and Brighton",
+     "access": null,
+     "walk": "7 min walk from the station",
+     "what3words": "fleet.certified.sounds",
+     "lat": 50.8334,
+     "lon": -0.18582,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Portland Road at the Raphael Road junction.",
+     "source": "Southern, Rail Replacement Bus Services: Aldrington (poster 2025-01_CI_SN_RRB_AGT_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/5YCeGcV8cr7pmStVxPJkly/5af869b5a57377cddd36eb4cedc0b90b/2025-01_CI_SN_RRB_AGT_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/aldrington/",
+     "source_sha256": "a73e3b831b492b6e18bdba98b139ad7f6d415bdfa3f56d6ebcf5de589f2366e9",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    },
+    {
+     "name": "Portland Road (stop unmarked)",
+     "for": "Towards Worthing and Shoreham-by-Sea",
+     "access": null,
+     "walk": "7 min walk from the station",
+     "what3words": "fame.duck.tracks",
+     "lat": 50.83352,
+     "lon": -0.1868,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Portland Road at the Titian Road junction.",
+     "source": "Southern, Rail Replacement Bus Services: Aldrington (poster 2025-01_CI_SN_RRB_AGT_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/5YCeGcV8cr7pmStVxPJkly/5af869b5a57377cddd36eb4cedc0b90b/2025-01_CI_SN_RRB_AGT_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/aldrington/",
+     "source_sha256": "a73e3b831b492b6e18bdba98b139ad7f6d415bdfa3f56d6ebcf5de589f2366e9",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "HOV",
+   "station": "Hove",
+   "stops": [
+    {
+     "name": "Goldstone Villas (stop unmarked)",
+     "for": "Towards Brighton",
+     "access": null,
+     "walk": "1 min walk from the station",
+     "what3words": "shock.limp.shirt",
+     "lat": 50.834737,
+     "lon": -0.171104,
+     "position_basis": "Beside the Hove Railway Station bus stop on Goldstone Villas (149000006680), where the poster's pin sits. The poster spells the street Godstone Villas.",
+     "source": "Southern, Rail Replacement Bus Services: Hove (poster 2025-01_CI_SN_RRB_HOV_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/5qO9k0xokMbqkgBBUZ0LcR/96ee9f06d197af36ae80b945989f7d2d/2025-01_CI_SN_RRB_HOV_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/hove/",
+     "source_sha256": "662b85c3bc09fd5c4335fba1937e4be753b41da136d67b8c0cfeeba46a4c616d",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    },
+    {
+     "name": "Goldstone Villas (stop unmarked)",
+     "for": "Towards Shoreham-by-Sea and Worthing",
+     "access": null,
+     "walk": "1 min walk from the station",
+     "what3words": "jumped.epic.focus",
+     "lat": 50.834663,
+     "lon": -0.170936,
+     "position_basis": "Beside the Hove Railway Station bus stop on Goldstone Villas (149000007680), where the poster's pin sits. The poster spells the street Godstone Villas.",
+     "source": "Southern, Rail Replacement Bus Services: Hove (poster 2025-01_CI_SN_RRB_HOV_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/5qO9k0xokMbqkgBBUZ0LcR/96ee9f06d197af36ae80b945989f7d2d/2025-01_CI_SN_RRB_HOV_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/hove/",
+     "source_sha256": "662b85c3bc09fd5c4335fba1937e4be753b41da136d67b8c0cfeeba46a4c616d",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "PRP",
+   "station": "Preston Park",
+   "stops": [
+    {
+     "name": "Preston Road (stop unmarked)",
+     "for": "Towards Burgess Hill and Haywards Heath",
+     "access": null,
+     "walk": "4 min walk from the station",
+     "what3words": "memo.page.plants",
+     "lat": 50.845897,
+     "lon": -0.151647,
+     "position_basis": "Beside the Harrington Road bus stop on Preston Road, west side (149000007041), where the poster's pin sits, to within about 30 m.",
+     "source": "Southern, Rail Replacement Bus Services: Preston Park (poster 2025-01_CI_SN_RRB_PRP_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/4KfoLg5vvorPdnfmhhUyBT/5bf266d813fe987e50c353063c79dba1/2025-01_CI_SN_RRB_PRP_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/preston-park/",
+     "source_sha256": "2afe43f0cd0ad53e7a201641cb484d102d81c2b6efc9e9ab4128daefd347215c",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    },
+    {
+     "name": "Preston Road (stop unmarked)",
+     "for": "Towards Brighton",
+     "access": null,
+     "walk": "4 min walk from the station",
+     "what3words": "punch.both.improving",
+     "lat": 50.845875,
+     "lon": -0.151392,
+     "position_basis": "Beside the Harrington Road bus stop on Preston Road, east side (149000006041), where the poster's pin sits, to within about 30 m.",
+     "source": "Southern, Rail Replacement Bus Services: Preston Park (poster 2025-01_CI_SN_RRB_PRP_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/4KfoLg5vvorPdnfmhhUyBT/5bf266d813fe987e50c353063c79dba1/2025-01_CI_SN_RRB_PRP_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/preston-park/",
+     "source_sha256": "2afe43f0cd0ad53e7a201641cb484d102d81c2b6efc9e9ab4128daefd347215c",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "BTN",
+   "station": "Brighton",
+   "stops": [
+    {
+     "name": "Turning circle on Stroudley Road",
+     "for": "All rail replacement buses",
+     "access": "From platform 8",
+     "walk": "1 min walk from the station",
+     "what3words": "upper.herb.frog",
+     "lat": 50.832152,
+     "lon": -0.141385,
+     "position_basis": "The poster places the stop by what3words only. This is FlixBus's Brighton stop on the same turning circle (9000F22A3795 in the timetable), which matches the poster's map.",
+     "source": "Southern, Rail Replacement Bus Services: Brighton (poster 2025-01_CI_SN_RRB_BTN_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/4YWUEIKuHxPdvH1F1muvX9/23242c2897a2cbfc168df52961fcd977/2025-01_CI_SN_RRB_BTN_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/brighton/",
+     "source_sha256": "d80bb7dd46b0af9126198a59b9723825384dea58e0e290ab5d23aa15eac9a7a0",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "LRB",
+   "station": "London Road (Brighton)",
+   "stops": [
+    {
+     "name": "Ditchling Road (stop unmarked)",
+     "for": "Towards Lewes",
+     "access": null,
+     "walk": "5 min walk from the station",
+     "what3words": "free.inner.marble",
+     "lat": 50.83618,
+     "lon": -0.13368,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Ditchling Road just north of Round Hill Road, west side.",
+     "source": "Southern, Rail Replacement Bus Services: London Road (Brighton) (poster 2025-01_CI_SN_RRB_LRB_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/4Gqfi20wvCHPVX5pvBRixE/0a6c62a6f6c80414857b9654a8b0e6d0/2025-01_CI_SN_RRB_LRB_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/london-road-brighton/",
+     "source_sha256": "ebdbdc53b178173cc8565a7440312f8c589de794fa13df2cccd1e437d6aafcc6",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    },
+    {
+     "name": "Ditchling Road (stop unmarked)",
+     "for": "Towards Central Brighton",
+     "access": null,
+     "walk": "5 min walk from the station",
+     "what3words": "owner.likely.camp",
+     "lat": 50.83578,
+     "lon": -0.13354,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Ditchling Road just south of Round Hill Road, east side.",
+     "source": "Southern, Rail Replacement Bus Services: London Road (Brighton) (poster 2025-01_CI_SN_RRB_LRB_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/4Gqfi20wvCHPVX5pvBRixE/0a6c62a6f6c80414857b9654a8b0e6d0/2025-01_CI_SN_RRB_LRB_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/london-road-brighton/",
+     "source_sha256": "ebdbdc53b178173cc8565a7440312f8c589de794fa13df2cccd1e437d6aafcc6",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  },
+  {
+   "crs": "MCB",
+   "station": "Moulsecoomb",
+   "stops": [
+    {
+     "name": "Lewes Road (stop unmarked)",
+     "for": "Towards Lewes",
+     "access": null,
+     "walk": "3 min walk from the station",
+     "what3words": "cove.riders.career",
+     "lat": 50.84375,
+     "lon": -0.119,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Lewes Road by The Highway, northbound side.",
+     "source": "Southern, Rail Replacement Bus Services: Moulsecoomb (poster 2025-01_CI_SN_RRB_MCB_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/2e66GLUUgK2mlXIVBboAYA/f1b5a092ce509d804217d4afd37ce971/2025-01_CI_SN_RRB_MCB_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/moulsecoomb/",
+     "source_sha256": "9993fe0c5e49cf2f3af76abf747d4e78f0fecac6a6145c9905e92a6ab0d10a66",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    },
+    {
+     "name": "Lewes Road (stop unmarked)",
+     "for": "Towards Central Brighton",
+     "access": null,
+     "walk": "3 min walk from the station",
+     "what3words": "sentences.liked.treat",
+     "lat": 50.84287,
+     "lon": -0.12037,
+     "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Lewes Road about 110 m south-west of The Highway, southbound side.",
+     "source": "Southern, Rail Replacement Bus Services: Moulsecoomb (poster 2025-01_CI_SN_RRB_MCB_DR)",
+     "source_url": "https://assets.nationalrail.co.uk/e8xgegruud3g/2e66GLUUgK2mlXIVBboAYA/f1b5a092ce509d804217d4afd37ce971/2025-01_CI_SN_RRB_MCB_DR.pdf",
+     "station_page": "https://www.nationalrail.co.uk/stations/moulsecoomb/",
+     "source_sha256": "9993fe0c5e49cf2f3af76abf747d4e78f0fecac6a6145c9905e92a6ab0d10a66",
+     "poster_date": "2025-01",
+     "display_until": "2025-07-06",
+     "checked_on": "2026-11-07"
+    }
+   ]
+  }
+ ]
 }

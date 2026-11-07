@@ -1262,6 +1262,10 @@ async function checkFirstUsefulAction(page, where) {
   // than for the reason under test.
   await page.evaluate("setViewMode('live')");
   await sleep(700);
+  // A first visit has no saved stops: with some, their boards come first and
+  // the search under them (7 November 2026), and a run that left some behind
+  // measured that instead.
+  await page.evaluate(`(() => { try { localStorage.removeItem("saved-stops"); } catch {} return 1; })()`);
   await page.evaluate("closePanel(); setSheetDetent(defaultDetentForViewport())");
   await sleep(600);
 
@@ -2087,17 +2091,22 @@ async function checkHomeSheet(page, where) {
   await page.evaluate(`(() => { localStorage.setItem("saved-stops", JSON.stringify([
     { atco: "4400AD0204", name: "High Street, Shoreham" }, { atco: "4400WO0254", name: "Marine Parade" }]));
     setViewMode("live"); closePanel(); return 1; })()`);
-  await waitFor(page, `document.querySelectorAll("#home-sheet .home-stop").length === 2
-    && !document.querySelector("#home-sheet .home-next--loading")`, 20000).catch(() => {});
+  // Above the search, each a small board (7 November 2026).
+  await waitFor(page, `document.querySelectorAll("#home-saved .home-card").length === 2
+    && !document.querySelector("#home-saved .home-card-note") || document.querySelectorAll("#home-saved .home-dep").length > 0`,
+    20000).catch(() => {});
+  await sleep(400);
   const r = JSON.parse(await page.evaluate(`JSON.stringify((() => {
-    const host = document.getElementById("home-sheet"), first = host.querySelector(".home-stop");
+    const top = document.getElementById("home-saved"), first = top.querySelector(".home-card");
+    const search = document.getElementById("stop-search-form");
     const b = first && first.getBoundingClientRect();
-    return { shown: !host.hidden && host.getBoundingClientRect().height > 0, stops: host.querySelectorAll(".home-stop").length,
-      next: (host.querySelector(".home-next") || {}).textContent || "", h: b ? Math.round(b.height) : 0 };
+    return { shown: !top.hidden && top.getBoundingClientRect().height > 0, cards: top.querySelectorAll(".home-card").length,
+      deps: top.querySelectorAll(".home-dep").length, notes: [...top.querySelectorAll(".home-card-note")].map(n => n.textContent),
+      above: !!(b && search && b.top < search.getBoundingClientRect().top), h: b ? Math.round(b.height) : 0 };
   })())`));
-  check(`the home sheet shows saved stops with their next buses — ${where}`,
-    r.shown && r.stops === 2 && /timetable|No more buses/.test(r.next) && r.h >= 44, JSON.stringify(r));
-  await page.evaluate(`document.querySelector("#home-sheet .home-stop").click()`);
+  check(`saved stops sit above the search as small boards of their next buses — ${where}`,
+    r.shown && r.cards === 2 && r.above && (r.deps > 0 || r.notes.length === 2) && r.h >= 44, JSON.stringify(r));
+  await page.evaluate(`document.querySelector("#home-saved .home-card").click()`);
   await sleep(1200);
   const opened = await page.evaluate("state.selectedStop && state.selectedStop.atcoCode");
   check(`a saved stop opens its board in one tap — ${where}`, opened === "4400AD0204", String(opened));
@@ -2258,6 +2267,8 @@ async function checkStopAccessUpFront(page, where, { contrast = false } = {}) {
   check(`a stop opens with its access under its name, above the departures — ${where}`,
     r.shown && !r.open && r.chips.some(c => /^Step-free|Not step-free|Partly step-free/.test(c)) && onScreen
       && r.h >= 44 && (!r.dep || r.sum.bottom <= r.dep.top + 1), JSON.stringify(r));
+  // On one line (7 November 2026): what does not fit is behind "+N".
+  check(`a stop's access is one line, the rest behind "+N" — ${where}`, r.h <= 56, JSON.stringify(r));
   await page.evaluate("updateA11y({ stepFree: true })");
   await page.evaluate(`(() => { openDepartures("4400WO0254", "Marine Parade"); return ""; })()`);
   await sleep(1200);
@@ -5241,6 +5252,9 @@ async function checkJourneyTimesDetailedFlow(page) {
     (() => {
       const from = document.getElementById("journey-times-from");
       const to = document.getElementById("journey-times-to");
+      // An empty list is a failed check, not a crash: thrown here, it ended
+      // the whole run before any result printed (cloud review, 7 November).
+      if (!from || !to || !from.options.length) return JSON.stringify({ empty: true });
       const before = to.options.length;
       // Move From to the far end of the line: almost nothing follows it.
       from.value = from.options[from.options.length - 1].value;
@@ -5248,6 +5262,11 @@ async function checkJourneyTimesDetailedFlow(page) {
       return JSON.stringify({ before, fromCount: from.options.length });
     })()`);
   const nn = JSON.parse(narrowing);
+  if (nn.empty) {
+    check("Bus Performance's From list has stops to choose from", false,
+      "empty: the published journey times did not load, so the rest of this flow was skipped");
+    return;
+  }
   await sleep(1800);
   const onward = await page.evaluate(`
     (() => {

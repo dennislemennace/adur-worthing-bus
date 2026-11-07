@@ -70,7 +70,7 @@ ADVICE = {
         "The operator's live feed names journeys our timetable does not hold. Most are still identified "
         "by line, first stop and start time (method 7), so the figures stand, but check the operator's BODS "
         "timetable dataset: if BODS has the new timetable, rebuild ours (`update-timetable.yml`). "
-        "docs/reliability/bods-stagecoach-south-2026-10-09.md describes the last time."),
+        "scripts/check_declared_journeys.py explains how to tell whether a rebuild will fix it."),
     "recording-gaps": (
         "Some clock hours were only partly recorded, or not at all. Check the recorder "
         "(`worker/src/recorder.js`) and the raw bucket. The day was still published; its coverage block "

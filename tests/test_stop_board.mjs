@@ -279,19 +279,25 @@ test("a stop says what OpenStreetMap records, credits it, and asks for what is m
 });
 
 test("a stop's access is said up front: step-free first, never left out, then the rest", () => {
-  const chips = (row, kind = "") => JSON.parse(JSON.stringify(app.stopAccessChips(row, kind).map(c => `${c.state}:${c.text}`)));
-  // Nothing recorded still says so about step-free access.
-  assert.deepEqual(chips(null), ["unknown:Step-free: not recorded"]);
+  // On one line (7 November 2026): a word or two on screen, the full words
+  // for a screen reader.
+  const chips = (row, kind = "") => JSON.parse(JSON.stringify(app.stopAccessChips(row, kind)
+    .map(c => `${c.state}:${c.text}|${c.spoken}`)));
+  // Nothing recorded still says so about step-free access, as "?".
+  assert.deepEqual(chips(null), ["unknown:Step-free ?|Step-free access not recorded"]);
   assert.deepEqual(chips({ id: 1, wheelchair: "yes", kerb: "raised", kerb_height_cm: 16, shelter: "yes",
                            bench: "no", tactile_paving: "partial", departures_board: "realtime", lit: "yes" }),
-    ["yes:Step-free", "yes:Raised kerb, 16 cm", "yes:Shelter", "no:No seat", "part:Some tactile paving",
-     "yes:Live screen", "yes:Lit at night"]);
-  // An unusual kind of stop comes first of all.
-  assert.deepEqual(chips({ id: 2, wheelchair: "no" }, "hail_and_ride"), ["warn:Hail and ride", "no:Not step-free"]);
+    ["yes:Step-free|Step-free", "yes:Raised kerb|Raised kerb, 16 cm", "yes:Shelter|Shelter", "no:Seat|No seat",
+     "part:Tactile paving|Some tactile paving", "yes:Live screen|Live departure screen", "yes:Lit|Lit at night"]);
+  // Step-free first, even before an unusual kind of stop.
+  assert.deepEqual(chips({ id: 2, wheelchair: "no" }, "hail_and_ride"),
+    ["no:Step-free|Not step-free", "warn:Hail and ride|Hail and ride"]);
   // In the summary each fact is separated for a screen reader, and escaped.
-  const html = app.accessChipsHtml([{ text: "<b>x</b>", state: "yes" }, { text: "Seat", state: "yes" }]);
+  const html = app.accessChipsHtml([{ text: "<b>x</b>", state: "yes" }, { text: "Seat", spoken: "Seat", state: "yes" }]);
   assert.doesNotMatch(html, /<b>x/);
-  assert.match(html, /visually-hidden">, </);
+  assert.match(html, /visually-hidden">, Seat</);
+  // Room for the "+N" that stands for the facts that do not fit.
+  assert.match(html, /access-chip--more/);
 
   // The notes: the kind of stop, a kerb taken from beside it, the coach terms.
   state.stopOsmMeta = {};

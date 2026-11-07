@@ -1,0 +1,240 @@
+{
+ "_comment": "Each rail replacement bus stop, by its what3words address on Southern's poster: the poster's words, and a position placed by hand from the poster's map (position_basis says how). Read by scripts/fetch_rail_replacement.py, which checks each address is still on the station's current poster.",
+ "stops": {
+  "upper.herb.frog": {
+   "crs": "BTN",
+   "name": "Turning circle on Stroudley Road",
+   "for": "All rail replacement buses",
+   "access": "From platform 8",
+   "walk": "1 min walk from the station",
+   "lat": 50.832152,
+   "lon": -0.141385,
+   "position_basis": "The poster places the stop by what3words only. This is FlixBus's Brighton stop on the same turning circle (9000F22A3795 in the timetable), which matches the poster's map."
+  },
+  "boil.just.launch": {
+   "crs": "DUR",
+   "name": "Station front",
+   "for": "All rail replacement buses",
+   "walk": "1 min walk from the station",
+   "lat": 50.8178,
+   "lon": -0.41128,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: the south end of The Causeway, on the north side of the station."
+  },
+  "refuse.payer.layers": {
+   "crs": "WWO",
+   "name": "Station front",
+   "for": "Towards Barnham and Littlehampton",
+   "walk": "1 min walk from the station",
+   "lat": 50.81808,
+   "lon": -0.39325,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Tarring Road at the Valencia Road junction, south side."
+  },
+  "helps.bossy.tries": {
+   "crs": "WWO",
+   "name": "Station front",
+   "for": "Towards Central Worthing and Brighton",
+   "walk": "1 min walk from the station",
+   "lat": 50.81822,
+   "lon": -0.39275,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Tarring Road a little east of Valencia Road, by the station."
+  },
+  "leap.order.unique": {
+   "crs": "WRH",
+   "name": "Station front",
+   "for": "All rail replacement buses",
+   "walk": "1 min walk from the station",
+   "lat": 50.8185,
+   "lon": -0.3757,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: the forecourt by the station building, north of Railway Approach."
+  },
+  "signal.label.certified": {
+   "crs": "EWR",
+   "name": "Ham Road (stop unmarked)",
+   "for": "Both directions",
+   "walk": "2 min walk from the station",
+   "lat": 50.82052,
+   "lon": -0.35415,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Ham Road at the Chesswood Road junction, which the poster gives for buses both ways."
+  },
+  "prom.taxi.shunts": {
+   "crs": "LAC",
+   "name": "South Street (stop unmarked)",
+   "for": "Towards Shoreham-by-Sea and Brighton",
+   "walk": "1 min walk from the station",
+   "lat": 50.82618,
+   "lon": -0.32282,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: South Street about 110 m south of the level crossing, west side."
+  },
+  "excuse.custom.oiled": {
+   "crs": "LAC",
+   "name": "South Street (stop unmarked)",
+   "for": "Towards Worthing",
+   "walk": "1 min walk from the station",
+   "lat": 50.8263,
+   "lon": -0.32262,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: South Street about 100 m south of the level crossing, east side."
+  },
+  "readings.isolating.journey": {
+   "crs": "SSE",
+   "name": "Brunswick Road (stop unmarked)",
+   "for": "Towards Hove and Brighton, when the level crossing is open to road traffic",
+   "walk": "1 min walk from the station",
+   "lat": 50.83497,
+   "lon": -0.27202,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Brunswick Road north of the level crossing, near Gordon Road, east side."
+  },
+  "issues.opposites.tallest": {
+   "crs": "SSE",
+   "name": "Brunswick Road (stop unmarked)",
+   "for": "Towards Worthing and Littlehampton, when the level crossing is open to road traffic",
+   "walk": "1 min walk from the station",
+   "lat": 50.83482,
+   "lon": -0.27227,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Brunswick Road north of the level crossing, west side."
+  },
+  "jiffy.decking.bulbs": {
+   "crs": "SSE",
+   "name": "Ham Road (stop unmarked)",
+   "for": "All rail replacement buses when the level crossing is closed to road traffic",
+   "walk": "1 min walk from the station",
+   "lat": 50.83402,
+   "lon": -0.27222,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Ham Road just east of Brunswick Road, south of the railway."
+  },
+  "bags.damp.loves": {
+   "crs": "SWK",
+   "name": "Station Road",
+   "for": "All rail replacement buses",
+   "walk": "1 min walk from the station",
+   "lat": 50.8329,
+   "lon": -0.2357,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Station Road beside the east end of the station."
+  },
+  "remind.risk.fired": {
+   "crs": "FSG",
+   "name": "Gladstone Road (stop unmarked)",
+   "for": "Towards Shoreham-by-Sea and Worthing",
+   "walk": "5 min walk from the station",
+   "lat": 50.83396,
+   "lon": -0.21781,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Gladstone Road about 35 m east of Gardner Road."
+  },
+  "lobby.suffice.ships": {
+   "crs": "FSG",
+   "name": "Gladstone Road (stop unmarked)",
+   "for": "Towards Hove and Brighton",
+   "walk": "5 min walk from the station",
+   "lat": 50.83393,
+   "lon": -0.21803,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Gladstone Road about 20 m east of Gardner Road."
+  },
+  "task.format.locals": {
+   "crs": "PLD",
+   "name": "Portland Road (Stop G)",
+   "for": "Towards Hove and Brighton",
+   "walk": "2 min walk from the station",
+   "lat": 50.835482,
+   "lon": -0.205188,
+   "position_basis": "The bus stop the poster names: Portslade Railway Station, stop G on Portland Road (149000006450 in NaPTAN)."
+  },
+  "ports.like.bits": {
+   "crs": "PLD",
+   "name": "Portland Road (Stop H)",
+   "for": "Towards Shoreham-by-Sea and Worthing",
+   "walk": "2 min walk from the station",
+   "lat": 50.835323,
+   "lon": -0.204782,
+   "position_basis": "The bus stop the poster names: Portslade Railway Station, stop H on Portland Road (149000007450 in NaPTAN)."
+  },
+  "fleet.certified.sounds": {
+   "crs": "AGT",
+   "name": "Portland Road (stop unmarked)",
+   "for": "Towards Hove and Brighton",
+   "walk": "7 min walk from the station",
+   "lat": 50.8334,
+   "lon": -0.18582,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Portland Road at the Raphael Road junction."
+  },
+  "fame.duck.tracks": {
+   "crs": "AGT",
+   "name": "Portland Road (stop unmarked)",
+   "for": "Towards Worthing and Shoreham-by-Sea",
+   "walk": "7 min walk from the station",
+   "lat": 50.83352,
+   "lon": -0.1868,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Portland Road at the Titian Road junction."
+  },
+  "shock.limp.shirt": {
+   "crs": "HOV",
+   "name": "Goldstone Villas (stop unmarked)",
+   "for": "Towards Brighton",
+   "walk": "1 min walk from the station",
+   "lat": 50.834737,
+   "lon": -0.171104,
+   "position_basis": "Beside the Hove Railway Station bus stop on Goldstone Villas (149000006680), where the poster's pin sits. The poster spells the street Godstone Villas."
+  },
+  "jumped.epic.focus": {
+   "crs": "HOV",
+   "name": "Goldstone Villas (stop unmarked)",
+   "for": "Towards Shoreham-by-Sea and Worthing",
+   "walk": "1 min walk from the station",
+   "lat": 50.834663,
+   "lon": -0.170936,
+   "position_basis": "Beside the Hove Railway Station bus stop on Goldstone Villas (149000007680), where the poster's pin sits. The poster spells the street Godstone Villas."
+  },
+  "memo.page.plants": {
+   "crs": "PRP",
+   "name": "Preston Road (stop unmarked)",
+   "for": "Towards Burgess Hill and Haywards Heath",
+   "walk": "4 min walk from the station",
+   "lat": 50.845897,
+   "lon": -0.151647,
+   "position_basis": "Beside the Harrington Road bus stop on Preston Road, west side (149000007041), where the poster's pin sits, to within about 30 m."
+  },
+  "punch.both.improving": {
+   "crs": "PRP",
+   "name": "Preston Road (stop unmarked)",
+   "for": "Towards Brighton",
+   "walk": "4 min walk from the station",
+   "lat": 50.845875,
+   "lon": -0.151392,
+   "position_basis": "Beside the Harrington Road bus stop on Preston Road, east side (149000006041), where the poster's pin sits, to within about 30 m."
+  },
+  "free.inner.marble": {
+   "crs": "LRB",
+   "name": "Ditchling Road (stop unmarked)",
+   "for": "Towards Lewes",
+   "walk": "5 min walk from the station",
+   "lat": 50.83618,
+   "lon": -0.13368,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Ditchling Road just north of Round Hill Road, west side."
+  },
+  "owner.likely.camp": {
+   "crs": "LRB",
+   "name": "Ditchling Road (stop unmarked)",
+   "for": "Towards Central Brighton",
+   "walk": "5 min walk from the station",
+   "lat": 50.83578,
+   "lon": -0.13354,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Ditchling Road just south of Round Hill Road, east side."
+  },
+  "cove.riders.career": {
+   "crs": "MCB",
+   "name": "Lewes Road (stop unmarked)",
+   "for": "Towards Lewes",
+   "walk": "3 min walk from the station",
+   "lat": 50.84375,
+   "lon": -0.119,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Lewes Road by The Highway, northbound side."
+  },
+  "sentences.liked.treat": {
+   "crs": "MCB",
+   "name": "Lewes Road (stop unmarked)",
+   "for": "Towards Central Brighton",
+   "walk": "3 min walk from the station",
+   "lat": 50.84287,
+   "lon": -0.12037,
+   "position_basis": "Placed by hand from the poster's map against OpenStreetMap, to within about 30 m: Lewes Road about 110 m south-west of The Highway, southbound side."
+  }
+ }
+}

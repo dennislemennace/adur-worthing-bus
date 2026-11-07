@@ -494,6 +494,9 @@ async function tourRunAction(t) {
     case "planner": {
       await tourGo("live");
       closePanel();
+      // Saved stops above the search fill in after their buses load, and
+      // push the planner down: scroll once they have (7 November 2026).
+      if (typeof renderHomeSheet === "function") await renderHomeSheet().catch(() => {});
       const section = document.getElementById("plan-journey");
       if (section && !section.hidden) scrollPanelTo(section, 8);
       return;

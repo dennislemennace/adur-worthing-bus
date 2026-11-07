@@ -90,6 +90,16 @@
         <path d="M12 11v3"/>
         <path d="m9.5 18 2.5-4 2.5 4"/>
       </symbol>
+      <!-- A wheelchair user, for the map's Stop access layer (7 November 2026):
+           the open-arms figure above is the accessibility menu's, and one
+           symbol for two controls said they were the same thing. Drawn for
+           this site in Lucide's stroke style. -->
+      <symbol id="i-wheelchair" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="4" r="2"/>
+        <path d="M11 7v6h5.5l2.5 6"/>
+        <path d="M11 10h5"/>
+        <path d="M8 10.5a5.5 5.5 0 1 0 7.6 7.4"/>
+      </symbol>
       <symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="2" y="4" width="20" height="16" rx="2"/>
         <path d="m2 7 10 6 10-6"/>
@@ -553,6 +563,10 @@
           <!-- Pointing at a marker was the only way in, which left keyboard
                and screen-reader users with no route to the core task at all.
                Same stop index the journey checker uses. -->
+          <!-- Your saved stops, above the search when there are any (asked for
+               7 November 2026): each a small board of its next buses, live
+               where the bus says which journey it is (app.js renderHomeSheet). -->
+          <section class="home-saved" id="home-saved" aria-label="Your stops" hidden></section>
           <form class="stop-search" id="stop-search-form" role="search">
             <label class="stop-search-label" for="stop-search-input">
               Search for a stop or station
