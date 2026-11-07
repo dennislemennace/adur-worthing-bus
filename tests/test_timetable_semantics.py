@@ -751,6 +751,25 @@ def test_a_service_whose_timetable_ran_out_still_blocks(
     assert tt.uncovered_cohorts(date(2026, 9, 22), ["4400SH01"]) == [["BHBC", "49"]]
 
 
+def test_a_seasonal_service_that_has_ended_does_not_block_while_its_operator_runs_on(
+        tmp_path_factory, monkeypatch_module):
+    """Brighton & Hove's CSS ran to 1 November 2026 and stopped for the winter,
+    and every nightly publish from the 2nd failed on it (3 to 7 November): its
+    dates had run out, so it read as stale data. It was not. The operator's
+    other routes run on in the same build, so its data is current, and the
+    route has simply finished. Stale data is an operator whose routes have all
+    run out (the test above), not one route that ended."""
+    tt = _coverage_db(
+        tmp_path_factory, monkeypatch_module,
+        routes=[("R700", "AG1", "700"), ("R002", "AG2", "2"), ("RCSS", "AG2", "CSS")],
+        calendars={"R700": ("20261022", "20270726"),
+                   "R002": ("20261022", "20270726"),
+                   "RCSS": ("20261022", "20261101")})
+    assert tt.uncovered_cohorts(date(2026, 11, 6), ["4400SH01"]) == []
+    # Reported, not hidden: the nightly says which routes have finished.
+    assert tt.ended_cohorts(date(2026, 11, 6), ["4400SH01"]) == [["BHBC", "CSS"]]
+
+
 def test_a_build_describing_no_local_service_blocks_every_cohort(
         tmp_path_factory, monkeypatch_module):
     """The original failure: the wrong build for the day. Every local cohort is

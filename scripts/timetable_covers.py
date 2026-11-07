@@ -60,6 +60,12 @@ def main(argv=None):
     if tt.covers_day(date.fromisoformat(args.day)) and not missing:
         if not args.quiet:
             print(f"{path.name} covers {args.day} (describes {window})")
+        # Finished routes (a seasonal service over for the winter) do not
+        # block, but the nightly's log says which, so a route that ended by
+        # mistake is still seen.
+        ended = tt.ended_cohorts(date.fromisoformat(args.day), stops_in_box(tt))
+        if ended:
+            print(f"::notice::finished before {args.day}, so not measured: {ended}")
         return 0
     print(f"{path.name} does NOT cover all local cohorts for {args.day} (describes {window}; uncovered={missing})",
           file=sys.stderr)

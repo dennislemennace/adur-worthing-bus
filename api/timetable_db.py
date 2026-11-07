@@ -1404,10 +1404,42 @@ class Timetable:
 
           * no local cohort at all describes the date — the build is the wrong
             one for this day, whatever an unrelated calendar may span; or
-          * this cohort's own dates have run out before it — its operator's
-            data is stale inside an otherwise current build, which would
-            publish a false zero for a service that really ran.
+          * this cohort's own dates have run out before it, and so have every
+            one of its operator's — the operator's data is stale inside an
+            otherwise current build, which would publish a false zero for
+            services that really ran.
+
+        A cohort whose dates ran out while its operator's other routes run on
+        has finished, as Brighton & Hove's seasonal CSS did on 1 November 2026
+        (every nightly publish failed on it from the 2nd until this rule). The
+        operator's data is current, and a finished route is not running, as a
+        route not yet started is not. `ended_cohorts` names them, so the
+        nightly says so rather than hiding it.
         """
+        cohorts = self._local_cohorts(atcos)
+        uncovered = [(key, ids) for key, ids in sorted(cohorts.items())
+                     if not self.covers_day(day, ids)]
+        if not uncovered:
+            return []
+        stamp = self._day_stamp(day)
+        nothing_local_covers = len(uncovered) == len(cohorts)
+        current = self._operators_current(cohorts, stamp)
+        return [list(key) for key, ids in uncovered
+                if nothing_local_covers or (self._cohort_ends_before(ids, stamp) and key[0] not in current)]
+
+    def ended_cohorts(self, day, atcos) -> list:
+        """Local cohorts whose dates ran out before the day while their
+        operator's other routes run on: finished, and so not blocking (see
+        `uncovered_cohorts`), but worth naming in the nightly's log."""
+        cohorts = self._local_cohorts(atcos)
+        stamp = self._day_stamp(day)
+        current = self._operators_current(cohorts, stamp)
+        return [list(key) for key, ids in sorted(cohorts.items())
+                if not self.covers_day(day, ids) and self._cohort_ends_before(ids, stamp) and key[0] in current]
+
+    def _local_cohorts(self, atcos) -> dict:
+        """{(operator, service): service ids} for the trips calling at these
+        stops, coaches left out."""
         from api.trip_match import COACH_NOCS
         trip_ids = {trip for atco in atcos for _secs, trip in self.stop_times_for(atco)}
         cohorts = {}
@@ -1419,16 +1451,15 @@ class Timetable:
                 continue
             key = (noc, self.routes.get(route_id, {}).get("short_name", ""))
             cohorts.setdefault(key, set()).add(trip.get("service_id", ""))
+        return cohorts
 
-        uncovered = [(key, ids) for key, ids in sorted(cohorts.items())
-                     if not self.covers_day(day, ids)]
-        if not uncovered:
-            return []
-        stamp = (day.strftime("%Y%m%d") if hasattr(day, "strftime")
-                 else str(day).replace("-", ""))
-        nothing_local_covers = len(uncovered) == len(cohorts)
-        return [list(key) for key, ids in uncovered
-                if nothing_local_covers or self._cohort_ends_before(ids, stamp)]
+    @staticmethod
+    def _day_stamp(day) -> str:
+        return day.strftime("%Y%m%d") if hasattr(day, "strftime") else str(day).replace("-", "")
+
+    def _operators_current(self, cohorts, stamp: str) -> set:
+        """Operators with at least one local cohort whose dates reach the day."""
+        return {key[0] for key, ids in cohorts.items() if not self._cohort_ends_before(ids, stamp)}
 
     def _cohort_ends_before(self, service_ids, stamp: str) -> bool:
         """Whether every date these services describe falls before `stamp`.
