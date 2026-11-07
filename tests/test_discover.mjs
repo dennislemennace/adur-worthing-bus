@@ -41,3 +41,40 @@ test("the results say the bus, the time, the ride and the walk, and escape what 
   assert.match(html, /not live times/);
   assert.match(app.discoverResultsHtml([], "Ham Road"), /No place on this list is a direct bus ride from Ham Road/);
 });
+
+test("a walk given by hand beats the straight line (Highdown's hill)", () => {
+  const places = [{ ...PLACES[0], stops: [{ atco: "S1", name: "The Strand", metres: 875, walk_mins: 20 }] }];
+  const rows = plain(app.discoverReachable(places, { S1: { ride_mins: 10, service: "700" } }));
+  assert.equal(rows[0].walk, 20, "the 11 minutes a straight line gives was used");
+  assert.equal(rows[0].total, 30);
+});
+
+test("with a start chosen, each place is listed once: reached first, then the rest", () => {
+  const html = vm.runInContext(`
+    disc.data = { places: ${JSON.stringify(PLACES)} };
+    disc.reach = { S1: { ride_mins: 30, service: "700", next: "2026-11-06T10:05:00+00:00", trips: 3, from: "X" } };
+    disc.from = { atcos: ["X"], label: "Ham Road" };
+    disc.open = null;
+    discoverPanelHtml();`, app);
+  for (const id of ["far", "near", "none"]) {
+    assert.equal(html.split(`id="disc-${id}"`).length - 1, 1, `${id} is not listed exactly once`);
+  }
+  assert.ok(html.indexOf('id="disc-far"') < html.indexOf("A change of bus or more from Ham Road"),
+    "the place a bus reaches is not listed first");
+  assert.ok(html.indexOf("A change of bus or more") < html.indexOf('id="disc-none"'));
+  // Folded until opened, and says so to a screen reader.
+  assert.match(html, /aria-expanded="false" aria-controls="disc-far-more"/);
+  assert.match(html, /id="disc-far-more" hidden/);
+});
+
+test("a place's photo carries its credit, escaped", () => {
+  const photo = { src: "images/discover/x.jpg", thumb: "images/discover/x-thumb.jpg", alt: 'A "pier"',
+    author: "<b>Ann</b>", licence: "CC BY-SA 4.0", licence_url: "javascript:alert(1)",
+    source_url: "https://commons.wikimedia.org/wiki/File:X.jpg" };
+  const html = app.discoverPlaceHtml({ ...PLACES[0], about: "More.", photo });
+  assert.match(html, /alt="A &quot;pier&quot;"/);
+  assert.match(html, /Photo: &lt;b&gt;Ann&lt;\/b&gt;/);
+  assert.doesNotMatch(html, /href="javascript:/i);
+  assert.match(html, /via <a href="https:\/\/commons\.wikimedia\.org\/wiki\/File:X\.jpg"/);
+  assert.match(html, /class="disc-thumb" src="images\/discover\/x-thumb\.jpg" alt=""/);
+});

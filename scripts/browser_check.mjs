@@ -1417,10 +1417,9 @@ async function checkRouteViewOnAPhone(page, where) {
     "no .route-chip after 45s — the API never answered");
   await sleep(500);
 
-  // The list lives inside the "Existing services" disclosure, which starts
-  // open (asked for 1 November 2026): the filters are what the tab is used
-  // for. So on arrival the control is on screen and so are its first
-  // services; the prose under them is a scroll away (checkReachable).
+  // The list lives inside the "Every route" disclosure, folded on arrival
+  // with the other two sections (7 November 2026): its summary is on screen,
+  // and says how many routes the map is drawing.
   const m = JSON.parse(await page.evaluate(`
     (() => {
       const g = el => el ? el.getBoundingClientRect() : null;
@@ -1443,6 +1442,8 @@ async function checkRouteViewOnAPhone(page, where) {
         panelTop: pr ? Math.round(pr.top) : null,
         panelBottom: pr ? Math.round(pr.bottom) : null,
         chipCount: document.querySelectorAll(".route-chip").length,
+        pickOpen: (document.getElementById("route-pick-disclosure") || {}).open ?? null,
+        areasOpen: (document.getElementById("route-areas-disclosure") || {}).open ?? null,
       });
     })()`));
 
@@ -1461,11 +1462,10 @@ async function checkRouteViewOnAPhone(page, where) {
   check(`the service control says how many services are shown — ${where}`,
     /\d/.test(m.count), JSON.stringify(m));
 
-  // Open on arrival, the routes starting inside the sheet, not merely an
-  // open element whose contents sit below the fold.
-  check(`Route view opens with every route showing — ${where}`,
-    m.open === true && m.chipTop !== null
-      && m.chipTop >= m.panelTop && m.chipBottom <= m.panelBottom, JSON.stringify(m));
+  // Folded on arrival (asked for 7 November 2026): the tab opens on its three
+  // sections' names, and the reader opens the one they came for.
+  check(`Route view opens with its sections folded — ${where}`,
+    m.open === false && m.pickOpen === false && m.areasOpen === false, JSON.stringify(m));
 
   // Opened, the list is capped to a few rows with the rest behind "+N more",
   // so it cannot push the prose away again.
@@ -1933,6 +1933,77 @@ async function checkDepartureJourneys(page, where) {
   check(`a departure with no journey opens no bus — ${where}`, r.afterUnknown === "FIX-B", JSON.stringify(r));
 }
 
+/** The board keeps the reader's place (7 November 2026). A journey opened
+ *  under a row near the foot of the sheet opened out of sight, so the tap
+ *  looked like it did nothing; and Back from a bus opened on the board came
+ *  back to the board's top, the row tapped out of sight. */
+async function checkBoardKeepsPlace(page, where) {
+  const r = JSON.parse(await page.evaluate(`(async () => {
+    const atco = Object.keys(state.stopData || {})[0];
+    if (!atco) return JSON.stringify({ skip: "no stops loaded" });
+    setViewMode("live");
+    await openDepartures(atco, (state.stopData[atco] || {}).name || atco);
+    const soon = m => new Date(Date.now() + m * 60000).toISOString();
+    renderDepartures({ stop_name: "Fixture Stop", departures: Array.from({ length: 14 }, (_, i) => ({
+      service: "700", operator: "SCSO", destination: "Worthing", aimed_departure: soon(5 + i * 6),
+      expected_departure: null, status: "Scheduled", delay_seconds: null, trip_id: "FIX_KEEP_" + i })) });
+    const tab = document.getElementById("tab-content-stop");
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    const seen = el => { const b = tab.getBoundingClientRect(), x = el.getBoundingClientRect();
+      return Math.max(0, Math.min(x.bottom, b.bottom) - Math.max(x.top, b.top)) / Math.max(1, Math.min(x.height, b.height)); };
+    const rows = () => [...document.querySelectorAll("tr.departure-row")];
+    // The journey's stops, as /api/trip gives them, without the network.
+    const realApi = apiFetch, realFetch = fetchDepartures;
+    window.apiFetch = async path => path.startsWith("/api/trip?") ? { service: "700", headsign: "Worthing",
+      journey_start: "23:50", calls: Array.from({ length: 12 }, (_, i) => ({ name: "Fixture stop " + i, time: "23:5" + (i % 10) })) }
+      : realApi(path);
+    // A row with its foot just above the tab's: its journey opens below it.
+    const shown = () => rows().filter(r => r.getClientRects().length);
+    const low = shown()[shown().length - 2];
+    tab.scrollTop += low.getBoundingClientRect().bottom - (tab.getBoundingClientRect().bottom - 10);
+    const placed = tab.getBoundingClientRect().bottom - low.getBoundingClientRect().bottom < 60;
+    low.querySelector("button.service-badge-btn").click();
+    await wait(1600);
+    const plan = document.querySelector("tr.departure-plan");
+    const planSeen = plan ? seen(plan) : 0;
+    const ownerSeen = seen(low);
+    // Taller than the room under its row, it shows as much as it can: its
+    // row at the top of the tab, the journey under it.
+    const ownerGap = Math.round(low.getBoundingClientRect().top - tab.getBoundingClientRect().top);
+    closeDeparturePlan();
+    window.apiFetch = realApi;
+    // A bus opened from a row halfway down, then Back.
+    const target = shown()[shown().length - 3];
+    const targetTrip = target.dataset.trip;
+    tab.scrollTop += target.getBoundingClientRect().top - tab.getBoundingClientRect().top - 40;
+    const near = state.stopMarkers[atco] ? state.stopMarkers[atco].getLatLng() : { lat: 50.83, lng: -0.27 };
+    const v = { vehicle_ref: "FIX-KEEP", service_ref: "700", operator_ref: "SCSO", destination: "Worthing",
+      latitude: near.lat + 0.002, longitude: near.lng, bearing: 90, recorded_at: new Date().toISOString(),
+      declared_trip_id: targetTrip, trip_source: "feed", trip_headsign: "Worthing" };
+    const marker = L.marker([v.latitude, v.longitude]); marker._vehicle = v; state.busMarkers["FIX-KEEP"] = marker;
+    target.querySelector("button.service-badge-btn").click();
+    await wait(400);
+    const busOpen = state.activeTab === "bus";
+    // Back reopens the stop: its board, here the fixture, stays as it was.
+    window.fetchDepartures = async () => {};
+    history.back();
+    await wait(900);
+    window.fetchDepartures = realFetch;
+    const back = rows().find(r => r.dataset.trip === targetTrip);
+    const rowSeen = back ? seen(back) : 0;
+    const tabNow = state.activeTab;
+    delete state.busMarkers["FIX-KEEP"];
+    return JSON.stringify({ placed, planSeen: +planSeen.toFixed(2), ownerSeen: +ownerSeen.toFixed(2), ownerGap, busOpen, tabNow,
+      rowSeen: +rowSeen.toFixed(2), top: Math.round(tab.scrollTop) });
+  })()`));
+  if (r.skip) { check(`the board keeps the reader's place — ${where}`, true, r.skip); return; }
+  check(`a journey opened near the foot of the board scrolls into view, its row kept — ${where}`,
+    r.placed && r.ownerSeen >= 0.95 && (r.planSeen >= 0.95 || (r.ownerGap <= 12 && r.planSeen >= 0.3)),
+    JSON.stringify(r));
+  check(`Back from a bus opened on the board shows the row tapped — ${where}`,
+    r.busOpen && r.tabNow === "stop" && r.rowSeen >= 0.95, JSON.stringify(r));
+}
+
 /**
  * Discover: the places, and from a stop the ones a bus reaches without
  * changing (the local API's /api/direct-from). Its places leave the map with
@@ -1945,8 +2016,9 @@ async function checkDiscover(page, where, { contrast = false } = {}) {
   await waitFor(page, "!!document.querySelector('#tab-content-discover .disc-title')", 20000).catch(() => {});
   await sleep(400);
   const r = JSON.parse(await page.evaluate(`JSON.stringify({ hash: location.hash,
-    places: document.querySelectorAll("#tab-content-discover .disc-all .disc-place").length,
-    reached: document.querySelectorAll("#tab-content-discover .disc-results .disc-place").length,
+    places: document.querySelectorAll("#tab-content-discover .disc-place").length,
+    ids: new Set([...document.querySelectorAll("#tab-content-discover .disc-place")].map(li => li.id)).size,
+    reached: document.querySelectorAll("#tab-content-discover .disc-results ol.disc-list .disc-place").length,
     how: (document.querySelector("#tab-content-discover .disc-how") || {}).textContent || "",
     markers: document.querySelectorAll(".disc-marker").length,
     // Shown, not only built: the view's panel was once hidden by the
@@ -1956,9 +2028,45 @@ async function checkDiscover(page, where, { contrast = false } = {}) {
       return !s || getComputedStyle(s).pointerEvents !== "none"; })(),
     on: document.querySelectorAll(".disc-marker:not(.disc-marker--off)").length })`));
   check(`Discover lists the places a bus reaches directly, with the bus and the walk — ${where}`,
-    /view=d/.test(r.hash) && r.places >= 12 && r.reached >= 1 && /min walk/.test(r.how) && r.markers >= 12 && r.on === r.reached
-      && r.panel && r.tappable,
+    /view=d/.test(r.hash) && r.places >= 12 && r.ids === r.places && r.reached >= 1 && /min walk/.test(r.how)
+      && r.markers === r.places && r.on === r.reached && r.panel && r.tappable,
     JSON.stringify(r));
+
+  // A place opens in place, its photo and the rest showing, and the map
+  // centres on it; a pin opens its own place, even one no bus reaches
+  // directly, and brings it into view (7 November 2026).
+  const o = JSON.parse(await page.evaluate(`(async () => {
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    const tab = document.getElementById("tab-content-discover");
+    const inView = el => { const b = tab.getBoundingClientRect(), x = el.getBoundingClientRect();
+      return x.top >= b.top - 1 && x.top < b.bottom - 40; };
+    const first = tab.querySelector(".disc-results ol.disc-list .disc-place");
+    first.querySelector(".disc-place-head").click();
+    await wait(900);
+    const place = disc.data.places.find(p => p.id === first.dataset.place);
+    const img = first.querySelector(".disc-photo img");
+    if (img && !img.complete) await new Promise(res => { img.onload = img.onerror = res; setTimeout(res, 4000); });
+    const c = state.map.getCenter(), size = state.map.getSize();
+    const at = state.map.latLngToContainerPoint([place.lat, place.lon]);
+    const sheet = isSheetLayout() ? sheetOverlapPx() : 0;
+    const out = { opened: first.querySelector(".disc-place-head").getAttribute("aria-expanded"),
+      more: !first.querySelector(".disc-more").hidden, photo: img ? img.naturalWidth : 0,
+      credit: /Wikimedia Commons/.test(first.querySelector(".disc-photo figcaption")?.textContent || ""),
+      // On the map, in the part the sheet leaves showing.
+      onMap: at.x > 0 && at.x < size.x && at.y > 0 && at.y < size.y - sheet };
+    const other = [...tab.querySelectorAll(".disc-place")].reverse().find(li => !li.closest("ol"));
+    disc.pins.get(other.dataset.place).fire("click");
+    await wait(900);
+    out.pinOpened = other.querySelector(".disc-place-head").getAttribute("aria-expanded") === "true";
+    out.firstClosed = first.querySelector(".disc-more").hidden;
+    out.pinInView = inView(other);
+    out.openPin = (disc.pins.get(other.dataset.place).getElement()?.getAttribute("class") || "").includes("disc-marker--open");
+    return JSON.stringify(out);
+  })()`));
+  check(`a Discover place opens with its photo and credit, and the map centres on it — ${where}`,
+    o.opened === "true" && o.more && o.photo > 0 && o.credit && o.onMap, JSON.stringify(o));
+  check(`a Discover pin opens its own place and brings it into view — ${where}`,
+    o.pinOpened && o.firstClosed && o.pinInView && o.openPin, JSON.stringify(o));
   if (contrast) {
     await checkLayout(page, `Discover — ${where}`);
     await checkReachable(page, `Discover — ${where}`);
@@ -5459,6 +5567,7 @@ await checkStopAccessLayer(page, VIEWPORTS[0].name, { contrast: true });
 await checkHomeSheet(page, VIEWPORTS[0].name);
 await checkDiscover(page, VIEWPORTS[0].name, { contrast: true });
 await checkDepartureJourneys(page, VIEWPORTS[0].name);
+await checkBoardKeepsPlace(page, VIEWPORTS[0].name);
 await checkTicketZonesPicker(page, VIEWPORTS[0].name);
 await checkMapTaps(page, VIEWPORTS[0].name);
 await checkObjectiveLead(page, VIEWPORTS[0].name);
@@ -5530,6 +5639,7 @@ for (const vp of VIEWPORTS.slice(1)) {
   await checkHomeSheet(p, vp.name);
   await checkDiscover(p, vp.name, { contrast: vp.name === "desktop" });
   await checkDepartureJourneys(p, vp.name);
+  await checkBoardKeepsPlace(p, vp.name);
   await checkStopBoardPolish(p, vp.name);
   await checkBoardNext(p, vp.name);
   await checkRouteViewStop(p, vp.name);

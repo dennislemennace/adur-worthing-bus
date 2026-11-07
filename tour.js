@@ -458,7 +458,7 @@ async function tourRunAction(t) {
     case "route": {
       // One route, as the reader would choose it from the pickers.
       await tourGo("improvements");
-      // The pickers are on the About tab, which a reader may have left.
+      // The pickers are on the Routes tab, which a reader may have left.
       if (state.improvementsTab !== "about") setImprovementsTab("about");
       const pick = document.getElementById("route-pick-disclosure");
       if (pick) pick.open = true;

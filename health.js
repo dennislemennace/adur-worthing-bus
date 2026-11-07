@@ -242,7 +242,7 @@ function accessCoverageHtml(osm, stops) {
   const total = atcos.length;
   const has = (key, pred = v => Boolean(v)) => atcos.filter(a => rows[a] && pred(rows[a][key])).length;
   const lines = [
-    ["Step-free access", has("wheelchair")],
+    ["Whether it is step-free", has("wheelchair")],
     ["Kerb", has("kerb")],
     ["Shelter", has("shelter")],
     ["Seating", has("bench")],
@@ -252,7 +252,8 @@ function accessCoverageHtml(osm, stops) {
   const stepFree = has("wheelchair", v => v === "yes");
   return `<h2>Stop accessibility data</h2>
     <p>How many of the ${hNum(total)} stops on this site have each fact recorded in OpenStreetMap, which is where the
-      stop panel's access row and the map's Stop access layer come from. ${hNum(stepFree)} are recorded as step-free.
+      stop panel's access row and the map's Stop access layer come from. Of the ${hNum(has("wheelchair"))} that say
+      whether they are step-free, ${hNum(stepFree)} are.
       Anyone can add the rest with <a href="https://openstop.app/">OpenStop</a>; they show here within a week.</p>
     <div class="table-wrap"><table><thead><tr><th scope="col">Recorded</th><th scope="col">Stops</th><th scope="col">Share</th></tr></thead>
       <tbody>${lines.map(([label, n]) => `<tr><th scope="row">${hEsc(label)}</th><td>${hNum(n)}</td><td>${hPct(n, total)}</td></tr>`).join("")}</tbody>

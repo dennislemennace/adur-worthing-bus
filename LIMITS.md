@@ -488,6 +488,15 @@ flag — the schema is a map of the surface.
 - `/api/direct-from` (Discover) reads only the local timetable: no upstream
   call, cached five minutes per set of stops.
 
+## Wikimedia — Discover's photos, by hand
+
+- `scripts/fetch_destination_photos.py`, run by hand when a place is added,
+  asks Nominatim once (every place's OpenStreetMap tags in one lookup),
+  Wikidata once and the Commons API once, then downloads one image a place
+  half a second apart, with a named User-Agent as Wikimedia's policy asks:
+  about twenty-five requests a run. The images are saved in the repository,
+  so the site itself never calls Wikimedia.
+
 ## Nomis and the ONS lookup — Census 2021 by ward, once
 
 - `scripts/build_ward_census.py`, run by hand once (Census figures do not

@@ -2242,7 +2242,11 @@ details.stop-access[open] > .stop-access-summary::after { transform: rotate(-135
   border-radius: 999px;
 }
 .stop-access-gap,
-.stop-access-source { margin: 0 0 4px; }
+/* A source line is small and quiet wherever it sits: outside the stop's
+   access block (Areas, Discover) it took its parent's body size, and the
+   ward boundaries' credit read as the biggest text on the card. */
+.stop-access-source { margin: 0 0 4px; font-size: var(--font-size-xs); color: var(--color-text-muted); line-height: 1.4; }
+.stop-access-source a { color: var(--color-link); }
 .stop-access a { color: var(--color-link); }
 
 /* ===== PANEL STATES ===== */
@@ -3304,7 +3308,7 @@ html.dark-mode .stop-cluster-icon {
 
 /* Diversions detected in the buses' own positions: a dashed edge, since
    nothing here is confirmed. */
-.detected-card { padding: var(--space-xs) var(--space-sm); margin: 0 0 var(--space-xs); border: 1px dashed var(--color-late);
+.detected-card { padding: var(--space-xs) var(--space-sm); margin: 0 var(--space-md) var(--space-xs); border: 1px dashed var(--color-late);
   border-radius: var(--radius-md); background: var(--color-surface); font-size: var(--font-size-sm); color: var(--color-text); }
 .detected-card p { margin: 0 0 4px; }
 .detected-head { font-weight: 700; }
@@ -3315,23 +3319,57 @@ html.dark-mode .stop-cluster-icon {
 .board-detected .icon { flex: none; width: 16px; height: 16px; color: var(--color-late); margin-top: 2px; }
 .board-detected a { color: var(--color-link); }
 
-/* Discover: places worth a visit, and the ones a bus reaches directly. */
+/* Discover: places worth a visit, and the ones a bus reaches directly. Each
+   place is one row that opens in place (7 November 2026): a small photo in
+   the list, the larger one and the rest when it opens. */
 .disc-guide { padding: var(--space-md); display: grid; gap: var(--space-sm); align-content: start; }
 .disc-intro p { margin: 0 0 var(--space-xs); }
 .disc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs) var(--space-sm); }
 .disc-or, .disc-note, .disc-status { color: var(--color-text-muted); font-size: var(--font-size-sm); }
-.disc-title { margin: 0; font-size: var(--font-size-md); }
+.disc-note { margin: 0 0 var(--space-xs); }
+.disc-status:empty { display: none; }
+.disc-title, .disc-subtitle { margin: var(--space-md) 0 var(--space-xs); font-size: var(--font-size-md); }
+.disc-title { scroll-margin-top: var(--space-sm); }
+.disc-title:focus { outline: none; }
+.disc-title:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; border-radius: var(--radius-sm); }
 .disc-list { display: grid; gap: var(--space-xs); margin: 0; padding: 0; list-style: none; }
-.disc-place { padding: var(--space-xs) var(--space-sm); border: 1px solid var(--color-border); border-radius: var(--radius-md);
-  background: var(--color-surface); }
-.disc-place p { margin: 0 0 2px; font-size: var(--font-size-sm); color: var(--color-text); }
-.disc-place-name { font-weight: 700; font-size: var(--font-size-base) !important; }
-.disc-cat { font-weight: 400; font-size: var(--font-size-xs); color: var(--color-text-muted); margin-left: 4px; }
-.disc-meta { color: var(--color-text-muted) !important; font-size: var(--font-size-xs) !important; }
-.disc-place a, .disc-guide a { color: var(--color-link); }
-.disc-all summary { min-height: var(--target-min); display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.disc-place { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);
+  overflow: hidden; transition: border-color var(--transition); }
+.disc-place--open { border-color: var(--color-accent); }
+.disc-place-head { display: grid; grid-template-columns: 64px minmax(0, 1fr) 20px; gap: var(--space-sm); align-items: center;
+  width: 100%; min-height: var(--target-min); padding: var(--space-xs); border: 0; background: none; color: var(--color-text);
+  font: inherit; text-align: left; cursor: pointer; }
+.disc-place-head:hover { background: var(--color-surface-2); }
+.disc-place-head:focus-visible { outline: 2px solid var(--color-link); outline-offset: -2px; border-radius: var(--radius-md); }
+.disc-thumb { width: 64px; height: 64px; border-radius: var(--radius-sm); object-fit: cover; background: var(--color-surface-2);
+  display: block; }
+.disc-place-text { display: grid; gap: 2px; min-width: 0; }
+.disc-place-name { font-weight: 700; font-size: var(--font-size-base); line-height: 1.25; }
+.disc-cat { font-weight: 400; font-size: var(--font-size-xs); color: var(--color-text-muted); margin-left: var(--space-xs); }
+.disc-line, .disc-how { font-size: var(--font-size-sm); line-height: 1.35; }
+.disc-how:empty { display: none; }
+.disc-chevron { width: 18px; height: 18px; color: var(--color-text-muted); transition: transform var(--transition); }
+.disc-place--open .disc-chevron { transform: rotate(180deg); }
+.disc-more { padding: 0 var(--space-sm) var(--space-sm); display: grid; gap: var(--space-xs); }
+.disc-more p { margin: 0; font-size: var(--font-size-sm); color: var(--color-text); line-height: 1.45; }
+.disc-photo { margin: 0; }
+.disc-photo img { display: block; width: 100%; height: auto; aspect-ratio: 3 / 2; object-fit: cover;
+  border-radius: var(--radius-sm); background: var(--color-surface-2); }
+.disc-photo figcaption { margin-top: 4px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.disc-sub { font-weight: 600; }
+.disc-stops { margin: 0; padding-left: 1.1em; font-size: var(--font-size-sm); }
+.disc-stops li { margin: 2px 0; }
+.disc-stops a { display: inline-block; min-height: var(--target-dense); line-height: var(--target-dense); }
+.disc-more .disc-meta { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.disc-place a, .disc-guide a, .disc-photo a { color: var(--color-link); }
 .disc-marker { fill: var(--color-accent); fill-opacity: .95; stroke: #fff; stroke-width: 2; }
 .disc-marker--off { fill: var(--color-text-muted); fill-opacity: .45; }
+.disc-marker--open { fill: var(--color-link); fill-opacity: 1; stroke-width: 3; }
+.leaflet-tooltip.disc-tip { display: flex; align-items: center; gap: var(--space-xs); padding: 4px 8px 4px 4px; font-weight: 600; }
+.disc-tip-img { width: 48px; height: 48px; border-radius: var(--radius-sm); object-fit: cover; }
+@media (prefers-reduced-motion: reduce) {
+  .disc-chevron, .disc-place { transition: none; }
+}
 
 /* The home sheet: saved stops with their next buses, recent stops, and the
    last bus home, under the search before any stop is open. */
@@ -4845,7 +4883,10 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  padding: var(--space-sm) var(--space-md);
+  /* No padding of its own: its one child is the "Every route" disclosure,
+     whose summary lines up with the two sections under it (7 November
+     2026), so the room goes inside the opened body instead. */
+  padding: 0;
 }
 
 .route-filters-header {
@@ -4922,12 +4963,17 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
-  padding: var(--space-xs) 0 0;
+  padding: var(--space-xs) var(--space-md) var(--space-sm);
 }
+/* The count sits by the chevron, not halfway along: both pushed right. */
+.route-filters-count ~ .filter-disclosure-chevron { margin-left: 0; }
 
 /* The disclosure is the whole control now, so the block around it adds
    nothing: it used to supply padding and a gap for three stacked children. */
-.route-filters-disclosure { margin: 0; }
+/* The three Route view sections stack as one list of rows, each with its
+   own divider: no gap between them (7 November 2026). */
+.filter-disclosure.route-filters-disclosure, .filter-disclosure.route-pick-disclosure,
+.filter-disclosure.route-areas-disclosure { margin: 0; }
 
 /* All routes, plain: the chips, with the rest of the filters folded under
    "More filters" (asked for 1 November 2026). */
@@ -5016,8 +5062,14 @@ body[data-view="tickets"] .leaflet-marker-icon.stop-marker-icon {
 .route-area-table th, .route-area-table td { padding: 3px 4px; text-align: right; border-bottom: 1px solid var(--color-border); }
 .route-area-table th[scope="row"] { text-align: left; font-weight: 600; }
 .route-area-table thead th { font-size: var(--font-size-xs); color: var(--color-text-muted); font-weight: 600; }
-.route-areas-all summary { min-height: var(--target-min); display: flex; align-items: center; cursor: pointer;
-  font-weight: 600; color: var(--color-text); }
+.route-areas-all summary { min-height: var(--target-min); display: flex; align-items: center; gap: var(--space-xs);
+  cursor: pointer; font-size: var(--font-size-sm); font-weight: 600; color: var(--color-link); }
+/* A folded list, so it says it opens: the marker the browser draws. */
+.route-areas-all summary::before { content: "▸"; color: var(--color-text-muted); transition: transform var(--transition); }
+.route-areas-all summary::-webkit-details-marker { display: none; }
+.route-areas-all { list-style: none; }
+.route-areas-all summary { list-style: none; }
+.route-areas-all[open] summary::before { transform: rotate(90deg); }
 .route-areas-list { margin: 0; padding-left: 1.4em; font-size: var(--font-size-sm); }
 .route-areas-list li { min-height: var(--target-min); display: list-item; }
 .route-areas-list .jt-link { min-height: var(--target-min); }
@@ -7465,7 +7517,6 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
    does not. */
 @media (max-height: 430px) {
   .route-filters {
-    padding: var(--space-sm) var(--space-md);
     gap: var(--space-xs);
   }
   .route-filters-title {
@@ -7814,7 +7865,6 @@ html.dark-mode .gap-fab { color: #0f1726; border-color: #0f1726; }
 
 @media (max-width: 900px) {
   .route-filters {
-    padding: var(--space-sm) var(--space-md) var(--space-xs);
     gap: 6px;
   }
   .route-filters-limited {

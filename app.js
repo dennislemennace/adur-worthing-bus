@@ -203,6 +203,8 @@ const state = {
   notifyBaseline:          null,   // {lat, lon, ref} captured when arming
   notifyOverThresholdCount: 0,     // consecutive frames over deadzone (requires 2 to fire)
   activeTab:               "stop", // "stop" | "bus"
+  tabScroll:               { stop: null, bus: null },   // each tab's place while the other is in front
+  boardReturn:             null,   // the board row whose bus was opened, to show again on the way back
   busInfoTickTimer:        null,   // setInterval handle for "X ago" text
   busDetails:              null,   // /api/vehicle response for selected bus
   departurePlan:           null,   // a board row's journey, opened under it when no bus is on it yet
@@ -8226,8 +8228,10 @@ window.openDepartures = async function(atcoCode, stopName) {
 
   revealPanelForSelection({ stop: true });
 
-  // Show panel, hide prompt
-  showPanelState("loading");
+  // Show panel, hide prompt. The same stop again (Back from a bus opened on
+  // its board) keeps its board up while it refreshes: hidden behind the
+  // loading line, the tab lost its scroll and came back at the top.
+  if (changedStop || dom.departuresContainer.classList.contains("hidden")) showPanelState("loading");
 
   // On mobile, scroll down so the panel is visible
   dom.departurePanel.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -8381,7 +8385,7 @@ function lastBusesHomeHtml(data) {
       </div>`;
   }
   return `${served.map(([place, info]) => lastBusHomeHtml(info, place)).join("")}
-    <p class="stop-lastbus-note">Scheduled departure times, week of ${escapeHtml(week)}.
+    <p class="stop-lastbus-note">Scheduled departure times, week of ${escapeHtml(osmDateText(week) || week)}.
       A journey home needing a change, or a coach, isn't counted.</p>`;
 }
 
@@ -8698,11 +8702,11 @@ function renderDepartures(data) {
 
   // Live-data notice: show when live=false and it's a degradation (not just "too far away")
   const liveNoticeMessages = {
-    quota:       "Showing scheduled times only \u2014 live predictions paused for today",
-    upstream:    "Showing scheduled times only \u2014 live data unavailable",
-    no_coverage: "Showing scheduled times only \u2014 no live tracking for this stop",
-    ip_quota:    "Showing scheduled times only \u2014 live predictions paused",
-    not_configured: "Showing timetable times only \u2014 no bus on this board is reporting live just now",
+    quota:       "Showing scheduled times only: live predictions are paused for today",
+    upstream:    "Showing scheduled times only: live data is unavailable",
+    no_coverage: "Showing scheduled times only: there is no live tracking for this stop",
+    ip_quota:    "Showing scheduled times only: live predictions are paused",
+    not_configured: "Showing timetable times only: no bus on this board is reporting live just now",
   };
   const reason = data?.live_reason;
   // At a closed stop there is nothing live to be missing; the closure says why.
@@ -8801,6 +8805,7 @@ function renderDepartures(data) {
 
   startDepartureTicker();
   showPanelState("results");
+  revealBoardReturn();
 }
 
 /** Route buttons above the board: "All · 700 · 9 · 10".
@@ -9451,13 +9456,26 @@ async function toggleDeparturePlan(tr) {
                  html: `<p class="departure-plan-sub">Loading this journey…</p>` };
   state.departurePlan = plan;
   restoreDeparturePlan();
+  revealDeparturePlan(plan);
   try {
     const data = await apiFetch(`/api/trip?tripId=${encodeURIComponent(trip)}&from=${encodeURIComponent(stop || "")}`);
     plan.html = buildDeparturePlanHtml(data, plan);
   } catch {
     plan.html = `<p class="departure-plan-sub">We could not load this journey's stops. Try again in a moment.</p>`;
   }
-  if (state.departurePlan === plan) restoreDeparturePlan();
+  if (state.departurePlan === plan) {
+    restoreDeparturePlan();
+    revealDeparturePlan(plan);
+  }
+}
+
+/** A journey opened under a row near the foot of the sheet opened out of
+ *  sight, and the tap looked like it did nothing (7 November 2026): the
+ *  board scrolls to show it, keeping its own row in view above it. */
+function revealDeparturePlan(plan) {
+  const row = dom.departuresTbody?.querySelector(`tr.departure-plan[data-trip="${CSS.escape(plan.trip)}"]`);
+  const owner = row?.previousElementSibling;
+  if (row && owner) revealInPanel(row, { keep: owner });
 }
 
 
@@ -9652,6 +9670,8 @@ function isWithinMinutes(isoString, minutes) {
 
 /** Switch the active panel tab. */
 function setActiveTab(tab) {
+  const prev = state.activeTab;
+  if (prev && prev !== tab) rememberTabScroll(prev);
   state.activeTab = tab;
   const stopActive = tab === "stop";
 
@@ -9667,6 +9687,96 @@ function setActiveTab(tab) {
   if (!stopActive && state.selectedVehicle) {
     renderBusTab();
   }
+  if (prev !== tab) restoreTabScroll(tab);
+}
+
+/* Each tab keeps its place while the other is in front (asked for 7 November
+ * 2026). A tab hidden with display:none loses its scroll, so a board scrolled
+ * down to the bus just opened came back at its top, and the row tapped was
+ * out of sight. Kept per stop and per bus: another stop still starts at its
+ * name, and another bus at its stops ahead. */
+function tabScrollers(tab) {
+  return (tab === "stop" ? [dom.tabContentStop]
+    : [dom.tabContentBus, document.getElementById("bus-info-container")]).filter(Boolean);
+}
+
+function tabScrollKey(tab) {
+  return (tab === "stop" ? state.selectedStop?.atcoCode : state.selectedVehicleRef) || "";
+}
+
+function rememberTabScroll(tab) {
+  const boxes = tabScrollers(tab);
+  if (boxes.length && boxes[0].getClientRects().length) {
+    state.tabScroll[tab] = { key: tabScrollKey(tab), tops: boxes.map(b => b.scrollTop) };
+  }
+}
+
+function restoreTabScroll(tab) {
+  const saved = state.tabScroll[tab];
+  if (saved && saved.key === tabScrollKey(tab)) {
+    tabScrollers(tab).forEach((b, i) => { b.scrollTop = saved.tops[i] || 0; });
+  }
+  if (tab !== "stop" || !state.boardReturn) return;
+  // Back from a bus opened on the board: the sheet may have changed height
+  // since, so its row is brought back into view once it has settled, or once
+  // the board has redrawn, whichever finds it. Only just after the return: a
+  // row found later must not pull the board from under a reader scrolling it.
+  state.boardReturn.until = Date.now() + 5000;
+  afterSheetSettles(revealBoardReturn);
+}
+
+function revealBoardReturn() {
+  const back = state.boardReturn;
+  if (!back || !back.until || state.activeTab !== "stop") return;
+  if (Date.now() > back.until || back.stop !== state.selectedStop?.atcoCode) { state.boardReturn = null; return; }
+  const row = [...(dom.departuresTbody?.querySelectorAll("tr.departure-row") || [])]
+    .find(r => (back.vehicle && r.dataset.vehicle === back.vehicle) || (back.trip && r.dataset.trip === back.trip));
+  if (!row || !row.getClientRects().length) return;
+  state.boardReturn = null;
+  revealInPanel(row);
+}
+
+/** The element that scrolls `el` within its panel tab: the nearest that can,
+ *  up to the tab itself and never past it, since past it on a phone is the
+ *  sheet or the page. Which one it is can differ by browser (the Bus tab's
+ *  inner list, or the tab). */
+function panelScroller(el) {
+  const tab = el && el.closest(".panel-tab-content");
+  if (!tab) return null;
+  for (let box = el.parentElement; box && box !== tab; box = box.parentElement) {
+    if (box.scrollHeight > box.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(box).overflowY)) return box;
+  }
+  return tab;
+}
+
+/** Run `fn` once the sheet has finished easing to its detent (the transition
+ *  is --transition, 180 ms), or straight away on a wide screen. */
+function afterSheetSettles(fn) {
+  requestAnimationFrame(() => setTimeout(fn, isSheetLayout() && !motionReduced() ? 220 : 0));
+}
+
+/**
+ * Scroll the panel tab holding `el` the least that shows all of it, and never
+ * so far that `keep` (the control that opened it) goes off the top. Like
+ * scrollPanelTo, it moves the tab's own scroller, never the sheet.
+ */
+function revealInPanel(el, { keep = el, pad = 8 } = {}) {
+  const box = panelScroller(el);
+  if (!box || !box.getClientRects().length) return;
+  const b = box.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  const k = keep.getBoundingClientRect();
+  let delta = 0;
+  if (k.top < b.top + pad) delta = k.top - b.top - pad;
+  else if (r.bottom > b.bottom - pad) delta = Math.min(r.bottom - b.bottom + pad, k.top - b.top - pad);
+  if (Math.abs(delta) < 1) return;
+  // A second call while the first still glides (the journey's stops arriving
+  // just after its loading line) goes straight there: started mid-glide, a
+  // second smooth scroll stopped short by the loading line's height.
+  const now = Date.now();
+  const gliding = box._revealGlide > now;
+  box._revealGlide = now + 450;
+  box.scrollTo({ top: Math.max(0, box.scrollTop + delta), behavior: motionReduced() || gliding ? "auto" : "smooth" });
 }
 
 /**
@@ -9693,13 +9803,24 @@ function showBusFromBoard(vehicle) {
 /** Bring the Bus tab's stops ahead to the top of its scrolling list. Again
  *  once the details arrive, since the route's notices above them come with
  *  those and push them down. */
-function scrollBusTabToStops() {
+function scrollBusTabToStops({ settle = true } = {}) {
   const el = document.getElementById("bus-upcoming");
   if (!el || typeof el.getBoundingClientRect !== "function") return;
-  let box = el.parentElement;
-  while (box && !(box.scrollHeight > box.clientHeight
-                  && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
-  if (box) box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top;
+  // The Bus tab's own scroller: never past the tab, which on a phone is the
+  // sheet or the page, and moving those hides the bus's name instead.
+  const box = panelScroller(el);
+  if (!box) return;
+  box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top;
+  // The sheet is still easing to half when this first runs, and a phone's
+  // browser may not have laid the list out yet: once more when it settles,
+  // unless the reader has scrolled meanwhile.
+  const set = box.scrollTop;
+  const ref = state.selectedVehicleRef;
+  if (settle) afterSheetSettles(() => {
+    if (state.selectedVehicleRef === ref && state.activeTab === "bus" && Math.abs(box.scrollTop - set) < 2) {
+      scrollBusTabToStops({ settle: false });
+    }
+  });
 }
 
 function openBusInfo(vehicle, { fromBoard = false } = {}) {
@@ -11417,6 +11538,8 @@ function bindUIEvents() {
     const bus = departureBus(tr);
     if (bus) {
       closeDeparturePlan();
+      state.boardReturn = { stop: state.selectedStop?.atcoCode, vehicle: tr.dataset.vehicle || bus.vehicle_ref,
+                            trip: tr.dataset.trip || "" };
       openBusInfo(bus, { fromBoard: true });
     } else if (tr.dataset.trip) {
       toggleDeparturePlan(tr);
@@ -13535,8 +13658,12 @@ async function focusRoute(operator, service) {
   if (!mine() || state.viewMode !== "improvements") return;
   if (state.areasOn) setAreasOpen(false);
   state.routeFocus = { operator, service, detail, dir: 0, expanded: false };
-  // The route has the tab now: the list of every route folds away.
+  // The route has the tab now: the list of every route folds away, and Find
+  // a route, which holds its detail, opens, however the route was chosen (a
+  // link, a stop's list of services, the tour).
   if (dom.routeFiltersDisc) dom.routeFiltersDisc.open = false;
+  const pick = document.getElementById("route-pick-disclosure");
+  if (pick) pick.open = true;
   closeRouteStop();
   renderRouteFocus({ fit: true });
 }

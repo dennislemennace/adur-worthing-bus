@@ -123,6 +123,16 @@ Households without a car or van and residents aged 65 and over by ward
 Nomis, summed to wards with the ONS output area to ward lookup. Source: Office
 for National Statistics licensed under the Open Government Licence v3.0.
 
+## Discover photos: Wikimedia Commons
+
+The place photos in Discover (`images/discover/`, credited in
+`data/destinations.json` under each place's `photo`) come from Wikimedia
+Commons: public domain, CC0, CC BY 2.0 or CC BY-SA 2.0, 3.0 or 4.0, never a
+non-commercial or no-derivatives licence. Each is credited by author, licence
+and file page under the photo and on the About page. They are scaled and
+cropped by `scripts/fetch_destination_photos.py`, not otherwise changed; the
+CC BY-SA ones stay under their own licence.
+
 ## TransportAPI
 
 Live departure predictions, fetched by the API at request time and not

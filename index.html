@@ -846,12 +846,12 @@
             <button class="panel-tab active" data-improvements-tab="about" role="tab"
                     aria-selected="true" id="tab-about" aria-controls="tab-content-about">
               <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-info"/></svg>
-              <span class="panel-tab-label">About</span>
+              <span class="panel-tab-label">Routes</span>
             </button>
             <button class="panel-tab" data-improvements-tab="proposals" role="tab"
                     aria-selected="false" id="tab-proposals" aria-controls="tab-content-proposals">
               <svg class="icon panel-tab-icon" aria-hidden="true"><use href="#i-lightbulb"/></svg>
-              <span class="panel-tab-label">Proposals</span>
+              <span class="panel-tab-label">Ideas</span>
             </button>
           </div>
           <button class="btn-collapse-panel" type="button" aria-label="Hide panel" aria-pressed="false">
@@ -873,13 +873,14 @@
                chosen by operator and number. Both fold. -->
           <!-- Every route. The service list and the controls that narrow it
                are one control: as three stacked blocks they took the whole
-               tab on a phone. Open on arrival, it shows the routes
-               themselves; the rest of the filters fold away under them. -->
+               tab on a phone. All three sections start folded (asked for
+               7 November 2026), so the tab opens on their names and the
+               reader opens the one they came for. -->
           <div class="route-filters" id="route-filters">
-          <details class="filter-disclosure route-filters-disclosure" id="route-filters-disclosure" open>
+          <details class="filter-disclosure route-filters-disclosure" id="route-filters-disclosure">
             <summary class="filter-disclosure-summary">
               <svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg>
-              <span>All routes</span>
+              <span>Every route</span>
               <!-- "18 selected": closed, the count still says what the map is
                    showing without opening it again. -->
               <span class="route-filters-count" id="route-filters-count"></span>
@@ -932,10 +933,10 @@
                alone is not a route (three companies run a 1 here). Choosing
                one fills the detail under the pickers (app.js focusRoute). -->
           <section class="route-pick" id="route-pick">
-            <details class="filter-disclosure route-pick-disclosure" id="route-pick-disclosure" open>
+            <details class="filter-disclosure route-pick-disclosure" id="route-pick-disclosure">
               <summary class="filter-disclosure-summary">
                 <svg class="icon" aria-hidden="true"><use href="#i-route"/></svg>
-                <span>One route</span>
+                <span>Find a route</span>
                 <svg class="icon filter-disclosure-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
               </summary>
               <div class="route-pick-body">
@@ -960,7 +961,7 @@
             <details class="filter-disclosure route-areas-disclosure" id="route-areas-disclosure">
               <summary class="filter-disclosure-summary">
                 <svg class="icon" aria-hidden="true"><use href="#i-gauge"/></svg>
-                <span>Areas: buses by ward</span>
+                <span>Buses by area</span>
                 <svg class="icon filter-disclosure-chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
               </summary>
               <div class="route-areas-body" id="route-areas-body">
@@ -972,9 +973,10 @@
           <div class="improvements-intro">
             <p>
               Every bus route in the area, from the operators' published
-              timetables. Choose one to see where it goes, when it runs and
-              which tickets it takes. Ideas for changes are in
-              <strong>Proposals</strong>.
+              timetables. Open a section above to show routes on the map, look
+              up one route's stops, times and tickets, or see how well each area
+              is served. Ideas for changing the network are in the
+              <strong>Ideas</strong> tab.
             </p>
           </div>
 

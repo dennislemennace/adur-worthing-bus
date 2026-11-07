@@ -80,7 +80,9 @@ test("the health page counts how much of each stop's access is recorded", () => 
     { osm_base: "2026-11-06T00:00:00Z", stops: { A: { wheelchair: "yes", shelter: "yes" }, B: { shelter: "no" } } },
     { stops: [{ atco_code: "A" }, { atco_code: "B" }, { atco_code: "C" }, { atco_code: "D" }] });
   assert.match(html, /4 stops on this site/);
-  assert.match(html, /1 are recorded as step-free/);
-  assert.match(html, /Step-free access<\/th><td>1<\/td><td>25%/);
+  // The sentence and the table count the same thing (7 November 2026): the
+  // table's row is stops that say either way, the sentence how many say yes.
+  assert.match(html, /Of the 1 that say\s+whether they are step-free, 1 are/);
+  assert.match(html, /Whether it is step-free<\/th><td>1<\/td><td>25%/);
   assert.match(html, /Shelter<\/th><td>2<\/td><td>50%/);
 });

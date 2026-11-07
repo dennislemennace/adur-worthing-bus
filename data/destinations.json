@@ -1,6 +1,6 @@
 {
  "_comment": "Places worth visiting, for the Discover view (discover.js): each with its own page (source_url, checked by hand on checked_on), a line in our words, and where it is with its nearest stops, filled from OpenStreetMap by scripts/locate_destinations.py. Curated, not every tourism tag in OpenStreetMap. Added 6 November 2026 at the maintainer's request. Location and wheelchair facts from OpenStreetMap are ODbL.",
- "checked_on": "2026-11-06",
+ "checked_on": "2026-11-07",
  "places": [
   {
    "id": "brighton-palace-pier",
@@ -8,7 +8,7 @@
    "category": "Seafront",
    "line": "The pier: rides, arcades and the view back along the seafront.",
    "source_url": "https://www.brightonpier.co.uk/",
-   "checked_on": "2026-11-06",
+   "checked_on": "2026-11-07",
    "query": "Brighton Palace Pier, Brighton",
    "lat": 50.81803,
    "lon": -0.13664,
@@ -30,7 +30,19 @@
      "name": "Sea Life Centre",
      "metres": 220
     }
-   ]
+   ],
+   "about": "Brighton's pier, with a funfair of rides including a helter skelter, arcades, a restaurant, a bar and kiosks over the sea. Walking on is usually free, but the pier charges for entry at its busiest times.",
+   "photo_file": "Palace Pier April 2018 01.jpg",
+   "photo": {
+    "src": "images/discover/brighton-palace-pier.jpg",
+    "thumb": "images/discover/brighton-palace-pier-thumb.jpg",
+    "file": "Palace Pier April 2018 01.jpg",
+    "author": "Arild Vågen",
+    "licence": "CC BY-SA 4.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Palace_Pier_April_2018_01.jpg",
+    "alt": "Brighton Palace Pier from the beach, stretching out to sea"
+   }
   },
   {
    "id": "brighton-i360",
@@ -38,7 +50,7 @@
    "category": "Viewpoint",
    "line": "A glass viewing pod that rises high over the seafront by the West Pier.",
    "source_url": "https://www.brightoni360.co.uk/",
-   "checked_on": "2026-11-06",
+   "checked_on": "2026-11-07",
    "query": "Brighton i360, Brighton",
    "lat": 50.82135,
    "lon": -0.15092,
@@ -59,7 +71,18 @@
      "name": "Waitrose",
      "metres": 383
     }
-   ]
+   ],
+   "about": "A glass pod that climbs a slender tower on the seafront to 138 metres (450 feet), for a view along the coast and over the city. Tickets are needed; people living in some local postcodes can buy walk-up resident tickets.",
+   "photo": {
+    "src": "images/discover/brighton-i360.jpg",
+    "thumb": "images/discover/brighton-i360-thumb.jpg",
+    "file": "West Pier April 2018 05.jpg",
+    "author": "Arild Vågen",
+    "licence": "CC BY-SA 4.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:West_Pier_April_2018_05.jpg",
+    "alt": "The i360 tower and its glass pod above the rusted columns of the old West Pier"
+   }
   },
   {
    "id": "royal-pavilion",
@@ -67,7 +90,7 @@
    "category": "History",
    "line": "The Prince Regent's seaside palace, and its garden.",
    "source_url": "https://brightonmuseums.org.uk/visit/royal-pavilion-garden/",
-   "checked_on": "2026-11-06",
+   "checked_on": "2026-11-07",
    "query": "Royal Pavilion, Brighton",
    "lat": 50.82239,
    "lon": -0.13765,
@@ -89,7 +112,18 @@
      "name": "North Street",
      "metres": 102
     }
-   ]
+   ],
+   "about": "The Regency palace built for the Prince Regent, later George IV: Indian on the outside, its rooms in a Chinese style, set in its own garden in the middle of the city. Tickets are needed for the palace, with guided tours as well.",
+   "photo": {
+    "src": "images/discover/royal-pavilion.jpg",
+    "thumb": "images/discover/royal-pavilion-thumb.jpg",
+    "file": "Brighton royal pavilion Qmin.jpg",
+    "author": "Qmin",
+    "licence": "CC BY-SA 3.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/3.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Brighton_royal_pavilion_Qmin.jpg",
+    "alt": "The Royal Pavilion's onion domes and minarets under a blue sky"
+   }
   },
   {
    "id": "brighton-museum",
@@ -97,7 +131,7 @@
    "category": "Museum",
    "line": "Art, design and the city's story, in the Royal Pavilion's garden.",
    "source_url": "https://brightonmuseums.org.uk/brighton-museum-art-gallery/",
-   "checked_on": "2026-11-06",
+   "checked_on": "2026-11-07",
    "query": "Brighton Museum",
    "lat": 50.82344,
    "lon": -0.13795,
@@ -119,36 +153,18 @@
      "name": "North Street",
      "metres": 164
     }
-   ]
-  },
-  {
-   "id": "booth-museum",
-   "name": "Booth Museum of Natural History",
-   "category": "Museum",
-   "line": "Victorian cases of birds and natural history, off Dyke Road.",
-   "source_url": "https://brightonmuseums.org.uk/booth-museum-of-natural-history/",
-   "checked_on": "2026-11-06",
-   "query": "Booth Museum of Natural History, Brighton",
-   "lat": 50.83709,
-   "lon": -0.15305,
-   "osm": "node/559471342",
-   "stops": [
-    {
-     "atco": "149000006185",
-     "name": "Booth Museum",
-     "metres": 16
-    },
-    {
-     "atco": "149000007185",
-     "name": "Booth Museum",
-     "metres": 112
-    },
-    {
-     "atco": "1490100891",
-     "name": "Port Hall Road",
-     "metres": 116
-    }
-   ]
+   ],
+   "about": "Archaeology, fashion, photography and art, from the deep past to today, in the Royal Pavilion's garden, a short walk from the seafront. Its exhibitions change through the year.",
+   "photo": {
+    "src": "images/discover/brighton-museum.jpg",
+    "thumb": "images/discover/brighton-museum-thumb.jpg",
+    "file": "Brighton Museum and Art Gallery (IoE Code 480508).jpg",
+    "author": "The Voice of Hassocks",
+    "licence": "Public domain",
+    "licence_url": "",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Brighton_Museum_and_Art_Gallery_(IoE_Code_480508).jpg",
+    "alt": "The museum's ornate entrance in the Royal Pavilion's garden"
+   }
   },
   {
    "id": "preston-manor",
@@ -156,7 +172,7 @@
    "category": "History",
    "line": "An Edwardian manor house and walled garden beside Preston Park.",
    "source_url": "https://brightonmuseums.org.uk/preston-manor-gardens/",
-   "checked_on": "2026-11-06",
+   "checked_on": "2026-11-07",
    "query": "Preston Manor, Brighton",
    "lat": 50.84249,
    "lon": -0.15012,
@@ -178,7 +194,18 @@
      "name": "Rookery Close",
      "metres": 154
     }
-   ]
+   ],
+   "about": "An Edwardian house shown as the Stanford family's home, upstairs and downstairs, with its gardens beside Preston Park. Open in season (14 March to 30 November in 2026); payment by card only.",
+   "photo": {
+    "src": "images/discover/preston-manor.jpg",
+    "thumb": "images/discover/preston-manor-thumb.jpg",
+    "file": "Preston Manor, Preston Village, Brighton (from rear).JPG",
+    "author": "The Voice of Hassocks",
+    "licence": "Public domain",
+    "licence_url": "",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Preston_Manor,_Preston_Village,_Brighton_(from_rear).JPG",
+    "alt": "Preston Manor, a long pale house, above a flint wall and lawn"
+   }
   },
   {
    "id": "hove-museum",
@@ -186,7 +213,7 @@
    "category": "Museum",
    "line": "Toys, film and craft, on New Church Road.",
    "source_url": "https://brightonmuseums.org.uk/hove-museum-of-creativity/",
-   "checked_on": "2026-11-06",
+   "checked_on": "2026-11-07",
    "query": "Hove Museum",
    "lat": 50.82968,
    "lon": -0.18119,
@@ -207,7 +234,18 @@
      "name": "Hove Street",
      "metres": 183
     }
-   ]
+   ],
+   "about": "Hove's museum of creativity, in a Victorian villa on New Church Road: toys, film and crafts, with exhibitions that change through the year.",
+   "photo": {
+    "src": "images/discover/hove-museum.jpg",
+    "thumb": "images/discover/hove-museum-thumb.jpg",
+    "file": "Hove Museum and Art Gallery (Brooker Hall), New Church Road, Hove.jpg",
+    "author": "The Voice of Hassocks",
+    "licence": "CC0",
+    "licence_url": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Hove_Museum_and_Art_Gallery_(Brooker_Hall),_New_Church_Road,_Hove.jpg",
+    "alt": "Hove Museum, a yellow brick Victorian villa"
+   }
   },
   {
    "id": "brighton-marina",
@@ -215,7 +253,7 @@
    "category": "Seafront",
    "line": "Shops, restaurants and the harbour at the east end of the seafront.",
    "source_url": "https://www.brightonmarina.co.uk/",
-   "checked_on": "2026-11-06",
+   "checked_on": "2026-11-07",
    "query": "Brighton Marina, Brighton",
    "lat": 50.81043,
    "lon": -0.09892,
@@ -236,7 +274,18 @@
      "name": "Marina Cinema",
      "metres": 513
     }
-   ]
+   ],
+   "about": "Britain's largest marina, at the east end of the seafront: restaurants, shops, hotels and entertainment around its boardwalks and harbour.",
+   "photo": {
+    "src": "images/discover/brighton-marina.jpg",
+    "thumb": "images/discover/brighton-marina-thumb.jpg",
+    "file": "Brighton Marina, Sussex, UK.jpg",
+    "author": "Jim Linwood",
+    "licence": "CC BY 2.0",
+    "licence_url": "https://creativecommons.org/licenses/by/2.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Brighton_Marina,_Sussex,_UK.jpg",
+    "alt": "Brighton Marina's harbour and waterside houses from above"
+   }
   },
   {
    "id": "sea-life-brighton",
@@ -244,7 +293,7 @@
    "category": "Family",
    "line": "An aquarium in the Victorian arches beside the pier.",
    "source_url": "https://www.visitsealife.com/brighton/",
-   "checked_on": "2026-11-06",
+   "checked_on": "2026-11-07",
    "query": "Sea Life Brighton, Marine Parade, Brighton",
    "lat": 50.8196,
    "lon": -0.13597,
@@ -266,7 +315,18 @@
      "name": "Old Steine",
      "metres": 114
     }
-   ]
+   ],
+   "about": "Opened in 1872 and designed by Eugenius Birch, it is the world's oldest aquarium still open: more than 5,000 creatures, sharks, turtles and jellyfish among them, under its restored Victorian arcade. Tickets are needed; booking online guarantees entry.",
+   "photo": {
+    "src": "images/discover/sea-life-brighton.jpg",
+    "thumb": "images/discover/sea-life-brighton-thumb.jpg",
+    "file": "The Brighton Aquarium And Attached Walls And Piers And Railings And Lamps.jpg",
+    "author": "Robert-brook",
+    "licence": "CC BY-SA 3.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/3.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:The_Brighton_Aquarium_And_Attached_Walls_And_Piers_And_Railings_And_Lamps.jpg",
+    "alt": "Steps down to the aquarium's entrance, lined with palms"
+   }
   },
   {
    "id": "volks-railway",
@@ -274,7 +334,7 @@
    "category": "Seafront",
    "line": "The Victorian electric railway along the beach towards Black Rock.",
    "source_url": "https://volkselectricrailway.co.uk/",
-   "checked_on": "2026-11-06",
+   "checked_on": "2026-11-07",
    "query": "Volks Electric Railway",
    "lat": 50.81731,
    "lon": -0.12459,
@@ -295,7 +355,19 @@
      "name": "Bedford Street South",
      "metres": 159
     }
-   ]
+   ],
+   "about": "The world's oldest electric railway still running, for over 140 years, along the beach east of the pier. It closes for the winter; check its page for this season's dates.",
+   "photo_file": "Train on the Volks Electric Railway, Brighton, Sussex - geograph.org.uk - 1811504.jpg",
+   "photo": {
+    "src": "images/discover/volks-railway.jpg",
+    "thumb": "images/discover/volks-railway-thumb.jpg",
+    "file": "Train on the Volks Electric Railway, Brighton, Sussex - geograph.org.uk - 1811504.jpg",
+    "author": "Peter Trimming",
+    "licence": "CC BY-SA 2.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/2.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Train_on_the_Volks_Electric_Railway,_Brighton,_Sussex_-_geograph.org.uk_-_1811504.jpg",
+    "alt": "A Volk's Electric Railway car full of passengers beside the beach"
+   }
   },
   {
    "id": "shoreham-fort",
@@ -303,7 +375,7 @@
    "category": "History",
    "line": "A Victorian fort at the mouth of the River Adur.",
    "source_url": "https://www.shorehamfort.co.uk/",
-   "checked_on": "2026-11-06",
+   "checked_on": "2026-11-07",
    "query": "Shoreham Fort, Shoreham-by-Sea",
    "lat": 50.82752,
    "lon": -0.26087,
@@ -324,7 +396,19 @@
      "name": "Winterton Way",
      "metres": 240
     }
-   ]
+   ],
+   "about": "A Victorian fort guarding the mouth of the River Adur, restored from 1977 and looked after by the Friends of Shoreham Fort, a charity. It opens on set days: check its page before you go.",
+   "photo_file": "Shoreham Fort - geograph.org.uk - 2360075.jpg",
+   "photo": {
+    "src": "images/discover/shoreham-fort.jpg",
+    "thumb": "images/discover/shoreham-fort-thumb.jpg",
+    "file": "Shoreham Fort - geograph.org.uk - 2360075.jpg",
+    "author": "Paul Gillett",
+    "licence": "CC BY-SA 2.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/2.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Shoreham_Fort_-_geograph.org.uk_-_2360075.jpg",
+    "alt": "The fort's red brick walls inside its grassy banks"
+   }
   },
   {
    "id": "ropetackle",
@@ -332,7 +416,7 @@
    "category": "Arts",
    "line": "Music, comedy and film by the river in Shoreham.",
    "source_url": "https://ropetacklecentre.co.uk/",
-   "checked_on": "2026-11-06",
+   "checked_on": "2026-11-07",
    "query": "Ropetackle Arts Centre, Shoreham-by-Sea",
    "lat": 50.83257,
    "lon": -0.27905,
@@ -353,7 +437,19 @@
      "name": "High Street",
      "metres": 91
     }
-   ]
+   ],
+   "about": "A community-run arts centre and charity by the river in Shoreham: music, comedy, theatre and family shows, with the Rose Petal Café in its foyer.",
+   "photo_file": "Ropetackle Arts Centre, Shoreham-by-Sea, West Sussex, July 2025 (1).jpg",
+   "photo": {
+    "src": "images/discover/ropetackle.jpg",
+    "thumb": "images/discover/ropetackle-thumb.jpg",
+    "file": "Ropetackle Arts Centre, Shoreham-by-Sea, West Sussex, July 2025 (1).jpg",
+    "author": "Gazamp",
+    "licence": "CC BY-SA 4.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Ropetackle_Arts_Centre,_Shoreham-by-Sea,_West_Sussex,_July_2025_(1).jpg",
+    "alt": "The Ropetackle building, with its tall sign, by a roundabout in Shoreham"
+   }
   },
   {
    "id": "brighton-city-airport",
@@ -361,7 +457,7 @@
    "category": "History",
    "line": "A working 1930s Art Deco airport terminal by the Adur.",
    "source_url": "https://flybrighton.com/",
-   "checked_on": "2026-11-06",
+   "checked_on": "2026-11-07",
    "query": "Shoreham Airport",
    "lat": 50.83348,
    "lon": -0.2907,
@@ -382,15 +478,27 @@
      "name": "North End",
      "metres": 646
     }
-   ]
+   ],
+   "about": "Shoreham's airport, the oldest licensed aerodrome in the UK, first flown from in 1910. Its 1936 Art Deco terminal is still in use, and its restaurant, open every day, looks out over the planes.",
+   "photo_file": "Shoreham Airport Terminal Building - geograph.org.uk - 3578197.jpg",
+   "photo": {
+    "src": "images/discover/brighton-city-airport.jpg",
+    "thumb": "images/discover/brighton-city-airport-thumb.jpg",
+    "file": "Shoreham Airport Terminal Building - geograph.org.uk - 3578197.jpg",
+    "author": "Peter Jeffery",
+    "licence": "CC BY-SA 2.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/2.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Shoreham_Airport_Terminal_Building_-_geograph.org.uk_-_3578197.jpg",
+    "alt": "The white Art Deco terminal across the airfield, light aircraft in front"
+   }
   },
   {
    "id": "lancing-college-chapel",
    "name": "Lancing College Chapel",
    "category": "History",
    "line": "A great Gothic chapel on the hill above the Adur.",
-   "source_url": "https://www.lancingcollege.co.uk/",
-   "checked_on": "2026-11-06",
+   "source_url": "https://www.lancingcollege.co.uk/chapel/",
+   "checked_on": "2026-11-07",
    "query": "Lancing College Chapel, Lancing",
    "lat": 50.84667,
    "lon": -0.30239,
@@ -411,7 +519,18 @@
      "name": "Hoe Court",
      "metres": 943
     }
-   ]
+   ],
+   "about": "A Gothic Revival chapel on the hill above the Adur, one of the most remarkable in England, and a landmark from miles around. Open to visitors daily, 10am to 4pm (noon on Sundays and bank holidays), except a few holidays.",
+   "photo": {
+    "src": "images/discover/lancing-college-chapel.jpg",
+    "thumb": "images/discover/lancing-college-chapel-thumb.jpg",
+    "file": "Lancing College Chapel.jpg",
+    "author": "John Salmon",
+    "licence": "CC BY-SA 2.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/2.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Lancing_College_Chapel.jpg",
+    "alt": "Lancing College Chapel, tall and Gothic, on a green lawn"
+   }
   },
   {
    "id": "worthing-museum",
@@ -440,7 +559,18 @@
      "name": "Town Hall",
      "metres": 48
     }
-   ]
+   ],
+   "about": "Worthing's museum and art gallery on Chapel Road: costume, toys, archaeology and the town's history, with paintings and changing exhibitions.",
+   "photo": {
+    "src": "images/discover/worthing-museum.jpg",
+    "thumb": "images/discover/worthing-museum-thumb.jpg",
+    "file": "Worthing Museum and Art Gallery on a wet February lunchtime - geograph.org.uk - 1717464.jpg",
+    "author": "Basher Eyre",
+    "licence": "CC BY-SA 2.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/2.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Worthing_Museum_and_Art_Gallery_on_a_wet_February_lunchtime_-_geograph.org.uk_-_1717464.jpg",
+    "alt": "Worthing Museum's red brick front on a wet day"
+   }
   },
   {
    "id": "cissbury-ring",
@@ -470,7 +600,185 @@
      "name": "Downside Avenue",
      "metres": 1447
     }
-   ]
+   ],
+   "about": "The largest Iron Age hill fort in Sussex, with the hollows of far older flint mines inside it, on the Downs above Findon Valley. Looked after by the National Trust; from the bus it is a walk uphill.",
+   "photo": {
+    "src": "images/discover/cissbury-ring.jpg",
+    "thumb": "images/discover/cissbury-ring-thumb.jpg",
+    "file": "Cissbury Ring rampart 1.JPG",
+    "author": "Simon Burchell",
+    "licence": "CC BY-SA 3.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/3.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Cissbury_Ring_rampart_1.JPG",
+    "alt": "The grassy ramparts of Cissbury Ring, steps climbing one side"
+   }
+  },
+  {
+   "id": "worthing-pier",
+   "name": "Worthing Pier",
+   "category": "Seafront",
+   "line": "The town's Art Deco pier, with a theatre at one end and a pavilion at the other.",
+   "about": "Opened in 1862, Worthing's Art Deco pier is Grade II listed and was UK Pier of the Year in 2019. The Pavilion Theatre and a bar are at the land end, an arcade halfway, and the South Pavilion out at sea; fishing from it is free.",
+   "source_url": "https://www.adur-worthing.gov.uk/worthing-pier/",
+   "checked_on": "2026-11-07",
+   "query": "Worthing Pier, Worthing",
+   "lat": 50.80813,
+   "lon": -0.3692,
+   "osm": "way/92033496",
+   "stops": [
+    {
+     "atco": "4400WO0259",
+     "name": "Marine Parade",
+     "metres": 167
+    },
+    {
+     "atco": "4400WO0253",
+     "name": "Marine Parade",
+     "metres": 192
+    },
+    {
+     "atco": "4400WO0255",
+     "name": "Marine Parade",
+     "metres": 202
+    }
+   ],
+   "photo": {
+    "src": "images/discover/worthing-pier.jpg",
+    "thumb": "images/discover/worthing-pier-thumb.jpg",
+    "file": "Pier Amusements, Worthing Pier - geograph.org.uk - 1378991.jpg",
+    "author": "P L Chadwick",
+    "licence": "CC BY-SA 2.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/2.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Pier_Amusements,_Worthing_Pier_-_geograph.org.uk_-_1378991.jpg",
+    "alt": "Worthing Pier and its amusements pavilion over the sea"
+   }
+  },
+  {
+   "id": "highdown-gardens",
+   "name": "Highdown Gardens",
+   "category": "Gardens",
+   "line": "A garden made in an old chalk pit on the hill above Goring.",
+   "about": "Sir Frederick and Lady Sybil Stern turned a chalk pit into a garden that now holds a National Plant Collection. Entry is free, with donations welcome. From the bus it is about a 20 minute walk, uphill at the end.",
+   "source_url": "https://www.highdowngardens.co.uk/",
+   "checked_on": "2026-11-07",
+   "query": "Highdown Gardens, Worthing",
+   "stops_by_hand": [
+    {
+     "atco": "4400WO0530",
+     "walk_mins": 20
+    },
+    {
+     "atco": "4400WO0531",
+     "walk_mins": 20
+    }
+   ],
+   "lat": 50.8259,
+   "lon": -0.44412,
+   "osm": "way/22730761",
+   "stops": [
+    {
+     "atco": "4400WO0530",
+     "name": "The Strand",
+     "metres": 875,
+     "outside_map": true,
+     "walk_mins": 20
+    },
+    {
+     "atco": "4400WO0531",
+     "name": "The Strand",
+     "metres": 880,
+     "outside_map": true,
+     "walk_mins": 20
+    }
+   ],
+   "photo_file": "Hibiscus syriacus, Highdown Gardens, Worthing.jpg",
+   "photo": {
+    "src": "images/discover/highdown-gardens.jpg",
+    "thumb": "images/discover/highdown-gardens-thumb.jpg",
+    "file": "Hibiscus syriacus, Highdown Gardens, Worthing.jpg",
+    "author": "Acabashi",
+    "licence": "CC BY-SA 4.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Hibiscus_syriacus,_Highdown_Gardens,_Worthing.jpg",
+    "alt": "A hibiscus in flower at Highdown Gardens"
+   }
+  },
+  {
+   "id": "stanmer-park",
+   "name": "Stanmer Park",
+   "category": "Countryside",
+   "line": "Brighton's biggest park, with a village, a great house and a walled garden.",
+   "about": "A landscape laid out in the 1700s and a way into the South Downs National Park: Stanmer House, the 18th century village, and the Walled Garden at One Garden Brighton, with cafes and a play area. Accessible toilets, and a Changing Places toilet at One Garden Brighton.",
+   "source_url": "https://www.brighton-hove.gov.uk/libraries-leisure-and-arts/parks-and-green-spaces/stanmer-park-0",
+   "checked_on": "2026-11-07",
+   "query": "Stanmer House, Brighton",
+   "lat": 50.86935,
+   "lon": -0.10216,
+   "osm": "node/8917138629",
+   "stops": [
+    {
+     "atco": "149000006995",
+     "name": "Varley Park",
+     "metres": 772
+    },
+    {
+     "atco": "149000007996",
+     "name": "Top of Hawkhurst Road",
+     "metres": 783
+    },
+    {
+     "atco": "149000007235",
+     "name": "Saunders Hill",
+     "metres": 837
+    }
+   ],
+   "photo_file": "Stanmer House, from north-east.jpg",
+   "photo": {
+    "src": "images/discover/stanmer-park.jpg",
+    "thumb": "images/discover/stanmer-park-thumb.jpg",
+    "file": "Stanmer House, from north-east.jpg",
+    "author": "Rwendland",
+    "licence": "CC BY-SA 4.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Stanmer_House,_from_north-east.jpg",
+    "alt": "Stanmer House, a stone Georgian house, across its lawn"
+   }
+  },
+  {
+   "id": "devils-dyke",
+   "name": "Devil's Dyke",
+   "category": "Countryside",
+   "line": "A deep valley in the Downs north of Brighton, with views John Constable loved.",
+   "about": "A legendary beauty spot on the South Downs: a valley nearly a mile long, the ramparts of an Iron Age hill fort, and a view Constable called the grandest in the world. The 77 from Brighton runs up daily in summer, and at weekends and bank holidays the rest of the year. Paths can be muddy after rain.",
+   "source_url": "https://www.nationaltrust.org.uk/visit/sussex/devils-dyke",
+   "checked_on": "2026-11-07",
+   "query": "Devil's Dyke, Poynings",
+   "stops_by_hand": [
+    {
+     "atco": "4400MS0251"
+    }
+   ],
+   "lat": 50.88417,
+   "lon": -0.20598,
+   "osm": "way/1393049240",
+   "stops": [
+    {
+     "atco": "4400MS0251",
+     "name": "Devils Dyke",
+     "metres": 478,
+     "outside_map": true
+    }
+   ],
+   "photo": {
+    "src": "images/discover/devils-dyke.jpg",
+    "thumb": "images/discover/devils-dyke-thumb.jpg",
+    "file": "Devil's Dyke - geograph.org.uk - 30789.jpg",
+    "author": "Val Vannet",
+    "licence": "CC BY-SA 2.0",
+    "licence_url": "https://creativecommons.org/licenses/by-sa/2.0",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Devil%27s_Dyke_-_geograph.org.uk_-_30789.jpg",
+    "alt": "The Dyke's steep green valley winding through the Downs"
+   }
   }
  ]
 }

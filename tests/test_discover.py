@@ -79,6 +79,36 @@ def test_each_place_has_its_own_page_a_position_and_a_stop_to_get_off_at():
         assert p["source_url"].startswith("https://"), p["id"]
         assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", p["checked_on"]), p["id"]
         assert 50.7 < p["lat"] < 51.0 and -0.6 < p["lon"] < 0.1, p["id"]
-        assert p["stops"] and all(s["atco"] in STOPS and s["metres"] <= 1500 for s in p["stops"]), p["id"]
+        assert p["stops"], p["id"]
+        for s in p["stops"]:
+            # A stop off the site's map (Devil's Dyke's terminus) or a walk
+            # given by hand (Highdown's 20 minutes) was chosen by hand.
+            by_hand = bool(p.get("stops_by_hand"))
+            assert s["atco"] in STOPS or (by_hand and s.get("outside_map")), (p["id"], s)
+            assert s["metres"] <= (2500 if by_hand else 1500), (p["id"], s)
+            assert s.get("walk_mins") is None or 1 <= s["walk_mins"] <= 40, (p["id"], s)
         assert p.get("wheelchair") in (None, "yes", "limited", "no"), p["id"]
-        assert "—" not in p["line"], p["id"]
+        for field in ("line", "about"):
+            assert p[field] and "—" not in p[field], (p["id"], field)
+
+
+FREE = re.compile(r"^(public domain|cc0|cc by(-sa)? \d\.\d)$", re.I)
+
+
+def test_each_place_has_a_free_photo_credited_on_the_about_page():
+    """Asked for 7 November 2026: a photo of each place, free to use with
+    credit, credited under the photo and on the About page."""
+    doc = json.loads((ROOT / "data" / "destinations.json").read_text(encoding="utf-8"))
+    about = (ROOT / "about.html").read_text(encoding="utf-8")
+    for p in doc["places"]:
+        ph = p.get("photo") or {}
+        assert ph, f"{p['id']} has no photo"
+        for key in ("src", "thumb"):
+            assert ph[key].startswith("images/discover/") and (ROOT / ph[key]).is_file(), (p["id"], key)
+        assert FREE.match(ph["licence"]), (p["id"], ph["licence"])
+        assert ph["author"] and ph["alt"], p["id"]
+        assert ph["source_url"].startswith("https://commons.wikimedia.org/wiki/File:"), p["id"]
+        assert ph["licence_url"] or ph["licence"].lower() in ("public domain", "cc0"), p["id"]
+        assert ph["source_url"] in about, f"{p['id']}'s photo is not credited on about.html"
+    named = {ph.stem.removesuffix("-thumb") for ph in (ROOT / "images" / "discover").glob("*.jpg")}
+    assert named == {p["id"] for p in doc["places"]}, "a photo in images/discover/ belongs to no place"
