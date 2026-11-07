@@ -9356,3 +9356,12 @@ body[data-tour-stop="route"] .panel-mode[data-mode="improvements"] .service-mode
 .departure-plan-stop--terminus .departure-plan-dot::after { width: 10px; height: 10px; border-width: 3px; border-color: var(--color-accent); }
 .departure-plan-name { min-width: 0; overflow-wrap: anywhere; }
 .departure-plan-time { font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
+
+/* Nothing open: the Stop tab starts with your saved stops or the search, not
+   a "Select a stop" bar saying what they already say (asked for 7 November
+   2026). Kept for a screen reader as the panel's heading; back, as the stop's
+   or station's name, the moment one opens. */
+#tab-content-stop:has(#panel-prompt:not(.hidden)) > .panel-header {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
