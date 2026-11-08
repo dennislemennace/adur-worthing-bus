@@ -384,11 +384,8 @@ def fetch(days, folder, base=PUBLISHED):
     folder.mkdir(parents=True, exist_ok=True)
     # Named, as the fleet fetch is: the Worker's host refuses Python's default
     # user agent with a 403 (found 2 November 2026).
-    def get(url):
-        return urllib.request.urlopen(
-            urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=60)
-    with get(f"{base}/index.json") as res:
-        index = json.load(res)
+    from published_fetch import read_published
+    index = json.loads(read_published(f"{base}/index.json", user_agent=USER_AGENT))
     for day in days:
         name = f"observations-{day}.json.gz"
         entry = (index.get("artifacts") or {}).get(name)
@@ -396,8 +393,7 @@ def fetch(days, folder, base=PUBLISHED):
             print(f"{name}: not published yet")
             continue
         if not (folder / name).exists():
-            with get(f"{base}/{entry['file']}") as res:
-                (folder / name).write_bytes(res.read())
+            (folder / name).write_bytes(read_published(f"{base}/{entry['file']}", user_agent=USER_AGENT))
 
 
 def fetch_fleet(path, operators=FLEET_OPERATORS, opener=urllib.request.urlopen, pause=1.0):

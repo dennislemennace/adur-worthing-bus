@@ -245,3 +245,81 @@ def test_a_waiting_file_whose_counts_do_not_add_up_stops_publication(tmp_path):
             "late_on_the_way": 0, "late_start_unknown": 0, "sample_sufficient": False}]}))
     with pytest.raises(ValueError, match="punctuality does not add up"):
         build_bundle(folder, {bad.name: bad}, tmp_path / "candidate", [{"day": "2026-09-21"}], {})
+
+
+def test_the_two_storage_caps_together_stay_inside_the_free_ten_gigabytes():
+    """R2 bills past 10 GB with no switch to stop it, so the recorder's cap and
+    the published bucket's are the whole control. Counted as decimal gigabytes,
+    the stricter reading. Raising either without the other fails here."""
+    import re
+    root = Path(__file__).resolve().parents[1]
+    recorder = (root / "worker/src/recorder.js").read_text()
+    raw = re.search(r"const MAX_STORED_BYTES = ([\d\s*]+);", recorder).group(1)
+    raw_bytes = 1
+    for factor in raw.split("*"):
+        raw_bytes *= int(factor)
+    workflow = (root / ".github/workflows/process-snapshots.yml").read_text()
+    budgets = re.findall(r"BUDGET=(\d+)", workflow)
+    assert len(budgets) == 1, budgets
+    published = int(budgets[0])
+    assert raw_bytes + published <= 10_000_000_000, (raw_bytes, published)
+
+
+def test_files_are_stored_compressed_only_once_the_worker_can_serve_them():
+    """8 November 2026: each .json goes into the bucket gzip-compressed, about
+    an eighth of its size. Uploaded before the Worker could pass it on, every
+    visitor would have been handed compressed bytes as if they were JSON."""
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/process-snapshots.yml").read_text()
+    gate = workflow.index("x-published-encoding: gzip")
+    assert gate < workflow.index("gzip -9nc") < workflow.index("--content-encoding gzip")
+    # The .json.gz files are already compressed: a second Content-Encoding
+    # would make every client unpack the evidence on arrival.
+    line = workflow[workflow.index("--content-encoding gzip") - 200:workflow.index("--content-encoding gzip")]
+    assert '--exclude "*.gz"' in line
+    assert 'SIZE=$(( $(du -sb upload' in workflow, "the budget must count the bytes actually stored"
+    assert 'base = Path("upload")' in workflow, "read-back must compare the bytes actually stored"
+    assert "journey-times/README.txt" in workflow
+    worker = (Path(__file__).resolve().parents[1] / "worker/src/index.js").read_text()
+    assert '"x-published-encoding": "gzip"' in worker
+
+
+class _Reply:
+    def __init__(self, body, encoding=None):
+        self._body, self.headers = body, {"Content-Encoding": encoding} if encoding else {}
+    def read(self):
+        return self._body
+    def __enter__(self):
+        return self
+    def __exit__(self, *exc):
+        return False
+
+
+def test_our_scripts_ask_for_published_files_compressed_and_unpack_them():
+    """Unpacking a 10 MB file in the Worker costs more CPU than the free plan
+    allows a request (30 to 50 ms measured, against 10), so our own scripts ask
+    for gzip and unpack it themselves (8 November 2026)."""
+    from published_fetch import read_published, unpack_stored
+    body = json.dumps({"service": "700"}).encode()
+    asked = []
+    def compressed(request, timeout):
+        asked.append(dict(request.header_items()))
+        return _Reply(gzip.compress(body), "gzip")
+    assert read_published("https://example.invalid/700.json", opener=compressed) == body
+    assert asked[0]["Accept-encoding"] == "gzip"
+    assert asked[0]["User-agent"] == "bus-reliability-build", "the Worker refuses urllib's own name"
+    # Stored before compression, or a .json.gz file: exactly the bytes sent.
+    assert read_published("https://example.invalid/700.json", opener=lambda r, timeout: _Reply(body)) == body
+    evidence = gzip.compress(body)
+    assert read_published("https://example.invalid/x.json.gz", opener=lambda r, timeout: _Reply(evidence)) == evidence
+    # Read from the bucket itself, where nothing undoes the encoding.
+    assert unpack_stored(gzip.compress(body)) == body and unpack_stored(body) == body
+
+
+def test_every_script_reading_published_files_uses_the_compressed_fetch():
+    root = Path(__file__).resolve().parents[1]
+    for name in ("collect_served_window.py", "build_detected_diversions.py", "add_disruption.py",
+                 "validate_hand_timings.py"):
+        assert "read_published(" in (root / "scripts" / name).read_text(), name
+    assert "unpack_stored(" in (root / "scripts/prune_published.py").read_text()
+    workflow = (root / ".github/workflows/process-snapshots.yml").read_text()
+    assert "urllib.request.urlopen" not in workflow[workflow.index("PYDIV"):workflow.rindex("PYDIV")]

@@ -20,7 +20,6 @@ import hashlib
 import json
 import re
 import sys
-import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,9 +37,8 @@ def window_days(window_dir):
 def fetch_published(base, entry):
     """The previous generation's copy, or None if it cannot be had intact."""
     try:
-        req = urllib.request.Request(f"{base}/{entry['file']}", headers={"User-Agent": "bus-reliability-build"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            raw = resp.read()
+        from published_fetch import read_published
+        raw = read_published(f"{base}/{entry['file']}")
     except Exception:                            # noqa: BLE001 — a missing day is named, not fatal
         return None
     if entry.get("sha256") and hashlib.sha256(raw).hexdigest() != entry["sha256"]:

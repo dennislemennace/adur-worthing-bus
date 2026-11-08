@@ -613,9 +613,13 @@ of provider pricing. No paid tier or increased raw retention is introduced.
   raw objects, timetable and code, so repeated timetable bytes are deliberate.
   Actual daily compression/storage growth must be measured on live inputs;
   this is a maximum, not a forecast or a cumulative retention policy.
-- The published R2 bucket has a separate **4 GiB** pre-upload budget, including
-  old generations. Together the nominal raw and published budgets are 8 GiB;
-  other account usage and raw measurement headroom still need monitoring.
+- The published R2 bucket has a separate **5 GiB** pre-upload budget (4 GiB
+  until 8 November 2026), including old generations. Together with the raw
+  recorder's 4 GiB that is **9 GiB, 9.66 GB**, inside the free 10 GB however
+  Cloudflare counts a gigabyte; `tests/test_publication_bundle.py` fails if the
+  two caps ever add up to more than 10,000,000,000 bytes. It assumes nothing
+  else on the account stores data in R2: check the dashboard before adding
+  anything that does.
   **Retention (from 26 September 2026): the newest seven generations**, plus the
   live one and its rollback whatever their age (`scripts/prune_published.py`,
   run before the budget check). All retained manifests are read before deletion;
@@ -642,13 +646,30 @@ of provider pricing. No paid tier or increased raw retention is introduced.
     ever;
   - the step prints held, new and total sizes, warns past 80% of the budget, and
     says why it stops.
+- **Stored compressed (8 November 2026).** One generation measured 417 MB, of
+  which 251 MB was plain JSON (96 service files 215 MB, 97 delay maps 25 MB)
+  that `gzip -9` takes to **30.6 MB**; every file unpacks to the sha256 in its
+  index. The nightly now stores each `.json` gzip-compressed with
+  `Content-Encoding: gzip`, once the Worker answers with
+  `x-published-encoding: gzip` (`servePublished`, `worker/src/index.js`);
+  `.json.gz` files are stored as they are. Expect the bucket to fall from about
+  3 GiB to about 1 GiB as the seven retained uncompressed generations retire.
+  Browsers and httpx unpack it themselves, and phones download about a third
+  less than Cloudflare's own on-the-fly compression gave (1.0 MB against
+  1.43 MB for the 700). Our scripts ask for gzip and unpack it
+  (`scripts/published_fetch.py`), because the Worker unpacking for a client
+  that does not ask (plain `curl`, Python's urllib) costs **30 to 50 ms of CPU**
+  for the largest file (measured in Node), against the free plan's 10 ms a
+  request. `journey-times/README.txt` in the bucket says how the files are
+  stored, for anyone reading it through the storage API, where nothing unpacks
+  them.
 - **The delay map's nine weeks (8 November 2026).** The evidence had grown to
   **141 MB compressed** (559,923 traversals, 35 days, every route in the box);
-  the bucket held 3.06 GiB of 4 after that night's generation (0.39 GiB new).
+  the bucket held 3.06 GiB of the then 4 after that night's generation (0.39 GiB new).
   From 8 November the map reads 63 days, so the evidence grows towards about
   twice that as method-4+ days fill the longer window (fully by early January
   2027). Only two copies are held (live and rollback), so expect roughly
-  **+0.15 to 0.3 GiB**: past the 80% warning, under the cap. If it warns, the
+  **+0.15 to 0.3 GiB**, well inside the 5 GiB cap, and less once files are stored compressed. If it warns, the
   evidence file is the one to shrink first (it is not read by the site). Each
   run downloads about 28 more observation files from GitHub Releases, which
   has no download quota. Peak memory for 35 days of evidence was 4.7 GB parsed;

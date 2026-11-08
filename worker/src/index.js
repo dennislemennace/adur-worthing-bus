@@ -78,6 +78,15 @@ const BUS_ISSUE_CATEGORIES = new Set([
  * Read-only, GET and HEAD only, and the path is confined to one prefix by
  * construction rather than by sanitising: anything that is not a known file
  * name is a 404 before R2 is touched.
+ *
+ * From 8 November 2026 the nightly stores each .json gzip-compressed, with
+ * Content-Encoding: gzip on the object (about an eighth of the size; the
+ * bucket has a 5 GiB budget). It is passed on as it is to anyone who accepts
+ * gzip, which every browser does, and unpacked here for anyone who does not,
+ * so a plain `curl` or Python's urllib still gets JSON. Files stored before
+ * then, and the .json.gz files, are served exactly as stored.
+ * `x-published-encoding` tells the nightly this Worker can do that: it does
+ * not upload a compressed file until it sees it.
  */
 function servePublished(url, request, env) {
   const match = /^\/journey-times\/((?:builds\/[a-f0-9]{64}\/)?[A-Za-z0-9_-]{1,100}\.json(?:\.gz)?)$/.exec(url.pathname);
@@ -95,6 +104,7 @@ function servePublished(url, request, env) {
       ? "public, max-age=60, stale-while-revalidate=300"
       : immutable ? "public, max-age=31536000, immutable" : "public, max-age=3600",
     "content-type": match[1].endsWith(".gz") ? "application/gzip" : "application/json; charset=utf-8",
+    "x-published-encoding": "gzip",
   };
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (!env.PUBLISHED) {
@@ -104,7 +114,19 @@ function servePublished(url, request, env) {
     if (!object) {
       return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers });
     }
-    return new Response(request.method === "HEAD" ? null : object.body, { headers });
+    const stored = object.httpMetadata && object.httpMetadata.contentEncoding;
+    if (stored !== "gzip" || match[1].endsWith(".gz")) {
+      return new Response(request.method === "HEAD" ? null : object.body, { headers });
+    }
+    const accepts = /\bgzip\b/i.test(request.headers.get("accept-encoding") || "");
+    if (accepts) {
+      return new Response(request.method === "HEAD" ? null : object.body,
+                          { headers: { ...headers, "content-encoding": "gzip", vary: "accept-encoding" },
+                            encodeBody: "manual" });
+    }
+    return new Response(request.method === "HEAD" ? null
+                          : object.body.pipeThrough(new DecompressionStream("gzip")),
+                        { headers: { ...headers, vary: "accept-encoding" } });
   }).catch(() => new Response(JSON.stringify({ error: "unavailable" }),
                               { status: 502, headers }));
 }

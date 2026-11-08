@@ -209,14 +209,12 @@ def load_detections(path: str = "") -> dict:
     """The detections, from a local file or the published build."""
     if path:
         return json.loads(Path(path).read_text(encoding="utf-8"))
-    import urllib.request
-    with urllib.request.urlopen(f"{PUBLISHED}/index.json", timeout=60) as resp:
-        index = json.loads(resp.read().decode("utf-8"))
+    from published_fetch import read_published
+    index = json.loads(read_published(f"{PUBLISHED}/index.json").decode("utf-8"))
     art = (index.get("artifacts") or {}).get("detected-diversions.json")
     if not art:
         raise SystemExit("No detected-diversions.json in the published build yet.")
-    with urllib.request.urlopen(f"{PUBLISHED}/{art['file']}", timeout=60) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return json.loads(read_published(f"{PUBLISHED}/{art['file']}").decode("utf-8"))
 
 
 def draft_from_detected(d: dict) -> str:

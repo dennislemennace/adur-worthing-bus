@@ -151,3 +151,52 @@ test("generation paths are immutable, readable and confined", async () => {
   }
   assert.equal(asked.length, 2);
 });
+
+
+// ── Stored compressed (8 November 2026) ──────────────────────
+
+import { gzipSync, gunzipSync } from "node:zlib";
+
+function stored(body, contentEncoding) {
+  const bytes = contentEncoding ? gzipSync(body) : Buffer.from(body);
+  return env({ PUBLISHED: { async get(key) {
+    return key === "journey-times/builds/" + "a".repeat(64) + "/700-SCSO.json"
+      ? { body: new Blob([bytes]).stream(), httpMetadata: contentEncoding ? { contentEncoding } : {} }
+      : null;
+  } } });
+}
+const BUILD_FILE = "/journey-times/builds/" + "a".repeat(64) + "/700-SCSO.json";
+const ask = (e, acceptEncoding, method = "GET") =>
+  worker.fetch(new Request(`https://w.example${BUILD_FILE}`,
+    { method, headers: acceptEncoding ? { "accept-encoding": acceptEncoding } : {} }), e, { waitUntil() {} });
+
+test("a compressed file goes as it is stored to anyone who accepts gzip", async () => {
+  const res = await ask(stored(BODY, "gzip"), "br, gzip");
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("content-encoding"), "gzip");
+  assert.match(res.headers.get("vary"), /accept-encoding/);
+  assert.equal(gunzipSync(Buffer.from(await res.arrayBuffer())).toString(), BODY);
+});
+
+test("a compressed file is unpacked for a client that does not accept gzip", async () => {
+  // Plain curl, and Python's urllib, which several of our own scripts were.
+  const res = await ask(stored(BODY, "gzip"), "");
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("content-encoding"), null);
+  assert.equal(await res.text(), BODY);
+});
+
+test("a file stored before compression is served exactly as before", async () => {
+  const res = await ask(stored(BODY, null), "gzip");
+  assert.equal(res.headers.get("content-encoding"), null);
+  assert.equal(await res.text(), BODY);
+});
+
+test("a compressed file's HEAD has no body, and every answer says compression is understood", async () => {
+  const res = await ask(stored(BODY, "gzip"), "gzip", "HEAD");
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), "");
+  assert.equal(res.headers.get("x-published-encoding"), "gzip",
+    "the nightly uploads compressed files only once it sees this");
+  assert.equal((await get("/journey-times/index.json")).headers.get("x-published-encoding"), "gzip");
+});

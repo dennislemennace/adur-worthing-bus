@@ -119,7 +119,10 @@ def remote_manifests(listing_text, index, keep, endpoint):
             'aws', 's3', 'cp',
             f's3://adur-worthing-published/journey-times/builds/{build}/index.json',
             '-', '--endpoint-url', endpoint, '--only-show-errors'])
-        doc = json.loads(raw)
+        # Stored gzip-compressed from 8 November 2026; the storage API hands
+        # back the stored bytes (scripts/published_fetch.py).
+        from published_fetch import unpack_stored
+        doc = json.loads(unpack_stored(raw))
         if doc.get('build_id') != build:
             raise ValueError('Retained manifest names a different generation')
         out.append(doc)

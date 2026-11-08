@@ -369,18 +369,17 @@ jobs:
           [ -d "gtfs-rt/$DAY" ] && RT="--rt gtfs-rt/$DAY"
           # The allowances the API was serving that day: the last generation's.
           python - "$BASE" <<'PYDIV'
-          import hashlib, json, sys, urllib.request
+          import hashlib, json, sys
+          sys.path.insert(0, "scripts")
+          from published_fetch import read_published
           artifacts = json.load(open("previous-index.json")).get("artifacts") or {}
           for name, out in (("diversion-adjustments.json", "served-diversions.json"),
                             ("running-recovery.json", "served-recovery.json"),
                             ("turnarounds.json", "served-turnarounds.json")):
               entry = artifacts.get(name)
               if entry:
-                  # Named, as every other download here is: the Worker
-                  # refuses Python's default User-Agent with a 403.
-                  req = urllib.request.Request(f"{sys.argv[1]}/{entry['file']}",
-                                               headers={"User-Agent": "bus-reliability-build"})
-                  raw = urllib.request.urlopen(req, timeout=60).read()
+                  # Named, and asking for it compressed (scripts/published_fetch.py).
+                  raw = read_published(f"{sys.argv[1]}/{entry['file']}")
                   if hashlib.sha256(raw).hexdigest() == entry.get("sha256"):
                       open(out, "wb").write(raw)
           PYDIV
@@ -538,7 +537,9 @@ jobs:
             aws s3 rm "s3://adur-worthing-published/$OLD" \
               --endpoint-url "$ENDPOINT" --only-show-errors
           done < retire.txt
-          # Leave headroom for raw recording: published data has its own 4 GiB cap.
+          # Leave headroom for raw recording: published data has its own 5 GiB cap.
+          # With the recorder's 4 GiB that is 9 GiB (9.66 GB), inside the free 10 GB
+          # (tests/test_publication_bundle.py holds the two together).
           aws s3 ls s3://adur-worthing-published/ --recursive --summarize \
             --endpoint-url "$ENDPOINT" > published-usage.txt
           USED=$(awk '/Total Size:/ {print $3}' published-usage.txt)
@@ -546,8 +547,22 @@ jobs:
             echo "::error::Could not read the published bucket's size; not publishing"
             exit 1
           fi
-          SIZE=$(du -sb candidate | cut -f1)
-          BUDGET=4294967296
+          # Each .json is stored gzip-compressed, about an eighth of its size, once
+          # the Worker says it can serve that (x-published-encoding, from
+          # servePublished in worker/src/index.js); until then, as it always was.
+          # The .json.gz files are already compressed and stay as they are.
+          rm -rf upload && cp -r "candidate/builds/$BUILD" upload
+          COMPRESSED=no
+          if curl --silent --fail --head --retry 3 \
+              https://adur-worthing-submissions.dennislemennace.workers.dev/journey-times/index.json \
+              | tr -d '\r' | grep -qi '^x-published-encoding: gzip$'; then
+            COMPRESSED=yes
+            for f in upload/*.json; do gzip -9nc "$f" > "$f.packed" && mv "$f.packed" "$f"; done
+          else
+            echo "::notice::The Worker does not serve compressed files yet; uploading uncompressed"
+          fi
+          SIZE=$(( $(du -sb upload | cut -f1) + $(stat -c %s candidate/index.json) ))
+          BUDGET=5368709120
           TOTAL=$((USED + SIZE))
           gib() { awk -v b="$1" 'BEGIN { printf "%.2f GiB", b / 1073741824 }'; }
           echo "Published bucket: $(gib "$USED") held + $(gib "$SIZE") new = $(gib "$TOTAL") of $(gib "$BUDGET")"
@@ -562,16 +577,35 @@ jobs:
           else
             printf 'published-budget\tclear\n' >> "$NOTICES"
           fi
-          aws s3 cp "candidate/builds/$BUILD/" \
-            "s3://adur-worthing-published/journey-times/builds/$BUILD/" \
-            --recursive --endpoint-url "$ENDPOINT" --no-progress
+          if [ "$COMPRESSED" = yes ]; then
+            aws s3 cp upload/ "s3://adur-worthing-published/journey-times/builds/$BUILD/" \
+              --recursive --exclude "*.gz" --content-encoding gzip \
+              --content-type "application/json; charset=utf-8" --endpoint-url "$ENDPOINT" --no-progress
+            aws s3 cp upload/ "s3://adur-worthing-published/journey-times/builds/$BUILD/" \
+              --recursive --exclude "*" --include "*.gz" --endpoint-url "$ENDPOINT" --no-progress
+            # For anyone reading the bucket itself rather than through the Worker.
+            printf '%s\n' \
+              "Files under journey-times/builds/ ending .json, uploaded from 8 November 2026," \
+              "are stored gzip-compressed (gzip -9n) with Content-Encoding: gzip on the object." \
+              "Unpack one with: gunzip -c FILE.json > FILE.unpacked.json" \
+              "The sha256 values in index.json are of the unpacked bytes. Files ending .json.gz," \
+              "and .json files uploaded before then, are stored as they are named." \
+              "Through the public address (https://adur-worthing-submissions.dennislemennace.workers.dev/journey-times/)" \
+              "every file arrives as plain JSON or is unpacked by the client." \
+              > published-readme.txt
+            aws s3 cp published-readme.txt s3://adur-worthing-published/journey-times/README.txt \
+              --content-type "text/plain; charset=utf-8" --endpoint-url "$ENDPOINT" --no-progress
+          else
+            aws s3 cp upload/ "s3://adur-worthing-published/journey-times/builds/$BUILD/" \
+              --recursive --endpoint-url "$ENDPOINT" --no-progress
+          fi
           # Read back every object and check its bytes before exposing this generation.
           aws s3 sync "s3://adur-worthing-published/journey-times/builds/$BUILD/" \
             verified-generation --endpoint-url "$ENDPOINT" --no-progress
           python - "$BUILD" <<'PYVERIFY'
           import hashlib, sys
           from pathlib import Path
-          base = Path("candidate/builds") / sys.argv[1]
+          base = Path("upload")      # the bytes as stored, compressed or not
           for path in base.iterdir():
               remote = Path("verified-generation") / path.name
               if not remote.exists() or hashlib.sha256(path.read_bytes()).digest() != hashlib.sha256(remote.read_bytes()).digest():

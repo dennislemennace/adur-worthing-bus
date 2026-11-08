@@ -158,9 +158,8 @@ def previous_ids(index_path: str, base: str) -> set:
         art = (index.get("artifacts") or {}).get("detected-diversions.json")
         if not art:
             return set()
-        import urllib.request
-        with urllib.request.urlopen(f"{base}/{art['file']}", timeout=60) as resp:
-            doc = json.loads(resp.read().decode("utf-8"))
+        from published_fetch import read_published
+        doc = json.loads(read_published(f"{base}/{art['file']}").decode("utf-8"))
         return {d["id"] for d in doc.get("detections", [])}
     except Exception:                                   # noqa: BLE001
         return set()
