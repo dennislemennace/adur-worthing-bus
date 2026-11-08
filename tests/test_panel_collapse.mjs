@@ -274,6 +274,14 @@ test("opening a stop lifts the sheet to tall; anything else to half", () => {
   ctx.setSheetDetent("peek");
   ctx.revealPanelForSelection();
   assert.equal(detentOf(ctx), "half", "a bus or a station changed too");
+  // From the Live view's resting height, half since 7 November 2026, a stop
+  // still opens most of the way up, and a bus or station leaves it be.
+  ctx.setSheetDetent("half");
+  ctx.revealPanelForSelection({ stop: true });
+  assert.equal(detentOf(ctx), "tall", "a stop opened from half stayed at half");
+  ctx.setSheetDetent("half");
+  ctx.revealPanelForSelection();
+  assert.equal(detentOf(ctx), "half");
 });
 
 test("an unknown detent is ignored rather than applied", () => {

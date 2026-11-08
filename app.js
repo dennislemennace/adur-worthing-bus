@@ -8143,8 +8143,8 @@ function syncFavouriteStopButton() {
   btn.hidden = !atco;
   const on = !!atco && readSavedStops().some(s => s.atco === atco);
   btn.setAttribute("aria-pressed", String(on));
-  btn.title = on ? "A saved stop. Press again to remove it."
-                 : "Save this stop: it shows first, with its next buses, whenever you visit on this device";
+  btn.title = on ? "One of your favourite stops. Press again to remove it."
+                 : "Add to favourite stops: it shows first, with its next buses, whenever you visit on this device";
 }
 
 /** The star: save the open stop, or remove it. */
@@ -8154,7 +8154,7 @@ function toggleFavouriteStop() {
   const saved = readSavedStops();
   const on = saved.some(s => s.atco === stop.atcoCode);
   if (!on && saved.length >= SAVED_STOPS_MAX) {
-    showToast(`You have ${SAVED_STOPS_MAX} saved stops. Remove one before saving another.`);
+    showToast(`You have ${SAVED_STOPS_MAX} favourite stops. Remove one before adding another.`);
     return;
   }
   const next = on ? saved.filter(s => s.atco !== stop.atcoCode)
@@ -8165,8 +8165,8 @@ function toggleFavouriteStop() {
     return;
   }
   syncFavouriteStopButton();
-  showToast(on ? "Removed from your saved stops."
-               : `Saved. ${stop.stopName} shows first, with its next buses, when you visit on this device.`);
+  showToast(on ? "Removed from your favourite stops."
+               : `Added to favourite stops. ${stop.stopName} shows first, with its next buses, when you visit on this device.`);
   track(on ? "favourite-stop-cleared" : "favourite-stop-saved");
 }
 
@@ -8178,7 +8178,9 @@ async function homeNextDepartures(atco) {
   // eight of the day's TransportAPI calls (LIMITS.md).
   const data = await apiFetch(`/api/departures?stopId=${encodeURIComponent(atco)}&predictions=0${
     pos ? `&lat=${pos.lat}&lon=${pos.lon}` : ""}`);
-  return ((data && data.departures) || []).filter(d => !d.not_served).slice(0, 3);
+  // Two each, so two favourites, the search and the recent stops share the
+  // first look (7 November 2026); the stop's own board has the rest.
+  return ((data && data.departures) || []).filter(d => !d.not_served).slice(0, 2);
 }
 
 /** One departure on a saved stop's card, as on the board: the route's tile,
@@ -8222,7 +8224,7 @@ function homeCardHtml(s, deps) {
 /** Saved stops, above the search (asked for 7 November 2026). */
 function homeSavedHtml(saved, nexts = {}) {
   if (!saved.length) return "";
-  return `<h3 class="home-title">Your stops</h3><ul class="home-cards">${
+  return `<h3 class="home-title">Favourite stops</h3><ul class="home-cards">${
     saved.map(s => homeCardHtml(s, nexts[s.atco])).join("")}</ul>`;
 }
 
@@ -8231,8 +8233,8 @@ function homeSavedHtml(saved, nexts = {}) {
 function homeSheetHtml(saved, recent) {
   const fresh = recent.filter(r => !saved.some(s => s.atco === r.atco));
   if (!saved.length && !fresh.length) {
-    return `<p class="home-hint">Open a stop and press the star to save it: it shows above the search, with
-      its next buses, whenever you visit on this device.</p>`;
+    return `<p class="home-hint">Open a stop and press the star to add it to your favourite stops: it shows above
+      the search, with its next buses, whenever you visit on this device.</p>`;
   }
   return `${fresh.length ? `<h3 class="home-title">Recent</h3><ul class="home-recent">${fresh.map(s =>
       `<li><button type="button" class="home-recent-btn target-dense" data-home-stop="${escapeAttr(s.atco)}"
@@ -11230,7 +11232,9 @@ const SHEET_LOWER_STEPS = 4;
      tickets — half, same reason
      network — full, because there is nothing on the map to look at */
 const VIEW_DEFAULT_DETENT = {
-  live:         "peek",
+  // Half, a step up from peek (7 November 2026): two favourite stops' boards,
+  // the search and the recent stops in one look, the map still over half.
+  live:         "half",
   improvements: "half",
   tickets:      "half",
   network:      "full",
@@ -15747,7 +15751,14 @@ function revealPanelForSelection({ stop = false } = {}) {
   // sheet to, as its nearest detent rather than an exact height. The tap has
   // landed by now, so the sheet may move.
   if (document.body.dataset.sheetSearch) setSheetDetent(state.sheetDetent);
-  if (document.body.dataset.sheet !== "peek") return;
+  const at = document.body.dataset.sheet;
+  // A stop opens most of the way up from the Live view's resting height,
+  // half since 7 November 2026, as it did from peek.
+  if (stop && (at === "peek" || at === "half") && window.innerHeight > SHORT_VIEWPORT_HEIGHT) {
+    setSheetDetent("tall");
+    return;
+  }
+  if (at !== "peek") return;
   const preferred = defaultDetentForViewport();
   setSheetDetent(preferred !== "peek" ? preferred : stop ? "tall" : "half");
 }
@@ -15911,11 +15922,26 @@ function bindSearchAboveKeyboard(input) {
     // The detent nearest, so the handle, the classes and the next tap agree
     // with where the sheet is; then the exact height (style.css,
     // body[data-sheet-search]).
+    // The rest of the way by scrolling, to a place worked out from the box's
+    // position in the content, not by an amount: this runs again as the
+    // keyboard settles, and a second scrollBy while the first still glided
+    // added the same distance twice (7 November 2026, once the credits at the
+    // foot of the panel gave it the room to overshoot).
+    const scroller = input.closest(".panel-tab-content");
+    const sr = scroller ? scroller.getBoundingClientRect() : null;
+    const pr = panel.getBoundingClientRect();
     setSheetDetent(nearestSheetDetent(h));
     document.body.style.setProperty("--sheet-search-h", `${h}px`);
     document.body.dataset.sheetSearch = "1";
-    const scroller = input.closest(".panel-tab-content");
-    if (scroller && rest) scroller.scrollBy({ top: rest, behavior: motionReduced() ? "auto" : "smooth" });
+    if (scroller && rest) {
+      const inside = box.top - sr.top + scroller.scrollTop;          // the box's place in the content
+      const scrollerTop = pr.bottom - h + (sr.top - pr.top);          // where the content starts at height h
+      const want = where.visibleTop + where.visibleHeight / 2 - box.height / 2;
+      const target = Math.max(0, Math.round(inside - (want - scrollerTop)));
+      if (Math.abs(target - scroller.scrollTop) > 2) {
+        scroller.scrollTo({ top: target, behavior: motionReduced() ? "auto" : "smooth" });
+      }
+    }
     if (state.map) state.map.invalidateSize();
   };
   // A frame later: focusing the box hides the footer first (bindKeyboardFooter),

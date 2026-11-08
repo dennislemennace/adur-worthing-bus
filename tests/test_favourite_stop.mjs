@@ -76,7 +76,7 @@ test("nothing saved: nothing opens by itself, and the home sheet says how to sav
   const { ctx } = loadApp();
   assert.deepEqual(plain(ctx.readSavedStops()), []);
   assert.equal(typeof ctx.startupFavouriteStop, "undefined", "a saved stop still opens by itself");
-  assert.match(ctx.homeSheetHtml([], []), /press the star to save it/);
+  assert.match(ctx.homeSheetHtml([], []), /press the star to add it to your favourite stops/);
 });
 
 test("the one favourite from before moves into the saved stops, once", () => {
@@ -103,7 +103,7 @@ test("no more than eight saved stops, and the reader is told", () => {
   select(app.ctx, "1490A", "Shoreham High Street");
   app.ctx.toggleFavouriteStop();
   assert.equal(JSON.parse(app.store.get("saved-stops")).length, 8);
-  assert.match(app.toasts.at(-1), /8 saved stops/);
+  assert.match(app.toasts.at(-1), /8 favourite stops/);
 });
 
 test("recent stops: newest first, no repeats, five at most", () => {
@@ -121,7 +121,7 @@ test("saved stops sit above the search as small boards, escaped, and Recent leav
     { service: "2", operator: "BHBC", destination: "rottingdean", aimed_departure: "2030-11-06T12:07:00+00:00",
       expected_departure: "2030-11-06T12:09:00+00:00", status: "Late", delay_seconds: 120 }] });
   assert.doesNotMatch(top, /<b>Street/);
-  assert.match(top, /Your stops/);
+  assert.match(top, /Favourite stops/);
   assert.equal((top.match(/class="home-dep"/g) || []).length, 2);
   assert.match(top, /Brighton/);
   assert.match(top, /Scheduled 12:05/);

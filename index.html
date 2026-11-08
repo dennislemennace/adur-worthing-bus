@@ -100,6 +100,10 @@
         <path d="M11 10h5"/>
         <path d="M8 10.5a5.5 5.5 0 1 0 7.6 7.4"/>
       </symbol>
+      <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"/>
+        <path d="m20 20-4-4"/>
+      </symbol>
       <symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="2" y="4" width="20" height="16" rx="2"/>
         <path d="m2 7 10 6 10-6"/>
@@ -525,7 +529,7 @@
           <button type="button" class="btn-favourite-stop" id="favourite-stop-btn"
                   aria-pressed="false" aria-describedby="favourite-stop-hint" hidden>
             <svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>
-            <span class="visually-hidden">Save stop</span>
+            <span class="visually-hidden">Favourite stop</span>
           </button>
           <span class="visually-hidden" id="favourite-stop-hint">Saves this stop: it shows first, with its next buses, whenever you visit on this device.</span>
         </div>
@@ -566,16 +570,21 @@
           <!-- Your saved stops, above the search when there are any (asked for
                7 November 2026): each a small board of its next buses, live
                where the bus says which journey it is (app.js renderHomeSheet). -->
-          <section class="home-saved" id="home-saved" aria-label="Your stops" hidden></section>
+          <section class="home-saved" id="home-saved" aria-label="Favourite stops" hidden></section>
           <form class="stop-search" id="stop-search-form" role="search">
-            <label class="stop-search-label" for="stop-search-input">
+            <!-- The box says what it is with its icon and placeholder; the label
+                 and hint stay for a screen reader (7 November 2026). -->
+            <label class="stop-search-label visually-hidden" for="stop-search-input">
               Search for a stop or station
             </label>
             <div class="stop-search-row">
-              <input class="stop-search-input" id="stop-search-input" type="search"
-                     name="stop" autocomplete="off" placeholder="e.g. Marine Parade"
-                     aria-describedby="stop-search-hint"
-                     aria-controls="stop-search-results" aria-expanded="false">
+              <span class="stop-search-field">
+                <svg class="icon stop-search-icon" aria-hidden="true"><use href="#i-search"/></svg>
+                <input class="stop-search-input" id="stop-search-input" type="search"
+                       name="stop" autocomplete="off" placeholder="Search stops"
+                       aria-describedby="stop-search-hint"
+                       aria-controls="stop-search-results" aria-expanded="false">
+              </span>
               <!-- For a visitor who knows where they are standing but not what
                    the stop is called. Asks for the location once, on a tap,
                    and finds the stops on this device (app.js nearestStops).
@@ -587,7 +596,7 @@
               </button>
               <button class="stop-search-go" type="submit">Search</button>
             </div>
-            <p class="stop-search-hint" id="stop-search-hint">
+            <p class="stop-search-hint visually-hidden" id="stop-search-hint">
               Type at least two letters, or tap any stop on the map.
             </p>
             <ul class="stop-search-results" id="stop-search-results"
@@ -596,7 +605,7 @@
           <!-- Your saved and recent stops, with their next buses from the
                timetable, and the last bus home: the stops someone checks
                every day, one tap away (app.js renderHomeSheet). -->
-          <section class="home-sheet" id="home-sheet" aria-label="Your stops" hidden></section>
+          <section class="home-sheet" id="home-sheet" aria-label="Recent stops" hidden></section>
 
           <!-- Journey planner, tagged Experimental: door-to-door plans from
                the Buses & Trains API via /api/plan. Filled by app.js

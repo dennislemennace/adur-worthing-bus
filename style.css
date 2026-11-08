@@ -3388,7 +3388,10 @@ html.dark-mode .stop-cluster-icon {
 
 /* The home sheet: saved stops with their next buses, recent stops, and the
    last bus home, under the search before any stop is open. */
-.home-sheet { display: grid; gap: var(--space-xs); margin: var(--space-sm) 0 0; width: 100%; max-width: 34rem; text-align: left; }
+.home-sheet { display: grid; gap: var(--space-xs); margin: 0; width: 100%; max-width: 34rem; text-align: left; }
+/* Nothing to show yet: no gap for it under the search. */
+.stop-search-results:empty { display: none; }
+.home-sheet > .home-title:first-child { margin-top: 0; }
 /* Saved stops above the search: each a small board, the whole card a tap to
    the stop's full one. Rows as on the board: tile, where and how late,
    countdown and clock. */
@@ -3396,23 +3399,23 @@ html.dark-mode .stop-cluster-icon {
 .home-saved .home-title { margin-top: 0; }
 .home-cards { display: grid; gap: var(--space-xs); margin: 0; padding: 0; list-style: none; }
 .home-card {
-  display: grid; gap: 2px; width: 100%; padding: 6px 10px 4px; text-align: left;
+  display: grid; gap: 0; width: 100%; padding: 4px 10px 2px; text-align: left;
   border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);
   color: var(--color-text); font: inherit; cursor: pointer;
 }
 .home-card:hover { border-color: var(--color-text-muted); }
 .home-card:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
 .home-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-sm);
-  min-height: 28px; }
+  min-height: 26px; }
 .home-card-open { font-size: var(--font-size-xs); font-weight: 600; color: var(--color-link); }
 .home-card-open::after { content: " ›"; }
 .home-deps { display: grid; }
 .home-card-note { padding: 4px 0 6px; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .home-dep {
-  display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: var(--space-sm);
-  padding: 6px 0; border-top: 1px solid var(--color-border);
+  display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: var(--space-sm);
+  padding: 4px 0; border-top: 1px solid var(--color-border);
 }
-.home-dep .service-badge { width: 44px; height: 32px; display: grid; place-items: center; border-radius: var(--radius-sm);
+.home-dep .service-badge { width: 42px; height: 30px; display: grid; place-items: center; border-radius: var(--radius-sm);
   font-weight: 700; font-size: var(--font-size-sm); }
 .home-dep-what { display: grid; min-width: 0; gap: 1px; }
 .home-dep-dest { font-weight: 600; font-size: var(--font-size-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -7275,6 +7278,13 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   display: flex;
   gap: 0.5rem;
 }
+/* The box with its search icon inside, at its left (7 November 2026). */
+.stop-search-field { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
+.stop-search-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 18px; color: var(--color-text-muted); pointer-events: none;
+}
+.stop-search-field .stop-search-input { width: 100%; padding-left: 38px; }
 .stop-search-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -9365,3 +9375,8 @@ body[data-tour-stop="route"] .panel-mode[data-mode="improvements"] .service-mode
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+
+/* While the search is lifted above the keyboard, the browser must not keep
+   what sits below the box (recent stops, the credits) still as the results
+   open above it: that scrolled the box itself off the top (7 November 2026). */
+body[data-sheet-search] #tab-content-stop { overflow-anchor: none; }

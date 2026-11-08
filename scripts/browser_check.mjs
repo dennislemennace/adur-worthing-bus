@@ -264,6 +264,9 @@ const TRUNCATION_SCAN = `(() => {
     if (!visible(el)) continue;
     if (!el.textContent.trim()) continue;
     if (el.clientWidth === 0 || el.scrollWidth <= el.clientWidth + 1) continue;
+    // Screen-reader-only text is clipped by design, not cut off: the Stop
+    // tab's heading while nothing is open (7 November 2026) is 1px wide.
+    if (el.getBoundingClientRect().width <= 1 || el.closest(".visually-hidden")) continue;
     const shown = el.clientWidth / el.scrollWidth;
     if (shown < 0.92) {
       bad.push(named(el) + " " + Math.round(shown * 100) + "% shown");
