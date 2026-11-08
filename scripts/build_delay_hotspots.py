@@ -64,23 +64,40 @@ PERIOD_DIMENSIONS = _CELL_BASE + ("period",)
 HOUR_DIMENSIONS = _CELL_BASE + ("hour",)
 
 
+# How far two weekly builds' scheduled time for one stretch may differ and
+# still pool. Timetables are published to the minute, so a minute is the
+# smallest change a rebuild can make; on 2 November 2026 one rebuild started
+# new eras on 118 stretches and their counts went back to zero. A bigger
+# change is a different promise and still splits. Measured on the 7 November
+# 2026 evidence (559,923 traversals, 35 days), newest-era cells at the floor
+# went from 31% with identical times only to 44% within a minute; weekend
+# daytime from 21% to 59%.
+ERA_TOLERANCE_SECS = 60
+
+
 def schedule_eras(traversals):
     """Which weekly timetable builds may be pooled, stretch by stretch.
 
     Grouping by build kept like with like, but the timetable is rebuilt every
     week, so no stretch could ever pool more than one week and most would never
-    reach the floor. Builds are pooled where the promise is demonstrably the
-    same: two builds share an era for a stretch only if, for every departure
-    they both schedule, they schedule the same section time. A departure only
-    one of them has — a Friday extra, a new journey — neither joins nor splits
-    them; a changed running time does split them, which is exactly the case
-    where pooling would compare two different promises.
+    reach the floor. Builds are pooled where the promise is the same within
+    ERA_TOLERANCE_SECS: two builds share an era for a stretch if, for every
+    departure they both schedule, their scheduled section times are within a
+    minute of each other. A departure only one of them has (a Friday extra, a
+    new journey) neither joins nor splits them; a running time changed by more
+    than a minute does split them, which is exactly the case where pooling
+    would compare two different promises. Every traversal is still measured
+    against its own build's time, so pooling never moves a figure, only how
+    many journeys count towards the floor.
+
+    Two builds with no departure in common (a whole timetable retimed by a few
+    minutes) are compared by their typical section time instead: the median
+    for each day type they both run, within the same minute. With no day type
+    in common either, nothing shows they agree, and they stay apart.
 
     A build joins an era only if it agrees with every member, not just one:
     agreement is not transitive, and chaining A~B~C would pool A with a C it
     contradicts. Builds are taken oldest first, so the answer is deterministic.
-    Two builds with no departure in common cannot be shown to agree, and stay
-    apart.
     """
     promises = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
     first_day = {}
@@ -90,9 +107,22 @@ def schedule_eras(traversals):
         promises[stretch][version][(leg["day_type"], leg["scheduled_depart_secs"])].add(leg["scheduled_secs"])
         first_day[version] = min(first_day.get(version, leg["day"]), leg["day"])
 
+    def close(xs, ys):
+        return max(xs) - min(ys) <= ERA_TOLERANCE_SECS and max(ys) - min(xs) <= ERA_TOLERANCE_SECS
+
+    def typical(promise):
+        by_day_type = defaultdict(list)
+        for (day_type, _), times in promise.items():
+            by_day_type[day_type].extend(times)
+        return {d: statistics.median(times) for d, times in by_day_type.items()}
+
     def agree(a, b):
         shared = a.keys() & b.keys()
-        return bool(shared) and all(a[k] == b[k] for k in shared)
+        if shared:
+            return all(close(a[k], b[k]) for k in shared)
+        ta, tb = typical(a), typical(b)
+        both = ta.keys() & tb.keys()
+        return bool(both) and all(abs(ta[d] - tb[d]) <= ERA_TOLERANCE_SECS for d in both)
 
     eras = {}
     for stretch, versions in promises.items():
@@ -220,7 +250,7 @@ def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=18
             "analysis_events": ax.public_entries(exclusions),
             "method": "Difference in endpoint lateness between adjacent measured timing points; "
                       "declared identities, no quality flags, bounded report intervals; grouped by operator, "
-                      "pattern, call pair, schedule era (weekly builds pooled only where their promises agree), "
+                      "pattern, call pair, schedule era (weekly builds pooled only where their promises agree within a minute), "
                       "compatible method family (5, 6 and 7 pooled), day type, and observed London entry period (cells) or hour (hour_cells).",
             "data_versions": meta.get("data_versions", []), "method_versions": meta.get("method_versions", []),
             "input_manifest": [{k: s.get(k) for k in ("file", "sha256", "day", "data_version", "method_version")}
@@ -231,9 +261,11 @@ def build_hotspots(rows, meta, min_journeys=30, min_days=5, max_interval_secs=18
                         "Section time includes dwell and holding. No precise road geometry or traffic cause is inferred.",
                         "Scheduled coverage of observed-entry cohorts is not established. Missing trips may bias delay downwards.",
                         "Weekday/weekend grouping does not control holidays, diversions or school calendars."],
-            "pooling": "Weekly timetable builds are pooled for a stretch only where they agree on the "
-                       "scheduled section time of every departure they share; a changed promise starts "
-                       "a new schedule_era. Each cell names the builds it pools in data_versions and "
+            "pooling": "Weekly timetable builds are pooled for a stretch only where the scheduled "
+                       "section time of every departure they share is within 60 seconds, or, sharing no "
+                       "departure, their median section time for each day type they both run is; a "
+                       "promise changed by more starts a new schedule_era. Each traversal is still "
+                       "measured against its own build's schedule. Each cell names the builds it pools in data_versions and "
                        "methods in method_versions. Only methods 5, 6 and 7 share a family: their retained "
                        "declared traversals use identical timing, though eligibility/sample composition changes.",
             "days_collected": sorted({leg["day"] for leg in traversals}),
@@ -569,7 +601,11 @@ def main(argv=None):
     result = build_hotspots(rows, meta, exclusions=ax.load(), coords=ax.stop_coords(),
                             drop_excluded=args.exclude)
     out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(result, indent=1, sort_keys=True) + "\n")
+    # Written as it is encoded: the evidence was 559 MB of JSON on 5 October
+    # 2026, and the delay map reads nine weeks of it.
+    with out.open("w") as handle:
+        json.dump(result, handle, indent=1, sort_keys=True)
+        handle.write("\n")
     print(f'{len(result["traversals"])} eligible traversals; {len(result["cells"])} cohorts; '
           f'{sum(result["excluded"].values())} excluded candidate pairs → {out}')
     if args.map_out:

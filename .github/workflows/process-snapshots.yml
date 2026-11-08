@@ -425,7 +425,9 @@ jobs:
             --out journey-times --timetable data/timetable.sqlite
           python scripts/query_reliability.py --observations inputs/month \
             --rollup "rollup-$MONTH.json"
-          python scripts/build_delay_hotspots.py --observations inputs/window --out hotspot-preview.json \
+          # The delay map reads nine weeks, not five: its quieter hours need that
+          # long to reach 30 journeys over 5 days (scripts/prepare_reliability_inputs.py).
+          python scripts/build_delay_hotspots.py --observations inputs/window-long --out hotspot-preview.json \
             --map-out hotspot-map --timetable data/timetable.sqlite --map-day "$DAY"
           # The full delay-map evidence: every traversal, about 560 MB as JSON
           # by 5 October 2026 and 52 MB compressed. Stored compressed, or seven

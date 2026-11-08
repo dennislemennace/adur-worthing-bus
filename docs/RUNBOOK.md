@@ -499,8 +499,16 @@ green under 1 min, yellow 1–2, amber 2–2.5, red 2.5 or more (`DELAY_BANDS`).
 A stretch below 30 journeys over 5 days is grey and dashed, never green.
 Method-4 data starts on 23 September, so expect "Collecting evidence" for about
 a week on the busiest corridors' peaks, several weeks for most services, and
-longer for hourly cells. Weekly timetable builds pool per stretch only where
-they agree on every shared departure's scheduled time.
+longer for hourly cells. Weekly timetable builds pool per stretch where every
+departure they share is scheduled within a minute of the other build, or,
+sharing none, their median section time for each day type is
+(`ERA_TOLERANCE_SECS`, from 8 November 2026; identical times only before).
+The map reads nine weeks of observations (`inputs/window-long`), every other
+nightly builder five (`inputs/window`), both from
+`scripts/prepare_reliability_inputs.py`. On 8 November 2026 the delay map had
+been flat at about a third of cells for a week: quieter hours on hourly routes
+cannot reach 30 journeys in five weeks, and every rebuild that moved a stretch
+by a minute set its count back to zero.
 
 Before flipping `DELAY_MAP_PUBLIC`: check some coloured stretches against the
 journeys behind them (Detailed view, "See journey times for this stretch"), and
@@ -512,7 +520,7 @@ To check a night's output:
 # the day's timetable recorded beside the observations
 python3 -c "import gzip,json; d=json.load(gzip.open('observations-YYYY-MM-DD.json.gz','rt')); print(d['schedule']['counts'])"
 # the delay-map files, built exactly as the workflow does
-.venv/bin/python scripts/build_delay_hotspots.py --observations inputs/window \
+.venv/bin/python scripts/build_delay_hotspots.py --observations inputs/window-long \
   --out hotspot-preview.json --map-out hotspot-map --timetable data/timetable.sqlite
 ```
 

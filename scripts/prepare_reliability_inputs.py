@@ -1,22 +1,66 @@
-"""Restore the known analysis inputs; a failed download is never a missing day."""
+"""Restore the known analysis inputs; a failed download is never a missing day.
+
+Three folders come out: `window`, about the last five weeks, which every
+nightly builder reads; `window-long`, the last nine weeks, which only the delay
+map reads (scripts/build_delay_hotspots.py), because a stretch's quieter hours
+need that long to reach its floor of 30 journeys over 5 days (8 November 2026:
+35% of drawn cells after five weeks, and flat); and `month`, the day's month.
+"""
 import argparse
 from datetime import date, timedelta
 import gzip
+import http.client
 import json
 from pathlib import Path
 import re
 import shutil
+import time
+import urllib.error
 import urllib.request
 
 from observation_contract import digest_file
+
+WINDOW_DAYS = 35
+LONG_WINDOW_DAYS = 63
+
+# A single "504 Gateway Time-out" from a release download failed the whole
+# night on 8 November 2026 (run 42471232953). Server errors, timeouts and
+# dropped connections are tried again, a little later each time; a 404 or 403
+# is an answer, and fails at once.
+TRIES = 4
+BACKOFF_SECS = (5, 20, 60)
+
+
+def _worth_retrying(err):
+    if isinstance(err, urllib.error.HTTPError):
+        return err.code >= 500 or err.code == 429
+    return isinstance(err, (urllib.error.URLError, TimeoutError, ConnectionError,
+                            http.client.IncompleteRead))
+
+
+def download(url, path, pause=None):
+    for attempt in range(TRIES):
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": "bus-reliability-build"})
+            with urllib.request.urlopen(request, timeout=120) as response:
+                with path.open("wb") as handle:
+                    shutil.copyfileobj(response, handle)
+            return
+        except Exception as err:                                  # noqa: BLE001
+            if attempt == TRIES - 1 or not _worth_retrying(err):
+                raise
+            wait = BACKOFF_SECS[min(attempt, len(BACKOFF_SECS) - 1)]
+            print(f"::warning::{url} failed ({err}); trying again in {wait}s", flush=True)
+            (pause or time.sleep)(wait)
 
 
 def prepare(day, current, previous, release_base, repository, out, summaries):
     out = Path(out)
     prior = {s["day"]: dict(s) for s in previous.get("observation_sources", [])}
     end = max([day, *previous.get("days", [])])
-    first = (date.fromisoformat(end) - timedelta(days=34)).isoformat()
-    relevant = lambda d: first <= d <= end or d[:7] == day[:7]
+    first = (date.fromisoformat(end) - timedelta(days=WINDOW_DAYS - 1)).isoformat()
+    first_long = (date.fromisoformat(end) - timedelta(days=LONG_WINDOW_DAYS - 1)).isoformat()
+    relevant = lambda d: first_long <= d <= end or d[:7] == day[:7]
     expected = {d for d in prior if relevant(d)}
     # Dated summaries establish legacy days; preserve the complete immutable
     # catalog so reprocessing an old month cannot silently shrink that month.
@@ -33,9 +77,7 @@ def prepare(day, current, previous, release_base, repository, out, summaries):
             shutil.copyfile(current, path)
         else:
             url = source.get("url") or f"https://github.com/{repository}/releases/download/reliability-{source_day[:7]}/{name}"
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "bus-reliability-build"}), timeout=120) as response:
-                with path.open("wb") as handle:
-                    shutil.copyfileobj(response, handle)
+            download(url, path)
             if source.get("sha256") and digest_file(path) != source["sha256"]:
                 raise ValueError(f"Published input changed: {source_day}")
         doc = json.loads(gzip.decompress(path.read_bytes()))
@@ -50,10 +92,11 @@ def prepare(day, current, previous, release_base, repository, out, summaries):
                       method_version=doc.get("method_version", "unknown"),
                       data_version=doc.get("data_version", "unknown"))
         catalog[source_day] = source
-        if first <= source_day <= end:
-            window = out / "window" / name
-            window.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, window)
+        for folder, start in (("window", first), ("window-long", first_long)):
+            if start <= source_day <= end:
+                window = out / folder / name
+                window.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, window)
         if source_day[:7] == day[:7]:
             month = out / "month" / name
             month.parent.mkdir(parents=True, exist_ok=True)

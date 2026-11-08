@@ -147,21 +147,53 @@ def test_a_changed_running_time_starts_a_new_era():
     assert eras["week1"] != eras["week2"]
 
 
+def test_a_minute_either_way_is_the_same_promise():
+    # Timetables are written to the minute, so a minute is the least a rebuild
+    # can move a stretch; on 2 November 2026 one rebuild reset 118 stretches.
+    # Each traversal is still measured against its own build's time.
+    from build_delay_hotspots import build_hotspots
+    rows = (trip("2026-09-21", "week1", "A", 8 * 3600, section=600)
+            + trip("2026-09-28", "week2", "B", 8 * 3600, section=660))
+    result = build_hotspots(rows, {})
+    eras = eras_of(result)
+    assert eras["week1"] == eras["week2"]
+    assert len(result["cells"]) == 1 and result["cells"][0]["journeys"] == 2
+    assert sorted(leg["scheduled_secs"] for leg in result["traversals"]) == [600, 660]
+    two = (trip("2026-09-21", "week1", "A", 8 * 3600, section=600)
+           + trip("2026-09-28", "week2", "B", 8 * 3600, section=720))
+    two_eras = eras_of(build_hotspots(two, {}))
+    assert two_eras["week1"] != two_eras["week2"], "two minutes is a different promise"
+
+
 def test_agreement_is_not_chained_into_contradiction():
-    # A and B agree at 08:00; B and C agree at 09:00; A and C contradict each
-    # other at 10:00. Chaining would pool A with a C it disagrees with.
+    # A and B agree at 08:00; B and C agree at 09:00, each within a minute; A
+    # and C are two minutes apart at 10:00. Chaining would pool A with a C it
+    # disagrees with.
     from build_delay_hotspots import build_hotspots
     rows = (trip("2026-09-21", "A", "a1", 8 * 3600) + trip("2026-09-21", "A", "a2", 10 * 3600)
-            + trip("2026-09-22", "B", "b1", 8 * 3600) + trip("2026-09-22", "B", "b2", 9 * 3600)
-            + trip("2026-09-23", "C", "c1", 9 * 3600) + trip("2026-09-23", "C", "c2", 10 * 3600, section=660))
+            + trip("2026-09-22", "B", "b1", 8 * 3600, section=660) + trip("2026-09-22", "B", "b2", 9 * 3600, section=660)
+            + trip("2026-09-23", "C", "c1", 9 * 3600, section=720) + trip("2026-09-23", "C", "c2", 10 * 3600, section=720))
     eras = eras_of(build_hotspots(rows, {}))
     assert eras["A"] == eras["B"]
     assert eras["C"] != eras["A"]
 
 
-def test_builds_with_no_departure_in_common_cannot_be_shown_to_agree():
+def test_builds_with_no_departure_in_common_compare_their_usual_time():
+    # A whole timetable retimed by a few minutes shares no departure with the
+    # last; its usual section time on the same day type is what can agree.
     from build_delay_hotspots import build_hotspots
-    rows = trip("2026-09-21", "week1", "A", 8 * 3600) + trip("2026-09-28", "week2", "B", 9 * 3600)
+    same = trip("2026-09-21", "week1", "A", 8 * 3600) + trip("2026-09-28", "week2", "B", 9 * 3600, section=630)
+    eras = eras_of(build_hotspots(same, {}))
+    assert eras["week1"] == eras["week2"]
+    slower = trip("2026-09-21", "week1", "A", 8 * 3600) + trip("2026-09-28", "week2", "B", 9 * 3600, section=780)
+    eras = eras_of(build_hotspots(slower, {}))
+    assert eras["week1"] != eras["week2"]
+
+
+def test_builds_sharing_no_departure_and_no_day_type_cannot_be_shown_to_agree():
+    # 21 September 2026 was a Monday, 27 September a Sunday.
+    from build_delay_hotspots import build_hotspots
+    rows = trip("2026-09-21", "week1", "A", 8 * 3600) + trip("2026-09-27", "week2", "B", 9 * 3600)
     eras = eras_of(build_hotspots(rows, {}))
     assert eras["week1"] != eras["week2"]
 

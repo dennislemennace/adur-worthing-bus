@@ -642,6 +642,17 @@ of provider pricing. No paid tier or increased raw retention is introduced.
     ever;
   - the step prints held, new and total sizes, warns past 80% of the budget, and
     says why it stops.
+- **The delay map's nine weeks (8 November 2026).** The evidence had grown to
+  **141 MB compressed** (559,923 traversals, 35 days, every route in the box);
+  the bucket held 3.06 GiB of 4 after that night's generation (0.39 GiB new).
+  From 8 November the map reads 63 days, so the evidence grows towards about
+  twice that as method-4+ days fill the longer window (fully by early January
+  2027). Only two copies are held (live and rollback), so expect roughly
+  **+0.15 to 0.3 GiB**: past the 80% warning, under the cap. If it warns, the
+  evidence file is the one to shrink first (it is not read by the site). Each
+  run downloads about 28 more observation files from GitHub Releases, which
+  has no download quota. Peak memory for 35 days of evidence was 4.7 GB parsed;
+  the builder now writes the file as it encodes it rather than as one string.
 - **Waiting and punctuality files** (`headways-*.json`, `scripts/build_headways.py`,
   added 7 October 2026). Measured on 25 September to 5 October (11 days): 96
   files, 4.8 MB in all, the largest 163 KB raw and 7 KB compressed. The build

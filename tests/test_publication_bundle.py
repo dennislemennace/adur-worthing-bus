@@ -113,6 +113,70 @@ def test_reprocessing_old_month_restores_the_month_without_widening_current_wind
     assert not list((tmp_path / "inputs/window").glob("*.gz"))
 
 
+def _observations(day):
+    return gzip.compress(json.dumps({"day": day, "method_version": 7}).encode())
+
+
+def test_a_gateway_timeout_is_tried_again_and_a_missing_file_is_not(tmp_path, monkeypatch):
+    """8 November 2026 (run 42471232953): one 504 from a release download
+    failed the night. A 404 is an answer, and is not asked again."""
+    import io
+    import urllib.error
+    import urllib.request
+    import prepare_reliability_inputs as pri
+    waits = []
+    monkeypatch.setattr(pri.time, "sleep", waits.append)
+    calls = []
+    def flaky(request, timeout):
+        calls.append(request.full_url)
+        if len(calls) < 3:
+            raise urllib.error.HTTPError(request.full_url, 504, "Gateway Time-out", {}, None)
+        return io.BytesIO(_observations("2026-11-06"))
+    monkeypatch.setattr(urllib.request, "urlopen", flaky)
+    current = tmp_path / "observations.json.gz"
+    current.write_bytes(_observations("2026-11-07"))
+    previous = {"days": ["2026-11-06"], "observation_sources": [
+        {"day": "2026-11-06", "url": "https://example.invalid/6", "immutable": True}]}
+    pri.prepare("2026-11-07", current, previous, "https://example.invalid/new", "owner/repo",
+                tmp_path / "inputs", tmp_path / "summaries")
+    assert len(calls) == 3 and waits == [5, 20]
+    assert (tmp_path / "inputs/window/observations-2026-11-06.json.gz").exists()
+
+    calls.clear(); waits.clear()
+    def gone(request, timeout):
+        calls.append(request.full_url)
+        raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+    monkeypatch.setattr(urllib.request, "urlopen", gone)
+    with pytest.raises(urllib.error.HTTPError):
+        pri.prepare("2026-11-07", current, previous, "https://example.invalid/new", "owner/repo",
+                    tmp_path / "again", tmp_path / "summaries")
+    assert len(calls) == 1 and not waits
+
+
+def test_the_delay_map_reads_nine_weeks_and_everything_else_five(tmp_path, monkeypatch):
+    """A stretch's quieter hours need longer than five weeks to reach 30
+    journeys over 5 days; nothing else's window changes."""
+    import io
+    import urllib.request
+    from prepare_reliability_inputs import prepare
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda request, timeout: io.BytesIO(_observations(request.full_url.rsplit("/", 1)[-1])))
+    # 7 November back: 34 days is 4 October, 62 days 6 September.
+    days = ["2026-09-05", "2026-09-06", "2026-10-03", "2026-10-04", "2026-11-06"]
+    previous = {"days": days, "observation_sources": [
+        {"day": d, "url": f"https://example.invalid/{d}", "immutable": True} for d in days]}
+    current = tmp_path / "observations.json.gz"
+    current.write_bytes(_observations("2026-11-07"))
+    prepare("2026-11-07", current, previous, "https://example.invalid/new", "owner/repo",
+            tmp_path / "inputs", tmp_path / "summaries")
+    held = lambda folder: sorted(p.name[13:23] for p in (tmp_path / "inputs" / folder).glob("*.gz"))
+    assert held("window") == ["2026-10-04", "2026-11-06", "2026-11-07"]
+    assert held("window-long") == ["2026-09-06", "2026-10-03", "2026-10-04", "2026-11-06", "2026-11-07"]
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/process-snapshots.yml").read_text()
+    assert "build_delay_hotspots.py --observations inputs/window-long" in workflow
+    assert workflow.count("inputs/window-long") == 1, "only the delay map reads the long window"
+
+
 def _previous(*names):
     build = "a" * 64
     return {"build_id": build, "artifacts": {
