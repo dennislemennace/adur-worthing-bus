@@ -655,6 +655,7 @@ async function init() {
   initMap();
   initLocateControl();
   initStopAccessControl();
+  initPopupClearance();
   bindHomeSheet();
   bindUIEvents();
   bindA11yControls();
@@ -7808,6 +7809,7 @@ function renderStopAccessLegend() {
     <p class="stop-access-legend-note">${c.unknown} of ${c.total} stops say nothing yet.
       <a href="${escapeAttr(OPENSTOP_URL)}" target="_blank" rel="noopener">Add them with OpenStop</a>.
       ${state.map && state.map.getZoom() < STOP_ZOOM_INDIVIDUAL ? "Zoom in to see each stop." : ""}</p>`;
+  afterSheetSettles(placeStopAccessLegend);
 }
 
 function setStopAccessLayer(on) {
@@ -7824,6 +7826,125 @@ function setStopAccessLayer(on) {
   }
   if (on && !state.stopOsm) loadStopOsm().then(applyStopAccessClasses).catch(() => {});
   applyStopAccessClasses();
+}
+
+// ── A popup that would cover a map control ─────────────────
+// A stop's popup opens above it, and near the top of the map that put it over
+// the step-free toggle and the buttons beside it (8 November 2026). If it
+// covers one, it opens below its marker instead; if it would cover something
+// there too, it goes back above and the map moves just far enough to clear.
+
+/** What a popup must not sit over: the map's own controls, the gap circle and
+ *  the Tickets zone picker, wherever they are showing. */
+function mapObstacleRects(except = null) {
+  const map = state.map && state.map.getContainer();
+  if (!map) return [];
+  return [...map.querySelectorAll(".leaflet-control-container .leaflet-control"),
+          ...document.querySelectorAll("#gap-monitor, #ticket-operator-picker")]
+    .filter(el => el !== except && !el.hidden && !el.closest("[hidden]") && el.offsetParent !== null)
+    .map(el => el.getBoundingClientRect())
+    .filter(r => r.width > 0 && r.height > 0);
+}
+
+const rectsOverlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+/** The vertical gap from a popup's tip to its body, so a flipped popup's tip
+ *  still touches its marker. */
+const POPUP_TIP_PX = 12;
+
+function placePopupClear(popup) {
+  const el = popup && popup.getElement && popup.getElement();
+  if (!el || !state.map || !state.map.hasLayer(popup)) return;
+  const obstacles = mapObstacleRects();
+  const box = el.getBoundingClientRect();
+  if (!obstacles.some(r => rectsOverlap(box, r))) return;
+  const mapBox = state.map.getContainer().getBoundingClientRect();
+  const bottomLimit = mapBox.bottom - sheetOverlapPx() - 6;
+  const source = popup._source && popup._source.getElement && popup._source.getElement();
+  const markerBottom = source ? source.getBoundingClientRect().bottom
+    : box.bottom + POPUP_TIP_PX;
+  const shift = Math.round(markerBottom + POPUP_TIP_PX - box.top);
+  const below = { left: box.left, right: box.right, top: box.top + shift, bottom: box.bottom + shift };
+  if (below.bottom <= bottomLimit && !obstacles.some(r => rectsOverlap(below, r))) {
+    if (!popup._clearOffset) popup._clearOffset = popup.options.offset;
+    const base = L.point(popup._clearOffset || [0, 7]);
+    popup.options.offset = L.point(base.x, base.y + shift);
+    popup.options.autoPan = false;            // already clear where it is
+    el.classList.add("leaflet-popup--below");
+    popup.update();
+    return;
+  }
+  // No room below: stay above, and move the map down past whatever it covers.
+  const covering = obstacles.filter(r => rectsOverlap(box, r));
+  const down = Math.max(...covering.map(r => r.bottom - box.top)) + 8;
+  if (down > 0 && down < mapBox.height / 2) state.map.panBy([0, -down], { animate: !motionReduced() });
+}
+
+function resetPopupClear(popup) {
+  if (!popup || !popup._clearOffset) return;
+  popup.options.offset = popup._clearOffset;
+  popup.options.autoPan = true;
+  delete popup._clearOffset;
+  popup.getElement()?.classList.remove("leaflet-popup--below");
+}
+
+// ── Where the step-free key sits ──────────────────────────
+// Bottom left of the map by default. On a phone the map's bottom corners sit
+// on the sheet's top edge, and with a stop open the sheet is tall, so the key
+// rose over the step-free toggle it explains (8 November 2026). It takes the
+// first place, in this order, where it covers no control and stays on the
+// visible map; failing all of them, the one where it covers least.
+const LEGEND_PLACES = ["bottomleft", "bottomright", "beside", "topright"];
+
+function moveLegendTo(place) {
+  const el = state.stopAccessLegend && state.stopAccessLegend.getContainer();
+  const corners = state.map && state.map._controlCorners;
+  if (!el || !corners) return;
+  const corner = corners[place === "beside" ? "topleft" : place];
+  if (!corner) return;
+  el.classList.toggle("stop-access-legend--beside", place === "beside");
+  if (el.parentNode !== corner) {
+    if (place.startsWith("bottom")) corner.insertBefore(el, corner.firstChild);
+    else corner.appendChild(el);
+  }
+  el.dataset.place = place;
+}
+
+function placeStopAccessLegend() {
+  const el = state.stopAccessLegend && state.stopAccessLegend.getContainer();
+  if (!el || el.hidden || !state.map) return;
+  const mapBox = state.map.getContainer().getBoundingClientRect();
+  const top = mapBox.top + mapTopCoverPx();
+  const bottom = mapBox.bottom - sheetOverlapPx();
+  let best = null;
+  for (const place of LEGEND_PLACES) {
+    moveLegendTo(place);
+    const r = el.getBoundingClientRect();
+    const covered = mapObstacleRects(el).reduce((sum, o) => sum + (rectsOverlap(r, o)
+      ? (Math.min(r.right, o.right) - Math.max(r.left, o.left)) * (Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top))
+      : 0), 0);
+    const off = Math.max(0, top - r.top) + Math.max(0, r.bottom - bottom) + Math.max(0, mapBox.left - r.left)
+      + Math.max(0, r.right - mapBox.right);
+    const cost = covered + off * r.width;
+    if (cost === 0) return;
+    if (!best || cost < best.cost) best = { place, cost };
+  }
+  moveLegendTo(best.place);
+}
+
+function initPopupClearance() {
+  if (!state.map) return;
+  state.map.on("popupopen", (e) => {
+    const popup = e.popup;
+    resetPopupClear(popup);
+    // Leaflet has usually started moving the map to fit the popup in; judge
+    // where it ends up, not where it starts.
+    const judge = () => requestAnimationFrame(() => placePopupClear(popup));
+    if (state.map._panAnim && state.map._panAnim._inProgress) state.map.once("moveend", judge);
+    else judge();
+  });
+  state.map.on("popupclose", (e) => resetPopupClear(e.popup));
+  state.map.on("resize", () => { if (state.stopAccessLayer) placeStopAccessLegend(); });
 }
 
 /** The layer's button sits under the location button, and shows only in the
@@ -8195,7 +8316,9 @@ function homeDepartureHtml(dep) {
   const textCls = pickTextOn(colour) === "dark" ? "service-badge--dark-text" : "service-badge--light-text";
   const chip = live || (dep.status || "").toLowerCase() === "cancelled" ? buildStatusChip(dep, true)
     : { label: "Timetable", cssClass: "status-scheduled" };
-  return `<span class="home-dep">
+  return `<button type="button" class="home-dep" data-home-dep${
+      dep.vehicle_ref ? ` data-vehicle="${escapeAttr(dep.vehicle_ref)}"` : ""}${
+      dep.trip_id ? ` data-trip="${escapeAttr(dep.trip_id)}"` : ""} data-service="${escapeAttr(service)}">
       <span class="service-badge ${textCls}" style="background:${escapeAttr(colour)}" aria-hidden="true">${escapeHtml(service)}</span>
       <span class="home-dep-what"><span class="home-dep-dest"><span class="visually-hidden">${escapeHtml(service)} to </span>${
         escapeHtml(prettifyName(dep.destination) || "")}</span>
@@ -8205,20 +8328,22 @@ function homeDepartureHtml(dep) {
       <span class="home-dep-when"><span class="due-time${at && isWithinMinutes(at, 2) ? " due-imminent" : ""}">${escapeHtml(due)}</span>${live
         ? `<span class="live-dot" aria-hidden="true"></span><span class="visually-hidden">, live</span>` : ""}${
         aimed ? `<span class="due-clock-sched">Scheduled ${escapeHtml(londonClock(new Date(aimed)))}</span>` : ""}</span>
-    </span>`;
+    </button>`;
 }
 
-/** A saved stop's card: its name and its next buses, the whole card one tap
- *  to its board. */
+/** A saved stop's card: its name and its next buses. The name, or "All
+ *  departures", opens the stop's board; a bus opens that bus (asked for
+ *  8 November 2026; the whole card used to open the board). */
 function homeCardHtml(s, deps) {
   const body = deps === undefined ? `<span class="home-card-note">Finding the next buses…</span>`
     : !deps ? `<span class="home-card-note">The next buses could not be loaded just now.</span>`
     : !deps.length ? `<span class="home-card-note">No buses due in the next two hours.</span>`
     : deps.map(homeDepartureHtml).join("");
-  return `<li><button type="button" class="home-card" data-home-stop="${escapeAttr(s.atco)}" data-name="${escapeAttr(s.name)}">
-      <span class="home-card-head"><span class="home-stop-name">${escapeHtml(s.name)}</span>
-        <span class="home-card-open" aria-hidden="true">Board</span></span>
-      <span class="home-deps">${body}</span></button></li>`;
+  return `<li class="home-card" data-home-card="${escapeAttr(s.atco)}">
+      <button type="button" class="home-card-head" data-home-stop="${escapeAttr(s.atco)}" data-name="${escapeAttr(s.name)}">
+        <span class="home-stop-name">${escapeHtml(s.name)}</span>
+        <span class="home-card-open">All departures</span></button>
+      <span class="home-deps">${body}</span></li>`;
 }
 
 /** Saved stops, above the search (asked for 7 November 2026). */
@@ -8242,8 +8367,10 @@ function homeSheetHtml(saved, recent) {
     <div class="home-lastbus" id="home-lastbus"></div>`;
 }
 
-// While the home sheet shows, its boards keep up: a minute, as the board does.
-const HOME_REFRESH_MS = 60_000;
+// While the home sheet shows, its boards keep up: every 30 seconds, so a bus
+// shows live as soon as its own feed names it (8 November 2026; a minute
+// before). Still the free feed only (predictions=0 in homeNextDepartures).
+const HOME_REFRESH_MS = 30_000;
 
 async function renderHomeSheet() {
   const host = document.getElementById("home-sheet");
@@ -8251,16 +8378,21 @@ async function renderHomeSheet() {
   if (!host) return;
   const saved = readSavedStops().filter(s => !state.stopData || !Object.keys(state.stopData).length || state.stopData[s.atco]);
   const recent = readRecentStops();
+  // The last times found stay up until fresh ones replace them, so a refresh
+  // never blanks the cards to "Finding the next buses".
+  const shown = state._homeNexts || {};
   const nexts = {};
   host.innerHTML = homeSheetHtml(saved, recent);
   host.hidden = false;
-  if (top) { top.innerHTML = homeSavedHtml(saved, nexts); top.hidden = !saved.length; }
+  if (top) { top.innerHTML = homeSavedHtml(saved, shown); top.hidden = !saved.length; }
   const seq = (state._homeSeq = (state._homeSeq || 0) + 1);
   clearTimeout(state._homeTimer);
   await Promise.all(saved.map(async (s) => {
-    try { nexts[s.atco] = await homeNextDepartures(s.atco); } catch { nexts[s.atco] = null; }
+    try { nexts[s.atco] = await homeNextDepartures(s.atco); }
+    catch { nexts[s.atco] = shown[s.atco] !== undefined ? shown[s.atco] : null; }
   }));
   if (seq !== state._homeSeq) return;
+  state._homeNexts = nexts;
   if (top) top.innerHTML = homeSavedHtml(saved, nexts);
   if (saved.length) {
     // Again in a minute, while nothing else is open and the sheet still shows.
@@ -8280,9 +8412,31 @@ async function renderHomeSheet() {
   }
 }
 
+/** A bus on a favourite stop's card: that bus, if it is on the map; if not
+ *  yet, the stop's board with that journey opened under its row, as the board
+ *  itself does for a bus not yet running. */
+async function openHomeDeparture(row) {
+  const card = row.closest("[data-home-card]");
+  const head = card && card.querySelector("[data-home-stop]");
+  const bus = departureBus(row);
+  track("view-home-bus");
+  if (bus) {
+    openBusInfo(bus, { fromBoard: true });
+    return;
+  }
+  if (!head) return;
+  await openDepartures(head.dataset.homeStop, head.dataset.name);
+  const trip = row.dataset.trip;
+  if (!trip) return;
+  const tr = dom.departuresTbody?.querySelector(`tr.departure-row[data-trip="${CSS.escape(trip)}"]`);
+  if (tr) toggleDeparturePlan(tr);
+}
+
 function bindHomeSheet() {
   for (const id of ["home-sheet", "home-saved"]) {
     document.getElementById(id)?.addEventListener("click", (e) => {
+      const dep = e.target.closest("[data-home-dep]");
+      if (dep) { openHomeDeparture(dep); return; }
       const b = e.target.closest("[data-home-stop]");
       if (!b) return;
       track("view-home-stop");
@@ -11347,6 +11501,8 @@ function setSheetDetent(detent, px) {
   if (dom.sheetHandle) {
     dom.sheetHandle.setAttribute("aria-expanded", collapsed ? "false" : "true");
   }
+  // The step-free key may now cover something, or have room back.
+  if (state.stopAccessLayer) afterSheetSettles(placeStopAccessLegend);
 }
 
 /** How much of the map the sheet is covering. */
@@ -21177,8 +21333,10 @@ function drawRailReplacementStops() {
       const key = `${station.crs}:${i}`;
       if (state.railReplacementMarkers[key] || !Number.isFinite(stop.lat)) return;
       const m = L.marker([stop.lat, stop.lon], {
-        icon: L.divIcon({ className: "rrb-stop-divicon", iconSize: [28, 28], iconAnchor: [14, 14],
-          html: `<span class="rrb-stop-icon"><svg class="icon" aria-hidden="true"><use href="#i-bus"/></svg></span>` }),
+        // A small dot, as a bus stop is (8 November 2026: the 28px disc was
+        // the loudest thing on the map); the marker stays a 20px target.
+        icon: L.divIcon({ className: "rrb-stop-divicon", iconSize: [20, 20], iconAnchor: [10, 10],
+          html: `<span class="rrb-stop-icon"></span>` }),
         pane: "railStationPane",
         title: `Rail replacement buses, ${station.station}: ${stop.name}`,
         keyboard: false,

@@ -1693,7 +1693,7 @@ html.dark-mode .map-loading {
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   font-family: inherit;
-  font-size: var(--font-size-xs);
+  font-size: 0.68rem;      /* a step under --font-size-xs (8 November 2026) */
   font-weight: 700;
   letter-spacing: 0.01em;
   cursor: pointer;
@@ -1737,7 +1737,7 @@ html.dark-mode .map-loading {
 .council-boundary-caption {
   display: block;
   margin-top: 1px;
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -3399,14 +3399,21 @@ html.dark-mode .stop-cluster-icon {
 .home-saved .home-title { margin-top: 0; }
 .home-cards { display: grid; gap: var(--space-xs); margin: 0; padding: 0; list-style: none; }
 .home-card {
-  display: grid; gap: 0; width: 100%; padding: 4px 10px 2px; text-align: left;
+  display: grid; gap: 0; width: 100%; padding: 0 10px 2px; text-align: left;
   border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);
-  color: var(--color-text); font: inherit; cursor: pointer;
+  color: var(--color-text);
 }
-.home-card:hover { border-color: var(--color-text-muted); }
-.home-card:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+/* The stop's name opens its board, each bus its bus: two kinds of button in
+   one card, so neither looks like the card itself. */
+.home-card-head, .home-dep {
+  width: 100%; margin: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
 .home-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-sm);
-  min-height: 26px; }
+  min-height: 30px; padding: 4px 0; }
+.home-card-head:hover .home-card-open { text-decoration: underline; }
+.home-card-head:focus-visible, .home-dep:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px;
+  border-radius: var(--radius-sm); }
+@media (hover: hover) { .home-dep:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); } }
 .home-card-open { font-size: var(--font-size-xs); font-weight: 600; color: var(--color-link); }
 .home-card-open::after { content: " ›"; }
 .home-deps { display: grid; }
@@ -3415,6 +3422,7 @@ html.dark-mode .stop-cluster-icon {
   display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: var(--space-sm);
   padding: 4px 0; border-top: 1px solid var(--color-border);
 }
+.home-dep > span { min-width: 0; }
 .home-dep .service-badge { width: 42px; height: 30px; display: grid; place-items: center; border-radius: var(--radius-sm);
   font-weight: 700; font-size: var(--font-size-sm); }
 .home-dep-what { display: grid; min-width: 0; gap: 1px; }
@@ -7069,21 +7077,18 @@ body.editor-mode.editor-mode-add-stop .leaflet-popup-pane {
   font-size: var(--font-size-sm);
 }
 .rail-board-buses a { color: var(--color-link); }
-/* Where they stop, on the map: a bus in a dark green disc, white-ringed so it
-   reads on any basemap. */
+/* Where they stop, on the map: a small dark green dot, white-ringed so it
+   reads on any basemap, centred in a 20px tap target. */
+.rrb-stop-divicon { display: flex; align-items: center; justify-content: center; }
 .rrb-stop-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
+  display: block;
+  width: 12px;
+  height: 12px;
   border: 2px solid #ffffff;
   border-radius: 50%;
   background: #1d5c3a;
-  color: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
-.rrb-stop-icon .icon { width: 16px; height: 16px; }
 .rrb-popup-source { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .bus-rail-note { margin: var(--space-sm) 0; font-size: var(--font-size-sm); color: var(--color-text); }
 
@@ -9380,3 +9385,18 @@ body[data-tour-stop="route"] .panel-mode[data-mode="improvements"] .service-mode
    what sits below the box (recent stops, the credits) still as the results
    open above it: that scrolled the box itself off the top (7 November 2026). */
 body[data-sheet-search] #tab-content-stop { overflow-anchor: none; }
+
+/* A popup that would have covered a map control opens below its marker
+   instead (placePopupClear in app.js): its tip goes to the top, pointing up. */
+.leaflet-popup--below .leaflet-popup-tip-container {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  margin-left: -20px;
+  transform: rotate(180deg);
+}
+
+/* The step-free key, moved beside the map's buttons when every corner would
+   cover one (placeStopAccessLegend in app.js): floated next to them, not
+   under them. */
+.leaflet-left .stop-access-legend--beside { clear: none; }

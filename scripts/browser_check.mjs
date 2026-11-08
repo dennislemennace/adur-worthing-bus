@@ -2109,10 +2109,28 @@ async function checkHomeSheet(page, where) {
   })())`));
   check(`saved stops sit above the search as small boards of their next buses — ${where}`,
     r.shown && r.cards === 2 && r.above && (r.deps > 0 || r.notes.length === 2) && r.h >= 44, JSON.stringify(r));
-  await page.evaluate(`document.querySelector("#home-saved .home-card").click()`);
+  const head = await page.evaluate(`document.querySelector("#home-saved .home-card-open")?.textContent || ""`);
+  check(`a favourite stop's card offers all its departures — ${where}`, head === "All departures", head);
+  await page.evaluate(`document.querySelector("#home-saved .home-card-head").click()`);
   await sleep(1200);
   const opened = await page.evaluate("state.selectedStop && state.selectedStop.atcoCode");
   check(`a saved stop opens its board in one tap — ${where}`, opened === "4400AD0204", String(opened));
+  // A bus row opens that bus, or, with no bus on the map yet (the local API
+  // has no live feed), the stop's board with that journey open (8 November 2026).
+  await page.evaluate(`(() => { closePanel(); setViewMode("live"); return 1; })()`);
+  await waitFor(page, `document.querySelector("#home-saved .home-dep[data-trip]")`, 15000).catch(() => {});
+  const bus = JSON.parse(await page.evaluate(`(async () => {
+    const row = document.querySelector("#home-saved .home-dep[data-trip]");
+    if (!row) return JSON.stringify({ row: false });
+    const trip = row.dataset.trip, onMap = !!departureBus(row);
+    row.click();
+    for (let i = 0; i < 40 && !(state.selectedVehicleRef || (state.departurePlan && state.departurePlan.trip === trip)); i++)
+      await new Promise(r => setTimeout(r, 150));
+    return JSON.stringify({ row: true, onMap, bus: state.selectedVehicleRef || null,
+      plan: state.departurePlan && state.departurePlan.trip === trip, stop: state.selectedStop && state.selectedStop.atcoCode });
+  })()`));
+  check(`a bus on a favourite stop's card opens that bus, or its journey on the board — ${where}`,
+    !bus.row || (bus.onMap ? !!bus.bus : bus.plan && bus.stop === "4400AD0204"), JSON.stringify(bus));
   const m = JSON.parse(await page.evaluate(`(async () => {
     const link = document.querySelector('link[rel="manifest"]');
     if (!link) return JSON.stringify({ link: false });
@@ -2124,6 +2142,34 @@ async function checkHomeSheet(page, where) {
   check(`the site is installable: a valid manifest with its icons — ${where}`,
     m.link && m.ok && m.display === "standalone" && m.icons >= 3 && m.allIcons && m.maskable, JSON.stringify(m));
   await page.evaluate(`(() => { localStorage.removeItem("saved-stops"); localStorage.removeItem("recent-stops"); closePanel(); return 1; })()`);
+}
+
+/**
+ * The step-free key, with a stop open: on a phone the map's bottom corner sits
+ * on the sheet's top edge, and the key used to rise over the toggle that
+ * opened it (8 November 2026). It moves wherever it covers no control.
+ */
+async function checkStepFreeKeyClear(page, where) {
+  const r = JSON.parse(await page.evaluate(`(async () => {
+    setViewMode("live");
+    await openDepartures("4400AD0204", "High Street");
+    setStopAccessLayer(true);
+    await (state.stopOsm ? Promise.resolve() : loadStopOsm().catch(() => {}));
+    renderStopAccessLegend();
+    await new Promise(r => setTimeout(r, 700));
+    const key = state.stopAccessLegend.getContainer();
+    const k = key.getBoundingClientRect();
+    const hits = [...document.querySelectorAll("#map .leaflet-control-container .leaflet-control")]
+      .filter(el => el !== key && el.offsetParent !== null)
+      .filter(el => { const o = el.getBoundingClientRect();
+        return o.width && k.left < o.right && o.left < k.right && k.top < o.bottom && o.top < k.bottom; })
+      .map(el => el.className);
+    const out = { shown: !key.hidden && k.height > 0, place: key.dataset.place || "", hits };
+    setStopAccessLayer(false); closePanel();
+    return JSON.stringify(out);
+  })()`));
+  check(`the step-free key covers none of the map's buttons with a stop open — ${where}`,
+    !r.shown || r.hits.length === 0, JSON.stringify(r));
 }
 
 /**
@@ -3640,6 +3686,7 @@ async function checkRailReplacement(page, where) {
     const icon = document.querySelector(".rrb-stop-icon");
     const popup = document.querySelector(".leaflet-popup-content");
     out.marker = !!icon && vis(icon);
+    out.dot = icon ? Math.round(icon.getBoundingClientRect().width) : null;
     out.popup = popup ? popup.textContent.replace(/\\s+/g, " ").trim() : null;
     state.railVisible = wasVisible;
     return JSON.stringify(out);
@@ -3650,6 +3697,7 @@ async function checkRailReplacement(page, where) {
     /Turning circle on Stroudley Road/.test(r.note || "") && /platform 8/.test(r.note || ""), JSON.stringify(r));
   check(`"Show on map" finds the replacement bus stop — ${where}`,
     r.marker && /Turning circle on Stroudley Road/.test(r.popup || ""), JSON.stringify(r));
+  check(`a replacement bus stop is a small dot, as a bus stop is — ${where}`, r.dot && r.dot <= 14, JSON.stringify(r));
   await checkLayout(page, `rail board with replacement buses — ${where}`);
   await checkContrastBothThemes(page, `rail board with replacement buses — ${where}`);
 
@@ -5587,6 +5635,7 @@ await checkStopAccessUpFront(page, VIEWPORTS[0].name, { contrast: true });
 await checkAreas(page, VIEWPORTS[0].name, { contrast: true });
 await checkStopAccessLayer(page, VIEWPORTS[0].name, { contrast: true });
 await checkHomeSheet(page, VIEWPORTS[0].name);
+await checkStepFreeKeyClear(page, VIEWPORTS[0].name);
 await checkDiscover(page, VIEWPORTS[0].name, { contrast: true });
 await checkDepartureJourneys(page, VIEWPORTS[0].name);
 await checkBoardKeepsPlace(page, VIEWPORTS[0].name);
