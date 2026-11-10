@@ -148,10 +148,10 @@
       "reason": "roadworks",
       "severity": "severe",
       "starts": "2026-09-28T07:00:00+01:00",
-      "ends": "2026-11-12T23:59:00+00:00",
+      "ends": "2026-11-10T14:30:00+00:00",
       "publisher": "Brighton & Hove City Council",
       "source_url": "https://www.brighton-hove.gov.uk/travel-and-road-safety/roads-and-highways/road-maintenance-programme-2026-2027",
-      "checked_on": "2026-10-15",
+      "checked_on": "2026-11-10",
       "lines": [
         {
           "operator": "SCSO",
@@ -205,7 +205,65 @@
           "rejoins": "Waitrose"
         }
       ],
-      "notes": "The council's notice names no operator. Stagecoach has published no notice of its own; the 700 has run this diversion since 28 September (measured from its tracked buses), and Brunswick Place and Norfolk Square are on the closed road."
+      "notes": "The council's notice names no operator. Stagecoach has published no notice of its own; the 700 has run this diversion since 28 September (measured from its tracked buses), and Brunswick Place and Norfolk Square are on the closed road. Ended on 10 November 2026 at 14:30: Brighton & Hove Buses' service updates page that day said all bus services on Western Road had returned to their normal routes. Stagecoach has published nothing; whether the 700 went back at the same time is to be confirmed from its tracked buses."
+    },
+    {
+      "id": "bhbc-21-queen-victoria-avenue-2026-11-07",
+      "summary": "Route 21 diverted: Queen Victoria Avenue closed for emergency roadworks",
+      "description": "Due to emergency roadworks Queen Victoria Avenue is closed.",
+      "advice": "Use Goldstone Valley Shops or Woodland Avenue instead.",
+      "reason": "roadworks",
+      "severity": "normal",
+      "starts": "2026-11-07T00:00+00:00",
+      "ends": "2026-11-12T23:59+00:00",
+      "publisher": "Brighton & Hove Buses",
+      "source_url": "https://www.buses.co.uk/service-updates",
+      "checked_on": "2026-11-10",
+      "lines": [
+        {
+          "operator": "BHBC",
+          "line": "21"
+        }
+      ],
+      "stops_not_served": [
+        {
+          "atco": "149000007591",
+          "as_named": "Bottom of Queen Victoria Avenue"
+        },
+        {
+          "atco": "149000006591",
+          "as_named": "Bottom of Queen Victoria Avenue"
+        },
+        {
+          "atco": "149000007590",
+          "as_named": "Edward Avenue"
+        },
+        {
+          "atco": "149000006590",
+          "as_named": "Edward Avenue"
+        },
+        {
+          "atco": "149000007589",
+          "as_named": "Elizabeth Avenue"
+        },
+        {
+          "atco": "149000006594",
+          "as_named": "Elizabeth Avenue"
+        }
+      ],
+      "diversion_stops": [],
+      "diversions": [
+        {
+          "towards": "Both directions",
+          "routes": "21",
+          "via": [
+            "Woodland Avenue"
+          ],
+          "rejoins": ""
+        }
+      ],
+      "notes": "Brighton & Hove Buses' notice 'Roadworks - Diversion - Queen Victoria Avenue', 7 to 12 November 2026, read on 10 November; it names the stops Bottom of Victoria Avenue, Edward Avenue and Elizabeth Avenue. The site's own detector (issues 15 and 16) had already seen the buses miss these stops, and Sandringham Drive, from 8 November; Sandringham Drive is not in the notice and is not marked here.",
+      "record_for_analysis": true
     }
   ]
 }

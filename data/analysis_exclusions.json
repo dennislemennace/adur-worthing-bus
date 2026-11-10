@@ -273,6 +273,47 @@
       "source_url": "https://www.stagecoachbus.com/service-updates",
       "disruption_id": "scso-700-old-steine-2026-10-23",
       "recorded_on": "2026-10-24"
+    },
+    {
+      "id": "bhbc-21-queen-victoria-avenue-2026-11-07",
+      "kind": "roadworks",
+      "summary": "Route 21 diverted: Queen Victoria Avenue closed for emergency roadworks",
+      "from": "2026-11-07T00:00+00:00",
+      "to": "2026-11-12T23:59+00:00",
+      "operator": "BHBC",
+      "routes": [
+        "21"
+      ],
+      "stops_not_served": [
+        "149000007591",
+        "149000006591",
+        "149000007590",
+        "149000006590",
+        "149000007589",
+        "149000006594"
+      ],
+      "area": [
+        [
+          50.8455,
+          -0.1835
+        ],
+        [
+          50.8535,
+          -0.1835
+        ],
+        [
+          50.8535,
+          -0.1745
+        ],
+        [
+          50.8455,
+          -0.1745
+        ]
+      ],
+      "note": "Brighton & Hove Buses' notice 'Roadworks - Diversion - Queen Victoria Avenue', 7 to 12 November 2026, read on 10 November; it names the stops Bottom of Victoria Avenue, Edward Avenue and Elizabeth Avenue. The site's own detector (issues 15 and 16) had already seen the buses miss these stops, and Sandringham Drive, from 8 November; Sandringham Drive is not in the notice and is not marked here.",
+      "source_url": "https://www.buses.co.uk/service-updates",
+      "disruption_id": "bhbc-21-queen-victoria-avenue-2026-11-07",
+      "recorded_on": "2026-11-10"
     }
   ]
 }
