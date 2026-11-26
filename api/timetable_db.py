@@ -314,6 +314,9 @@ class Timetable:
         # Another publisher's id for one of our stops: FlixBus's, which its
         # live feed names stops by (scripts/flixbus_gtfs.py).
         self.stop_aliases: dict = {}
+        # {"YYYYMMDD": [{"id", "noc", "summary", "url"}]}: days whose calendars
+        # the build corrected (scripts/timetable_corrections.py).
+        self.corrections: dict = {}
         # Reverse: surrogate sid/tid/rid -> text id. Used to decode query rows.
         self._sid_to_stop: dict = {}
         self._tid_to_trip: dict = {}
@@ -593,6 +596,12 @@ class Timetable:
         tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         stop_aliases = (dict(con.execute("SELECT alias, stop_id FROM stop_aliases"))
                         if "stop_aliases" in tables else {})
+        corrections: dict = {}
+        if "corrections" in tables:
+            for day, cid, noc, summary, url in con.execute(
+                    "SELECT date, id, noc, summary, url FROM corrections"):
+                corrections.setdefault(day, []).append(
+                    {"id": cid, "noc": noc, "summary": summary, "url": url})
 
         # Atomic swap.
         with self._lock:
@@ -606,6 +615,7 @@ class Timetable:
             self.calendar_dates = calendar_dates
             self.stops_with_times = stops_with_times
             self.stop_aliases = stop_aliases
+            self.corrections = corrections
             self._sid_to_stop = sid_to_stop
             self._tid_to_trip = tid_to_trip
             self.loaded_at = time.time()

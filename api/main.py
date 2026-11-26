@@ -36,6 +36,7 @@ from datetime import datetime, date, timedelta, timezone
 from datetime import time as clock_time
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -76,6 +77,33 @@ TIMETABLE_PATH = Path(__file__).parent.parent / "data" / "timetable.sqlite"
 # GTFS stop_times are in local UK time; Render runs in UTC. Using an
 # explicit zone makes the departure filter correct across BST/GMT.
 UK_TZ = ZoneInfo("Europe/London")
+
+# What a stop id may be, on every route that takes one. Every id in the
+# timetable and the site's stop list is letters and digits, twelve at most, and
+# an OpenStreetMap node id is digits. Until 10 November 2026 the only check was
+# a length of 30, and the id went on into TransportAPI's URL as it came:
+# "../../train/station/BTN" asked a different product with our credentials
+# (tests/test_upstream_abuse.py).
+STOP_ID_PATTERN = r"^[0-9A-Za-z]{1,20}$"
+# A train's identity, as Realtime Trains gives it on a station's board. Those
+# seen are a letter and five digits ("X19791"); the few marks allowed beside
+# letters and digits are so that an id of another shape is not refused, since
+# that cannot be checked without the live service.
+RAIL_UID_PATTERN = r"^[A-Za-z0-9_.:\-]{1,16}$"
+
+
+def _upstream_failure(exc: Exception) -> str:
+    """What went wrong with an upstream call, safe to write to the log.
+
+    Never the exception's own text. For an HTTP error httpx puts the whole URL
+    in it, query string included, and BODS and TransportAPI both take their
+    key there: every 503 from either wrote the key into Render's log (found
+    10 November 2026). The status, or the kind of failure, is what a reader
+    of the log needs.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    return type(exc).__name__
 
 # Drop vehicles whose last RecordedAtTime is older than this. Clears out
 # depot-parked buses that stop reporting (and BODS "zombie" vehicles).
@@ -471,7 +499,7 @@ async def root():
 # Everything below hangs off debug_router, so it is unreachable unless
 # DEBUG_ENABLED is set. Add new diagnostics here, never on `app`.
 @debug_router.get("/stop")
-async def debug_stop(stopId: str = Query(...)):
+async def debug_stop(stopId: str = Query(..., pattern=STOP_ID_PATTERN)):
     _check_api_key()
     tt        = await _get_timetable()
     variants  = _normalise_atco(stopId)
@@ -808,8 +836,8 @@ async def debug_rail_raw(crs: str = Query(..., min_length=3, max_length=3)):
 
 @debug_router.get("/rail-raw-service")
 async def debug_rail_raw_service(
-    uid:  str = Query(..., min_length=1, max_length=16),
-    date: str = Query(..., regex=r"^\d{4}-\d{2}-\d{2}$"),
+    uid:  str = Query(..., pattern=RAIL_UID_PATTERN),
+    date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ):
     """Raw RTT service response — for projection field-name debugging."""
     if not RTT_DEBUG_ENABLED:
@@ -879,7 +907,9 @@ async def get_rail_departures(crs: str = Query(..., min_length=3, max_length=3))
         raise
     except Exception as e:
         log.warning("RTT location %s failed: %s", crs, e)
-        raise HTTPException(status_code=502, detail=f"Rail upstream error: {e}")
+        # The reason is in the log above. The caller gets none of it: an
+        # exception's text can carry an address or a token.
+        raise HTTPException(status_code=502, detail="Rail upstream error.")
     board_name = next((s["name"] for s in RAIL_STATIONS if s["crs"] == crs), crs)
     services = [_project_board_service(s, board_crs=crs, board_name=board_name)
                 for s in (body.get("services") or [])]
@@ -895,8 +925,8 @@ async def get_rail_departures(crs: str = Query(..., min_length=3, max_length=3))
 
 @app.get("/api/rail-service")
 async def get_rail_service(
-    uid:  str = Query(..., min_length=1, max_length=16),
-    date: str = Query(..., regex=r"^\d{4}-\d{2}-\d{2}$"),
+    uid:  str = Query(..., pattern=RAIL_UID_PATTERN),
+    date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ):
     """Single-service calling pattern (RTT `/gb-nr/service?identity=…&departureDate=…`).
     Cached per (uid, date) for RTT_CACHE_TTL seconds."""
@@ -923,7 +953,9 @@ async def get_rail_service(
         raise
     except Exception as e:
         log.warning("RTT service %s/%s failed: %s", uid, date, e)
-        raise HTTPException(status_code=502, detail=f"Rail upstream error: {e}")
+        # The reason is in the log above. The caller gets none of it: an
+        # exception's text can carry an address or a token.
+        raise HTTPException(status_code=502, detail="Rail upstream error.")
     svc = body.get("service") or {}
     sm  = svc.get("scheduleMetadata") or {}
     op  = sm.get("operator") or {}
@@ -1183,7 +1215,7 @@ async def debug_nb_quota():
 
 
 @debug_router.get("/live-raw")
-async def debug_live_raw(stopId: str = Query(...)):
+async def debug_live_raw(stopId: str = Query(..., pattern=STOP_ID_PATTERN)):
     """Diagnostics: raw Transport API response + parsed predictions for a stop.
 
     Shares the cache and quota gate with /api/departures. This route used to
@@ -1212,7 +1244,7 @@ async def debug_live_raw(stopId: str = Query(...)):
                     "count": _nb_quota["count"],
                     "limit": NEXTBUSES_DAILY_LIMIT}
         _nb_quota_bump(1)
-        url = f"{NEXTBUSES_BASE_URL}/{stopId}/live.json"
+        url = f"{NEXTBUSES_BASE_URL}/{quote(stopId, safe='')}/live.json"
         try:
             async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
                 resp = await client.get(url, params={
@@ -1451,7 +1483,7 @@ async def _fetch_declared_journeys() -> dict:
             resp.raise_for_status()
         _header, vehicles = gtfs_rt.parse_feed(resp.content)
     except Exception as exc:                    # noqa: BLE001 — see docstring
-        log.info("GTFS-RT unavailable, falling back to inference: %s", exc)
+        log.info("GTFS-RT unavailable, falling back to inference: %s", _upstream_failure(exc))
         return {}
     return {v["vehicle_id"]: v["trip_id"]
             for v in vehicles if v.get("vehicle_id") and v.get("trip_id")}
@@ -1581,7 +1613,7 @@ def _extract_calls(journey, ns) -> list:
 # ── /api/departures ───────────────────────────────────────────
 @app.get("/api/departures")
 async def get_departures(
-    stopId: str = Query(...),
+    stopId: str = Query(..., pattern=STOP_ID_PATTERN),
     lat: Optional[float] = Query(None),
     lon: Optional[float] = Query(None),
     # 0 for a board that must not spend the TransportAPI allowance (the home
@@ -1606,9 +1638,6 @@ async def get_departures(
     # local SQLite timetable and, if predictions are configured, overlays them.
     # Refusing with 503 when it was absent withheld a perfectly good schedule —
     # and a schedule is what somebody wants most when live data is down.
-    if not stopId or len(stopId) > 30:
-        raise HTTPException(status_code=400, detail="Invalid stopId.")
-
     at = time.perf_counter()
     tt       = await _get_timetable()
     resolved = _resolve_stop_id(tt, stopId, lat, lon)
@@ -1621,7 +1650,12 @@ async def get_departures(
         cache_set(cache_key, base, 60)
     at = _timed("schedule", at)
 
-    result = await _apply_live_overlay(base, resolved) if predictions else dict(base)
+    # Predictions are metered, so only for a stop the timetable holds. A stop
+    # with no times of its own still asks (TransportAPI is then the only
+    # source); an id that is no stop at all never does. Each made-up id used
+    # to spend one call of the day's allowance, and a loop of them all of it.
+    metered = predictions and resolved in tt.stops
+    result = await _apply_live_overlay(base, resolved) if metered else dict(base)
     # FlixBus's own delays, asked for only where a FlixBus coach is on the board.
     if any(d.get("operator") == flixbus.NOC for d in result.get("departures") or []):
         result = _apply_flixbus_delays(result, tt, resolved, await _flixbus_updates(tt))
@@ -1996,7 +2030,7 @@ async def get_plan(
 
 @app.get("/api/stop-span")
 async def get_stop_span(
-    stopId: str = Query(...),
+    stopId: str = Query(..., pattern=STOP_ID_PATTERN),
     lat: Optional[float] = Query(None),
     lon: Optional[float] = Query(None),
 ):
@@ -2012,9 +2046,6 @@ async def get_stop_span(
     Cached for an hour: the schedule only changes when a new timetable is
     published.
     """
-    if not stopId or len(stopId) > 30:
-        raise HTTPException(status_code=400, detail="Invalid stopId.")
-
     tt       = await _get_timetable()
     resolved = _resolve_stop_id(tt, stopId, lat, lon)
     if resolved not in tt.stops:
@@ -2140,7 +2171,7 @@ def _next_departures(tt: Timetable, stop_id: str, now: datetime,
 
 @app.get("/api/next-departures")
 async def get_next_departures(
-    stopId: str = Query(...),
+    stopId: str = Query(..., pattern=STOP_ID_PATTERN),
     service: Optional[str] = Query(None),
     operator: Optional[str] = Query(None),
     lat: Optional[float] = Query(None),
@@ -2152,8 +2183,6 @@ async def get_next_departures(
     number) or for all. Timetable only: a local SQLite read with no upstream
     call, cached for a minute.
     """
-    if not stopId or len(stopId) > 30:
-        raise HTTPException(status_code=400, detail="Invalid stopId.")
     if service is not None and not re.fullmatch(r"[A-Za-z0-9 ]{1,12}", service):
         raise HTTPException(status_code=400, detail="Invalid service.")
     if operator is not None and not re.fullmatch(r"[A-Z0-9]{2,6}", operator):
@@ -2265,7 +2294,9 @@ JOURNEY_TIME_ANCHOR = "12:00"
 @app.get("/api/trip")
 async def get_trip(
     tripId: str = Query(..., max_length=120, pattern=r"^[A-Za-z0-9_:.\-]+$"),
-    fromStop: str = Query(..., alias="from", max_length=30),
+    # Empty when a journey is opened with no stop chosen: it then starts at
+    # the journey's first stop.
+    fromStop: str = Query(..., alias="from", pattern=r"^[0-9A-Za-z]{0,20}$"),
 ):
     """One journey's timetabled stops from a stop onwards.
 
@@ -2360,8 +2391,8 @@ async def get_trip_shape(
 
 @app.get("/api/journey")
 async def get_journey(
-    fromStop: str = Query(..., alias="from"),
-    toStop:   str = Query(..., alias="to"),
+    fromStop: str = Query(..., alias="from", pattern=STOP_ID_PATTERN),
+    toStop:   str = Query(..., alias="to", pattern=STOP_ID_PATTERN),
     limit:    int = Query(3, ge=1, le=10),
     at:       str = Query(JOURNEY_TIME_ANCHOR,
                           pattern=r"^([01]\d|2[0-3]):[0-5]\d$",
@@ -2899,7 +2930,7 @@ async def _fetch_disruptions() -> dict:
             return kept
         situations = await off_loop(sx.parse_feed, resp.content, keep)
     except Exception as exc:                       # noqa: BLE001 — see docstring
-        log.warning("SIRI-SX unavailable: %s", exc)
+        log.warning("SIRI-SX unavailable: %s", _upstream_failure(exc))
         return {"available": False, "reason": "upstream", "situations": [],
                 "fetched_at": fetched_at}
     log.info("SIRI-SX: %d situations for this area of %d", len(situations), seen[0])
@@ -3172,7 +3203,9 @@ async def _fetch_nextbuses(stop_id: str) -> Optional[list]:
     """
     if NEXTBUSES_MODE == "siri":
         return await _fetch_nextbuses_siri(stop_id)
-    url = f"{NEXTBUSES_BASE_URL}/{stop_id}/live.json"
+    # One path segment, whatever reaches here: a "/" or ".." in the id must
+    # not be able to choose a different TransportAPI address.
+    url = f"{NEXTBUSES_BASE_URL}/{quote(stop_id, safe='')}/live.json"
     try:
         async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
             resp = await client.get(
@@ -3187,7 +3220,7 @@ async def _fetch_nextbuses(stop_id: str) -> Optional[list]:
         resp.raise_for_status()
         return _parse_transportapi_json(resp.json())
     except Exception as exc:
-        log.warning("Transport API request failed for stop %s: %s", stop_id, exc)
+        log.warning("Transport API request failed for stop %s: %s", stop_id, _upstream_failure(exc))
         return None
 
 
@@ -3221,7 +3254,7 @@ async def _fetch_nextbuses_siri(stop_id: str) -> Optional[list]:
         resp.raise_for_status()
         return _parse_siri_sm(resp.content)
     except Exception as exc:
-        log.warning("NextBuses SIRI-SM request failed for stop %s: %s", stop_id, exc)
+        log.warning("NextBuses SIRI-SM request failed for stop %s: %s", stop_id, _upstream_failure(exc))
         return None
 
 
@@ -4227,7 +4260,7 @@ async def _warm_timetable() -> None:
     The keep-warm ping only asks for `/`, which never touched it, so the first
     real request after a wake paid for the download and the reference tables.
     Only on Render (which sets RENDER): a test client starting the app must not
-    go and fetch a 63 MB database.
+    go and fetch the whole timetable database.
     """
     if os.environ.get("RENDER"):
         threading.Thread(target=_get_timetable_sync, name="timetable-warm", daemon=True).start()
@@ -4484,7 +4517,18 @@ def _departures_for_stop(tt: Timetable, stop_id: str) -> dict:
             # Every line the timetable has here in the next two hours, so the
             # live overlay can tell a line we hold from one we do not, however
             # few of its rows made the board.
-            "_services": sorted({d["service"] for d in departures})}
+            "_services": sorted({d["service"] for d in departures}),
+            **_correction_note(tt, today, departures)}
+
+
+def _correction_note(tt, day: date, departures: list) -> dict:
+    """`{"timetable_correction": {summary, url}}` when the weekly build corrected
+    BODS's calendars for `day` for an operator on this board
+    (scripts/timetable_corrections.py), so the board can say so; else nothing."""
+    rows = (getattr(tt, "corrections", None) or {}).get(day.strftime("%Y%m%d")) or []
+    here = {d.get("operator") for d in departures}
+    hit = next((r for r in rows if r.get("noc") in here), None)
+    return {"timetable_correction": {"summary": hit["summary"], "url": hit["url"]}} if hit else {}
 
 
 def _runs_today(service_id: str, today: date, today_str: str,

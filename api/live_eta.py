@@ -10,18 +10,24 @@ the bus's own clock (`main._attach_declared_journeys`). Where it is between two
 stops, the timetable's time for that point is taken in proportion along the
 stretch between them (`trip_match.scheduled_at_position`); a bus stood at a
 timing point before its time counts as on time, because it will wait there. Every stop still ahead
-is estimated at its timetabled time plus that lateness:
+is estimated at its timetabled time plus a share of that lateness:
 
-* a late bus is assumed to stay exactly as late;
+* a late bus passes on four fifths of its lateness (`ROAD_LATE_SHARE`), after
+  any change in lateness measured on other days beyond its last timing point
+  (api/recovery.py);
 * an early bus is assumed to stay early only until its next timing point, and
   on time from there on, because UK buses must not leave a timing point early
-  and drivers wait at them.
+  and drivers wait at them. Early is never scaled.
 
-**Which way it is wrong.** Timetables carry slack, and late buses often make
-some of it up, so an estimate further down the route tends to say *later* than
-the bus will really come. That is the direction that can make someone miss a
-bus, which is why every place the estimate is shown also tells the reader to be
-at the stop by the timetabled time.
+**Which way it is wrong.** Early, by design: the estimate more often says the
+bus comes sooner than it does than later. Timetables carry slack and late buses
+make some of it up, so passing on all of a bus's lateness, as this did until
+3 November 2026, showed it later than it came, and a bus shown later than it
+comes is a bus missed; one shown sooner is a short wait. On the replayed days
+four fifths cut "came before the time shown" from 5.4% to 3.4% of estimates and
+took those within RTIG's window from 77.3% to 72.0%
+(docs/reliability/next-journey-2026-11-03.md): accuracy given up for fewer
+missed buses. About one estimate in thirty is still wrong the costly way.
 
 **Stale reports.** The feed runs a median three minutes behind. A stop whose
 estimate is already more than a minute gone is marked `passed`: the bus has
@@ -93,7 +99,8 @@ ROAD_CAUTION_SECS = 0
 def projected_lateness(lateness: int, timing_points: list, start: int, count: int) -> list:
     """Lateness expected at each call from `start` to the end of the journey.
 
-    Late carries forward unchanged. Early carries forward only until the first
+    Late carries forward unchanged here; `project_trip` then passes on only
+    `ROAD_LATE_SHARE` of it. Early carries forward only until the first
     timing point at or after `start`, and is zero from there on. Where the
     timetable does not say which stops are timing points, early carries all the
     way, which errs towards telling people to be there sooner.

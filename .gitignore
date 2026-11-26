@@ -17,6 +17,9 @@ data/timetable.sqlite-shm
 data/timetable.sqlite.tmp-*
 data/timetable.sqlite.sha256.local
 data/.nb_quota.json
+# The journey planner's daily counters, written beside it (api/main.py).
+data/.bat_quota.json
+data/.bat_check.json
 
 # Wrangler's local account/build cache — machine-specific, never committed.
 .wrangler/

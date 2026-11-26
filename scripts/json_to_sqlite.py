@@ -111,6 +111,20 @@ CREATE TABLE stop_aliases (
     stop_id TEXT NOT NULL
 ) WITHOUT ROWID;
 
+-- Our corrections to BODS's calendars (scripts/timetable_corrections.py):
+-- each day whose running changed, by correction and operator, so a board on
+-- that day can say its times include a correction. From the 2026-11 builds.
+CREATE TABLE corrections (
+    date     TEXT NOT NULL,
+    id       TEXT NOT NULL,
+    noc      TEXT NOT NULL,
+    services INTEGER NOT NULL,
+    trips    INTEGER NOT NULL,
+    summary  TEXT NOT NULL,
+    url      TEXT NOT NULL,
+    PRIMARY KEY (date, id, noc)
+) WITHOUT ROWID;
+
 -- Denormalised per-trip summary; short_name lookup drives GTFS-RT matching.
 CREATE TABLE trip_endpoints (
     tid        INTEGER PRIMARY KEY,
@@ -305,6 +319,12 @@ def convert(tt: dict, db_path: Path) -> None:
             cd_rows.append((sid_text, date, int(exc)))
     con.executemany("INSERT INTO calendar_dates VALUES (?,?,?)", cd_rows)
     print(f"  calendar_dates: {len(cd_rows)}")
+
+    # --- corrections (scripts/timetable_corrections.py) ---
+    corr_rows = [(r["date"], r["id"], r["noc"], int(r["services"]), int(r["trips"]),
+                  r["summary"], r["url"]) for r in tt.get("corrections") or []]
+    con.executemany("INSERT INTO corrections VALUES (?,?,?,?,?,?,?)", corr_rows)
+    print(f"  corrections: {len(corr_rows)}")
 
     con.commit()
     con.execute("ANALYZE")

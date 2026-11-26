@@ -1517,3 +1517,29 @@ def test_what_the_law_requires_of_a_local_bus_is_cited_and_dated():
         assert _nonempty_str(b.get(key)) and "\u2014" not in b[key], key
         assert str(b.get(f"{key}_source_url", "")).startswith("https://www.gov.uk/"), key
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", b["checked_on"])
+
+
+def test_timetable_corrections_carry_their_evidence():
+    """Each correction to BODS's calendars (scripts/timetable_corrections.py)
+    overrides a published fact, so it carries what evidence-provenance asks:
+    what it says, the evidence, the caveats, a source, the feed it was checked
+    against and when, and the last day it can matter. The explanation a board
+    links to must be in the tree."""
+    entries = _load("timetable_corrections.json")["corrections"]
+    _assert_unique_ids(entries, "timetable_corrections.json")
+    for e in entries:
+        assert e["kind"] in ("move_exception", "restore_only_day"), e["id"]
+        for key in ("summary", "evidence", "data_version"):
+            assert _nonempty_str(e.get(key)) and "\u2014" not in e[key], (e["id"], key)
+        assert e["caveats"] and all(_nonempty_str(c) for c in e["caveats"]), e["id"]
+        assert str(e["source_url"]).startswith("https://"), e["id"]
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", e["checked_on"]), e["id"]
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", e["expires"]), e["id"]
+        dates = [e["from_date"], e["to_date"]] if e["kind"] == "move_exception" else e["dates"]
+        assert dates and all(re.fullmatch(r"20\d{6}", d) for d in dates), e["id"]
+        if e["kind"] == "move_exception":
+            assert {"pair_date", "min_calendars", "min_ratio"} <= set(e["signature"]), e["id"]
+        prefix = "https://github.com/dennislemennace/adur-worthing-bus/blob/main/"
+        assert e["url"].startswith(prefix), e["id"]
+        doc = e["url"][len(prefix):]
+        assert (ROOT / doc).exists(), f"{e['id']} links to {doc}, which is not in the tree"

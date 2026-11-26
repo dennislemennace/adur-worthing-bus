@@ -688,6 +688,10 @@
           <p class="board-key"><span class="live-dot" aria-hidden="true"></span>
             Live: we can see this bus, and the time is an estimate from where it
             is. No dot: a timetable time.</p>
+          <!-- Our correction to the national timetable data for today, where
+               the weekly build made one (api/main.py _correction_note). One
+               quiet line at the foot: what readers need is the right times. -->
+          <p class="board-key board-correction" id="board-correction" hidden></p>
           <!-- Reporting a fault at the stop sits under the board, above how to
                read it: it is about the stop, not what is coming, so it should
                not stand between the reader and the buses. -->

@@ -87,8 +87,20 @@ jobs:
       # audit found broken — overnight times folded into the morning, stop
       # order re-derived from departure times, services with no calendar at
       # all — none of which a row count can see.
+      # The timetable being served, to compare with: a new build is refused
+      # only where it is worse. On 22 November 2026 BODS's New Year's Eve fault
+      # left 1 December empty in every build and in the live one alike, and the
+      # strict check kept the site on the older timetable with the same gap.
+      # Without the file the check stays strict.
+      - name: Fetch the timetable being served
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download timetable-latest -p timetable.sqlite -O served-timetable.sqlite \
+            || echo "::notice::No served timetable to compare with; the coverage check is strict"
+
       - name: Check output
-        run: python -u scripts/check_timetable.py data/timetable.sqlite
+        run: python -u scripts/check_timetable.py data/timetable.sqlite --served served-timetable.sqlite
 
       # The map's stop layer, as a static file on Pages. Built from the same
       # database this run publishes, so the two cannot describe different

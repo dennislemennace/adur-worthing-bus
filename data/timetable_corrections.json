@@ -1,0 +1,48 @@
+{
+  "_comment": "Corrections to BODS's GTFS calendars where its conversion from the operators' own TransXChange is shown to be wrong. Applied by scripts/timetable_corrections.py inside scripts/build_timetable.py, only where the feed still shows the error's signature, so a fixed feed is left alone. Every change is logged and written to the timetable's corrections table, and a board on an affected day says so. Each entry carries its evidence, caveats, source and the feed it was checked against; `expires` is the last day it can matter.",
+  "corrections": [
+    {
+      "id": "bods-2026-new-years-eve-as-1-december",
+      "kind": "move_exception",
+      "from_date": "20261201",
+      "to_date": "20261231",
+      "signature": {
+        "pair_date": "20261224",
+        "school_dates": ["20261229", "20261230"],
+        "min_calendars": 3,
+        "min_ratio": 3
+      },
+      "fill_date_lists": true,
+      "summary": "BODS's timetable data puts New Year's Eve on 1 December 2026, so 1 December loses its buses and 31 December keeps journeys the operators do not run. We move it back to 31 December.",
+      "evidence": "Brighton & Hove's route 7 TransXChange for 29 November to 20 December and Stagecoach's two Coastliner 700 files (PK0002571-53 V31, PK0002571-116 V1) never mention 1 December; each excludes 13 holidays including NewYearsEve. BODS's GTFS calendars for them remove those holidays with 31 December replaced by 1 December (700 Monday to Friday calendar: 184 journeys in both). Across the south-east feed, of 313 calendars covering December that skip Christmas Eve, 268 also skip 1 December and 11 skip 31 December outside a school-holiday run (docs/reliability/bods_holiday_check.py). Brighton & Hove's own website shows a normal Tuesday service on 1 December. Services dated day by day (school days of Brighton & Hove, Metrobus, Compass and Stagecoach) lack 1 December inside otherwise unbroken runs of weekdays (30 November, 2 December, ..., 8 December), so that day is added back where the run is unbroken either side and a week later.",
+      "caveats": [
+        "Shown from the operators' files for Brighton & Hove route 7 and the Coastliner 700; other operators' files were not all read.",
+        "A calendar whose 1 December exception sits beside exceptions on 30 November or 2 December is left alone, so a genuine one-off on 1 December inside a run of dates is not moved; an isolated genuine 1 December change would be.",
+        "What each operator runs on New Year's Eve evening is not established: this restores what their files say, no more.",
+        "A school service genuinely not running on 1 December (a training day), dated day by day with the days either side, would wrongly get it back. Not checked school by school."
+      ],
+      "source_url": "https://data.bus-data.dft.gov.uk/timetable/download/bulk_archive",
+      "url": "https://github.com/dennislemennace/adur-worthing-bus/blob/main/docs/reliability/bods-2026-holiday-conversion.md",
+      "checked_on": "2026-11-26",
+      "data_version": "BODS south_east GTFS feed_version 20261124_044012",
+      "expires": "2026-12-31"
+    },
+    {
+      "id": "bods-2026-holiday-services-removed",
+      "kind": "restore_only_day",
+      "dates": ["20261225", "20270101"],
+      "max_span_days": 14,
+      "summary": "BODS's timetable data removes Christmas Day and New Year's Day from the calendars of services that run only on those days, so they never run. We put those days back.",
+      "evidence": "Brighton & Hove's route 7 files for 20 to 26 December and 31 December to 2 January define a Christmas Day service (Friday, DaysOfOperation ChristmasDay) and a New Year's Day service (Monday and Friday, DaysOfOperation NewYearsDay). BODS's GTFS calendars for them (16612 and 18970) remove 25 December and 1 January, the only days they run. Brighton & Hove's website shows route 7 running on both days (144 and 808 times listed).",
+      "caveats": [
+        "Only a calendar of at most 14 days that is left with no running day at all is changed, and only on 25 December or 1 January.",
+        "Both profiles also list ChristmasDayHoliday or NewYearsDayHoliday as non-operating; whether BODS misreads those or the operator's data contradicts itself is for BODS to say. The operator's website is the deciding fact."
+      ],
+      "source_url": "https://www.buses.co.uk/services/BH/7?date=2026-12-25",
+      "url": "https://github.com/dennislemennace/adur-worthing-bus/blob/main/docs/reliability/bods-2026-holiday-conversion.md",
+      "checked_on": "2026-11-26",
+      "data_version": "BODS south_east GTFS feed_version 20261124_044012",
+      "expires": "2027-01-01"
+    }
+  ]
+}

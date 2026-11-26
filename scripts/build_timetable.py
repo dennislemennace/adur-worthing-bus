@@ -44,6 +44,7 @@ except ImportError:
     sys.exit(1)
 
 import flixbus_gtfs
+import timetable_corrections
 
 # ── Config ───────────────────────────────────────────────────
 # BODS publishes regional GTFS bundles; South East covers West Sussex
@@ -630,6 +631,12 @@ def parse_gtfs(zip_path: str) -> dict:
                 "  %d calendar_dates entries across %d services",
                 entry_count, len(timetable["calendar_dates"]),
             )
+
+    # BODS's conversion errors, where shown and still present in this feed:
+    # New Year's Eve 2026 delivered as 1 December, and Christmas Day and New
+    # Year's Day services that never run (scripts/timetable_corrections.py,
+    # data/timetable_corrections.json). Logged and kept for the boards.
+    timetable["corrections"] = timetable_corrections.apply(timetable)
 
     # Sort stop_times per stop so the backend can slice them in order
     for stop_id, times in timetable["stop_times"].items():

@@ -8994,6 +8994,17 @@ function sortBySoonest(departures) {
     || cmp(at(a.aimed_departure), at(b.aimed_departure)));
 }
 
+/** The line at the foot of a board whose times today include our correction
+ *  to the national timetable data (api/main.py _correction_note). Readers
+ *  want the right times more than the story of the data, so it is one quiet
+ *  line with the reason a link away. Pure, so the wording can be tested. */
+function boardCorrectionHtml(corr) {
+  if (!corr || !corr.summary) return "";
+  const href = safeUrl(corr.url);
+  return `<span>Today's times include a correction we made to the national timetable data.${
+    href ? ` <a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">Why</a>` : ""}</span>`;
+}
+
 function renderDepartures(data) {
   // data: { stop_name, departures: [...], live?: bool, live_reason?: string }
   const raw = data?.departures ?? [];
@@ -9014,6 +9025,12 @@ function renderDepartures(data) {
     dom.departuresNotice.classList.remove("hidden");
   } else {
     dom.departuresNotice.classList.add("hidden");
+  }
+  const correctionHost = document.getElementById("board-correction");
+  if (correctionHost) {
+    const html = boardCorrectionHtml(data?.timetable_correction);
+    correctionHost.innerHTML = html;
+    correctionHost.hidden = !html;
   }
 
   // Belt-and-braces: drop anything whose display time is more than

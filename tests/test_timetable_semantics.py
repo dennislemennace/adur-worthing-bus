@@ -822,6 +822,38 @@ def test_the_release_check_refuses_calendars_that_run_out_within_a_fortnight(tmp
     assert len(missing["METR"]) == 14, "an operator missing from the feed is a gap on every day"
 
 
+def test_a_build_no_worse_than_the_live_timetable_is_not_refused(tmp_path):
+    """22 November 2026: BODS's New Year's Eve fault left 1 December without
+    Brighton & Hove trips in every candidate and in the timetable being served
+    alike. Refusing the candidate kept the site on an older timetable with the
+    same gap, so a gap now fails the check only where the candidate is worse."""
+    from datetime import date
+    import check_timetable
+
+    served = _operators_db(tmp_path / "served.sqlite", end_date="20261101")
+    same = _operators_db(tmp_path / "same.sqlite", end_date="20261101")
+    worse = _operators_db(tmp_path / "worse.sqlite", end_date="20261028")
+    better = _operators_db(tmp_path / "better.sqlite", end_date="20270101")
+    start = date(2026, 10, 25)
+    required = ("BHBC", "SCSO", ("SCSO", "700"))
+    live = check_timetable.forward_coverage(served, start, 14, required)
+    gaps = lambda con: check_timetable.forward_coverage(con, start, 14, required)  # noqa: E731
+    assert check_timetable.regressions(gaps(same), live) == {}
+    assert check_timetable.regressions(gaps(better), live) == {}
+    got = check_timetable.regressions(gaps(worse), live)
+    assert list(got) == ["BHBC"] and got["BHBC"][0] == date(2026, 10, 29)
+
+    failures, warnings = check_timetable.coverage_failures(same, start, served)
+    assert failures == [] and warnings and warnings[0].startswith("BHBC has no trips")
+    failures, _ = check_timetable.coverage_failures(worse, start, served)
+    assert failures and "that the timetable being served covers" in failures[0]
+    failures, _ = check_timetable.coverage_failures(same, start)
+    assert failures, "with nothing to compare with, the check stays strict"
+    workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/update-timetable.yml").read_text()
+    assert "check_timetable.py data/timetable.sqlite --served served-timetable.sqlite" in workflow
+    assert "gh release download timetable-latest -p timetable.sqlite -O served-timetable.sqlite" in workflow
+
+
 def test_the_nightly_watch_raises_a_notice_while_calendars_run_out(tmp_path):
     from datetime import date
     import check_timetable

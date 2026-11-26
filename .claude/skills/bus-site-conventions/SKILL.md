@@ -71,7 +71,7 @@ something styled `display: flex` otherwise does nothing at all.
 ## Frontend architecture
 
 **No build step, no framework, no bundler.** `index.html` + `app.js` + `style.css`,
-Leaflet from a CDN. Do not introduce React, a bundler, or a package manager for
+Leaflet served from `vendor/` (not a CDN, since 15 September 2026). Do not introduce React, a bundler, or a package manager for
 the frontend.
 
 **Curated data is fetched at runtime from `data/*.json`.** Five files already work

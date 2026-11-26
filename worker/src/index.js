@@ -2,27 +2,40 @@
  * Community submission relay — Adur & Worthing Live Bus Tracker
  *
  * Accepts a JSON submission from the site (no account needed by the sender)
- * and files it as a GitHub issue in the project repo. Replaces the old
- * Web3Forms email relay: submissions are now public, trackable, and carry a
- * link the sender can follow, instead of landing in a private inbox.
+ * and files it as a GitHub issue in a PRIVATE inbox repo (GITHUB_REPO in
+ * wrangler.toml). It first filed into the public repo, which published
+ * whatever was sent before anyone had read it; the sender now gets an issue
+ * number and no link.
  *
  * Nothing here publishes to the site. Issues are filed with an `unverified`
- * label and a maintainer still runs scripts/add_suggestion.py to publish —
+ * label and a maintainer still runs a scripts/add_*.py script to publish —
  * the moderation gate that existed before is deliberately preserved, because
- * a public endpoint that writes to a public tracker is a spam target.
+ * a public endpoint that writes to a tracker is a spam target.
  *
- * Three submission kinds share this one endpoint:
+ * Five submission kinds share this one endpoint (buildIssue):
  *   idea       — Network Objectives → Ideas form
  *   proposal   — the in-app route proposal editor
  *   stop_issue — "Report an issue" on a stop's departure board
+ *   bus_issue  — a problem with a bus
+ *   news       — an article offered for News & notes
+ *
+ * The same Worker also records the live feeds every minute (src/recorder.js,
+ * through src/relay.js), serves the published measurements (servePublished),
+ * takes the API's prediction log (src/predlog.js) and keeps the API awake
+ * (keepWarm).
  *
  * Secrets (wrangler secret put):
- *   GITHUB_TOKEN     fine-grained PAT, THIS REPO ONLY, Issues: Read & Write
+ *   GITHUB_TOKEN     fine-grained PAT, the inbox repo only, Issues: Read & Write
  *   TURNSTILE_SECRET Cloudflare Turnstile secret key
  *   IP_SALT          random string; salts the hashed IP used for rate limits
+ *   BODS_API_KEY     for the recorder
+ *   PREDICTION_LOG_TOKEN  shared with the API; /prediction-log is 404 without it
  *
  * Bindings (wrangler.toml):
  *   RATE_LIMIT       KV namespace for the rate-limit counters
+ *   SNAPSHOTS        R2 bucket of raw recordings
+ *   PUBLISHED        R2 bucket of published measurements
+ *   FEED_RELAY       Durable Object the recorder's requests leave through
  */
 
 // ── Tunables ────────────────────────────────────────────────

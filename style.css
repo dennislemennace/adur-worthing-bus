@@ -58,6 +58,9 @@
   /* Destructive actions. */
   --color-danger:         #c0392b;
   --color-danger-tint:    rgba(192, 57, 43, 0.08);
+  /* Danger as small text on a tinted row: --color-danger measured 4.29:1 on
+     the service span's "No service" row (26 November 2026, browser check). */
+  --color-danger-text:    #a8311f;
 
   /* Status */
   --color-on-time:        #1c7844;
@@ -210,6 +213,7 @@ html.dark-mode {
      same red the "late" status already uses here, at 4.9:1. */
   --color-danger:         #e84e3c;
   --color-danger-tint:    rgba(232, 78, 60, 0.12);
+  --color-danger-text:    #f26b5b;   /* --color-danger is 4.46:1 on a tinted row */
 
   --color-on-time:        #34c06a;
   --color-early:          #28b4c4;
@@ -1496,7 +1500,7 @@ html.dark-mode .map-loading {
    and because "No service" is more use than a blank either way. */
 .stop-span-nil {
   font-weight: 700;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 .stop-span-row--none { background: rgba(var(--color-accent-rgb), 0.07); }
 

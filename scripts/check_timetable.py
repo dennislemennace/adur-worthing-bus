@@ -69,11 +69,54 @@ def forward_coverage(con, start: date, days: int = COVERAGE_DAYS,
             for key in required}
 
 
+def regressions(candidate: dict, served: dict) -> dict:
+    """`{key: [dates]}`: the days the candidate has no trips for an operator or
+    route that the timetable being served does cover. Empty when the candidate
+    is no worse."""
+    out = {}
+    for key, gaps in candidate.items():
+        live = set(served.get(key, ()))
+        new = [d for d in gaps if d not in live]
+        if new:
+            out[key] = new
+    return out
+
+
+def coverage_failures(con, start: date, served_con=None) -> tuple:
+    """`(failures, warnings)` for the fortnight's coverage.
+
+    Strict without a served timetable to compare with. With one, a gap is a
+    failure only where the candidate is worse than what is live: on 22
+    November 2026 BODS's New Year's Eve fault left 1 December empty in the
+    candidate and in the live timetable alike, and refusing the candidate kept
+    the site on an older timetable with the same gap. A shared gap is a warning;
+    the nightly watch (`coverage_notices`) keeps its issue open."""
+    gaps = forward_coverage(con, start)
+    live = forward_coverage(served_con, start) if served_con is not None else None
+    worse = regressions(gaps, live) if live is not None else {k: v for k, v in gaps.items() if v}
+    failures, warnings = [], []
+    for key, missing in gaps.items():
+        name = key if isinstance(key, str) else f"{key[0]} route {key[1]}"
+        print(f"{name}: runs on {COVERAGE_DAYS - len(missing)} of the next {COVERAGE_DAYS} days")
+        if key in worse:
+            new = worse[key]
+            failures.append(
+                f"{name} has no trips on {len(new)} of the next {COVERAGE_DAYS} days "
+                f"(first {new[0].isoformat()})"
+                + (" that the timetable being served covers" if live is not None else
+                   ": an operator missing from the feed, or calendars that have run out"))
+        elif missing:
+            warnings.append(f"{name} has no trips on {len(missing)} of the next {COVERAGE_DAYS} days "
+                            f"(first {missing[0].isoformat()}), the same as the timetable being served")
+    return failures, warnings
+
+
 def fail(message: str) -> None:
     print(f"FAIL  {message}", file=sys.stderr)
 
 
-def main(path: Path, allow_small: bool = False, today: date | None = None) -> int:
+def main(path: Path, allow_small: bool = False, today: date | None = None,
+         served: Path | None = None) -> int:
     """`allow_small` skips the size floors and the operator coverage, which
     name this region's real operators; every semantic check still runs. It
     exists so the tests can drive this over a fixture of a dozen rows; the
@@ -182,14 +225,18 @@ def main(path: Path, allow_small: bool = False, today: date | None = None) -> in
     # ── Every main operator runs, every day, for a fortnight ──
     if not allow_small:
         start = today or date.today()
-        for key, gaps in forward_coverage(con, start).items():
-            name = key if isinstance(key, str) else f"{key[0]} route {key[1]}"
-            print(f"{name}: runs on {COVERAGE_DAYS - len(gaps)} of the next {COVERAGE_DAYS} days")
-            if gaps:
-                fail(f"{name} has no trips on {len(gaps)} of the next {COVERAGE_DAYS} days "
-                     f"(first {gaps[0].isoformat()}): an operator missing from the feed, or "
-                     "calendars that have run out")
-                problems += 1
+        served_con = (sqlite3.connect(f"file:{served}?mode=ro", uri=True)
+                      if served is not None and Path(served).exists() else None)
+        if served is not None and served_con is None:
+            print(f"::notice::No served timetable at {served}; the coverage check is strict")
+        failures, warnings = coverage_failures(con, start, served_con)
+        for message in warnings:
+            print(f"::warning::{message}")
+        for message in failures:
+            fail(message)
+            problems += 1
+        if served_con is not None:
+            served_con.close()
 
     con.close()
     if problems:
@@ -223,7 +270,7 @@ def coverage_notices(path: Path, notices: Path, today: date | None = None) -> in
 
 
 if __name__ == "__main__":
-    flags_with_values = {"--notices"}
+    flags_with_values = {"--notices", "--served"}
     args, skip = [], False
     for a in sys.argv[1:]:
         if skip:
@@ -236,4 +283,6 @@ if __name__ == "__main__":
     if "--notices" in sys.argv:
         # python scripts/check_timetable.py data/timetable.sqlite --notices notices.tsv
         sys.exit(coverage_notices(target, Path(sys.argv[sys.argv.index("--notices") + 1])))
-    sys.exit(main(target, allow_small="--allow-small" in sys.argv))
+    # python scripts/check_timetable.py data/timetable.sqlite --served served-timetable.sqlite
+    served = Path(sys.argv[sys.argv.index("--served") + 1]) if "--served" in sys.argv else None
+    sys.exit(main(target, allow_small="--allow-small" in sys.argv, served=served))
