@@ -6,17 +6,17 @@
     "east": "Brighton & Hove"
   },
   "headline": "Bus service is measurably thinner on the West Sussex side of the Brighton & Hove boundary.",
-  "as_of": "2026-11-15",
-  "computed_at": "2026-11-15T10:43:31+00:00",
+  "as_of": "2026-11-26",
+  "computed_at": "2026-11-26T22:36:37+00:00",
   "data_version": {
     "source": "Bus Open Data Service, South East regional GTFS bundle",
     "artefact": "data/timetable.sqlite",
-    "sha256": "e50beb919e862a0011fac83cab69ae6607eb5bb862ff65b20640c6ed1e856112"
+    "sha256": "20a4b1522a81507aa4e435e4c01ef5237ab4481d68049c7d425731f3fdf8ca96"
   },
   "measured_week": {
-    "monday": "2026-11-16",
-    "saturday": "2026-11-21",
-    "sunday": "2026-11-22"
+    "monday": "2026-11-30",
+    "saturday": "2026-12-05",
+    "sunday": "2026-12-06"
   },
   "method": {
     "summary": "Stops in a 4 km band either side of the council boundary, along the same coastal strip, bucketed east or west of the line and compared per stop.",
@@ -683,8 +683,8 @@
     },
     "nights": {
       "weeknight": {
-        "evening": "2026-11-16",
-        "morning": "2026-11-17",
+        "evening": "2026-11-30",
+        "morning": "2026-12-01",
         "by_area": {
           "lancing": {
             "stops": 65,
@@ -735,8 +735,8 @@
         }
       },
       "saturday": {
-        "evening": "2026-11-21",
-        "morning": "2026-11-22",
+        "evening": "2026-12-05",
+        "morning": "2026-12-06",
         "by_area": {
           "lancing": {
             "stops": 65,
